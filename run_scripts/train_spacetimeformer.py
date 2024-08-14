@@ -232,7 +232,7 @@ def create_dset(config):
     time_features = ["year", "month", "day", "weekday", "hour", "minute"]
     if config.dset == "solar_energy":
         if data_path == "auto":
-            data_path = "./data/solar_AL_converted.csv"
+            data_path = "/Users/ahenry/Documents/toolboxes/transformer_toolbox/spacetimeformer/spacetimeformer/data/solar_AL_converted.csv"
         target_cols = [str(i) for i in range(137)]
     elif "windfarm" in config.dset:
         # turbine_power_cols = sorted([col for col in data.columns if "TurbinePower_" in col])
