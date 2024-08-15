@@ -9,7 +9,7 @@ import glob
 import pytorch_lightning as pl
 import torch
 
-import spacetimeformer as stf
+import wind_forecasting.models.spacetimeformer as stf
 
 def create_parser():
     model = sys.argv[1]
