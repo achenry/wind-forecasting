@@ -1,30 +1,32 @@
-conda create -n wind_forcasting_env
-conda activate wind_forecasting_env
+ssh ahenry@kestrel-gpu.hpc.nrel.gov
+# https://docs.github.com/en/authentication/connecting-to-github-with-ssh/generating-a-new-ssh-key-and-adding-it-to-the-ssh-agent?platform=linux
+
+ml mamba
+mamba create -n wind_forecasting_env -y
+mamba activate wind_forecasting_env
+
+git clone --recurse-submodules https://github.com/achenry/wind-forecasting.git
+
+cd wind-forecasting/models
+conda install -c conda-forge notebook jupyterlab nb_conda_kernels torchmetrics cython numpy pyyaml matplotlib numpy seaborn netcdf4 opt_einsum -y
+conda install -c pytorch pytorch pytorch-forecasting lightning=2.3.3 torchvision torchaudio cpuonly -y
+
+#python -m pip install -r ./spacetimeformer/requirements.txt
+# pip install -e ./spacetimeformer
+#python -m pip install -r ./Informer2020/requirements.txt
+#python -m pip install -r ./Autoformer/requirements.txt
 
 # for osx
-conda install pytorch==2.3.0 torchvision==0.18.0 torchaudio==2.3.0 -c pytorch
+#conda install pytorch==2.3.0 torchvision==0.18.0 torchaudio==2.3.0 -c pytorch -y
 # for cuda 12.1 linux
-conda install pytorch torchvision torchaudio cpuonly -c pytorch
 
-conda install pytorch-forecasting -c pytorch -c conda-forge
-conda install lightning -c conda-forge
 
-pip install --no-binary datatable datatable
-conda install pyyaml matplotlib numpy seaborn
+
+python -m pip install --no-binary datatable datatable
+python -m pip install opencv-python performer-pytorch
 # conda install pytorch::pytorch torchvision torchaudio -c pytorch
-conda install -c conda-forge notebook jupyterlab nb_conda_kernels torchmetrics # omegaconf
-pip install opencv-python performer-pytorch netCDF4 opt_einsum
 
-git clone --recurse-submodules https://github.com/achenry/wind_forecasting.git
-cd wind_forecasting/models/spacetimeformer
-pip install -r ./spacetimeformer/requirements.txt
-pip install -e ./spacetimeformer
 
-cd ../Informer2020
-pip install -r ./Informer2020/requirements.txt
-
-cd ../Autoformer
-pip install -r ./Autoformer/requirements.txt
 
 # git pull --recurse-submodules
 #git clone https://github.com/achenry/spacetimeformer.git
