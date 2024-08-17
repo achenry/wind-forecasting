@@ -1,0 +1,26 @@
+Metadata-Version: 2.1
+Name: wind_forecasting
+Version: 0.1
+Summary: Wind Forecasting
+Home-page: https://github.com/achenry/wind_forecasting
+Author: NREL National Wind Technology Center
+Author-email: ahenry@nrel.gov
+License: Apache-2.0
+Classifier: License :: OSI Approved :: Apache Software License
+Classifier: Programming Language :: Python
+Classifier: Programming Language :: Python :: 3
+Classifier: Programming Language :: Python :: 3.6
+Classifier: Programming Language :: Python :: Implementation :: CPython
+Classifier: Programming Language :: Python :: Implementation :: PyPy
+Requires-Python: >=3.6.0
+Description-Content-Type: text/markdown
+Requires-Dist: numpy>=1.20
+Provides-Extra: docs
+Provides-Extra: develop
+Requires-Dist: pytest; extra == "develop"
+Requires-Dist: ruff; extra == "develop"
+Requires-Dist: isort; extra == "develop"
+Requires-Dist: pre-commit; extra == "develop"
+
+
+# wind-forecasting
