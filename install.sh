@@ -8,11 +8,11 @@ mamba activate wind_forecasting_env
 git clone --recurse-submodules https://github.com/achenry/wind-forecasting.git
 
 cd wind-forecasting/models
-conda install -c conda-forge notebook jupyterlab nb_conda_kernels torchmetrics cython numpy pyyaml matplotlib numpy seaborn netcdf4 opt_einsum -y
-conda install -c pytorch pytorch pytorch-forecasting lightning=2.3.3 torchvision torchaudio cpuonly -y
+conda install notebook jupyterlab nb_conda_kernels cython numpy pyyaml matplotlib numpy=1.26.4 seaborn netcdf4 opt_einsum wandb -c conda-forge -y
+conda install pytorch torchvision torchaudio torchmetrics pytorch-forecasting lightning=2.3.3 cudatoolkit=11.7 -c pytorch -c nvidia
 
 #python -m pip install -r ./spacetimeformer/requirements.txt
-# pip install -e ./spacetimeformer
+python ./spacetimeformer/setup.py develop
 #python -m pip install -r ./Informer2020/requirements.txt
 #python -m pip install -r ./Autoformer/requirements.txt
 
@@ -22,7 +22,7 @@ conda install -c pytorch pytorch pytorch-forecasting lightning=2.3.3 torchvision
 
 
 
-python -m pip install --no-binary datatable datatable
+# python -m pip install --no-binary datatable datatable
 python -m pip install opencv-python performer-pytorch
 # conda install pytorch::pytorch torchvision torchaudio -c pytorch
 
