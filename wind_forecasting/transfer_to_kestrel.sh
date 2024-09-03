@@ -1,0 +1,1 @@
+scp -r /Users/ahenry/Documents/toolboxes/wind-hybrid-open-controller/examples/floris_case_studies/lut ahenry@kestrel-gpu.hpc.nrel.gov:/projects/ssc/ahenry/wind_forecasting/floris_data/
