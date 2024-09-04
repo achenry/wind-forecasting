@@ -2,7 +2,7 @@
 from torch.utils.data import Dataset
 import numpy as np
 import torch
-from preprocessing.data_reader import DataReader
+from wind_forecasting.preprocessing.data_reader import DataReader
 
 from torch.utils.data import Dataset
 from torch import nn
@@ -52,7 +52,8 @@ class SelfAttention(nn.Module):
     def __init__(self, embed_size, heads, seq_len, module, rel_emb, mask_flag):
 
         super(SelfAttention, self).__init__()
-        self.device = "cuda:0" if torch.cuda.is_available() else ("cpu" if torch.backends.mps.is_available() else "cpu")
+        # self.device = "cuda:0" if torch.cuda.is_available() else "cpu"
+        self.device = "cpu" # TODO: Remove when moving to GPU
         self.embed_size = embed_size
         self.heads = heads
         self.seq_len = seq_len
@@ -394,7 +395,7 @@ class Transformer(nn.Module):
 
         super(Transformer, self).__init__()
         self.batch_size, self.num_var, self.seq_len = input_shape
-        self.device = "cuda:0" if torch.cuda.is_available() else ("cpu" if torch.backends.mps.is_available() else "cpu")
+        self.device = "cuda:0" if torch.cuda.is_available() else "cpu"
         self.num_elements = self.seq_len * self.num_var
         self.embed_size = embed_size
         self.element_embedding = nn.Linear(self.seq_len, embed_size * self.seq_len)
@@ -551,7 +552,7 @@ class Transformer(nn.Module):
 
 def train_test(embed_size, heads, num_layers, dropout, forward_expansion, lr, batch_size, data_dir, dataset):
 
-    device = "cuda:0" if torch.cuda.is_available() else ("cpu" if torch.backends.mps.is_available() else "cpu")
+    device = "cuda:0" if torch.cuda.is_available() else "cpu"
 
     datasets = ['WindFarm']
     assert (datasets.__contains__(dataset)), "Invalid dataset"
@@ -636,7 +637,7 @@ if __name__ == "__main__":
     # test Wind Farm
 
     #export PYTORCH_MPS_HIGH_WATERMARK_RATIO=0.0
-    torch.mps.set_per_process_memory_fraction(0.0)
+    # torch.mps.set_per_process_memory_fraction(0.0)
     d = 8 # 32
     h = 2 #4
     num_layers = 3

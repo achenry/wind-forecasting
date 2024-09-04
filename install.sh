@@ -1,4 +1,4 @@
-# Instructions for installing environment on the CU Boulder Alpine cluster (for jubo7621)
+ex# Instructions for installing environment on the CU Boulder Alpine cluster (for jubo7621)
 
 ssh jubo7621@login.rc.colorado.edu
 # https://docs.github.com/en/authentication/connecting-to-github-with-ssh/generating-a-new-ssh-key-and-adding-it-to-the-ssh-agent?platform=linux
@@ -14,6 +14,7 @@ git clone --recurse-submodules https://github.com/achenry/wind-forecasting.git
 cd wind-forecasting/wind-forecasting/models
 mamba install notebook jupyterlab nb_conda_kernels cython numpy pyyaml matplotlib numpy=1.26.4 seaborn netcdf4 opt_einsum wandb -c conda-forge -y
 mamba install pytorch torchvision torchaudio torchmetrics pytorch-forecasting lightning=2.3.3 cudatoolkit=11.7 -c pytorch -c nvidia
+# mamba install pytorch torchvision torchaudio torchmetrics pytorch-forecasting lightning=2.3.3 cpuonly -c pytorch
 
 #python -m pip install -r ./spacetimeformer/requirements.txt
 python ./spacetimeformer/setup.py develop
