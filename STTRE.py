@@ -23,7 +23,7 @@ class WindFarm(Dataset):
         
         wind_dir_cols = sorted([col for col in data.columns if "TurbineWindDir_" in col])
         wind_mag_cols = sorted([col for col in data.columns if "TurbineWindMag_" in col])
-        turbine_yaw_cols = sorted([col for col in data.columns if "TurbineYawAngle_" in col])
+        turbine_yaw_cols = sorted([col for col in data.columns if "TurbineYawAngle_" in col]) # TODO: Change to yaw_offset
         turbine_power_cols = sorted([col for col in data.columns if "TurbinePower_" in col])
 
         self.X = self.normalize(data.loc[:, wind_dir_cols + wind_mag_cols + turbine_yaw_cols + turbine_power_cols].to_numpy()) # 5 variables
