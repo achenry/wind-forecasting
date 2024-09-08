@@ -9,3 +9,5 @@ wget-log*
 
 *.log
 *.csv
+*.err
+*.out
