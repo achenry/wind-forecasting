@@ -8,3 +8,5 @@ ting_3_9
 
 *.log
 *.csv
+*.err
+*.out
