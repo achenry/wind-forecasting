@@ -6,6 +6,10 @@ import math
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import MinMaxScaler
 import pandas as pd
+import matplotlib
+matplotlib.use('Agg') # Use Agg backend for matplotlib (no display)
+import matplotlib.pyplot as plt
+from sklearn.metrics import mean_squared_error, r2_score
 
 # Read the LUT data
 lut_data = pd.read_csv('lut/time_series_results_case_LUT_seed_0.csv')
@@ -15,7 +19,12 @@ torch.manual_seed(42)
 np.random.seed(42)
 
 # Device configuration
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+if torch.cuda.is_available():
+    device = torch.device("cuda")
+elif hasattr(torch, 'hip') and torch.hip.is_available():
+    device = torch.device("hip")
+else:
+    device = torch.device("cpu")
 
 # Hyperparameters
 input_dim = 5  # Time, FreestreamWindMag, FreestreamWindDir, TurbineWindMag_0, TurbineWindDir_0
@@ -284,6 +293,61 @@ model = STTRE(
 criterion = nn.MSELoss()
 optimizer = optim.Adam(model.parameters(), lr=learning_rate)
 
+# Add this function after the existing code
+
+def plot_model_performance(train_losses, val_losses, y_true, y_pred, time_steps):
+    plt.figure(figsize=(20, 15))
+
+    # Plot training and validation loss
+    plt.subplot(2, 2, 1)
+    plt.plot(train_losses, label='Training Loss')
+    plt.plot(val_losses, label='Validation Loss')
+    plt.title('Training and Validation Loss')
+    plt.xlabel('Epoch')
+    plt.ylabel('Loss')
+    plt.legend()
+
+    # Plot predicted vs actual values
+    plt.subplot(2, 2, 2)
+    plt.scatter(y_true, y_pred, alpha=0.5)
+    plt.plot([y_true.min(), y_true.max()], [y_true.min(), y_true.max()], 'r--', lw=2)
+    plt.title('Predicted vs Actual Values')
+    plt.xlabel('Actual Values')
+    plt.ylabel('Predicted Values')
+
+    # Plot error distribution
+    plt.subplot(2, 2, 3)
+    errors = y_pred - y_true
+    plt.hist(errors, bins=50)
+    plt.title('Error Distribution')
+    plt.xlabel('Error')
+    plt.ylabel('Frequency')
+
+    # Plot time series forecast
+    plt.subplot(2, 2, 4)
+    plt.plot(time_steps, y_true, label='Actual')
+    plt.plot(time_steps, y_pred, label='Predicted')
+    plt.title('Time Series Forecast')
+    plt.xlabel('Time Step')
+    plt.ylabel('Value')
+    plt.legend()
+
+    plt.tight_layout()
+    plt.savefig('model_performance.png')
+
+    # Print additional metrics
+    mse = mean_squared_error(y_true, y_pred)
+    rmse = np.sqrt(mse)
+    r2 = r2_score(y_true, y_pred)
+
+    print(f'Mean Squared Error: {mse:.4f}')
+    print(f'Root Mean Squared Error: {rmse:.4f}')
+    print(f'R-squared Score: {r2:.4f}')
+
+# Modify the training loop to store losses
+train_losses = []
+val_losses = []
+
 # Training loop
 for epoch in range(num_epochs):
     model.train()
@@ -312,7 +376,22 @@ for epoch in range(num_epochs):
         total_loss += loss.item()
     
     avg_loss = total_loss / (len(X_train_tensor) // batch_size)
-    print(f'Epoch [{epoch+1}/{num_epochs}], Loss: {avg_loss:.4f}')
+    train_losses.append(avg_loss)
+    
+    # Validation loss
+    model.eval()
+    with torch.no_grad():
+        val_outputs = model(X_test_tensor, src_mask)
+        # Ensure val_outputs and y_test_tensor have the same shape
+        if val_outputs.shape != y_test_tensor.shape:
+            if len(val_outputs.shape) == 3 and len(y_test_tensor.shape) == 2:
+                y_test_tensor = y_test_tensor.unsqueeze(-1)
+            elif len(val_outputs.shape) == 4 and len(y_test_tensor.shape) == 3:
+                val_outputs = val_outputs.squeeze(-1)
+        val_loss = criterion(val_outputs, y_test_tensor)
+        val_losses.append(val_loss.item())
+    
+    print(f'Epoch [{epoch+1}/{num_epochs}], Train Loss: {avg_loss:.4f}, Val Loss: {val_loss.item():.4f}')
 
 # Evaluation
 model.eval()
@@ -365,3 +444,11 @@ print(f'Mean Absolute Error: {mae:.2f} degrees')
 sample_idx = np.random.randint(0, len(test_predictions_original))
 print(f'Sample Prediction: {test_predictions_original[sample_idx, -1]:.2f} degrees')
 print(f'Sample True Value: {y_test_original[sample_idx, -1]:.2f} degrees')
+
+# Prepare data for plotting
+y_true = y_test_original.flatten()
+y_pred = test_predictions_original.flatten()
+time_steps = np.arange(len(y_true))
+
+# Call the plotting function
+plot_model_performance(train_losses, val_losses, y_true, y_pred, time_steps)
