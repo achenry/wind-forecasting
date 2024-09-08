@@ -1,6 +1,6 @@
 #!/bin/bash
 
-## squeue -u jubo7621
+## sbatch job.slurm
 
 #SBATCH --partition=atesting_mi100 # partition name, change for ami100, aa100, atesting_a100 or atesting_mi100
 #SBATCH --job-name=STTRE_test_Juan
@@ -37,4 +37,5 @@ echo "========== Python script completed =========="
 execution_time=$((end_time - start_time))
 echo "Execution time: $execution_time seconds"
 
+## squeue -u jubo7621
 ## For detailed resource usage, run: sacct -j $SLURM_JOB_ID --format=JobID,JobName,MaxRSS,MaxVMSize,AveRSS,AveVMSize"
