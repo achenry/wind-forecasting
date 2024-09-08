@@ -5,6 +5,7 @@ wind_forecasting.egg-info
 wind_forecasting/models/__pycache__
 lut
 ting_3_9
+wget-log*
 
 *.log
 *.csv
