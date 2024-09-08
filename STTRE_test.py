@@ -21,10 +21,13 @@ np.random.seed(42)
 # Device configuration
 if torch.cuda.is_available():
     device = torch.device("cuda")
+    print("Using CUDA")
 elif hasattr(torch, 'hip') and torch.hip.is_available():
     device = torch.device("hip")
+    print("Using HIP")
 else:
     device = torch.device("cpu")
+    print("Using CPU")
 
 # Hyperparameters
 input_dim = 5  # Time, FreestreamWindMag, FreestreamWindDir, TurbineWindMag_0, TurbineWindDir_0
