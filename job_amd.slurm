@@ -10,10 +10,10 @@
 #SBATCH --time=0:30:00
 #SBATCH --qos=normal
 #SBATCH --nodes=1
-#SBATCH --ntasks=16
+#SBATCH --ntasks=8
 ##SBATCH --ntasks-per-node=1
 ##SBATCH --nodes=1
-#SBATCH --gres=gpu:3
+#SBATCH --gres=gpu:2
 #SBATCH --mem=2G
 #SBATCH --mail-type=ALL
 #SBATCH --mail-user=jubo7621@colorado.edu
