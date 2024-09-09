@@ -2,8 +2,9 @@
 
 ## sbatch job.slurm
 ## sinteractive --partition=ami100 --time=00:20:00 --ntasks=5 --gres=gpu:1
+## sinteractive --partition=aa100 --time=00:20:00 --ntasks=20 --gres=gpu:2
 
-#SBATCH --partition=atesting_mi100 # partition name, change for ami100, aa100, atesting_a100 or atesting_mi100
+#SBATCH --partition=atesting_aa100 # partition name, change for ami100, aa100, atesting_a100 or atesting_mi100
 #SBATCH --job-name=STTRE_test_Juan
 #SBATCH --output=output.%j.out
 #SBATCH --error=error.%j.err
@@ -14,15 +15,16 @@
 ##SBATCH --ntasks-per-node=1
 ##SBATCH --nodes=1
 #SBATCH --gres=gpu
-#SBATCH --mem=4G
+#SBATCH --mem=2G
 #SBATCH --mail-type=ALL
 #SBATCH --mail-user=jubo7621@colorado.edu
 
 # Load necessary modules
 module purge
 ml mambaforge
-## ml rocm/6.1.0
-## ml cuda/12.1.1
+mamba activate wind_forecasting_cuda
+## ml rocm
+ml cuda
 
 cd /projects/jubo7621/wind-forecasting
 

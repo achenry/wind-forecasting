@@ -15,11 +15,12 @@ cd wind-forecasting/wind-forecasting/models
 mamba install notebook jupyterlab nb_conda_kernels cython numpy pyyaml matplotlib numpy=1.26.4 seaborn netcdf4 opt_einsum wandb -c conda-forge -y
 mamba install pytorch torchvision torchaudio torchmetrics pytorch-forecasting lightning=2.3.3 cudatoolkit=11.7 -c pytorch -c nvidia
 # mamba install pytorch torchvision torchaudio torchmetrics pytorch-forecasting lightning=2.3.3 cpuonly -c pytorch
+# pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/rocm6.1
 
-#python -m pip install -r ./spacetimeformer/requirements.txt
+# python -m pip install -r ./spacetimeformer/requirements.txt
 python ./spacetimeformer/setup.py develop
-#python -m pip install -r ./Informer2020/requirements.txt
-#python -m pip install -r ./Autoformer/requirements.txt
+# python -m pip install -r ./Informer2020/requirements.txt
+# python -m pip install -r ./Autoformer/requirements.txt
 
 # python -m pip install --no-binary datatable datatable
 python -m pip install opencv-python performer-pytorch
