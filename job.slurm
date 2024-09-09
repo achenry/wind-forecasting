@@ -8,7 +8,7 @@
 #SBATCH --job-name=STTRE_test_Juan
 #SBATCH --output=output.%j.out
 #SBATCH --error=error.%j.err
-##SBATCH --time=0:05:00
+#SBATCH --time=0:30:00
 #SBATCH --qos=normal
 #SBATCH --nodes=1
 #SBATCH --ntasks=1

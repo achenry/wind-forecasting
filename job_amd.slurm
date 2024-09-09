@@ -7,7 +7,7 @@
 #SBATCH --job-name=STTRE_test_Juan_AMD
 #SBATCH --output=output_amd.%j.out
 #SBATCH --error=error_amd.%j.err
-##SBATCH --time=0:05:00
+#SBATCH --time=0:30:00
 #SBATCH --qos=normal
 #SBATCH --nodes=1
 #SBATCH --ntasks=16
