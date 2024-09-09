@@ -1,6 +1,6 @@
 #!/bin/bash
 
-## sbatch job.slurm
+## sbatch job_amd.slurm
 ## sinteractive --partition=ami100 --time=00:20:00 --ntasks=5 --gres=gpu:1
 
 #SBATCH --partition=ami100 # ami100 or atesting_mi100
