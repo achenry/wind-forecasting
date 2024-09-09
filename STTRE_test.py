@@ -18,6 +18,13 @@ lut_data = pd.read_csv('lut/time_series_results_case_LUT_seed_0.csv')
 torch.manual_seed(42)
 np.random.seed(42)
 
+# Add this near the beginning of your script, after importing torch
+print(f"CUDA available: {torch.cuda.is_available()}")
+print(f"CUDA device count: {torch.cuda.device_count()}")
+if torch.cuda.is_available():
+    print(f"Current CUDA device: {torch.cuda.current_device()}")
+    print(f"CUDA device name: {torch.cuda.get_device_name(0)}")
+
 # Device configuration
 if torch.cuda.is_available():
     device = torch.device("cuda")
@@ -356,8 +363,8 @@ for epoch in range(num_epochs):
     model.train()
     total_loss = 0
     for i in range(0, len(X_train_tensor), batch_size):
-        batch_X = X_train_tensor[i:i+batch_size]
-        batch_y = y_train_tensor[i:i+batch_size].unsqueeze(-1)  # Add an extra dimension
+        batch_X = X_train_tensor[i:i+batch_size].to(device)
+        batch_y = y_train_tensor[i:i+batch_size].unsqueeze(-1).to(device)  # Add an extra dimension
         
         src_mask = None  # Implement masking if needed
         
