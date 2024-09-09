@@ -11,3 +11,4 @@ wget-log*
 *.csv
 *.err
 *.out
+*.png
