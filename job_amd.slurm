@@ -27,9 +27,8 @@ mamba activate wind_forecasting_rocm
 
 cd /projects/jubo7621/wind-forecasting
 
-# Add these lines before running your Python script
-export CUDA_VISIBLE_DEVICES=0,1,2  # Adjust based on the number of GPUs you're using (0,1,2 for 3 GPUs)
-export PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:512
+export HIP_VISIBLE_DEVICES=0,1
+# export HSA_OVERRIDE_GFX_VERSION=10.3.0
 
 # Run your Python script with timing
 echo "========== Running Python script =========="
