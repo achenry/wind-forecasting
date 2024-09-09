@@ -29,7 +29,6 @@ mamba activate wind_forecasting_cuda
 
 cd /projects/jubo7621/wind-forecasting
 
-# Add these lines before running your Python script
 export CUDA_VISIBLE_DEVICES=0  # Adjust based on the number of GPUs you're using (0,1,2 for 3 GPUs)
 export PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:512
 

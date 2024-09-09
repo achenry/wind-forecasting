@@ -18,12 +18,17 @@ lut_data = pd.read_csv('lut/time_series_results_case_LUT_seed_0.csv')
 torch.manual_seed(42)
 np.random.seed(42)
 
-# Add this near the beginning of your script, after importing torch
+# Modify this section to check for ROCm/HIP
 print(f"CUDA available: {torch.cuda.is_available()}")
-print(f"CUDA device count: {torch.cuda.device_count()}")
+print(f"HIP available: {torch.hip.is_available() if hasattr(torch, 'hip') else False}")
 if torch.cuda.is_available():
+    print(f"CUDA device count: {torch.cuda.device_count()}")
     print(f"Current CUDA device: {torch.cuda.current_device()}")
     print(f"CUDA device name: {torch.cuda.get_device_name(0)}")
+elif hasattr(torch, 'hip') and torch.hip.is_available():
+    print(f"HIP device count: {torch.hip.device_count()}")
+    print(f"Current HIP device: {torch.hip.current_device()}")
+    print(f"HIP device name: {torch.hip.get_device_name(0)}")
 
 # Device configuration
 if torch.cuda.is_available():
@@ -31,7 +36,7 @@ if torch.cuda.is_available():
     print("Using CUDA")
 elif hasattr(torch, 'hip') and torch.hip.is_available():
     device = torch.device("hip")
-    print("Using HIP")
+    print("Using HIP (ROCm)")
 else:
     device = torch.device("cpu")
     print("Using CPU")
