@@ -1,6 +1,7 @@
 #!/bin/bash
 
 ## sbatch job.slurm
+## sinteractive --partition=ami100 --time=00:20:00 --ntasks=5 --gres=gpu:1
 
 #SBATCH --partition=atesting_mi100 # partition name, change for ami100, aa100, atesting_a100 or atesting_mi100
 #SBATCH --job-name=STTRE_test_Juan
@@ -20,6 +21,8 @@
 # Load necessary modules
 module purge
 ml mambaforge
+## ml rocm/6.1.0
+## ml cuda/12.1.1
 
 cd /projects/jubo7621/wind-forecasting
 
@@ -38,4 +41,5 @@ execution_time=$((end_time - start_time))
 echo "Execution time: $execution_time seconds"
 
 ## squeue -u jubo7621
+## scancel jobid
 ## For detailed resource usage, run: sacct -j $SLURM_JOB_ID --format=JobID,JobName,MaxRSS,MaxVMSize,AveRSS,AveVMSize"
