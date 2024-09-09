@@ -47,3 +47,6 @@ echo "Execution time: $execution_time seconds"
 ## squeue -u jubo7621
 ## scancel jobid
 ## For detailed resource usage, run: sacct -j $SLURM_JOB_ID --format=JobID,JobName,MaxRSS,MaxVMSize,AveRSS,AveVMSize"
+
+## sacct --user=jubo7621
+## scontrol show job job_id
