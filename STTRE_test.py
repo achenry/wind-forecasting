@@ -22,9 +22,6 @@ np.random.seed(42)
 if torch.cuda.is_available():
     device = torch.device("cuda")
     print("Using CUDA")
-elif torch.backends.rocm.is_available(): # USE ROCm AMD GPU from SLURM HPC
-    device = torch.device("rocm")
-    print("Using ROCm")
 elif hasattr(torch, 'hip') and torch.hip.is_available():
     device = torch.device("hip")
     print("Using HIP")
