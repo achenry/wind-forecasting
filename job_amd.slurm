@@ -13,7 +13,7 @@
 #SBATCH --ntasks=8
 ##SBATCH --ntasks-per-node=1
 ##SBATCH --nodes=1
-#SBATCH --gres=gpu:2
+#SBATCH --gres=gpu:1
 #SBATCH --mem=2G
 #SBATCH --mail-type=ALL
 #SBATCH --mail-user=jubo7621@colorado.edu
@@ -27,8 +27,8 @@ mamba activate wind_forecasting_rocm
 
 cd /projects/jubo7621/wind-forecasting
 
-export HIP_VISIBLE_DEVICES=0,1
-# export HSA_OVERRIDE_GFX_VERSION=10.3.0
+export HIP_VISIBLE_DEVICES=0
+# export HSA_OVERRIDE_GFX_VERSION=9.0.0 # 10.3.0
 
 # Run your Python script with timing
 echo "========== Running Python script =========="
