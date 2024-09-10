@@ -6,8 +6,8 @@
 
 #SBATCH --partition=aa100 # partition name, change for ami100, aa100, atesting_a100 or atesting_mi100
 #SBATCH --job-name=STTRE_test_Juan_Nvidia
-#SBATCH --output=output.%j.out
-#SBATCH --error=error.%j.err
+#SBATCH --output=output_nvidia.%j.out
+#SBATCH --error=error_nvidia.%j.err
 #SBATCH --time=0:30:00
 #SBATCH --qos=normal
 #SBATCH --nodes=1
@@ -23,7 +23,6 @@
 module purge
 ml mambaforge
 ml cuda
-
 mamba activate wind_forecasting_cuda
 
 cd /projects/jubo7621/wind-forecasting
