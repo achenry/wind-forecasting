@@ -348,7 +348,7 @@ def plot_model_performance(train_losses, val_losses, y_true, y_pred, time_steps)
     plt.legend()
 
     plt.tight_layout()
-    plt.savefig('model_performance.png')
+    plt.savefig('./output/model_performance.png')
 
     # Print additional metrics
     mse = mean_squared_error(y_true, y_pred)
