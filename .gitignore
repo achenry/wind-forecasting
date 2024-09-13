@@ -8,6 +8,7 @@ ting_3_9
 wget-log*
 output
 awaken_data
+check_gpu.py
 
 *.log
 *.csv
