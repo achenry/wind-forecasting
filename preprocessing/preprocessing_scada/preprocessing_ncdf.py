@@ -44,5 +44,5 @@ def print_netcdf_structure(file_path):
         print(f"Error reading NetCDF file: {e}")
 
 if __name__ == "__main__":
-    file_path = "../../awaken_data/kp.turbine.z01.b0.20201201.000000.wt001.nc"
+    file_path = "awaken_data/kp.turbine.z01.b0.20201201.000000.wt001.nc"
     print_netcdf_structure(file_path)
