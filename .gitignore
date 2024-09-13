@@ -6,6 +6,8 @@ wind_forecasting/models/__pycache__
 lut
 ting_3_9
 wget-log*
+output
+awaken_data
 
 *.log
 *.csv
