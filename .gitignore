@@ -9,6 +9,10 @@ wget-log*
 output
 awaken_data
 check_gpu.py
+preprocessing/preprocessing_scada/examples
+preprocessing/preprocessing_scada/shapefiles
+.identifier
+examples
 
 *.log
 *.csv
