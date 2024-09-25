@@ -1,9 +1,0 @@
-numpy>=1.20
-
-[develop]
-pytest
-ruff
-isort
-pre-commit
-
-[docs]
