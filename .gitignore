@@ -13,6 +13,9 @@ preprocessing/preprocessing_scada/examples
 preprocessing/preprocessing_scada/shapefiles
 .identifier
 examples
+.code-workspace
+Miniforge3-Linux-x86_64.sh
+wind_forecasting.egg-info
 
 *.log
 *.csv
