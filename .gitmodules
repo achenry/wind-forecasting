@@ -1,9 +1,0 @@
-[submodule "models/spacetimeformer"]
-	path = models/spacetimeformer
-	url = git@github.com:achenry/spacetimeformer.git
-[submodule "models/Informer2020"]
-	path = models/Informer2020
-	url = git@github.com:achenry/Informer2020.git
-[submodule "models/Autoformer"]
-	path = models/Autoformer
-	url = git@github.com:achenry/Autoformer.git
