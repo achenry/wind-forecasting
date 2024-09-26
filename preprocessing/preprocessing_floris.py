@@ -1,18 +1,18 @@
-# NOTE: FilteredFreestreamWindDir is not being used. It's a low-pass filtered version of FreestreamWindDir. Shall I use it?
-# It could lose high frequency components, including turbulence. But it's cleaner.
-# So it could lose short-term variations, and induce some lag in the data.
-# Overfitting risk?
 # INFO: MIC used for feature selection from minepy package. Only available for Python <3.10
 # Can use sklearn.feature_selection.mutual_info_regression instead?
-
-import pandas as pd
+import time
+import sys
 import numpy as np
+import pandas as pd
 from sklearn.preprocessing import MinMaxScaler
-from typing import List, Tuple
-import matplotlib.pyplot as plt
-
 # from minepy import MINE
 from sklearn.feature_selection import mutual_info_regression
+import matplotlib.pyplot as plt
+from numba import jit, prange
+from tqdm.auto import tqdm
+import multiprocessing
+# from joblib import Parallel, delayed
+from functools import partial
 
 SECONDS_PER_HOUR = np.float64(3600)
 SECONDS_PER_DAY = 86400
@@ -21,21 +21,78 @@ SECONDS_PER_YEAR = 31536000  # non-leap year, 365 days
 def calculate_wind_direction(u, v):
     return np.mod(180 + np.rad2deg(np.arctan2(u, v)), 360)
 
+# def calculate_mi_for_timestep(X, y, y_direction, i, j):
+#     return (
+#         mutual_info_regression(X[:, i, :], y[:, j, 0]),
+#         mutual_info_regression(X[:, i, :], y[:, j, 1]),
+#         mutual_info_regression(X[:, i, :], y_direction[:, j])
+#     )
+    
+def calculate_mi_for_chunk(args):
+    X, y, y_direction, chunk = args
+    mi_scores_u = np.zeros(X.shape[2])
+    mi_scores_v = np.zeros(X.shape[2])
+    mi_scores_dir = np.zeros(X.shape[2])
+    for i, j in chunk:
+        mi_scores_u += mutual_info_regression(X[:, i, :], y[:, j, 0])
+        mi_scores_v += mutual_info_regression(X[:, i, :], y[:, j, 1])
+        mi_scores_dir += mutual_info_regression(X[:, i, :], y_direction[:, j])
+    return mi_scores_u, mi_scores_v, mi_scores_dir
+
 def calculate_and_display_mutual_info_scores(X, y, feature_names, sequence_length, prediction_horizon):
+    start_time = time.time()
     n_features = X.shape[2]
+    
+    # Calculate wind direction for the entire prediction horizon
+    y_direction = calculate_wind_direction(y[:, :, 0], y[:, :, 1])
+    
+    # # Use all available cores
+    # num_cores = multiprocessing.cpu_count()
+    
+    # # Prepare the progress bar
+    # total_iterations = sequence_length * prediction_horizon
+    # pbar = tqdm(total=total_iterations, desc="Calculating MI scores")
+    
+    # # Function to update progress bar
+    # def update_pbar(*a):
+    #     pbar.update()
+    
+    # # Run the calculations in parallel with a progress bar
+    # results = Parallel(n_jobs=num_cores, backend="multiprocessing")(
+    #     delayed(calculate_mi_for_timestep)(X, y, y_direction, i, j) 
+    #     for i in range(sequence_length) for j in range(prediction_horizon)
+    # )    
+    # pbar.close()
+    
+    # Create chunks of work
+    chunks = [(i, j) for i in range(sequence_length) for j in range(prediction_horizon)]
+    chunk_size = min(1000, len(chunks) // (multiprocessing.cpu_count() * 2))
+    chunks = [chunks[i:i + chunk_size] for i in range(0, len(chunks), chunk_size)]
+    
+    # Prepare the progress bar
+    pbar = tqdm(total=len(chunks), desc="Calculating MI scores")
+    
+    # Use multiprocessing Pool
+    with multiprocessing.Pool(processes=max(1, multiprocessing.cpu_count() - 1)) as pool:
+        args_list = [(X, y, y_direction, chunk) for chunk in chunks]
+        results = []
+        for result in pool.imap_unordered(calculate_mi_for_chunk, args_list):
+            results.append(result)
+            pbar.update()
+    
+    pbar.close()
+    
+    # Aggregate results
     mi_scores_u = np.zeros(n_features)
     mi_scores_v = np.zeros(n_features)
     mi_scores_dir = np.zeros(n_features)
     
-    # Calculate wind direction for the entire prediction horizon
-    y_direction = calculate_wind_direction(y[:, 0], y[:, 1])
-    
-    # INFO: Calculate MI scores for u and v components at each time step and average them
-    for i in range(min(sequence_length, prediction_horizon)):
-        mi_scores_u += mutual_info_regression(X[:, i, :], y[:, 0])
-        mi_scores_v += mutual_info_regression(X[:, i, :], y[:, 1])
-        mi_scores_dir += mutual_info_regression(X[:, i, :], y_direction) 
-    total_steps = min(sequence_length, prediction_horizon)
+    for result in tqdm(results, desc="Aggregating results"):
+        mi_scores_u += result[0]
+        mi_scores_v += result[1]
+        mi_scores_dir += result[2]
+        
+    total_steps = sequence_length * prediction_horizon
     mi_scores_u /= total_steps
     mi_scores_v /= total_steps
     mi_scores_dir /= total_steps
@@ -49,6 +106,10 @@ def calculate_and_display_mutual_info_scores(X, y, feature_names, sequence_lengt
     })
     mi_df = mi_df.sort_values('MI Score (avg)', ascending=False)
     
+    end_time = time.time()
+    execution_time = end_time - start_time
+    
+    print(f"\nMutual Information calculation completed in {execution_time:.2f} seconds")
     print("\nMutual Information Scores (sorted by average importance):")
     print(mi_df.to_string(index=False))
     
@@ -135,7 +196,7 @@ def create_sequences(df: pd.DataFrame, sequence_length: int):
         X.append(data[i:(i + sequence_length)])
     return np.array(X)
 
-def load_and_preprocess_data(file_path: str, sequence_length, target_turbine):
+def load_and_preprocess_data(file_path: str, sequence_length, prediction_horizon, target_turbine):
     """
     Load data from a CSV file and preprocess it for training.
     Args:
@@ -186,8 +247,13 @@ def load_and_preprocess_data(file_path: str, sequence_length, target_turbine):
     # Drop original time columns
     df = df.drop(columns=['Time', 'hour', 'day', 'year'])
     
-    X = create_sequences(df, sequence_length)
-    y = df[[f'TurbineWindMag_{target_turbine}_u', f'TurbineWindMag_{target_turbine}_v']].values[sequence_length:]
+    # INFO: Create sequences for training, drop the target turbines to avoid data leakage
+    X = create_sequences(df.drop(columns=[f'TurbineWindMag_{target_turbine}_u', f'TurbineWindMag_{target_turbine}_v']), sequence_length)
+    y = create_sequences(df[[f'TurbineWindMag_{target_turbine}_u', f'TurbineWindMag_{target_turbine}_v']], prediction_horizon)
+    
+    # Align X and y
+    X = X[:-prediction_horizon]
+    y = y[sequence_length:]
     
     # # INFO: Calculate MIC scores
     # X_flattened = X.reshape(-1, X.shape[2])  # Flatten the sequences
@@ -198,7 +264,7 @@ def load_and_preprocess_data(file_path: str, sequence_length, target_turbine):
     # X_flattened = X_flattened[:min_samples]
     # y_flattened = y_flattened[:min_samples]
     
-    feature_names = list(df.columns)
+    feature_names = list(df.drop(columns=[f'TurbineWindMag_{target_turbine}_u', f'TurbineWindMag_{target_turbine}_v']).columns)
     
     return X, y, feature_names # X [num_samples, sequence_length, num_features], y [num_samples, num_features(u, v)]
 
@@ -210,7 +276,7 @@ def main():
     target_turbine = 0 # Choose the turbine to predict
     ###########################################################################################
     
-    X, y, feature_names = load_and_preprocess_data(file_path, sequence_length=sequence_length, target_turbine=target_turbine)
+    X, y, feature_names = load_and_preprocess_data(file_path, sequence_length=sequence_length, prediction_horizon=prediction_horizon, target_turbine=target_turbine)
     
     print("\n" + "="*50)
     print("Wind Forecasting Data Preprocessing Summary")
@@ -241,14 +307,16 @@ def main():
     print(f"  Number of target vectors: {y.shape[0]}")
     print(f"  Components per vector: {y.shape[1]} (u, v)")
     
-    target_df = pd.DataFrame(y[:5], columns=['u', 'v'])
-    print("\nTarget Sample (first 5 rows):")
+    # Display target data sample showing first time step of first 5 sequences
+    target_df = pd.DataFrame(y[:5, 0, :], columns=['u', 'v'])
+    print("\nTarget Sample (first time step of first 5 sequences):")
     print(target_df.to_string(index=False, float_format='{:.8f}'.format))
     
     print("\nFeatures list:")
     for i, feature in enumerate(feature_names):
         print(f"  {i+1}. {feature}")
-   
+    print("\n")
+    
     ###########################################################################################    
     # INFO: Calculate and display MIC scores
     # X_flattened = X.reshape(-1, X.shape[2])  # Flatten the sequences
