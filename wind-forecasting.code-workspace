@@ -7,6 +7,9 @@
 		{
 			"name": "wind-forecasting",
 			"path": "."
+		},
+		{
+			"path": "../mictools"
 		}
 	],
 	"settings": {}
