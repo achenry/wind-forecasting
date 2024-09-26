@@ -9,34 +9,100 @@ import pandas as pd
 import numpy as np
 from sklearn.preprocessing import MinMaxScaler
 from typing import List, Tuple
-from minepy import MINE # Maximal Information-based Nonparametric Exploration.
+import matplotlib.pyplot as plt
+
+# from minepy import MINE
+from sklearn.feature_selection import mutual_info_regression
 
 SECONDS_PER_HOUR = np.float64(3600)
 SECONDS_PER_DAY = 86400
 SECONDS_PER_YEAR = 31536000  # non-leap year, 365 days
 
-def calculate_mic_scores(X, y):
-    """
-    Calculate MIC scores between each feature in X and the target y.
+def calculate_wind_direction(u, v):
+    return np.mod(180 + np.rad2deg(np.arctan2(u, v)), 360)
+
+def calculate_and_display_mutual_info_scores(X, y, feature_names, sequence_length, prediction_horizon):
+    n_features = X.shape[2]
+    mi_scores_u = np.zeros(n_features)
+    mi_scores_v = np.zeros(n_features)
+    mi_scores_dir = np.zeros(n_features)
     
-    Args:
-        X (np.ndarray): Feature matrix of shape (n_samples, n_features)
-        y (np.ndarray): Target vector of shape (n_samples, 2) for u and v components
+    # Calculate wind direction for the entire prediction horizon
+    y_direction = calculate_wind_direction(y[:, 0], y[:, 1])
     
-    Returns:
-        dict: Dictionary of feature names and their MIC scores
-    """
-    mine = MINE(alpha=0.6, c=15)  # Default parameters
-    mic_scores = {}
+    # INFO: Calculate MI scores for u and v components at each time step and average them
+    for i in range(min(sequence_length, prediction_horizon)):
+        mi_scores_u += mutual_info_regression(X[:, i, :], y[:, 0])
+        mi_scores_v += mutual_info_regression(X[:, i, :], y[:, 1])
+        mi_scores_dir += mutual_info_regression(X[:, i, :], y_direction) 
+    total_steps = min(sequence_length, prediction_horizon)
+    mi_scores_u /= total_steps
+    mi_scores_v /= total_steps
+    mi_scores_dir /= total_steps
     
-    # Combine u and v components into a single target
-    y_combined = np.sqrt(y[:, 0]**2 + y[:, 1]**2)  # Calculate magnitude
+    mi_df = pd.DataFrame({
+        'Feature': feature_names,
+        'MI Score (u)': mi_scores_u,
+        'MI Score (v)': mi_scores_v,
+        'MI Score (direction)': mi_scores_dir,
+        'MI Score (avg)': (mi_scores_u + mi_scores_v + mi_scores_dir) / 3
+    })
+    mi_df = mi_df.sort_values('MI Score (avg)', ascending=False)
     
-    for i in range(X.shape[1]):
-        mine.compute_score(X[:, i], y_combined)
-        mic_scores[f'feature_{i}'] = mine.mic()
+    print("\nMutual Information Scores (sorted by average importance):")
+    print(mi_df.to_string(index=False))
     
-    return mic_scores
+    plt.figure(figsize=(12, 6))
+    plt.bar(mi_df['Feature'], mi_df['MI Score (avg)'])
+    plt.xticks(rotation=90)
+    plt.title('Average Mutual Information Scores for Each Feature')
+    plt.tight_layout()
+    plt.savefig('mi_scores_avg.png')
+    plt.close()
+    
+    plt.figure(figsize=(12, 6))
+    plt.bar(mi_df['Feature'], mi_df['MI Score (u)'], alpha=0.3, label='u component')
+    plt.bar(mi_df['Feature'], mi_df['MI Score (v)'], alpha=0.3, label='v component')
+    plt.bar(mi_df['Feature'], mi_df['MI Score (direction)'], alpha=0.3, label='direction')
+    plt.xticks(rotation=90)
+    plt.title('Mutual Information Scores for Each Feature (u, v, and direction)')
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig('mi_scores_uvdir.png')
+    plt.close()
+
+###########################################################################################
+# INFO: MIC Scores from minepy package (only available for Python <3.10)
+###########################################################################################
+# def calculate_and_display_mic_scores(X, y, feature_names):
+    
+#     mine = MINE(alpha=0.6, c=15)  # Default parameters
+#     mic_scores = []
+    
+#     # Combine u and v components into a single target
+#     y_combined = np.sqrt(y[:, 0]**2 + y[:, 1]**2)  # Calculate magnitude
+    
+#     for i in range(X.shape[1]):
+#         mine.compute_score(X[:, i], y_combined)
+#         mic_scores.append(mine.mic())
+    
+#     # Create a DataFrame with feature names and MIC scores
+#     mic_df = pd.DataFrame({'Feature': feature_names, 'MIC Score': mic_scores})
+#     mic_df = mic_df.sort_values('MIC Score', ascending=False)
+    
+#     print("\nMIC Scores (sorted by importance):")
+#     print(mic_df.to_string(index=False))
+    
+#     # Optionally, you can create a bar plot of MIC scores
+#     import matplotlib.pyplot as plt
+#     plt.figure(figsize=(12, 6))
+#     plt.bar(mic_df['Feature'], mic_df['MIC Score'])
+#     plt.xticks(rotation=90)
+#     plt.title('MIC Scores for Each Feature')
+#     plt.tight_layout()
+#     plt.savefig('mic_scores.png')
+#     plt.close()
+###########################################################################################
 
 def process_wind_vectors(df: pd.DataFrame, wind_columns: List[str]):
     """
@@ -69,7 +135,7 @@ def create_sequences(df: pd.DataFrame, sequence_length: int):
         X.append(data[i:(i + sequence_length)])
     return np.array(X)
 
-def load_and_preprocess_data(file_path: str, sequence_length: int = 24):
+def load_and_preprocess_data(file_path: str, sequence_length, target_turbine):
     """
     Load data from a CSV file and preprocess it for training.
     Args:
@@ -121,44 +187,50 @@ def load_and_preprocess_data(file_path: str, sequence_length: int = 24):
     df = df.drop(columns=['Time', 'hour', 'day', 'year'])
     
     X = create_sequences(df, sequence_length)
-    y = df[['FreestreamWindMag_u', 'FreestreamWindMag_v']].values[sequence_length:]
+    y = df[[f'TurbineWindMag_{target_turbine}_u', f'TurbineWindMag_{target_turbine}_v']].values[sequence_length:]
     
-    # Calculate MIC scores
-    X_flattened = X.reshape(-1, X.shape[2])  # Flatten the sequences
-    y_flattened = y  # Keep y as 2D array
+    # # INFO: Calculate MIC scores
+    # X_flattened = X.reshape(-1, X.shape[2])  # Flatten the sequences
+    # y_flattened = y  # Keep y as 2D array
     
-    # Ensure X_flattened and y_flattened have the same number of samples
-    min_samples = min(X_flattened.shape[0], y_flattened.shape[0])
-    X_flattened = X_flattened[:min_samples]
-    y_flattened = y_flattened[:min_samples]
+    # # Ensure X_flattened and y_flattened have the same number of samples
+    # min_samples = min(X_flattened.shape[0], y_flattened.shape[0])
+    # X_flattened = X_flattened[:min_samples]
+    # y_flattened = y_flattened[:min_samples]
     
-    mic_scores = calculate_mic_scores(X_flattened, y_flattened)
+    feature_names = list(df.columns)
     
-    return X, y, mic_scores # X [num_samples, sequence_length, num_features], y [num_samples, num_features(u, v)]
+    return X, y, feature_names # X [num_samples, sequence_length, num_features], y [num_samples, num_features(u, v)]
 
 def main():
+    ###########################################################################################
     file_path = 'lut/time_series_results_case_LUT_seed_0.csv'
+    sequence_length = 600 # 600 time steps of 0.5 seconds = 5 minutes
+    prediction_horizon = 240 # 240 time steps of 0.5 seconds = 2 minutes
+    target_turbine = 0 # Choose the turbine to predict
+    ###########################################################################################
     
-    X, y, mic_scores = load_and_preprocess_data(file_path, sequence_length=1200) # 1200 time steps of 0.5 seconds = 5 minutes
+    X, y, feature_names = load_and_preprocess_data(file_path, sequence_length=sequence_length, target_turbine=target_turbine)
     
     print("\n" + "="*50)
     print("Wind Forecasting Data Preprocessing Summary")
     print("="*50)
     
     print(f"\nInput file: {file_path}")
-    print(f"Sequence length: 24 time steps")
-    
+    print(f"Sequence length: {sequence_length} time steps")
+    print(f"Prediction horizon: {prediction_horizon} time steps")
+    print(f"Target turbine: {target_turbine}")
     print("\nFeature matrix (X):")
     print(f"  Shape: {X.shape}")
     print(f"  Number of sequences: {X.shape[0]}")
     print(f"  Time steps per sequence: {X.shape[1]}")
     print(f"  Number of features: {X.shape[2]}")
     
-    feature_names = ['hour_sin', 'hour_cos', 'day_sin', 'day_cos', 'year_sin', 'year_cos',
-                 'FreestreamWindMag_u', 'FreestreamWindMag_v',
-                 'TurbineWindMag_0_u', 'TurbineWindMag_0_v',
-                 'TurbineWindMag_1_u', 'TurbineWindMag_1_v',
-                 'TurbineWindMag_2_u', 'TurbineWindMag_2_v']
+    # feature_names = ['hour_sin', 'hour_cos', 'day_sin', 'day_cos', 'year_sin', 'year_cos',
+    #              'FreestreamWindMag_u', 'FreestreamWindMag_v',
+    #              'TurbineWindMag_0_u', 'TurbineWindMag_0_v',
+    #              'TurbineWindMag_1_u', 'TurbineWindMag_1_v',
+    #              'TurbineWindMag_2_u', 'TurbineWindMag_2_v']
     
     processed_df = pd.DataFrame(X[0, :5], columns=feature_names)
     print("\nProcessed Data Sample (first sequence, first 5 time steps):")
@@ -176,18 +248,21 @@ def main():
     print("\nFeatures list:")
     for i, feature in enumerate(feature_names):
         print(f"  {i+1}. {feature}")
-        
-    print("\nMIC Scores:")
-    for feature, score in mic_scores.items():
-        print(f"  {feature}: {score:.4f}")
-        
-    # Sort features by MIC score in descending order
-    sorted_mic_scores = sorted(mic_scores.items(), key=lambda x: x[1], reverse=True)
-    print("\nFeatures sorted by MIC score:")
-    for feature, score in sorted_mic_scores:
-        print(f"  {feature}: {score:.4f}")
+   
+    ###########################################################################################    
+    # INFO: Calculate and display MIC scores
+    # X_flattened = X.reshape(-1, X.shape[2])  # Flatten the sequences
+    # y_flattened = y  # Keep y as 2D array
     
-    print("\n" + "="*50 + "\n")
+    # Ensure X_flattened and y_flattened have the same number of samples
+    # min_samples = min(X_flattened.shape[0], y_flattened.shape[0])
+    # X_flattened = X_flattened[:min_samples]
+    # y_flattened = y_flattened[:min_samples]
+    
+    # calculate_and_display_mic_scores(X_flattened, y_flattened, feature_names)    
+    ###########################################################################################
+    
+    calculate_and_display_mutual_info_scores(X, y, feature_names, sequence_length, prediction_horizon)
 
 if __name__ == "__main__":
     main()
