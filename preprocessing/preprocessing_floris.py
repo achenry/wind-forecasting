@@ -20,13 +20,6 @@ SECONDS_PER_YEAR = 31536000  # non-leap year, 365 days
 
 def calculate_wind_direction(u, v):
     return np.mod(180 + np.rad2deg(np.arctan2(u, v)), 360)
-
-# def calculate_mi_for_timestep(X, y, y_direction, i, j):
-#     return (
-#         mutual_info_regression(X[:, i, :], y[:, j, 0]),
-#         mutual_info_regression(X[:, i, :], y[:, j, 1]),
-#         mutual_info_regression(X[:, i, :], y_direction[:, j])
-#     )
     
 def calculate_mi_for_chunk(args):
     X, y, y_direction, chunk = args
@@ -45,24 +38,6 @@ def calculate_and_display_mutual_info_scores(X, y, feature_names, sequence_lengt
     
     # Calculate wind direction for the entire prediction horizon
     y_direction = calculate_wind_direction(y[:, :, 0], y[:, :, 1])
-    
-    # # Use all available cores
-    # num_cores = multiprocessing.cpu_count()
-    
-    # # Prepare the progress bar
-    # total_iterations = sequence_length * prediction_horizon
-    # pbar = tqdm(total=total_iterations, desc="Calculating MI scores")
-    
-    # # Function to update progress bar
-    # def update_pbar(*a):
-    #     pbar.update()
-    
-    # # Run the calculations in parallel with a progress bar
-    # results = Parallel(n_jobs=num_cores, backend="multiprocessing")(
-    #     delayed(calculate_mi_for_timestep)(X, y, y_direction, i, j) 
-    #     for i in range(sequence_length) for j in range(prediction_horizon)
-    # )    
-    # pbar.close()
     
     # Create chunks of work
     chunks = [(i, j) for i in range(sequence_length) for j in range(prediction_horizon)]
@@ -220,10 +195,6 @@ def load_and_preprocess_data(file_path: str, sequence_length, prediction_horizon
     df['hour'] = (df['Time'] % SECONDS_PER_DAY) / SECONDS_PER_HOUR
     df['day'] = ((df['Time'] // SECONDS_PER_DAY) % 365).astype(int)
     df['year'] = (df['Time'] // SECONDS_PER_YEAR).astype(int)
-    
-    # print('Hour: ', df['hour'][0:5])
-    # print('Day: ', df['day'][0:5])
-    # print('Year: ', df['year'][0:5])
 
     # Normalize time features using sin/cos for capturing cyclic patterns
     df['hour_sin'] = np.sin(2 * np.pi * df['hour'] / 24)
@@ -291,12 +262,6 @@ def main():
     print(f"  Number of sequences: {X.shape[0]}")
     print(f"  Time steps per sequence: {X.shape[1]}")
     print(f"  Number of features: {X.shape[2]}")
-    
-    # feature_names = ['hour_sin', 'hour_cos', 'day_sin', 'day_cos', 'year_sin', 'year_cos',
-    #              'FreestreamWindMag_u', 'FreestreamWindMag_v',
-    #              'TurbineWindMag_0_u', 'TurbineWindMag_0_v',
-    #              'TurbineWindMag_1_u', 'TurbineWindMag_1_v',
-    #              'TurbineWindMag_2_u', 'TurbineWindMag_2_v']
     
     processed_df = pd.DataFrame(X[0, :5], columns=feature_names)
     print("\nProcessed Data Sample (first sequence, first 5 time steps):")
