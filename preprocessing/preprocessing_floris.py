@@ -92,7 +92,7 @@ def calculate_and_display_mutual_info_scores(X, y, feature_names, sequence_lengt
     plt.xticks(rotation=90)
     plt.title('Average Mutual Information Scores for Each Feature')
     plt.tight_layout()
-    plt.savefig('mi_scores_avg.png')
+    plt.savefig('./preprocessing/outputs/mi_scores_avg.png')
     plt.close()
     
     plt.figure(figsize=(12, 6))
@@ -103,7 +103,7 @@ def calculate_and_display_mutual_info_scores(X, y, feature_names, sequence_lengt
     plt.title('Mutual Information Scores for Each Feature (u, v, and direction)')
     plt.legend()
     plt.tight_layout()
-    plt.savefig('mi_scores_uvdir.png')
+    plt.savefig('./preprocessing/outputs/mi_scores_uvdir.png')
     plt.close()
 
 ###########################################################################################
@@ -240,7 +240,7 @@ def load_and_preprocess_data(file_path: str, sequence_length, prediction_horizon
 
 def main():
     ###########################################################################################
-    file_path = 'lut/time_series_results_case_LUT_seed_0.csv'
+    file_path = './examples/inputs/lut/time_series_results_case_LUT_seed_0.csv'
     sequence_length = 600 # 600 time steps of 0.5 seconds = 5 minutes
     prediction_horizon = 240 # 240 time steps of 0.5 seconds = 2 minutes
     target_turbine = 0 # Choose the turbine to predict
