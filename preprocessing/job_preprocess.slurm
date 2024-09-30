@@ -12,9 +12,9 @@
 #SBATCH --qos=normal
 #SBATCH --nodes=1
 #SBATCH --ntasks=8
-##SBATCH --ntasks-per-node=1
-##SBATCH --nodes=1
-#SBATCH --mem=2G
+#SBATCH --nodes=1
+#SBATCH --ntasks-per-node=32
+#SBATCH --mem=16G
 #SBATCH --mail-type=ALL
 #SBATCH --mail-user=jubo7621@colorado.edu
 
@@ -24,6 +24,9 @@ ml mambaforge
 mamba activate wind_preprocessing
 
 cd /projects/jubo7621/wind-forecasting/
+
+# Set the number of OpenMP threads
+export OMP_NUM_THREADS=$SLURM_CPUS_PER_TASK
 
 # Run your Python script with timing
 echo "========== Running Python script =========="
