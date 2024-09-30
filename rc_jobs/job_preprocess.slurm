@@ -10,7 +10,7 @@
 #SBATCH --error=error_preprocess_floris.%j.err
 #SBATCH --time=0:30:00
 #SBATCH --qos=normal
-#SBATCH --nodes=2
+#SBATCH --nodes=1
 #SBATCH --ntasks-per-node=64
 #SBATCH --mem=0G
 #SBATCH --mail-type=ALL
