@@ -7,11 +7,17 @@ your_job_time=$(squeue -j $your_job_id -h -o %l)
 
 
 total_nodes=$(sinfo -p amilan -h -o %D)
-running_jobs_info=$(squeue -p amilan -t RUNNING -o "%D %C %N" -h)
-nodes_in_use=$(echo "$running_jobs_info" | awk '{sum += $1} END {print sum}')
-cores_in_use=$(echo "$running_jobs_info" | awk '{sum += $2} END {print sum}')
-unique_nodes_in_use=$(echo "$running_jobs_info" | awk '{print $3}' | tr ',' '\n' | sort -u | wc -l)
-available_nodes=$((total_nodes - unique_nodes_in_use))
+
+nodes_in_use=$(squeue -p amilan -t RUNNING -h -o %D | awk '{sum += $1} END {print sum}')
+available_nodes=$((total_nodes - nodes_in_use))
+running_jobs=$(squeue -p amilan -t RUNNING -o "%D %e" --sort=e -h)
+
+current_time=$(date +%s)
+estimated_start_time=$current_time
+
+time_to_seconds() {
+    echo $(echo $1 | awk -F: '{ print ($1 * 3600) + ($2 * 60) + $3 }')
+}
 
 # Process running jobs
 while read -r job_nodes job_end_time; do
@@ -25,7 +31,7 @@ while read -r job_nodes job_end_time; do
         estimated_start_time=$job_end_seconds
         available_nodes=$((available_nodes + job_nodes))
     fi
-done <<< "$running_jobs_info"
+done <<< "$running_jobs"
 
 # Get pending jobs with higher or equal priority, sorted by priority and submission time
 your_priority=$(squeue -j $your_job_id -h -o %Q)
@@ -55,14 +61,8 @@ estimated_end_time=$((estimated_start_time + your_job_seconds))
 echo "Your job $your_job_id ($your_job_name) requires $your_job_nodes nodes."
 echo "Current time: $(date)"
 echo "Total nodes in partition: $total_nodes"
-echo "Nodes allocated to running jobs: $nodes_in_use"
-echo "Unique nodes in use: $unique_nodes_in_use"
-echo "Cores in use: $cores_in_use"
+echo "Nodes currently in use: $nodes_in_use"
 echo "Nodes currently available: $available_nodes"
 echo "Estimated start time: $(date -d @$estimated_start_time)"
 echo "Estimated wait time: $wait_time_human"
 echo "Estimated end time: $(date -d @$estimated_end_time)"
-
-# Debug information
-echo -e "\nDetailed job information:"
-echo "$running_jobs_info" | head -n 10
