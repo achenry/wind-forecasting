@@ -3,7 +3,8 @@ wind_forecasting/models/.eggs
 wind_forecasting/models/*.egg-info
 wind_forecasting.egg-info
 wind_forecasting/models/__pycache__
-lut
+wind_forecasting/preprocessing/__pycache__
+wind_forecasting/__pycache__
 ting_3_9
 wget-log*
 output
@@ -12,13 +13,18 @@ check_gpu.py
 preprocessing/preprocessing_scada/examples
 preprocessing/preprocessing_scada/shapefiles
 .identifier
-examples
 .code-workspace
 Miniforge3-Linux-x86_64.sh
 wind_forecasting.egg-info
+preprocessing/preprocessing_scada/.ipynb*
+examples/data
+examples/postprocessed
+examples/other
+examples/inputs/awaken_data
 
 *.log
 *.csv
 *.err
 *.out
 *.png
+*.nc
