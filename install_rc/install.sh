@@ -1,32 +1,35 @@
-ex# Instructions for installing environment on the CU Boulder Alpine cluster (for jubo7621)
+#!/bin/bash
+
+# Instructions for installing environments on the CU Boulder Alpine cluster (for jubo7621)
 
 ssh jubo7621@login.rc.colorado.edu
 # https://docs.github.com/en/authentication/connecting-to-github-with-ssh/generating-a-new-ssh-key-and-adding-it-to-the-ssh-agent?platform=linux
 
-acompile # log in the compile node
-ml mambaforge # load mamba
-mamba create -n wind_forecasting_env -y
-mamba activate wind_forecasting_env
+# Create and activate environments
+for env_file in wind_forecasting_cuda.yml wind_forecasting_env.yml wind_forecasting_rocm.yml wind_preprocessing_env.yml
+do
+    env_name="${env_file%.yml}"
+    mamba env create -f "@install_rc/$env_file" -n "$env_name"
+    mamba activate "$env_name"
+    mamba deactivate
+done
 
+# Clone the repository
 cd /projects/$USER/
 git clone --recurse-submodules https://github.com/achenry/wind-forecasting.git
 
 cd wind-forecasting/wind-forecasting/models
-mamba install notebook jupyterlab nb_conda_kernels cython numpy pyyaml matplotlib numpy=1.26.4 seaborn netcdf4 opt_einsum wandb -c conda-forge -y
-mamba install pytorch torchvision torchaudio torchmetrics pytorch-forecasting lightning=2.3.3 cudatoolkit=11.7 -c pytorch -c nvidia
-# mamba install pytorch torchvision torchaudio torchmetrics pytorch-forecasting lightning=2.3.3 cpuonly -c pytorch
-# pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/rocm6.1
 
+# ***Uncomment these lines if you need to install requirements for specific models***
 # python -m pip install -r ./spacetimeformer/requirements.txt
 # python ./spacetimeformer/setup.py develop
-
 # python -m pip install -r ./Informer2020/requirements.txt
 # python -m pip install -r ./Autoformer/requirements.txt
 
-# python -m pip install --no-binary datatable datatable
-python -m pip install opencv-python performer-pytorch
-
+# ***Uncomment this line if you need to update submodules***
 # git pull --recurse-submodules
-#git clone https://github.com/achenry/spacetimeformer.git
-#git clone https://github.com/achenry/Autoformer.git
-#git clone https://github.com/achenry/Informer2020.git
+
+# ***Uncomment these lines if you need to clone specific repositories***
+# git clone https://github.com/achenry/spacetimeformer.git
+# git clone https://github.com/achenry/Autoformer.git
+# git clone https://github.com/achenry/Informer2020.git
