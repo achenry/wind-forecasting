@@ -10,8 +10,6 @@
 #SBATCH --error=error_preprocess_floris.%j.err
 #SBATCH --time=0:30:00
 #SBATCH --qos=normal
-#SBATCH --nodes=1
-#SBATCH --ntasks=8
 #SBATCH --nodes=2
 #SBATCH --ntasks-per-node=64
 #SBATCH --mem=0G
