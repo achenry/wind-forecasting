@@ -43,3 +43,12 @@ echo "Execution time: $execution_time seconds"
 
 ## sacct --user=jubo7621
 ## scontrol show job job_id
+
+## To view position in the queue:
+## squeue -p amilan -t PENDING --sort=p,t -o "%.18i %.9P %.8j %.8u %.2t %.19S %.19V %.10M %.6D %R" | nl | grep -C 5 jubo7621
+
+## To view current jobs running:
+## squeue -p amilan -t RUNNING
+
+## To estimate the start time of your job:
+## ./rc_jobs/estimate_job_start_time.sh
