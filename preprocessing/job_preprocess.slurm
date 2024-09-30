@@ -12,9 +12,9 @@
 #SBATCH --qos=normal
 #SBATCH --nodes=1
 #SBATCH --ntasks=8
-#SBATCH --nodes=1
-#SBATCH --ntasks-per-node=32
-#SBATCH --mem=16G
+#SBATCH --nodes=2
+#SBATCH --ntasks-per-node=64
+#SBATCH --mem=0G
 #SBATCH --mail-type=ALL
 #SBATCH --mail-user=jubo7621@colorado.edu
 
