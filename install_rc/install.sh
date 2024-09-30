@@ -15,11 +15,11 @@ if ! command -v mamba &> /dev/null; then
 fi
 
 # Create and activate environments
-for env_file in wind_forecasting_cuda.yml wind_forecasting_env.yml wind_forecasting_rocm.yml wind_preprocessing.yml
+for env_name in wind_forecasting_cuda.yml wind_forecasting_env.yml wind_forecasting_rocm.yml wind_preprocessing.yml
 do
-    env_name="${env_file%.yml}"
+    env_file="${env_name%.yml}"
     echo "Creating environment: $env_name"
-    mamba env create -f "@install_rc/$env_file" -n "$env_name"
+    mamba env create -n "$env_name" -f "install_rc/$env_file" 
     mamba activate "$env_name"
     mamba deactivate
 done
