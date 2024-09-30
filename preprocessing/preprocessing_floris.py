@@ -1,7 +1,6 @@
 # INFO: MIC used for feature selection from minepy package. Only available for Python <3.10
 # Can use sklearn.feature_selection.mutual_info_regression instead?
 import time
-import sys
 import numpy as np
 import pandas as pd
 from sklearn.preprocessing import MinMaxScaler
@@ -12,7 +11,7 @@ from numba import jit, prange
 from tqdm.auto import tqdm
 import multiprocessing
 # from joblib import Parallel, delayed
-from functools import partial
+from typing import List
 
 SECONDS_PER_HOUR = np.float64(3600)
 SECONDS_PER_DAY = 86400
