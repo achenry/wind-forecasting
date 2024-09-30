@@ -1,31 +1,32 @@
 #!/bin/bash
 
 # Instructions for installing environments on the CU Boulder Alpine cluster (for jubo7621)
-eval "$(ssh-agent -s)"
-ssh jubo7621@login.rc.colorado.edu << EOF
+# Assumes user has already logged in via SSH and acompile as follows:
+# ssh jubo7621@login.rc.colorado.edu
+# acompile
 
-acompile
 module purge
 ml mambaforge
 
 # Check if mamba is available
-if ! command -v mamba &> /dev/null; then
+if ! command -v mamba &> /dev/null
+then
     echo "mamba could not be found. Please check if the mambaforge module is loaded correctly."
     exit 1
 fi
 
 # Create and activate environments
-for env_name in wind_forecasting_cuda.yml wind_forecasting_env.yml wind_forecasting_rocm.yml wind_preprocessing.yml
+for env_file in wind_forecasting_cuda_test.yml wind_forecasting_env_test.yml wind_forecasting_rocm_test.yml wind_preprocessing_test.yml
 do
-    env_file="${env_name%.yml}"
+    env_name=$(echo $env_file | sed "s/\.yml$//")
     echo "Creating environment: $env_name"
-    mamba env create -n "$env_name" -f "install_rc/$env_file" 
+    mamba env create -f "@install_rc/$env_file" -n "$env_name"
     mamba activate "$env_name"
     mamba deactivate
 done
 
 # Clone the repository
-cd /projects/$USER/
+cd /projects/$USER
 if [ ! -d "/projects/$USER/wind-forecasting" ]; then
     echo "Cloning wind-forecasting repository..."
     git clone --recurse-submodules https://github.com/achenry/wind-forecasting.git
@@ -47,7 +48,3 @@ cd wind-forecasting/wind-forecasting/models
 # git clone https://github.com/achenry/spacetimeformer.git
 # git clone https://github.com/achenry/Autoformer.git
 # git clone https://github.com/achenry/Informer2020.git
-
-exit
-exit
-EOF
