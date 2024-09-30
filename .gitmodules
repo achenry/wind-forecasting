@@ -7,3 +7,6 @@
 [submodule "models/Autoformer"]
 	path = models/Autoformer
 	url = git@github.com:achenry/Autoformer.git
+[submodule "wind_forecasting/preprocessing/OpenOA"]
+	path = wind_forecasting/preprocessing/OpenOA
+	url = https://github.com/NREL/OpenOA.git
