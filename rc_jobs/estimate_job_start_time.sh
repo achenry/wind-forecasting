@@ -7,15 +7,20 @@ your_job_time=$(squeue -j $your_job_id -h -o %l)
 
 
 total_nodes=$(sinfo -p amilan -h -o %D)
+
+# Get nodes currently in use
+nodes_in_use=$(squeue -p amilan -t RUNNING -h -o %D | awk '{sum += $1} END {print sum}')
+
+# Ensure nodes_in_use doesn't exceed total_nodes
+nodes_in_use=$((nodes_in_use > total_nodes ? total_nodes : nodes_in_use))
+
+# Calculate available nodes
+available_nodes=$((total_nodes - nodes_in_use))
+
+# Get running jobs, sorted by end time
 running_jobs=$(squeue -p amilan -t RUNNING -o "%D %e" --sort=e -h)
 
-# Sum up total nodes used by running jobs
-nodes_in_use=0
-while read -r job_nodes _; do
-    nodes_in_use=$((nodes_in_use + job_nodes))
-done <<< "$running_jobs"
-
-available_nodes=0 # Assume no nodes are available
+# Initialize variables
 current_time=$(date +%s)
 estimated_start_time=$current_time
 
@@ -66,6 +71,7 @@ echo "Your job $your_job_id ($your_job_name) requires $your_job_nodes nodes."
 echo "Current time: $(date)"
 echo "Total nodes in partition: $total_nodes"
 echo "Nodes currently in use: $nodes_in_use"
+echo "Nodes currently available: $available_nodes"
 echo "Estimated start time: $(date -d @$estimated_start_time)"
 echo "Estimated wait time: $wait_time_human"
 echo "Estimated end time: $(date -d @$estimated_end_time)"
