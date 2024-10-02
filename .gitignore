@@ -1,10 +1,11 @@
-run_scripts/lightning_logs
+wind_forecasting/run_scripts/lightning_logs/
 wind_forecasting/models/.eggs
-wind_forecasting/models/*.egg-info
-wind_forecasting.egg-info
+.vscode
+
 wind_forecasting/models/__pycache__
 wind_forecasting/preprocessing/__pycache__
 wind_forecasting/__pycache__
+wind_forecasting/.DS_Store
 ting_3_9
 wget-log*
 output
@@ -23,9 +24,18 @@ examples/other
 examples/inputs/awaken_data
 wind-forecasting.code-workspace
 
+.DS_Store
+wind_forecasting/models/.DS_Store
+wind_forecasting.code-workspace
+
 *.log
 *.csv
 *.err
 *.out
 *.png
 *.nc
+*.pyc
+*.egg-info
+
+examples/data/*
+.vscode/
