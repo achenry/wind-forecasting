@@ -17,9 +17,9 @@ Description-Content-Type: text/markdown
 Requires-Dist: numpy>=1.20
 Provides-Extra: docs
 Provides-Extra: develop
-Requires-Dist: pytest; extra == "develop"
 Requires-Dist: ruff; extra == "develop"
 Requires-Dist: isort; extra == "develop"
+Requires-Dist: pytest; extra == "develop"
 Requires-Dist: pre-commit; extra == "develop"
 
 
