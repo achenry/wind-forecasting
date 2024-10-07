@@ -5,22 +5,23 @@
 ### - normalize data
 import glob
 import os
-import re
+from concurrent.futures import ProcessPoolExecutor
+
 import netCDF4 as nc
 import polars as pl
-import pandas as pd
+import polars.selectors as cs
+from pandas import to_datetime as pd_to_datetime
 import numpy as np
 from sklearn.preprocessing import MinMaxScaler
 from mpi4py import MPI
 from mpi4py.futures import MPICommExecutor
-from concurrent.futures import ProcessPoolExecutor
+
+from openoa.utils import qa, plot
 
 SECONDS_PER_MINUTE = np.float64(60)
 SECONDS_PER_HOUR = SECONDS_PER_MINUTE * 60
 SECONDS_PER_DAY = SECONDS_PER_HOUR * 24
 SECONDS_PER_YEAR = SECONDS_PER_DAY * 365  # non-leap year, 365 days
-
-# RUN_ONCE = 
 
 class DataLoader:
     """_summary_
@@ -30,18 +31,24 @@ class DataLoader:
        - normalize data 
     """
     def __init__(self, data_dir: str = r"/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data", file_signature: str = r"kp.turbine.z02.b0.*.wt*.nc", 
-                 multiprocessor: str | None=None, features=None):
+                 multiprocessor: str | None = None, features: list[str] = None):
         
-        if features is None:
-            features = ["time", "turbine_id", "turbine_status", "turbine_availability", "wind_direction", "wind_speed", "power_output"]
+        self.features = features or ["time", "turbine_id", "turbine_status", "turbine_availability", "wind_direction", "wind_speed", "power_output", "nacelle_direction"]
 
         # Get all the wts in the folder
         self.file_paths = glob.glob(f"{data_dir}/{file_signature}")
+        if not self.file_paths:
+            raise FileExistsError(f"File with signature {file_signature} in directory {data_dir} doesn't exist.")
         self.multiprocessor = multiprocessor
-        self.file_prefix = re.match(r"(.*)(?=\*)", file_signature)[0]
+        # self.file_prefix = re.match(r"(.*)(?=\*)", file_signature)[0]
         self.df = None
 
     def print_netcdf_structure(self, file_path) -> None:
+        """_summary_
+
+        Args:
+            file_path (_type_): _description_
+        """
         try:
             with nc.Dataset(file_path, 'r') as dataset:
                 print(f"NetCDF File: {os.path.basename(file_path)}")
@@ -65,8 +72,13 @@ class DataLoader:
 
         except Exception as e:
             print(f"Error reading NetCDF file: {e}")
-    
+
     def read_multi_netcdf(self): # -> pl.DataFrame | None:
+        """_summary_
+
+        Returns:
+            _type_: _description_
+        """
         dfs  = []
         if self.multiprocessor is not None:
             if self.multiprocessor == "mpi":
@@ -126,7 +138,12 @@ class DataLoader:
         return self.df
 
     def reduce_features(self) -> pl.DataFrame:
-        self.df = self.df.select(self.features)
+        """_summary_
+
+        Returns:
+            pl.DataFrame: _description_
+        """
+        self.df = self.df.select(self.features).filter(pl.any_horizontal(cs.numeric().is_not_null()))
         return self.df
 
     def normalize_features(self) -> pl.DataFrame:
@@ -156,7 +173,8 @@ def read_single_netcdf(file_path):
 
             # if "date" in dataset.variables:
             time = dataset.variables['date']
-            time = pd.to_datetime(nc.num2date(times=time[:], units=time.units, calendar=time.calendar, only_use_cftime_datetimes=False, only_use_python_datetimes=True))
+            time = pd_to_datetime(nc.num2date(times=time[:], units=time.units, calendar=time.calendar, only_use_cftime_datetimes=False, only_use_python_datetimes=True))
+            
             # else:
             #     # date = re.findall(f"(?<={file_prefix})(\d{8})(=?.)", os.path.basename(file_path))
             #     start_date = datetime.strptime(re.findall(r"(\d{8})", os.path.basename(file_path))[0], "%Y%m%d")
@@ -194,7 +212,11 @@ def read_single_netcdf(file_path):
                 'wind_speed': dataset.variables['WMET.HorWdSpd'][:]
             }
             
-            df = pl.DataFrame(data).sort(by="time")
+            df = pl.DataFrame(data).group_by("time", "turbine_id").agg([
+                cs.numeric().drop_nans().first()
+            ]).sort(["time", "turbine_id"])
+            del data
+            # data = qa.convert_datetime_column(df=df, time_col="time", tz_aware=False, local_tz="CDT")
             # df["time"].str.to_datetime(time_unit="ms") #dataset.variables['date'].units)
             
             # .sort(by="time")
