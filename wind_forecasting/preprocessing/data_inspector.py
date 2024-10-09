@@ -21,16 +21,15 @@ class DataInspector:
     -   v vs u distribution, 
     -   yaw angle distribution 
     """
-    def __init__(self, df: pl.DataFrame, turbine_input_filepath: str, farm_input_filepath: str):
-        self.df = df
+    def __init__(self, turbine_input_filepath: str, farm_input_filepath: str):
         self.turbine_input_filepath = turbine_input_filepath
         self.farm_input_filepath = farm_input_filepath
 
-    def _get_valid_turbine_ids(self, turbine_ids: list[str]) -> list[str]:
+    def _get_valid_turbine_ids(self, df, turbine_ids: list[str]) -> list[str]:
         if isinstance(turbine_ids, str):
             turbine_ids = [turbine_ids]  # Convert single ID to list
         
-        available_turbines = self.df['turbine_id'].unique()
+        available_turbines = df['turbine_id'].unique()
         valid_turbines = [tid for tid in turbine_ids if tid in available_turbines]
         
         if not valid_turbines:
@@ -40,13 +39,13 @@ class DataInspector:
         
         return valid_turbines
 
-    def plot_time_series(self, turbine_ids: list[str]) -> None:
+    def plot_time_series(self, df, turbine_ids: list[str]) -> None:
         """_summary_
 
         Args:
             turbine_ids (list[str]): _description_
         """
-        valid_turbines = self._get_valid_turbine_ids(turbine_ids=turbine_ids)
+        valid_turbines = self._get_valid_turbine_ids(df, turbine_ids=turbine_ids)
         
         if not valid_turbines:
             return
@@ -57,9 +56,9 @@ class DataInspector:
         fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(12, 10), sharex=True)
         
         for turbine_id in valid_turbines:
-            # turbine_data = self.df.loc[turbine_id]
-            # turbine_data = self.df.filter(pl.col("turbine_id") == turbine_id).drop_nulls().to_pandas()
-            turbine_data = self.df.select(["time", "wind_speed", "wind_direction", "power_output", "turbine_id"]).filter(pl.col("turbine_id") == turbine_id)
+            # turbine_data = df.loc[turbine_id]
+            # turbine_data = df.filter(pl.col("turbine_id") == turbine_id).drop_nulls().to_pandas()
+            turbine_data = df.select(["time", "wind_speed", "wind_direction", "power_output", "turbine_id"]).filter(pl.col("turbine_id") == turbine_id)
             # plt.plot(turbine_data["time"], turbine_data["wind_speed"])
             sns.lineplot(data=turbine_data.filter(pl.col("wind_speed").is_not_nan()).to_pandas(),
                          x='time', y='wind_speed', ax=ax1, label=f'{turbine_id} Wind Speed')
@@ -86,11 +85,11 @@ class DataInspector:
         plt.tight_layout()
         plt.show()
 
-    def plot_wind_speed_power(self, turbine_ids: list[str]) -> None:
+    def plot_wind_speed_power(self, df, turbine_ids: list[str]) -> None:
         """_summary_
 
         """
-        valid_turbines = self._get_valid_turbine_ids(turbine_ids=turbine_ids)
+        valid_turbines = self._get_valid_turbine_ids(df, turbine_ids=turbine_ids)
         
         if not valid_turbines:
             return
@@ -98,9 +97,9 @@ class DataInspector:
         _, ax = plt.subplots(1, 1, figsize=(12, 6))
 
         for turbine_id in valid_turbines:
-            # turbine_data = self.df.loc[turbine_id]
-            # turbine_data = self.df.filter(pl.col("turbine_id") == turbine_id).filter(~pl.all_horizontal(pl.col("wind_speed").is_null(), pl.col("power_output").is_null())).to_pandas()
-            turbine_data = self.df.select(["wind_speed", "power_output", "turbine_id"])\
+            # turbine_data = df.loc[turbine_id]
+            # turbine_data = df.filter(pl.col("turbine_id") == turbine_id).filter(~pl.all_horizontal(pl.col("wind_speed").is_null(), pl.col("power_output").is_null())).to_pandas()
+            turbine_data = df.select(["wind_speed", "power_output", "turbine_id"])\
                 .filter(pl.col("turbine_id") == turbine_id, 
                         pl.all_horizontal(pl.col("wind_speed", "power_output").is_not_nan())).to_pandas()
             sns.scatterplot(data=turbine_data, ax=ax, x='wind_speed', y='power_output')
@@ -110,7 +109,7 @@ class DataInspector:
         ax.set_title('Scatter Plot of Wind Speed vs Power Output')
         plt.show()
 
-    def plot_wind_rose(self, turbine_ids: list[str] | str) -> None:
+    def plot_wind_rose(self, df, turbine_ids: list[str] | str) -> None:
         """_summary_
 
         Args:
@@ -120,20 +119,20 @@ class DataInspector:
         if turbine_ids == "all":
             plt.figure(figsize=(10, 10))
             ax = WindroseAxes.from_ax()
-            wind_direction = self.df["wind_direction"]
-            wind_speed = self.df["wind_speed"]
+            wind_direction = df["wind_direction"]
+            wind_speed = df["wind_speed"]
             ax.bar(wind_direction, wind_speed, normed=True, opening=0.8, edgecolor='white')
             ax.set_legend()
             plt.title('Wind Rose for all Turbines')
             plt.show()
         else:
-            valid_turbines = self._get_valid_turbine_ids(turbine_ids=turbine_ids)
+            valid_turbines = self._get_valid_turbine_ids(df, turbine_ids=turbine_ids)
         
             if not valid_turbines:
                 return 
 
             for turbine_id in valid_turbines:
-                turbine_data = self.df.select(["turbine_id", "wind_speed", "wind_direction"])\
+                turbine_data = df.select(["turbine_id", "wind_speed", "wind_direction"])\
                     .filter(pl.col("turbine_id") == turbine_id,
                             pl.all_horizontal(pl.col("wind_speed", "wind_direction").is_not_nan())).to_pandas()
                 plt.figure(figsize=(10, 10))
@@ -146,7 +145,7 @@ class DataInspector:
                 plt.show()
 
 
-    def plot_temperature_distribution(self) -> None:
+    def plot_temperature_distribution(self, df) -> None:
         """_summary_
 
         """
@@ -162,39 +161,39 @@ class DataInspector:
         
         _, ax = plt.subplots(1, 1, figsize=(15, 10))
         for col in temp_columns:
-            sns.histplot(self.df[col], bins=20, kde=True, label=col)
+            sns.histplot(df[col], bins=20, kde=True, label=col)
         
         ax.set(title='Temperature Distributions', xlabel="Temperature", ylabel="Frequency")
         plt.legend()
         plt.show()
 
-    def plot_correlation(self, features) -> None:
+    def plot_correlation(self, df, features) -> None:
         """_summary_
         """
         _, ax = plt.subplots(1, 1, figsize=(12, 6))
-        sns.heatmap(self.df.select(features).corr(), annot=True, cmap='coolwarm', vmin=-1, vmax=1, center=0, ax=ax,
+        sns.heatmap(df.select(features).corr(), annot=True, cmap='coolwarm', vmin=-1, vmax=1, center=0, ax=ax,
                     xticklabels=features, yticklabels=features)
         ax.set(title='Heatmap of Correlation Matrix')
         plt.show()
 
-    def plot_boxplot_wind_speed_direction(self, turbine_ids: list[str]) -> None:
+    def plot_boxplot_wind_speed_direction(self, df, turbine_ids: list[str]) -> None:
         """_summary_
 
         Args:
             turbine_id (str): _description_
         """
-        valid_turbines = self._get_valid_turbine_ids(turbine_ids=turbine_ids)
+        valid_turbines = self._get_valid_turbine_ids(df, turbine_ids=turbine_ids)
         
         if not valid_turbines:
             return
         
-        cols = ["hour", "wind_speed", "wind_direction", "turbine_id"] if "hour" in self.df.columns else ["time", "wind_speed", "wind_direction", "turbine_id"]
+        cols = ["hour", "wind_speed", "wind_direction", "turbine_id"] if "hour" in df.columns else ["time", "wind_speed", "wind_direction", "turbine_id"]
 
         for turbine_id in valid_turbines:
             # Select data for the specified turbine
-            # turbine_data = self.df.loc[turbine_id]
+            # turbine_data = df.loc[turbine_id]
             
-            turbine_data = self.df.select(cols)\
+            turbine_data = df.select(cols)\
                 .filter(pl.col("turbine_id") == turbine_id, pl.any_horizontal(pl.col("wind_speed", "wind_direction").is_not_nan()))\
                     .to_pandas()
             
@@ -216,11 +215,11 @@ class DataInspector:
             fig.tight_layout()
             plt.show()
 
-    def plot_wind_speed_weibull(self, turbine_ids: list[str]) -> None:
+    def plot_wind_speed_weibull(self, df, turbine_ids: list[str]) -> None:
         """_summary_
 
         """
-        valid_turbines = self._get_valid_turbine_ids(turbine_ids=turbine_ids)
+        valid_turbines = self._get_valid_turbine_ids(df, turbine_ids=turbine_ids)
         
         if not valid_turbines:
             return
@@ -228,7 +227,7 @@ class DataInspector:
         for turbine_id in valid_turbines: 
 
             # Extract wind speed data
-            wind_speed_data = self.df.select(["turbine_id", "wind_speed"])\
+            wind_speed_data = df.select(["turbine_id", "wind_speed"])\
                 .filter(pl.col("turbine_id") == turbine_id, pl.col("wind_speed").is_not_nan())\
                 .select(["wind_speed"])
 
@@ -330,8 +329,8 @@ if __name__ == "__main__":
     data_loader = DataLoader(data_dir=DATA_DIR, file_signature=FILE_SIGNATURE, multiprocessor=MULTIPROCESSOR)
     df = data_loader.read_multi_netcdf()
 
-    data_filter = DataFilter(raw_df=df)
-    df = data_filter.filter_turbine_data(status_codes=[1], availability_codes=[100], include_nan=True)
+    data_filter = DataFilter()
+    df = data_filter.filter_turbine_data(df, status_codes=[1], availability_codes=[100], include_nan=True)
     df = data_filter.resolve_missing_data(features=["wind_speed", "wind_direction", "power_output", "nacelle_direction"])
 
     TURBINE_INPUT_FILEPATH = "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/inputs/ge_282_127.yaml"
