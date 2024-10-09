@@ -15,12 +15,11 @@ from scipy.interpolate import CubicSpline
 class DataFilter:
     """_summary_
     """
-    def __init__(self, raw_df, turbine_availability_col=None, turbine_status_col=None):
-        self.df = raw_df
+    def __init__(self, turbine_availability_col=None, turbine_status_col=None):
         self.turbine_availability_col = turbine_availability_col
         self.turbine_status_col = turbine_status_col
 
-    def filter_inoperational(self, status_codes=None, availability_codes=None, include_nan=False) -> pl.DataFrame:
+    def filter_inoperational(self, df, status_codes=None, availability_codes=None, include_nan=False) -> pl.DataFrame:
         """
         status_codes (list): List of status codes to include (e.g., [1, 3])
         availability_codes (list): List of availability codes to include (e.g., [100, 50])
@@ -28,43 +27,49 @@ class DataFilter:
         """
         
         # Forward fill NaN values TODO what to do about NaN status and availability
-        # self.df = self.df.with_columns([
+        # df = df.with_columns([
         #     pl.col("turbine_status").forward_fill(),
         #     pl.col("turbine_availability").forward_fill()
         # ])
         
         # Create masks for filtering
-        status_mask = [True] * self.df.shape[0]
-        availability_mask = [True] * self.df.shape[0]
+        status_mask = pl.Series("status_mask", [True] * df.shape[0],)
+        availability_mask = pl.Series("availability_mask", [True] * df.shape[0],)
         
         if status_codes is not None and self.turbine_status_col is not None:
-            status_mask = self.df[self.turbine_status_col].is_in(status_codes)
+            status_mask = df[self.turbine_status_col].is_in(status_codes)
         
         if availability_codes is not None and self.turbine_availability_col is not None:
-            availability_mask = self.df[self.turbine_availability_col].is_in(availability_codes)
+            availability_mask = df[self.turbine_availability_col].is_in(availability_codes)
         
         # Combine masks
         combined_mask = pl.Series(status_mask & availability_mask)
         
-        if include_nan:
-            combined_mask |= pl.Series((self.df['turbine_status'].is_nan() | self.df['turbine_status'].is_null()) 
-                                       & (self.df['turbine_availability'].is_nan() | self.df['turbine_availability'].is_null()))
+        if include_nan and self.turbine_status_col is not None:
+            combined_mask |= pl.Series((df[self.turbine_status_col].is_nan() | df[self.turbine_status_col].is_null()))
+
+        if include_nan and self.turbine_availability_col is not None:
+            combined_mask |= pl.Series((df[self.turbine_availability_col].is_nan() | df[self.turbine_availability_col].is_null()))
             
-        
-        self.df = self.df.filter(combined_mask)
-        return self.df
+        return df.filter(combined_mask)
+
+    def resample(self, df, dt) -> pl.DataFrame:
+        # return df.sort(["turbine_id", "time"])\
+        # .group_by_dynamic(index_column="time", group_by="turbine_id", every=f"{dt}s", period=f"{dt}s", closed="right")\
+        # .agg(pl.all().first())
+        return df.with_columns(pl.col("time").dt.round(f"{dt}s").alias("time"))\
+                 .group_by("turbine_id", "time").agg(cs.numeric().drop_nulls().first()).sort(["turbine_id", "time"])
     
-    def resolve_missing_data(self, how="linear_interp", features=None) -> pl.DataFrame:
+    def resolve_missing_data(self, df, how="linear_interp", features=None) -> pl.DataFrame:
         """_summary_
         option 1) interpolate via linear, or forward
         option 2) remove rows TODO may need to split into multiple datasets
         """
-        # self.df = self.df.with_columns((pl.col(features) & cs.numeric()).map_batches(partial(self._interpolate_series, how=how)))
-        self.df = self.df.with_columns(pl.col(features).map_batches(partial(self._interpolate_series, how=how)))
-        self.df = self.df.fill_nan(None)
-        return self.df
+        
+        return df.with_columns(pl.col(features).map_batches(partial(self._interpolate_series, df=df, how=how)))\
+                 .fill_nan(None)
             
-    def _interpolate_series(self, ser, how):
+    def _interpolate_series(self, ser, df, how):
         """_summary_
 
         Args:
@@ -74,16 +79,18 @@ class DataFilter:
         Returns:
             _type_: _description_
         """
-        xp = self.df["time"].filter(ser.is_not_nan() & ser.is_not_null())
+        xp = df["time"].filter(ser.is_not_nan() & ser.is_not_null())
         fp = ser.filter(ser.is_not_nan() & ser.is_not_null())
-        x = self.df["time"]
+        x = df["time"]
+
+        if how == "forward_fill":
+            return ser.fill_null(strategy="forward")
 
         if how == "linear_interp":
             return np.interp(x, xp, fp, left=np.nan, right=np.nan)
         
         if how == "cubic_interp":
-            return CubicSpline(xp, fp, extrapolate=False)(x) 
-        # return self.df.select(pl.Float64().map_batches(lambda ser: np.interp(self.df["Time"], self.df.select(["Time"]).filter(ser.is_not_nan()), ser.filter(ser.is_not_nan()))))
+            return CubicSpline(xp, fp, extrapolate=False)(x)
     
 if __name__ == "__main__":
     from wind_forecasting.preprocessing.data_loader import DataLoader
