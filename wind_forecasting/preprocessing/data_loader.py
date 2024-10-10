@@ -30,16 +30,20 @@ class DataLoader:
        - convert circular measurements to sinusoidal measurements
        - normalize data 
     """
-    def __init__(self, data_dir: str = r"/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data", file_signature: str = r"kp.turbine.z02.b0.*.wt*.nc", 
-                 multiprocessor: str | None = None, features: list[str] = None):
+    def __init__(self, data_dir: str = r"/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data", 
+                 file_signature: str = r"kp.turbine.z02.b0.*.wt*.nc", 
+                 save_path: str = r"/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/kp.turbine.zo2.b0.raw.parquet",
+                 multiprocessor: str | None = None, features: list[str] | None = None, dt: float | None = None):
         
-        self.features = features or ["time", "turbine_id", "turbine_status", "turbine_availability", "wind_direction", "wind_speed", "power_output", "nacelle_direction"]
+        self.features = features or ["time", "turbine_id", "turbine_status", "wind_direction", "wind_speed", "power_output", "nacelle_direction"]
 
         # Get all the wts in the folder
         self.file_paths = glob.glob(f"{data_dir}/{file_signature}")
         if not self.file_paths:
             raise FileExistsError(f"File with signature {file_signature} in directory {data_dir} doesn't exist.")
+        self.save_path = save_path
         self.multiprocessor = multiprocessor
+        self.dt = dt
         # self.file_prefix = re.match(r"(.*)(?=\*)", file_signature)[0]
 
     def print_netcdf_structure(self, file_path) -> None:
@@ -72,13 +76,12 @@ class DataLoader:
         except Exception as e:
             print(f"Error reading NetCDF file: {e}")
 
-    def read_multi_netcdf(self): # -> pl.DataFrame | None:
+    def read_multi_netcdf(self): # -> pl.LazyFrame | None:
         """_summary_
 
         Returns:
             _type_: _description_
         """
-        dfs  = []
         if self.multiprocessor is not None:
             if self.multiprocessor == "mpi":
                 comm_size = MPI.COMM_WORLD.Get_size()
@@ -90,29 +93,30 @@ class DataLoader:
                 if self.multiprocessor == "mpi":
                     run_simulations_exec.max_workers = comm_size
                 
-                futures = [run_simulations_exec.submit(read_single_netcdf, file_path=file_path) for file_path in self.file_paths]
+                futures = [run_simulations_exec.submit(read_single_netcdf, data_loader=self, file_path=file_path) for file_path in self.file_paths]
 
-                dfs = [fut.result() for fut in futures]
+                df_query = [fut.result() for fut in futures]
         else:
+            df_query = []
             for file_path in self.file_paths:
-                dfs.append(read_single_netcdf(file_path))
+                df_query.append(read_single_netcdf(self, file_path))
 
         if (self.multiprocessor == "mpi" and (comm_rank := MPI.COMM_WORLD.Get_rank()) == 0) \
             or (self.multiprocessor != "mpi") or (self.multiprocessor is None):
-            if dfs:
-                dfs = pl.concat([df for df in dfs if df is not None]).sort(["turbine_id", "time"])
-                # combined_df.set_index(['turbine_id', 'time'], inplace=True)
-                print(f"Combined DataFrame shape: {dfs.shape}")
-                print(f"Unique turbine IDs: {dfs['turbine_id'].unique()}")
-                return dfs
+            if [df for df in df_query if df is not None]:
+                df_query = pl.concat([df for df in df_query if df is not None]).sort(["turbine_id", "time"])
+                df_query.collect(streaming=True).write_parquet(self.save_path)
+                # print(f"Combined LazyFrame shape: {dfs.shape}")
+                # print(f"Unique turbine IDs: {dfs['turbine_id'].unique()}")
+                return df_query
             
             print("No data frames were created.")
 
-    def convert_time_to_sin(df, self) -> pl.DataFrame:
+    def convert_time_to_sin(self, df) -> pl.LazyFrame:
         """_summary_
             convert timestamp to cosine and sinusoidal components
         Returns:
-            pl.DataFrame: _description_
+            pl.LazyFrame: _description_
         """
         # TODO polarize
         # Convert Time to float64 for accurate division
@@ -136,19 +140,35 @@ class DataLoader:
 
         return df
 
-    def reduce_features(self, df) -> pl.DataFrame:
+    def reduce_features(self, df) -> pl.LazyFrame:
         """_summary_
 
         Returns:
-            pl.DataFrame: _description_
+            pl.LazyFrame: _description_
         """
         return df.select(self.features).filter(pl.any_horizontal(cs.numeric().is_not_null()))
 
-    def normalize_features(self, df) -> pl.DataFrame:
+    def resample(self, df) -> pl.LazyFrame:
+        """_summary_
+
+        Args:
+            df (_type_): _description_
+            dt (_type_): _description_
+
+        Returns:
+            pl.LazyFrame: _description_
+        """
+        # return df.sort(["turbine_id", "time"])\
+        # .group_by_dynamic(index_column="time", group_by="turbine_id", every=f"{dt}s", period=f"{dt}s", closed="right")\
+        # .agg(pl.all().first())
+        return df.with_columns(pl.col("time").dt.round(f"{self.dt}s").alias("time"))\
+                 .group_by("turbine_id", "time").agg(cs.numeric().drop_nulls().first()).sort(["turbine_id", "time"])
+    
+    def normalize_features(self, df) -> pl.LazyFrame:
         """_summary_
             use minmax scaling to normalize non-temporal features
         Returns:
-            pl.DataFrame: _description_
+            pl.LazyFrame: _description_
         """
         # Normalize non-time features
         # TODO polarize
@@ -157,7 +177,7 @@ class DataLoader:
         df[features_to_normalize] = MinMaxScaler().fit_transform(df[features_to_normalize])
         return df
     
-def read_single_netcdf(file_path):
+def read_single_netcdf(data_loader, file_path):
     """_summary_
 
     Args:
@@ -174,64 +194,36 @@ def read_single_netcdf(file_path):
             time = dataset.variables['date']
             time = pd_to_datetime(nc.num2date(times=time[:], units=time.units, calendar=time.calendar, only_use_cftime_datetimes=False, only_use_python_datetimes=True))
             
-            # else:
-            #     # date = re.findall(f"(?<={file_prefix})(\d{8})(=?.)", os.path.basename(file_path))
-            #     start_date = datetime.strptime(re.findall(r"(\d{8})", os.path.basename(file_path))[0], "%Y%m%d")
-            #     time = [start_date + datetime.timedelta(seconds=self.dt * i) for i in range(0, dataset.dimensions["index"].size)]
-
-            # time = [datetime.strptime(t.strftime('%Y-%m-%d %H:%M:%S'), '%Y-%m-%d %H:%M:%S') for t in time]
-            # time = datetime.strptime([t.strftime('%Y-%m-%d %H:%M:%S') for t in time])
             # TODO add column mapping
             data = {
                 'turbine_id': [os.path.basename(file_path).split('.')[-2]] * dataset.variables["date"].shape[0],
                 'time': time,
                 'turbine_status': dataset.variables['WTUR.TurSt'][:],
-                # 'turbine_availability': dataset.variables['WAVL.TurAvl'][:],
                 'wind_direction': dataset.variables['WMET.HorWdDir'][:],
                 'wind_speed': dataset.variables['WMET.HorWdSpd'][:],
-                # 'generator_current_phase_1': dataset.variables['WCNV.GnA1'][:],
-                # 'generator_current_phase_2': dataset.variables['WCNV.GnA2'][:],
-                # 'generator_current_phase_3': dataset.variables['WCNV.GnA3'][:],
-                # 'generator_voltage_phase_1': dataset.variables['WCNV.GnPNV1'][:],
-                # 'generator_voltage_phase_2': dataset.variables['WCNV.GnPNV2'][:],
-                # 'generator_voltage_phase_3': dataset.variables['WCNV.GnPNV3'][:],
                 'power_output': dataset.variables['WTUR.W'][:],
-                
-                # 'generator_bearing_de_temp': dataset.variables['WGEN.BrgDETmp'][:],
-                # 'generator_bearing_nde_temp': dataset.variables['WGEN.BrgNDETmp'][:],
-                # 'generator_inlet_temp': dataset.variables['WGEN.InLetTmp'][:],
-                # 'generator_stator_temp_1': dataset.variables['WGEN.SttTmp1'][:],
-                # 'generator_stator_temp_2': dataset.variables['WGEN.SttTmp2'][:],
-                # 'generator_rotor_speed': dataset.variables['WGEN.RotSpd'][:],
-                'nacelle_direction': dataset.variables['WNAC.Dir'][:],
-                # 'nacelle_temperature': dataset.variables['WNAC.Tmp'][:],
-                # 'ambient_temperature': dataset.variables['WMET.EnvTmp'][:],
-                # 'blade_pitch_angle_1': dataset.variables['WROT.BlPthAngVal1'][:],
-                # 'blade_pitch_angle_2': dataset.variables['WROT.BlPthAngVal2'][:],
-                # 'blade_pitch_angle_3': dataset.variables['WROT.BlPthAngVal3'][:],
-                # 'rotor_speed': dataset.variables['WROT.RotSpd'][:],
-                
-                
+                'nacelle_direction': dataset.variables['WNAC.Dir'][:]
             }
             
-            df = pl.DataFrame(data).group_by("turbine_id", "time").agg(
+            df_query = pl.LazyFrame(data)\
+                .group_by("turbine_id", "time").agg(
+                # remove the rows with all nans (corresponding to rows where excluded columns would have had a value)
+                # and bundle all values corresponding to identical time stamps together
                 cs.numeric().drop_nans().first()
             )
-            del data
-            # data = qa.convert_datetime_column(df=df, time_col="time", tz_aware=False, local_tz="CDT")
-            # df["time"].str.to_datetime(time_unit="ms") #dataset.variables['date'].units)
-            
-            # .sort(by="time")
-            # 
 
-            # Group by timestamp and aggregate JUAN what did you want to do here?
-            # df = df.group_by('time').agg(*[pl.col(c).first() for c in df.columns if c != "time"])
-                
-            #     {   # Group by timestamp and aggregate
-            #     col: 'first' for col in df.columns if col != 'time'
-            # }).reset_index()            
-            print(f"\nProcessed {file_path}, shape: {df.shape}")
-            return df
+            df_query = data_loader.reduce_features(df_query)
+
+            if data_loader.dt is not None:
+                df_query = data_loader.resample(df_query)
+
+            # print(df_query.explain(streaming=True))
+
+            del data
+            # del df_query
+
+            print(f"\nProcessed {file_path}") #, shape: {df.shape}")
+            return df_query
     except Exception as e:
         print(f"\nError processing {file_path}: {e}")
 
@@ -240,23 +232,50 @@ if __name__ == "__main__":
     
     if platform == "darwin":
         DATA_DIR = "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data"
-        PL_SAVE_PATH = "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/kp.turbine.zo2.b0.raw.csv"
-        FILE_SIGNATURE = "kp.turbine.z02.b0.20220301.*.wt073.nc"
-        MULTIPROCESSOR = None
+        PL_SAVE_PATH = "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/kp.turbine.zo2.b0.raw.parquet"
+        FILE_SIGNATURE = "kp.turbine.z02.b0.20220301.*.*.nc"
+        MULTIPROCESSOR = "cf"
+        TURBINE_INPUT_FILEPATH = "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/inputs/ge_282_127.yaml"
+        FARM_INPUT_FILEPATH = "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/inputs/gch_KP_v4.yaml"
     elif platform == "linux":
         DATA_DIR = "/pl/active/paolab/awaken_data/kp.turbine.z02.b0/"
-        PL_SAVE_PATH = "/scratch/alpine/aohe7145/awaken_data/kp.turbine.zo2.b0.raw.csv"
+        PL_SAVE_PATH = "/scratch/alpine/aohe7145/awaken_data/kp.turbine.zo2.b0.raw.parquet"
         FILE_SIGNATURE = "kp.turbine.z02.b0.*.*.*.nc"
         MULTIPROCESSOR = "mpi"
-        
+        TURBINE_INPUT_FILEPATH = "/projects/aohe7145/toolboxes/wind-forecasting/examples/inputs/ge_282_127.yaml"
+        FARM_INPUT_FILEPATH = "/projects/aohe7145/toolboxes/wind-forecasting/examples/inputs/gch_KP_v4.yaml"
+    
+    DT = 5
     RUN_ONCE = (MULTIPROCESSOR == "mpi" and (comm_rank := MPI.COMM_WORLD.Get_rank()) == 0) or (MULTIPROCESSOR != "mpi") or (MULTIPROCESSOR is None)
 
     if RUN_ONCE:
-        data_loader = DataLoader(data_dir=DATA_DIR, file_signature=FILE_SIGNATURE, multiprocessor=MULTIPROCESSOR, 
-                         features=["time", "turbine_id", "turbine_status", "turbine_availability", "wind_direction", "wind_speed", "power_output", "nacelle_direction"])
-        data_loader.print_netcdf_structure(data_loader.file_paths[0])
+        data_loader = DataLoader(data_dir=DATA_DIR, file_signature=FILE_SIGNATURE, save_path=PL_SAVE_PATH,
+                                 multiprocessor=MULTIPROCESSOR, dt=DT,
+                         features=["time", "turbine_id", "turbine_status", "wind_direction", "wind_speed", "power_output", "nacelle_direction"])
+        # data_loader.print_netcdf_structure(data_loader.file_paths[0])
     
-    df = data_loader.read_multi_netcdf()
+    if os.path.exists(data_loader.save_path):
+        # Note that the order of the columns in the provided schema must match the order of the columns in the CSV being read.
+        schema = pl.Schema({"turbine_id": pl.String(),
+                            "time": pl.Datetime(time_unit="ms"),
+                            "turbine_status": pl.Float64,
+                            "wind_direction": pl.Float64,
+                            "wind_speed": pl.Float64,
+                            "power_output": pl.Float64,
+                            "nacelle_direction": pl.Float64,
+                        })
+        
+        df_query = pl.scan_parquet(source=data_loader.save_path, hive_schema=schema)
+    else:
+        df_query = data_loader.read_multi_netcdf()
+        # df_query.sink_parquet(PL_SAVE_PATH)
 
-    if RUN_ONCE:
-        df.write_csv(PL_SAVE_PATH)
+    # print(df_query.explain(streaming=True))
+
+    # from wind_forecasting.preprocessing.data_inspector import DataInspector
+    # data_inspector = DataInspector(turbine_input_filepath=TURBINE_INPUT_FILEPATH, farm_input_filepath=FARM_INPUT_FILEPATH)
+    # data_inspector.plot_wind_speed_power(df_query, turbine_ids=["wt073"])
+    # data_inspector.plot_wind_speed_weibull(df_query, turbine_ids=["wt073"])
+    # data_inspector.plot_wind_rose(df_query, turbine_ids=["wt073"])
+    # data_inspector.plot_boxplot_wind_speed_direction(df_query, turbine_ids=["wt073"])
+    # data_inspector.plot_time_series(df_query, turbine_ids=["wt073"])

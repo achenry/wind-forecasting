@@ -18,57 +18,15 @@ class DataFilter:
     def __init__(self, turbine_availability_col=None, turbine_status_col=None):
         self.turbine_availability_col = turbine_availability_col
         self.turbine_status_col = turbine_status_col
-
-    def filter_inoperational(self, df, status_codes=None, availability_codes=None, include_nan=False) -> pl.DataFrame:
-        """
-        status_codes (list): List of status codes to include (e.g., [1, 3])
-        availability_codes (list): List of availability codes to include (e.g., [100, 50])
-        include_nan (bool): Whether to include NaN values in the filter
-        """
-        
-        # Forward fill NaN values TODO what to do about NaN status and availability
-        # df = df.with_columns([
-        #     pl.col("turbine_status").forward_fill(),
-        #     pl.col("turbine_availability").forward_fill()
-        # ])
-        
-        # Create masks for filtering
-        status_mask = pl.Series("status_mask", [True] * df.shape[0],)
-        availability_mask = pl.Series("availability_mask", [True] * df.shape[0],)
-        
-        if status_codes is not None and self.turbine_status_col is not None:
-            status_mask = df[self.turbine_status_col].is_in(status_codes)
-        
-        if availability_codes is not None and self.turbine_availability_col is not None:
-            availability_mask = df[self.turbine_availability_col].is_in(availability_codes)
-        
-        # Combine masks
-        combined_mask = pl.Series(status_mask & availability_mask)
-        
-        if include_nan and self.turbine_status_col is not None:
-            combined_mask |= pl.Series((df[self.turbine_status_col].is_nan() | df[self.turbine_status_col].is_null()))
-
-        if include_nan and self.turbine_availability_col is not None:
-            combined_mask |= pl.Series((df[self.turbine_availability_col].is_nan() | df[self.turbine_availability_col].is_null()))
-            
-        return df.filter(combined_mask)
-
-    def resample(self, df, dt) -> pl.DataFrame:
-        # return df.sort(["turbine_id", "time"])\
-        # .group_by_dynamic(index_column="time", group_by="turbine_id", every=f"{dt}s", period=f"{dt}s", closed="right")\
-        # .agg(pl.all().first())
-        return df.with_columns(pl.col("time").dt.round(f"{dt}s").alias("time"))\
-                 .group_by("turbine_id", "time").agg(cs.numeric().drop_nulls().first()).sort(["turbine_id", "time"])
     
-    def resolve_missing_data(self, df, how="linear_interp", features=None) -> pl.DataFrame:
+    def resolve_missing_data(self, df, how="linear_interp", features=None) -> pl.LazyFrame:
         """_summary_
         option 1) interpolate via linear, or forward
-        option 2) remove rows TODO may need to split into multiple datasets
         """
         
         return df.with_columns(pl.col(features).map_batches(partial(self._interpolate_series, df=df, how=how)))\
                  .fill_nan(None)
-            
+    
     def _interpolate_series(self, ser, df, how):
         """_summary_
 
@@ -91,6 +49,33 @@ class DataFilter:
         
         if how == "cubic_interp":
             return CubicSpline(xp, fp, extrapolate=False)(x)
+
+    def filter_inoperational(self, df, status_codes=None, availability_codes=None) -> pl.LazyFrame:
+        """
+        status_codes (list): List of status codes to include (e.g., [1, 3])
+        availability_codes (list): List of availability codes to include (e.g., [100, 50])
+        include_nan (bool): Whether to include NaN values in the filter
+        """
+        
+        # Create masks for filtering
+        include_status_mask = status_codes is not None and self.turbine_status_col is not None
+        include_availability_mask = availability_codes is not None and self.turbine_availability_col is not None
+
+        if include_status_mask:
+            status_mask = df.col(self.turbine_status_col).is_in(status_codes)
+        
+        if include_availability_mask:
+            availability_mask = df.col(self.turbine_availability_col).is_in(availability_codes)
+        
+        # Combine masks
+        if include_status_mask and include_availability_mask:
+            combined_mask = status_mask & availability_mask
+        elif include_status_mask:
+            combined_mask = status_mask
+        elif include_availability_mask:
+            combined_mask = availability_mask
+        
+        return df.filter(combined_mask)
     
 if __name__ == "__main__":
     from wind_forecasting.preprocessing.data_loader import DataLoader
