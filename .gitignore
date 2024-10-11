@@ -39,3 +39,6 @@ wind_forecasting.code-workspace
 
 examples/data/*
 .vscode/
+
+wind_forecasting/preprocessing/.ipynb_checkpoints/
+*.sh.vscode/launch.json
