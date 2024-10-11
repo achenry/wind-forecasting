@@ -1,9 +1,0 @@
-README.md
-setup.py
-wind_forecasting/__init__.py
-wind_forecasting/version.py
-wind_forecasting.egg-info/PKG-INFO
-wind_forecasting.egg-info/SOURCES.txt
-wind_forecasting.egg-info/dependency_links.txt
-wind_forecasting.egg-info/requires.txt
-wind_forecasting.egg-info/top_level.txt
