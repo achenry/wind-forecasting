@@ -1,0 +1,95 @@
+{
+    "configurations": [
+        {
+            "name": "Python Debugger: STTRE.py",
+            "type": "debugpy",
+            "request": "launch",
+            "cwd": "${workspaceFolder}/wind_forecasting",
+            "program": "STTRE.py",
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "Python Debugger: data_loader.py",
+            "type": "debugpy",
+            "request": "launch",
+            "cwd": "${workspaceFolder}/wind_forecasting/preprocessing",
+            "program": "data_loader.py",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+        },
+        {
+            "name": "Python Debugger: data_inspector.py",
+            "type": "debugpy",
+            "request": "launch",
+            "cwd": "${workspaceFolder}/wind_forecasting/preprocessing",
+            "program": "data_inspector.py",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+        },
+        {
+            "name": "Python Debugger: data_filter.py",
+            "type": "debugpy",
+            "request": "launch",
+            "cwd": "${workspaceFolder}/wind_forecasting/preprocessing",
+            "program": "data_filter.py",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+        },
+        {
+            //python -u main_informer.py --model informer --data ETTh1 --root_path x --data_path x --attn prob --freq h
+            "name": "Python Debugger: train_informer.py",
+            "type": "debugpy",
+            "request": "launch",
+            "cwd": "${workspaceFolder}/wind_forecasting/run_scripts",
+            "program": "-u train_informer.py",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "args": [
+                "--model", "informer",
+                "--data", "ETTh1",
+                "--root_path", "",
+                "--data_path", "",
+                "--attn", "prob",
+                "--freq", "h"
+            ] 
+        },
+        {
+            "name": "Python Debugger: train_spacetimeformer.py",
+            "type": "debugpy",
+            "request": "launch",
+            "cwd": "${workspaceFolder}/wind_forecasting/run_scripts",
+            "program": "train_spacetimeformer.py",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "args": [
+                "spacetimeformer",
+                "solar_energy",
+                "--debug",
+                "--run_name", "spacetimeformer_solarenergy_debug",
+                "--context_points", "168",
+                "--target_points", "24",
+                "--d_model", "100",
+                "--d_ff", "400",
+                "--enc_layers", "5",
+                "--dec_layers", "5",
+                "--l2_coeff", "1e-3",
+                "--dropout_ff", ".2",
+                "--dropout_emb", ".1",
+                "--d_qk", "20",
+                "--d_v", "20",
+                "--n_heads", "6",
+                "--batch_size",
+                "32",
+                "--class_loss_imp", "0",
+                "--initial_downsample_convs", "1",
+                "--decay_factor", ".8",
+                "--warmup_steps", "1000"
+                // "windfarm",
+                // "--debug",
+                // "--run_name", "spacetimeformer_windfarm_debug",
+                // "--context_points", "600",
+                // "--target_points", "600"
+            ]
+        },
+    ]
+}
