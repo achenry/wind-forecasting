@@ -6,26 +6,29 @@
 import glob
 import os
 import re
+import logging
+from concurrent.futures import ProcessPoolExecutor
+
 import netCDF4 as nc
 import polars as pl
+import polars.selectors as cs
+from pandas import to_datetime as pd_to_datetime
 import numpy as np
 from sklearn.preprocessing import MinMaxScaler
 from mpi4py import MPI
 from mpi4py.futures import MPICommExecutor
-from concurrent.futures import ProcessPoolExecutor
-import logging #INFO: @Juan 10/02/24 Added logging to the code for debugging
+
+from openoa.utils import qa, plot
 
 SECONDS_PER_MINUTE = np.float64(60)
-SECONDS_PER_HOUR = np.float64(3600)
-SECONDS_PER_DAY = 86400
-SECONDS_PER_YEAR = 31536000  # non-leap year, 365 days
+SECONDS_PER_HOUR = SECONDS_PER_MINUTE * 60
+SECONDS_PER_DAY = SECONDS_PER_HOUR * 24
+SECONDS_PER_YEAR = SECONDS_PER_DAY * 365  # non-leap year, 365 days
 
 # INFO: @Juan 10/02/24 Set Looging up
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-# RUN_ONCE = 
-
-class DataLoader: #INFO: @Juan 10/02/24 Added methods to create sequences and get prepared data X,y,feature_names, sequence_length, prediction_horizon
+class DataLoader:
     """_summary_
        - load the scada data, 
        - convert timestamps to datetime objects
@@ -46,8 +49,6 @@ class DataLoader: #INFO: @Juan 10/02/24 Added methods to create sequences and ge
         # Get all the wts in the folder
         self.file_paths = glob.glob(f"{data_dir}/{file_signature}")
         self.file_prefix = re.match(r"(.*)(?=\*)", file_signature)[0]
-        self.multiprocessor = multiprocessor
-        self.df = None
         #INFO: @Juan 10/02/24 
         self.sequence_length = sequence_length
         self.prediction_horizon = prediction_horizon
@@ -81,6 +82,11 @@ class DataLoader: #INFO: @Juan 10/02/24 Added methods to create sequences and ge
             logging.error(f"Error reading NetCDF file: {e}")
     
     def read_multi_netcdf(self): # -> pl.DataFrame | None:
+        """_summary_
+
+        Returns:
+            _type_: _description_
+        """
         dfs  = []
         if self.multiprocessor is not None:
             if self.multiprocessor == "mpi":
@@ -103,28 +109,27 @@ class DataLoader: #INFO: @Juan 10/02/24 Added methods to create sequences and ge
         if (self.multiprocessor == "mpi" and (comm_rank := MPI.COMM_WORLD.Get_rank()) == 0) \
             or (self.multiprocessor != "mpi") or (self.multiprocessor is None):
             if dfs:
-                combined_df = pl.concat([df for df in dfs if df is not None])
+                dfs = pl.concat([df for df in dfs if df is not None]).sort(["turbine_id", "time"])
                 # combined_df.set_index(['turbine_id', 'time'], inplace=True)
-                logging.info(f"Combined DataFrame shape: {combined_df.shape}")
-                logging.info(f"Unique turbine IDs: {combined_df['turbine_id'].unique()}")
-                self.df = combined_df
+                # logging.info(f"Combined DataFrame shape: {combined_df.shape}")
+                # logging.info(f"Unique turbine IDs: {combined_df['turbine_id'].unique()}")
                 return combined_df
             
             logging.warning("No data frames were created.")
             return None
 
     # INFO: @Juan 10/02/24 Revamped this method to use Polars functions consistently, vectorized where possible, and using type casting for consistency and performance enhancements.
-    def convert_time_to_sin(self) -> pl.DataFrame:
+    def convert_time_to_sin(self, df) -> pl.DataFrame:
         """_summary_
             convert timestamp to cosine and sinusoidal components
         Returns:
             pl.DataFrame: _description_
         """
-        if self.df is None:
+        if df is None:
             raise ValueError("Data not loaded > call read_multi_netcdf() first.")
         
         # Convert Time to float64 for accurate division and create time features (hour, day, year) using Polars vectorized operations
-        self.df = self.df.with_columns([
+        df = df.with_columns([
             pl.col('Time').cast(pl.Float64),
             (pl.col('Time') % SECONDS_PER_DAY / SECONDS_PER_HOUR).alias('hour'),
             ((pl.col('Time') // SECONDS_PER_DAY) % 365).cast(pl.Int32).alias('day'),
@@ -132,7 +137,7 @@ class DataLoader: #INFO: @Juan 10/02/24 Added methods to create sequences and ge
         ])
 
         # Normalize time features using sin/cos for capturing cyclic patterns using Polars vectorized operations
-        self.df = self.df.with_columns([
+        df = df.with_columns([
             pl.sin(2 * np.pi * pl.col('hour') / 24).alias('hour_sin'),
             pl.cos(2 * np.pi * pl.col('hour') / 24).alias('hour_cos'),
             pl.sin(2 * np.pi * pl.col('day') / 365).alias('day_sin'),
@@ -141,16 +146,17 @@ class DataLoader: #INFO: @Juan 10/02/24 Added methods to create sequences and ge
             pl.cos(2 * np.pi * pl.col('year')).alias('year_cos'),
         ])
 
-        return self.df
+        return df
 
-    def reduce_features(self) -> pl.DataFrame:
-        # Reduce the DF to only include specified features
-        if self.df is None:
-            raise ValueError("Data not loaded > call read_multi_netcdf() first.")
-        self.df = self.df.select(self.features)
-        return self.df
+    def reduce_features(self, df) -> pl.DataFrame:
+        """_summary_
 
-    def normalize_features(self) -> pl.DataFrame:
+        Returns:
+            pl.DataFrame: _description_
+        """
+        return df.select(self.features).filter(pl.any_horizontal(cs.numeric().is_not_null()))
+
+    def normalize_features(self, df) -> pl.DataFrame:
         """_summary_
             use minmax scaling to normalize non-temporal features
         Returns:
@@ -160,15 +166,13 @@ class DataLoader: #INFO: @Juan 10/02/24 Added methods to create sequences and ge
             raise ValueError("Data not loaded > call read_multi_netcdf() first.")
         
         # Normalize non-time features
-        features_to_normalize = [col for col in self.df.columns
+        features_to_normalize = [col for col in df.columns
                                  if all(c not in col for c in ['Time', 'hour', 'day', 'year'])]
         
         # INFO: @Juan 10/02/24 Explicitly convert to numpy and back to DF to ensure compatibility with MinMaxScaler
         normalized_data = MinMaxScaler().fit_transform(self.df.select(features_to_normalize).to_numpy())
         # INFO: @Juan 10/02/24 Hstack (grow horizontally) the normalized data df back to the original DF
-        self.df = self.df.drop(features_to_normalize).hstack(pl.DataFrame(normalized_data, schema=features_to_normalize))
-        
-        return self.df
+        return df.drop(features_to_normalize).hstack(pl.DataFrame(normalized_data, schema=features_to_normalize))
     
     def create_sequences(self, target_turbine: str): #INFO: @Juan 10/02/24 
         if self.df is None:
@@ -209,68 +213,73 @@ class DataLoader: #INFO: @Juan 10/02/24 Added methods to create sequences and ge
                 time = dataset.variables['date']
                 # INFO: @Juan 10/02/24 Changed pandas to polars for time conversion pl.from_numpy
                 # BUG: Time is not being converted correctly, check if this new implementation with polars is working!
-                time = pl.from_numpy(nc.num2date(times=time[:], units=time.units, calendar=time.calendar, only_use_cftime_datetimes=False, only_use_python_datetimes=True))
-                # else:
-                #     # date = re.findall(f"(?<={file_prefix})(\d{8})(=?.)", os.path.basename(file_path))
-                #     start_date = datetime.strptime(re.findall(r"(\d{8})", os.path.basename(file_path))[0], "%Y%m%d")
-                #     time = [start_date + datetime.timedelta(seconds=self.dt * i) for i in range(0, dataset.dimensions["index"].size)]
-
-                # time = [datetime.strptime(t.strftime('%Y-%m-%d %H:%M:%S'), '%Y-%m-%d %H:%M:%S') for t in time]
-                # time = datetime.strptime([t.strftime('%Y-%m-%d %H:%M:%S') for t in time])
+                # time = pl.from_numpy(nc.num2date(times=time[:], units=time.units, calendar=time.calendar, only_use_cftime_datetimes=False, only_use_python_datetimes=True))
+                time = pd_to_datetime(nc.num2date(times=time[:], units=time.units, calendar=time.calendar, only_use_cftime_datetimes=False, only_use_python_datetimes=True))
 
                 # NOTE: Future work: Have config file to define turbine feature names in data etc
                 data = {
-                    'time': time,
                     'turbine_id': [os.path.basename(file_path).split('.')[-2]] * dataset.variables["date"].shape[0],
-                    'generator_current_phase_1': dataset.variables['WCNV.GnA1'][:],
-                    'generator_current_phase_2': dataset.variables['WCNV.GnA2'][:],
-                    'generator_current_phase_3': dataset.variables['WCNV.GnA3'][:],
-                    'generator_voltage_phase_1': dataset.variables['WCNV.GnPNV1'][:],
-                    'generator_voltage_phase_2': dataset.variables['WCNV.GnPNV2'][:],
-                    'generator_voltage_phase_3': dataset.variables['WCNV.GnPNV3'][:],
-                    'power_output': dataset.variables['WTUR.W'][:],
-                    'turbine_availability': dataset.variables['WAVL.TurAvl'][:],
-                    'generator_bearing_de_temp': dataset.variables['WGEN.BrgDETmp'][:],
-                    'generator_bearing_nde_temp': dataset.variables['WGEN.BrgNDETmp'][:],
-                    'generator_inlet_temp': dataset.variables['WGEN.InLetTmp'][:],
-                    'generator_stator_temp_1': dataset.variables['WGEN.SttTmp1'][:],
-                    'generator_stator_temp_2': dataset.variables['WGEN.SttTmp2'][:],
-                    'generator_rotor_speed': dataset.variables['WGEN.RotSpd'][:],
-                    'nacelle_direction': dataset.variables['WNAC.Dir'][:],
-                    'nacelle_temperature': dataset.variables['WNAC.Tmp'][:],
-                    'ambient_temperature': dataset.variables['WMET.EnvTmp'][:],
-                    'blade_pitch_angle_1': dataset.variables['WROT.BlPthAngVal1'][:],
-                    'blade_pitch_angle_2': dataset.variables['WROT.BlPthAngVal2'][:],
-                    'blade_pitch_angle_3': dataset.variables['WROT.BlPthAngVal3'][:],
-                    'rotor_speed': dataset.variables['WROT.RotSpd'][:],
+                    'time': time,
                     'turbine_status': dataset.variables['WTUR.TurSt'][:],
+                    # 'turbine_availability': dataset.variables['WAVL.TurAvl'][:],
                     'wind_direction': dataset.variables['WMET.HorWdDir'][:],
-                    'wind_speed': dataset.variables['WMET.HorWdSpd'][:]
+                    'wind_speed': dataset.variables['WMET.HorWdSpd'][:],
+                    # 'generator_current_phase_1': dataset.variables['WCNV.GnA1'][:],
+                    # 'generator_current_phase_2': dataset.variables['WCNV.GnA2'][:],
+                    # 'generator_current_phase_3': dataset.variables['WCNV.GnA3'][:],
+                    # 'generator_voltage_phase_1': dataset.variables['WCNV.GnPNV1'][:],
+                    # 'generator_voltage_phase_2': dataset.variables['WCNV.GnPNV2'][:],
+                    # 'generator_voltage_phase_3': dataset.variables['WCNV.GnPNV3'][:],
+                    'power_output': dataset.variables['WTUR.W'][:],
+                    
+                    # 'generator_bearing_de_temp': dataset.variables['WGEN.BrgDETmp'][:],
+                    # 'generator_bearing_nde_temp': dataset.variables['WGEN.BrgNDETmp'][:],
+                    # 'generator_inlet_temp': dataset.variables['WGEN.InLetTmp'][:],
+                    # 'generator_stator_temp_1': dataset.variables['WGEN.SttTmp1'][:],
+                    # 'generator_stator_temp_2': dataset.variables['WGEN.SttTmp2'][:],
+                    # 'generator_rotor_speed': dataset.variables['WGEN.RotSpd'][:],
+                    'nacelle_direction': dataset.variables['WNAC.Dir'][:],
+                    # 'nacelle_temperature': dataset.variables['WNAC.Tmp'][:],
+                    # 'ambient_temperature': dataset.variables['WMET.EnvTmp'][:],
+                    # 'blade_pitch_angle_1': dataset.variables['WROT.BlPthAngVal1'][:],
+                    # 'blade_pitch_angle_2': dataset.variables['WROT.BlPthAngVal2'][:],
+                    # 'blade_pitch_angle_3': dataset.variables['WROT.BlPthAngVal3'][:],
+                    # 'rotor_speed': dataset.variables['WROT.RotSpd'][:],
                 }
                 
-                df = pl.DataFrame(data).sort('time')
-                # df["time"].str.to_datetime(time_unit="ms") #dataset.variables['date'].units)
+                df = pl.DataFrame(data).group_by("turbine_id", "time").agg(
+                    cs.numeric().drop_nans().first()
+                )
+                del data
                 
-                # .sort(by="time")
-                # 
-
-                # Group by timestamp and aggregate JUAN what did you want to do here?
-                # df = df.group_by('time').agg(*[pl.col(c).first() for c in df.columns if c != "time"])
-                    
-                #     {   # Group by timestamp and aggregate
-                #     col: 'first' for col in df.columns if col != 'time'
-                # }).reset_index()            
-                logging.info(f"Processed {file_path}, shape: {df.shape}")
+                logging.info(f"Processed {file_path}") #, shape: {df.shape}")
                 return df
         except Exception as e:
             logging.error(f"Error processing {file_path}: {e}")
             return None
 
 if __name__ == "__main__":
-    data_dir = "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data"
-    file_signature = "kp.turbine.z02.b0.202203*.wt073.nc"
-    multiprocessor = None
+    from sys import platform
+    
+    if platform == "darwin":
+        DATA_DIR = "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data"
+        PL_SAVE_PATH = "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/kp.turbine.zo2.b0.raw.csv"
+        FILE_SIGNATURE = "kp.turbine.z02.b0.20220301.*.wt073.nc"
+        MULTIPROCESSOR = None
+    elif platform == "linux":
+        DATA_DIR = "/pl/active/paolab/awaken_data/kp.turbine.z02.b0/"
+        PL_SAVE_PATH = "/scratch/alpine/aohe7145/awaken_data/kp.turbine.zo2.b0.raw.csv"
+        FILE_SIGNATURE = "kp.turbine.z02.b0.*.*.*.nc"
+        MULTIPROCESSOR = "mpi"
+        
+    RUN_ONCE = (MULTIPROCESSOR == "mpi" and (comm_rank := MPI.COMM_WORLD.Get_rank()) == 0) or (MULTIPROCESSOR != "mpi") or (MULTIPROCESSOR is None)
 
-    data_loader = DataLoader(data_dir=data_dir, file_signature=file_signature, multiprocessor=multiprocessor)
-    data_loader.print_netcdf_structure(data_loader.file_paths[0])
+    if RUN_ONCE:
+        data_loader = DataLoader(data_dir=DATA_DIR, file_signature=FILE_SIGNATURE, multiprocessor=MULTIPROCESSOR, 
+                         features=["time", "turbine_id", "turbine_status", "turbine_availability", "wind_direction", "wind_speed", "power_output", "nacelle_direction"])
+        data_loader.print_netcdf_structure(data_loader.file_paths[0])
+    
     df = data_loader.read_multi_netcdf()
+
+    if RUN_ONCE:
+        df.write_csv(PL_SAVE_PATH)
