@@ -97,13 +97,13 @@ class DataLoader:
                 if self.multiprocessor == "mpi":
                     run_simulations_exec.max_workers = comm_size
                 
-                futures = [run_simulations_exec.submit(self._read_single_netcdf, data_loader=self, file_path=file_path) for file_path in self.file_paths]
+                futures = [run_simulations_exec.submit(self._read_single_netcdf, file_path=file_path) for file_path in self.file_paths]
 
                 df_query = [fut.result() for fut in futures]
         else:
             df_query = []
             for file_path in self.file_paths:
-                df_query.append(read_single_netcdf(self, file_path))
+                df_query.append(self._read_single_netcdf(self, file_path=file_path))
 
         if (self.multiprocessor == "mpi" and (comm_rank := MPI.COMM_WORLD.Get_rank()) == 0) \
             or (self.multiprocessor != "mpi") or (self.multiprocessor is None):
@@ -208,9 +208,7 @@ class DataLoader:
             raise ValueError("ERROR: Sequences have not been created! > call create_sequences() first")
         return self.df,self.X, self.y, self.feature_names, self.sequence_length, self.prediction_horizon
     
-    # INFO: @Juan 10/02/24 Converted to 'private' 'static' method
-    @staticmethod
-    def _read_single_netcdf(file_path: str) -> pl.DataFrame:
+    def _read_single_netcdf(self, file_path: str) -> pl.DataFrame:
         """_summary_
 
         Args:
@@ -242,10 +240,10 @@ class DataLoader:
                     cs.numeric().drop_nans().first()
                 )
 
-                df_query = data_loader.reduce_features(df_query)
+                df_query = self.reduce_features(df_query)
 
-                if data_loader.dt is not None:
-                    df_query = data_loader.resample(df_query)
+                if self.dt is not None:
+                    df_query = self.resample(df_query)
 
                 # print(df_query.explain(streaming=True))
 
