@@ -322,36 +322,3 @@ class DataInspector:
         plt.show()
         
         return fmodel
-
-if __name__ == "__main__":
-    from wind_forecasting.preprocessing.data_loader import DataLoader
-    from wind_forecasting.preprocessing.data_filter import DataFilter
-
-    DATA_DIR = "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data"
-    FILE_SIGNATURE = "kp.turbine.z02.b0.20220301.*.wt073.nc"
-    MULTIPROCESSOR = None
-
-    data_loader = DataLoader(data_dir=DATA_DIR, file_signature=FILE_SIGNATURE, multiprocessor=MULTIPROCESSOR)
-    df = data_loader.read_multi_netcdf()
-
-    data_filter = DataFilter()
-    df = data_filter.filter_turbine_data(df, status_codes=[1], availability_codes=[100], include_nan=True)
-    df = data_filter.resolve_missing_data(features=["wind_speed", "wind_direction", "power_output", "nacelle_direction"])
-
-    TURBINE_INPUT_FILEPATH = "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/inputs/ge_282_127.yaml"
-    FARM_INPUT_FILEPATH = "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/inputs/gch_KP_v4.yaml"
-    data_inspector = DataInspector(df=df, turbine_input_filepath=TURBINE_INPUT_FILEPATH, farm_input_filepath=FARM_INPUT_FILEPATH)
-
-    data_inspector.plot_wind_farm()
-    data_inspector.plot_time_series(turbine_ids=["wt073"])
-    data_inspector.plot_wind_speed_power(turbine_ids=["wt073"])
-    data_inspector.plot_wind_speed_weibull(turbine_ids=["wt073"])
-    data_inspector.plot_wind_rose(turbine_ids=["wt073"])
-    data_inspector.plot_temperature_distribution()
-    data_inspector.plot_correlation(["wind_speed", "wind_direction", "nacelle_direction", "power_output"])
-    data_inspector.plot_boxplot_wind_speed(turbine_ids=["wt073"])
-
-    print("Unique wind direction values:", df['wind_direction'].unique(), sep="\n")
-    print("-"*100  )
-    print("Unique turbine status values:", df['turbine_status'].unique(), sep="\n") # 1: running, 3: not running
-    print("Unique turbine availability values:", df['turbine_availability'].unique(), sep="\n") # 100, 50 (partially available?)

@@ -12,6 +12,9 @@ from openoa.utils import filters, power_curve, plot
 import polars.selectors as cs
 from scipy.interpolate import CubicSpline
 
+# from line_profiler import profile
+from memory_profiler import profile
+
 class DataFilter:
     """_summary_
     """
@@ -23,9 +26,12 @@ class DataFilter:
         """_summary_
         option 1) interpolate via linear, or forward
         """
-        
-        return df.with_columns(pl.col(features).map_batches(partial(self._interpolate_series, df=df, how=how)))\
-                 .fill_nan(None)
+        if how == "forward_fill":
+            return df.fill_nan(None).fill_null(strategy="forward")
+        elif how == "linear_interp":
+            return df.fill_nan(None).with_columns(pl.col(features).interpolate())
+        # return df.with_columns(pl.col(features).map_batches(partial(self._interpolate_series, df=df, how=how)))\
+        #          .fill_nan(None)
     
     def _interpolate_series(self, ser, df, how):
         """_summary_
@@ -60,33 +66,12 @@ class DataFilter:
         # Create masks for filtering
         include_status_mask = status_codes is not None and self.turbine_status_col is not None
         include_availability_mask = availability_codes is not None and self.turbine_availability_col is not None
-
-        if include_status_mask:
-            status_mask = df.col(self.turbine_status_col).is_in(status_codes)
-        
-        if include_availability_mask:
-            availability_mask = df.col(self.turbine_availability_col).is_in(availability_codes)
         
         # Combine masks
         if include_status_mask and include_availability_mask:
-            combined_mask = status_mask & availability_mask
+            return df.filter(pl.col(self.turbine_status_col).is_in(status_codes) & pl.col(self.turbine_availability_col).is_in(availability_codes))
         elif include_status_mask:
-            combined_mask = status_mask
+            return df.filter(pl.col(self.turbine_status_col).is_in(status_codes))
         elif include_availability_mask:
-            combined_mask = availability_mask
-        
-        return df.filter(combined_mask)
-    
-if __name__ == "__main__":
-    from wind_forecasting.preprocessing.data_loader import DataLoader
-
-    DATA_DIR = "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data"
-    FILE_SIGNATURE = "kp.turbine.z02.b0.20220301.*.wt073.nc"
-    MULTIPROCESSOR = None
-
-    data_loader = DataLoader(data_dir=DATA_DIR, file_signature=FILE_SIGNATURE, multiprocessor=MULTIPROCESSOR)
-    df = data_loader.read_multi_netcdf()
-
-    data_filter = DataFilter(raw_df=df)
-    df = data_filter.filter_turbine_data(status_codes=[1], availability_codes=[100], include_nan=True)
-    inter_df = data_filter.resolve_missing_data(features=["wind_speed"])
+            return df.filter(pl.col(self.turbine_availability_col).is_in(availability_codes))
+     
