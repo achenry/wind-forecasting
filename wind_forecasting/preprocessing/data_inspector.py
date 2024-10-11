@@ -32,38 +32,28 @@ class DataInspector:
     -   v vs u distribution, 
     -   yaw angle distribution 
     """
-    #INFO: @Juan 10/02/24 Added extra parameters to constructor
-    def __init__(self, df: pl.DataFrame, X: np.ndarray, y: np.ndarray, 
-                 feature_names: list[str], sequence_length: int, prediction_horizon: int,
-                 turbine_input_filepath: str, farm_input_filepath: str):
-        self._validate_input_data(df, X, y, feature_names, sequence_length, prediction_horizon, turbine_input_filepath, farm_input_filepath)
-        self.df = df
-        self.X = X
-        self.y = y
-        self.feature_names = feature_names
-        self.sequence_length = sequence_length
-        self.prediction_horizon = prediction_horizon
+    def __init__(self, turbine_input_filepath: str, farm_input_filepath: str):
+        self._validate_input_data(turbine_input_filepath=turbine_input_filepath, farm_input_filepath=farm_input_filepath)
         self.turbine_input_filepath = turbine_input_filepath
         self.farm_input_filepath = farm_input_filepath
 
-    #INFO: @Juan 10/02/24 Added method to validate input data
-    def _validate_input_data(self, df, X, y, feature_names, sequence_length, prediction_horizon,
-                             turbine_input_filepath, farm_input_filepath):
-        if not isinstance(df, pl.DataFrame):
+    def _validate_input_data(self, *, df=None, X=None, y=None, features=None, sequence_length=None, prediction_horizon=None,
+                             turbine_input_filepath=None, farm_input_filepath=None):
+        if df is not None and not isinstance(df, pl.LazyFrame):
             raise TypeError("df must be a polars DataFrame")
-        if not isinstance(X, np.ndarray) or not isinstance(y, np.ndarray):
+        if (X is not None and not isinstance(X, np.ndarray)) or (y is not None and not isinstance(y, np.ndarray)):
             raise TypeError("X and y must be numpy arrays")
-        if not isinstance(feature_names, list) or not all(isinstance(f, str) for f in feature_names):
-            raise TypeError("feature_names must be a list of strings")
-        if not isinstance(turbine_input_filepath, str) or not isinstance(farm_input_filepath, str):
+        if features is not None and (not isinstance(features, list) or not all(isinstance(f, str) for f in features)):
+            raise TypeError("features must be a list of strings")
+        if (turbine_input_filepath is not None and not isinstance(turbine_input_filepath, str)) or (farm_input_filepath is not None and not isinstance(farm_input_filepath, str)):
             raise TypeError("turbine_input_filepath and farm_input_filepath must be strings")
-        if X.shape[2] != len(feature_names):
+        if X is not None and features is not None and X.shape[2] != len(features):
             raise ValueError("Number of features in X does not match length of feature_names")
-        if y.shape[1] != prediction_horizon:
+        if y is not None and prediction_horizon is not None y.shape[1] != prediction_horizon:
             raise ValueError("Second dimension of y does not match prediction_horizon")
-        if not os.path.exists(turbine_input_filepath):
+        if turbine_input_filepath is not None and not os.path.exists(turbine_input_filepath):
             raise FileNotFoundError(f"Turbine input file not found: {turbine_input_filepath}")
-        if not os.path.exists(farm_input_filepath):
+        if farm_input_filepath is not None and not os.path.exists(farm_input_filepath):
             raise FileNotFoundError(f"Farm input file not found: {farm_input_filepath}")
         
     def plot_time_series(self, df, turbine_ids: list[str]) -> None:
@@ -397,7 +387,7 @@ class DataInspector:
         return mi_scores_u, mi_scores_v, mi_scores_dir
 
     #INFO: @Juan 10/02/24 Added method to calculate MI scores
-    def calculate_and_display_mutual_info_scores(self, X: np.ndarray, y: np.ndarray, feature_names: list[str], sequence_length: int, prediction_horizon: int) -> None:
+    def calculate_and_display_mutual_info_scores(self, X: np.ndarray, y: np.ndarray, features: list[str], sequence_length: int, prediction_horizon: int) -> None:
         start_time = time.time()
         
         # Calculate wind direction for the entire prediction horizon
@@ -411,7 +401,6 @@ class DataInspector:
         
         # INFO: @Juan 10/02/24 Use MPI for parallel processing
         comm = MPI.COMM_WORLD
-        rank = comm.Get_rank()
         
         # Use multiprocessing Pool with tqdm progress bar
         with MPICommExecutor(comm, root=0) as executor:
@@ -431,7 +420,7 @@ class DataInspector:
                 mi_scores_dir /= total_steps
                 
                 mi_df = pl.DataFrame({
-                    'Feature': feature_names,
+                    'Feature': features,
                     'MI Score (u)': mi_scores_u,
                     'MI Score (v)': mi_scores_v,
                     'MI Score (direction)': mi_scores_dir,
@@ -471,16 +460,18 @@ class DataInspector:
 
     #INFO: @Juan 10/02/24 Added method to calculate and display mutual information scores for the target turbine
     #NOTE: Future work: Accept more than one turbine ID as input, Accept feature_names as input
-    def calculate_mi_scores(self, target_turbine: str) -> None:
+    def calculate_mi_scores(self, target_turbine: str, features: list[str], sequence_length: int, prediction_horizon: int) -> None:
+        self._validate_input_data(X, y, features=features, sequence_length=sequence_length, prediction_horizon=prediction_horizon)
+
         # Remove the target turbine data in Y from the feature set X
         # 1. Create bool mask to filter out (~) data of target turbine. This works for both u and v components
-        feature_mask = ~np.char.startswith(self.feature_names, f'TurbineWindMag_{target_turbine}_')
+        feature_mask = ~np.char.startswith(features, f'TurbineWindMag_{target_turbine}_')
         
         # 2. Apply the mask to filter X and feature_names
         X_filtered = self.X[:, :, feature_mask]
-        feature_names_filtered = np.array(self.feature_names)[feature_mask]
+        features_filtered = np.array(features)[feature_mask]
         
         # 3. Calculate and display mutual information scores
         logging.info(f"Calculating Mutual Information scores for target turbine: {target_turbine}")
-        self.calculate_and_display_mutual_info_scores(X_filtered, self.y, feature_names_filtered, self.sequence_length, self.prediction_horizon)
+        self.calculate_and_display_mutual_info_scores(X_filtered, self.y, features_filtered, sequence_length, prediction_horizon)
     
