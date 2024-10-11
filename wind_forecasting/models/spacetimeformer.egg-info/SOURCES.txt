@@ -1,4 +1,0 @@
-spacetimeformer.egg-info/PKG-INFO
-spacetimeformer.egg-info/SOURCES.txt
-spacetimeformer.egg-info/dependency_links.txt
-spacetimeformer.egg-info/top_level.txt
