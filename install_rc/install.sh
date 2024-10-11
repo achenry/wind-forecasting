@@ -9,7 +9,7 @@ module purge
 ml mambaforge
 
 # Create and activate environments
-for env_file in wind_forecasting_cuda.yml wind_forecasting_env.yml wind_forecasting_rocm.yml wind_preprocessing.yml
+for env_file in wind_forecasting_cuda.yml wind_forecasting_env.yml wind_forecasting_rocm.yml
 do
     env_name="${env_file%.yml}"
     echo "Creating environment: $env_name"
