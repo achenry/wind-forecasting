@@ -30,12 +30,11 @@ dependencies:
   - opt_einsum
   - torchmetrics
   - pytorch-lightning
-  - pip
+  - performer-pytorch
+  - nystrom-attention
   - pip:
     - openoa
     - torch --index-url https://download.pytorch.org/whl/rocm6.1
     - torchvision --index-url https://download.pytorch.org/whl/rocm6.1
     - torchaudio --index-url https://download.pytorch.org/whl/rocm6.1
-    - performer-pytorch
-    - nystrom-attention
 prefix: /projects/$USER/software/anaconda/envs/wind_forecasting_rocm
