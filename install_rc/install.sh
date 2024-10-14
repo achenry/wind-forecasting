@@ -32,7 +32,7 @@ for env_file in wind_forecasting_cuda.yml wind_forecasting_rocm.yml; do
     mamba deactivate
 done
 
-cd /projects/$USER/wind-forecasting/wind-forecasting/models
+# cd /projects/$USER/wind-forecasting/wind-forecasting/models
 
 # ***Uncomment these lines if you need to install requirements for specific models***
 # python -m pip install -r ./spacetimeformer/requirements.txt
