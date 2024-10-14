@@ -1,7 +1,7 @@
 import os
 import re
-import datatable as dt
-import yaml
+import polars as pl
+# import yaml
 import matplotlib.pyplot as plt
 import numpy as np
 import seaborn as sns
@@ -20,7 +20,7 @@ class DataReader:
                 seed = int(re.findall(r"(?<=seed\_)(\d*)", fn)[0])
                 case_name = re.findall(r"(?<=case_)(.*)(?=_seed)", fn)[0]
 
-                df = dt.fread(os.path.join(results_dir, fn))
+                df = pl.read_csv(os.path.join(results_dir, fn))
 
                 case_tag = f"{case_family}_{case_name}"
                 if case_tag not in results_dfs:
@@ -28,7 +28,7 @@ class DataReader:
                 else:
                     results_dfs[case_tag].append(df)
 
-            results_dfs[case_tag] = dt.rbind(results_dfs[case_tag])
+            results_dfs[case_tag] = pl.concat(results_dfs[case_tag])
         self.results_dfs = results_dfs
         return results_dfs
     
