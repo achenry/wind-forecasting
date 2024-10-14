@@ -1,4 +1,4 @@
-name: wind_forecasting_cuda
+name: wind_forecasting_rocm
 channels:
   - pytorch
   - nvidia
@@ -6,10 +6,6 @@ channels:
   - defaults
 dependencies:
   - python=3.11
-  - pytorch
-  - torchvision
-  - torchaudio
-  - pytorch-cuda=12.1
   - ca-certificates
   - openssl
   - seaborn
@@ -26,8 +22,6 @@ dependencies:
   - pystan
   - convertdate
   - python-dateutil
-  - performer-pytorch
-  - nystrom-attention
   - netcdf4
   - omegaconf
   - wandb
@@ -39,4 +33,9 @@ dependencies:
   - pip
   - pip:
     - openoa
-prefix: /projects/$USER/software/anaconda/envs/wind_forecasting_cuda
+    - torch --index-url https://download.pytorch.org/whl/rocm6.1
+    - torchvision --index-url https://download.pytorch.org/whl/rocm6.1
+    - torchaudio --index-url https://download.pytorch.org/whl/rocm6.1
+    - performer-pytorch
+    - nystrom-attention
+prefix: /projects/$USER/software/anaconda/envs/wind_forecasting_rocm
