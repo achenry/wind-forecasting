@@ -5,7 +5,10 @@ import os
 import time
 import logging
 
+<<<<<<< HEAD
+=======
 
+>>>>>>> ecdaa4c8053b6a31129fa098d87de52e6bfc745a
 import seaborn as sns
 import matplotlib.pyplot as plt
 from windrose import WindroseAxes
@@ -31,19 +34,31 @@ class DataInspector:
     -   v vs u distribution, 
     -   yaw angle distribution 
     """
+    
     def __init__(self, turbine_input_filepath: str, farm_input_filepath: str):
         self._validate_input_data(turbine_input_filepath=turbine_input_filepath, farm_input_filepath=farm_input_filepath)
         self.turbine_input_filepath = turbine_input_filepath
         self.farm_input_filepath = farm_input_filepath
 
-    def _validate_input_data(self, *, df=None, X=None, y=None, features=None, sequence_length=None, prediction_horizon=None,
+    def _get_valid_turbine_ids(self, df, turbine_ids: list[str]) -> list[str]:
+        if isinstance(turbine_ids, str):
+            turbine_ids = [turbine_ids]  # Convert single ID to list
+        
+        valid_turbines = df.select("turbine_id").unique().filter(pl.col("turbine_id").is_in(turbine_ids)).collect(streaming=True).to_numpy()[:, 0]
+         
+        if not valid_turbines:
+            print(f"Error: No valid turbine IDs")
+            # print("Available turbine IDs:", available_turbines)
+            return []
+        
+        return valid_turbines
+    
+    def _validate_input_data(self, *, X=None, y=None, features=None, sequence_length=None, prediction_horizon=None,
                              turbine_input_filepath=None, farm_input_filepath=None):
-        if df is not None and not isinstance(df, pl.LazyFrame):
-            raise TypeError("df must be a polars DataFrame")
         if (X is not None and not isinstance(X, np.ndarray)) or (y is not None and not isinstance(y, np.ndarray)):
             raise TypeError("X and y must be numpy arrays")
-        if features is not None and (not isinstance(features, list) or not all(isinstance(f, str) for f in features)):
-            raise TypeError("features must be a list of strings")
+        if (features is not None) and (not isinstance(features, list) or not all(isinstance(f, str) for f in features)):
+            raise TypeError("feature_names must be a list of strings")
         if (turbine_input_filepath is not None and not isinstance(turbine_input_filepath, str)) or (farm_input_filepath is not None and not isinstance(farm_input_filepath, str)):
             raise TypeError("turbine_input_filepath and farm_input_filepath must be strings")
         if X is not None and features is not None and X.shape[2] != len(features):
@@ -75,7 +90,7 @@ class DataInspector:
         valid_turbines = self._get_valid_turbine_ids(df, turbine_ids=turbine_ids)
         
         if not valid_turbines:
-              return
+            return
         
         sns.set_style("whitegrid")
         sns.set_palette("deep")
@@ -83,17 +98,13 @@ class DataInspector:
         fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(12, 10), sharex=True)
         
         for turbine_id in valid_turbines:
+            turbine_data = df.select(["time", "wind_speed", "wind_direction", "power_output", "turbine_id"]).filter(pl.col("turbine_id") == turbine_id).drop_nulls()
             # plt.plot(turbine_data["time"], turbine_data["wind_speed"])
-            turbine_data = df.select(["time", "wind_speed", "wind_direction", "power_output", "turbine_id"]).filter(pl.col("turbine_id") == turbine_id).fill_nan(None)
-
-            sns.lineplot(data=turbine_data.filter(pl.col("wind_speed").is_not_null())\
-                                .collect(streaming=True).to_pandas(),
+            sns.lineplot(data=turbine_data.collect(streaming=True).to_pandas(),
                          x='time', y='wind_speed', ax=ax1, label=f'{turbine_id} Wind Speed')
-            sns.lineplot(data=turbine_data.filter(pl.col("wind_direction").is_not_null())\
-                                .collect(streaming=True).to_pandas(),
+            sns.lineplot(data=turbine_data.collect(streaming=True).to_pandas(),
                          x='time', y='wind_direction', ax=ax2, label=f'{turbine_id} Wind Direction')
-            sns.lineplot(data=turbine_data.filter(pl.col("power_output").is_not_null())\
-                                .collect(streaming=True).to_pandas(),
+            sns.lineplot(data=turbine_data.collect(streaming=True).to_pandas(),
                          x='time', y='power_output', ax=ax3, label=f'{turbine_id} Power Output')
         
         ax1.set_ylabel('Wind Speed (m/s)')
@@ -152,9 +163,9 @@ class DataInspector:
         if turbine_ids == "all":
             plt.figure(figsize=(10, 10))
             ax = WindroseAxes.from_ax()
-            wind_direction = df["wind_direction"]
-            wind_speed = df["wind_speed"]
-            ax.bar(wind_direction, wind_speed, normed=True, opening=0.8, edgecolor='white')
+            ax.bar(df.select("wind_direction").collect(streaming=True).to_numpy()[:, 0], 
+                   df.select("wind_speed").collect(streaming=True).to_numpy()[:, 0], 
+                   normed=True, opening=0.8, edgecolor='white')
             ax.set_legend()
             plt.title('Wind Rose for all Turbines')
             plt.show()
@@ -162,18 +173,16 @@ class DataInspector:
             valid_turbines = self._get_valid_turbine_ids(df, turbine_ids=turbine_ids)
         
             if not valid_turbines:
-                return 
+                return
 
             for turbine_id in valid_turbines:
                 turbine_data = df.select(["turbine_id", "wind_speed", "wind_direction"])\
                     .filter(pl.col("turbine_id") == turbine_id,
-                            pl.all_horizontal(pl.col("wind_speed", "wind_direction").is_not_nan()))\
-                                .collect(streaming=True).to_pandas()
+                            pl.all_horizontal(pl.col("wind_speed", "wind_direction").is_not_null()))
                 plt.figure(figsize=(10, 10))
                 ax = WindroseAxes.from_ax()
-                wind_direction = turbine_data["wind_direction"]
-                wind_speed = turbine_data["wind_speed"]
-                ax.bar(wind_direction, wind_speed, normed=True, opening=0.8, edgecolor='white')
+                ax.bar(turbine_data.select("wind_direction").collect(streaming=True).to_numpy()[:, 0], 
+                       turbine_data.select("wind_speed").collect(streaming=True).to_numpy()[:, 0], normed=True, opening=0.8, edgecolor='white')
                 ax.set_legend()
                 plt.title(f'Wind Rose for Turbine {turbine_id}')
                 plt.show()
@@ -204,11 +213,11 @@ class DataInspector:
     def plot_correlation(self, df, features) -> None:
         """_summary_
         """
-        _, ax = plt.subplots(1, 1, figsize=(12, 10))
+        plt.figure(figsize=(12, 10))
         sns.heatmap(df.select(features).collect(streaming=True).to_pandas().corr(), 
-                    annot=True, cmap='coolwarm', vmin=-1, vmax=1, center=0, ax=ax,
-                    xticklabels=features, yticklabels=features, linewidths=0.5)
-        ax.set(title='Feature Correlation Matrix')
+                    annot=True, cmap='coolwarm', linewidths=0.5,  vmin=-1, vmax=1, center=0, ax=ax,
+                    xticklabels=features, yticklabels=features)
+        plt.title('Feature Correlation Matrix')
         plt.tight_layout()
         plt.show()
 
@@ -230,7 +239,7 @@ class DataInspector:
             # turbine_data = df.loc[turbine_id]
             
             turbine_data = df.select(cols)\
-                .filter(pl.col("turbine_id") == turbine_id, pl.any_horizontal(pl.col("wind_speed", "wind_direction").is_not_nan()))\
+                .filter(pl.col("turbine_id") == turbine_id, pl.any_horizontal(pl.col("wind_speed", "wind_direction").is_not_null()))\
                 .collect(streaming=True).to_pandas()
             
             if "hour" not in turbine_data.columns:
@@ -267,7 +276,7 @@ class DataInspector:
 
             # Extract wind speed data
             wind_speeds = df.select(["turbine_id", "wind_speed"])\
-                .filter(pl.col("turbine_id") == turbine_id, pl.col("wind_speed").is_not_nan())\
+                .filter(pl.col("turbine_id") == turbine_id, pl.col("wind_speed").is_not_null())\
                 .select(["wind_speed"]).collect(streaming=True).to_pandas()
 
             # Fit Weibull distribution
@@ -432,7 +441,7 @@ class DataInspector:
                 mi_scores_v /= total_steps
                 mi_scores_dir /= total_steps
                 
-                mi_df = pl.DataFrame({
+                mi_df = pl.LazyFrame({
                     'Feature': features,
                     'MI Score (u)': mi_scores_u,
                     'MI Score (v)': mi_scores_v,
@@ -450,7 +459,7 @@ class DataInspector:
                 pass #NOTE: @Juan 10/02/24 Added separated static method to plot MI scores
     
     @staticmethod
-    def _plot_mi_scores(mi_df: pl.DataFrame) -> None:
+    def _plot_mi_scores(mi_df: pl.LazyFrame) -> None:
         """Plot mutual information scores."""
         plt.figure(figsize=(12, 6))
         plt.bar(mi_df['Feature'], mi_df['MI Score (avg)'])
@@ -473,18 +482,16 @@ class DataInspector:
 
     #INFO: @Juan 10/02/24 Added method to calculate and display mutual information scores for the target turbine
     #NOTE: Future work: Accept more than one turbine ID as input, Accept feature_names as input
-    def calculate_mi_scores(self, target_turbine: str, X: np.ndarray, y: np.ndarray,features: list[str], sequence_length: int, prediction_horizon: int) -> None:
+    def calculate_mi_scores(self, target_turbine: str, X: np.ndarray, y: np.ndarray, features: int, sequence_length: int, prediction_horizon: int) -> None:
         self._validate_input_data(X=X, y=y, features=features, sequence_length=sequence_length, prediction_horizon=prediction_horizon)
-
         # Remove the target turbine data in Y from the feature set X
         # 1. Create bool mask to filter out (~) data of target turbine. This works for both u and v components
         feature_mask = ~np.char.startswith(features, f'TurbineWindMag_{target_turbine}_')
         
         # 2. Apply the mask to filter X and feature_names
         X_filtered = X[:, :, feature_mask]
-        features_filtered = np.array(features)[feature_mask]
+        feature_names_filtered = np.array(features)[feature_mask]
         
         # 3. Calculate and display mutual information scores
         logging.info(f"Calculating Mutual Information scores for target turbine: {target_turbine}")
-        self.calculate_and_display_mutual_info_scores(X_filtered, y, features_filtered, sequence_length, prediction_horizon)
-    
+        self.calculate_and_display_mutual_info_scores(X_filtered, y, feature_names_filtered, sequence_length, prediction_horizon)

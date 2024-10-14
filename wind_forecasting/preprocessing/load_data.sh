@@ -20,5 +20,5 @@ module load impi
 
 mpirun -np $SLURM_NTASKS python data_loader.py
 
-rm /pl/active/paolab/awaken_data/kp.turbine.z02.b0/*.nc
-mv /scratch/alpine/aohe7145/awaken_data/kp.turbine.zo2.b0.raw.parquet /pl/active/paolab/awaken_data/kp.turbine.zo2.b0.raw.parquet
+#rm /pl/active/paolab/awaken_data/kp.turbine.z02.b0/*.nc
+#mv /scratch/alpine/aohe7145/awaken_data/kp.turbine.zo2.b0.raw.parquet /pl/active/paolab/awaken_data/kp.turbine.zo2.b0.raw.parquet
