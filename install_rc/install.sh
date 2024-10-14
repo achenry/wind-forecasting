@@ -12,40 +12,37 @@ ml mambaforge
 
 ENV_DIR="install_rc"
 
-# Create and activate environments
-for env_file in wind_forecasting_cuda.yml wind_forecasting_rocm.yml; do
+# Function to create and activate environment
+create_and_activate_env() {
+    env_file="$1"
     env_name="${env_file%.yml}"
     echo "Creating environment: $env_name"
     if [ ! -f "$ENV_DIR/$env_file" ]; then
         echo "Error: $ENV_DIR/$env_file not found"
-        continue
+        return 1
     fi
-    if ! mamba env create -n "$env_name" -f "$ENV_DIR/$env_file"; then
+    if ! mamba env create -f "$ENV_DIR/$env_file"; then
         echo "Error: Failed to create environment $env_name"
-        continue
+        return 1
     fi
     echo "Activating environment: $env_name"
-    if ! mamba activate "$env_name"; then
+    source activate "$env_name"
+    if [ $? -ne 0 ]; then
         echo "Error: Failed to activate environment $env_name"
-        continue
+        return 1
     fi
-    mamba deactivate
+    return 0
+}
+
+# Create and activate environments
+for env_file in wind_forecasting_cuda.yml wind_forecasting_rocm.yml; do
+    if create_and_activate_env "$env_file"; then
+        # Install additional packages if needed
+        pip install matplotlib==3.7.1 pyside6==6.5.0
+        conda deactivate
+    else
+        echo "Skipping environment: ${env_file%.yml}"
+    fi
 done
-
-# cd /projects/$USER/wind-forecasting/wind-forecasting/models
-
-# ***Uncomment these lines if you need to install requirements for specific models***
-# python -m pip install -r ./spacetimeformer/requirements.txt
-# python ./spacetimeformer/setup.py develop
-# python -m pip install -r ./Informer2020/requirements.txt
-# python -m pip install -r ./Autoformer/requirements.txt
-
-# ***Uncomment this line if you need to update submodules***
-# git pull --recurse-submodules
-
-# ***Uncomment these lines if you need to clone specific repositories***
-# git clone https://github.com/achenry/spacetimeformer.git
-# git clone https://github.com/achenry/Autoformer.git
-# git clone https://github.com/achenry/Informer2020.git
 
 echo "Environment creation complete"
