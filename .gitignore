@@ -2,6 +2,7 @@ wind_forecasting/run_scripts/lightning_logs/
 wind_forecasting/models/.eggs
 .vscode
 
+wind_forecasting/models/spacetimeformer/spacetimeformer/data
 wind_forecasting/models/__pycache__
 wind_forecasting/preprocessing/__pycache__
 wind_forecasting/__pycache__
