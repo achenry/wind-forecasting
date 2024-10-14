@@ -36,7 +36,6 @@ dependencies:
   - opt_einsum
   - torchmetrics
   - pytorch-lightning
-  - pip
   - pip:
     - openoa
 prefix: /projects/$USER/software/anaconda/envs/wind_forecasting_cuda
