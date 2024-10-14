@@ -5,16 +5,30 @@
 # ssh jubo7621@login.rc.colorado.edu
 # acompile
 
+set -e # Exit immediately if a command exits with a non-zero status
+
 module purge
 ml mambaforge
 
+ENV_DIR="install_rc"
+
 # Create and activate environments
-for env_file in wind_forecasting_cuda.yml wind_forecasting_env.yml wind_forecasting_rocm.yml
-do
+for env_file in wind_forecasting_cuda.yml wind_forecasting_rocm.yml; do
     env_name="${env_file%.yml}"
     echo "Creating environment: $env_name"
-    mamba env create -n "$env_name" -f "install_rc/$env_file" 
-    mamba activate "$env_name"
+    if [ ! -f "$ENV_DIR/$env_file" ]; then
+        echo "Error: $ENV_DIR/$env_file not found"
+        continue
+    fi
+    if ! mamba env create -n "$env_name" -f "$ENV_DIR/$env_file"; then
+        echo "Error: Failed to create environment $env_name"
+        continue
+    fi
+    echo "Activating environment: $env_name"
+    if ! mamba activate "$env_name"; then
+        echo "Error: Failed to activate environment $env_name"
+        continue
+    fi
     mamba deactivate
 done
 
