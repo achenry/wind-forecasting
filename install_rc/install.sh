@@ -5,33 +5,44 @@
 # ssh jubo7621@login.rc.colorado.edu
 # acompile
 
+set -e # Exit immediately if a command exits with !0 status
+
 module purge
 ml mambaforge
 
-# Create and activate environments
-for env_file in wind_forecasting_cuda.yml wind_forecasting_env.yml wind_forecasting_rocm.yml wind_preprocessing.yml
-do
-    env_name="${env_file%.yml}"
+ENV_DIR="install_rc"
+
+# Function to create and activate environment
+create_and_activate_env() {
+    env_file="$1"
+    env_name="${env_file%.yaml}"
     echo "Creating environment: $env_name"
-    mamba env create -n "$env_name" -f "install_rc/$env_file" 
+    if [ ! -f "$ENV_DIR/$env_file" ]; then
+        echo "Error: $ENV_DIR/$env_file not found"
+        return 1
+    fi
+    if ! mamba env create -f "$ENV_DIR/$env_file"; then
+        echo "Error: Failed to create environment $env_name"
+        return 1
+    fi
+    echo "Activating environment: $env_name"
     mamba activate "$env_name"
-    mamba deactivate
+    if [ $? -ne 0 ]; then
+        echo "Error: Failed to activate environment $env_name"
+        return 1
+    fi
+    return 0
+}
+
+# Create and activate environments
+for env_file in wind_forecasting_cuda.yaml wind_forecasting_rocm.yaml; do
+    if create_and_activate_env "$env_file"; then
+        # Install additional packages if needed
+        # pip install matplotlib==3.7.1 pyside6==6.5.0
+        mamba deactivate
+    else
+        echo "Skipping environment: ${env_file%.yml}"
+    fi
 done
-
-cd /projects/$USER/wind-forecasting/wind-forecasting/models
-
-# ***Uncomment these lines if you need to install requirements for specific models***
-# python -m pip install -r ./spacetimeformer/requirements.txt
-# python ./spacetimeformer/setup.py develop
-# python -m pip install -r ./Informer2020/requirements.txt
-# python -m pip install -r ./Autoformer/requirements.txt
-
-# ***Uncomment this line if you need to update submodules***
-# git pull --recurse-submodules
-
-# ***Uncomment these lines if you need to clone specific repositories***
-# git clone https://github.com/achenry/spacetimeformer.git
-# git clone https://github.com/achenry/Autoformer.git
-# git clone https://github.com/achenry/Informer2020.git
 
 echo "Environment creation complete"

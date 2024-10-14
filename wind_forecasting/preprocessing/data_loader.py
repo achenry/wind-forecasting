@@ -12,7 +12,7 @@ from concurrent.futures import ProcessPoolExecutor
 import netCDF4 as nc
 import polars as pl
 import polars.selectors as cs
-from pandas import to_datetime as pd_to_datetime
+#from pandas import to_datetime as pd_to_datetime
 import numpy as np
 from sklearn.preprocessing import MinMaxScaler
 from mpi4py import MPI
@@ -23,7 +23,7 @@ SECONDS_PER_HOUR = SECONDS_PER_MINUTE * 60
 SECONDS_PER_DAY = SECONDS_PER_HOUR * 24
 SECONDS_PER_YEAR = SECONDS_PER_DAY * 365  # non-leap year, 365 days
 
-# INFO: @Juan 10/02/24 Set Looging up
+# INFO: @Juan 10/02/24 Set Logging up
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 class DataLoader:
@@ -47,6 +47,7 @@ class DataLoader:
 
         # Get all the wts in the folder
         self.file_paths = glob.glob(f"{data_dir}/{file_signature}")
+
         if not self.file_paths:
             raise FileExistsError(f"File with signature {file_signature} in directory {data_dir} doesn't exist.")
 
@@ -106,6 +107,7 @@ class DataLoader:
 
         if (self.multiprocessor == "mpi" and (comm_rank := MPI.COMM_WORLD.Get_rank()) == 0) \
             or (self.multiprocessor != "mpi") or (self.multiprocessor is None):
+
             if [df for df in df_query if df is not None]:
                 df_query = pl.concat([df for df in df_query if df is not None]).sort(["turbine_id", "time"])
                 df_query.collect(streaming=True).write_parquet(self.save_path)
@@ -118,34 +120,34 @@ class DataLoader:
             return None
 
     # INFO: @Juan 10/02/24 Revamped this method to use Polars functions consistently, vectorized where possible, and using type casting for consistency and performance enhancements.
+
     def convert_time_to_sin(self, df) -> pl.LazyFrame:
         """_summary_
             convert timestamp to cosine and sinusoidal components
         Returns:
             pl.LazyFrame: _description_
         """
-        if df is None:
+        if self.df is None:
             raise ValueError("Data not loaded > call read_multi_netcdf() first.")
         
-        # Convert Time to float64 for accurate division and create time features (hour, day, year) using Polars vectorized operations
-        df = df.with_columns([
-            pl.col('Time').cast(pl.Float64),
-            (pl.col('Time') % SECONDS_PER_DAY / SECONDS_PER_HOUR).alias('hour'),
-            ((pl.col('Time') // SECONDS_PER_DAY) % 365).cast(pl.Int32).alias('day'),
-            (pl.col('Time') // SECONDS_PER_YEAR).cast(pl.Int32).alias('year'),
+        self.df = self.df.with_columns([
+            pl.col('time').dt.hour().alias('hour'),
+            pl.col('time').dt.ordinal_day().alias('day'),
+            pl.col('time').dt.year().alias('year'),
         ])
 
         # Normalize time features using sin/cos for capturing cyclic patterns using Polars vectorized operations
-        df = df.with_columns([
-            pl.sin(2 * np.pi * pl.col('hour') / 24).alias('hour_sin'),
-            pl.cos(2 * np.pi * pl.col('hour') / 24).alias('hour_cos'),
-            pl.sin(2 * np.pi * pl.col('day') / 365).alias('day_sin'),
-            pl.cos(2 * np.pi * pl.col('day') / 365).alias('day_cos'),
-            pl.sin(2 * np.pi * pl.col('year')).alias('year_sin'),
-            pl.cos(2 * np.pi * pl.col('year')).alias('year_cos'),
+        self.df = self.df.with_columns([
+            (2 * np.pi * pl.col('hour') / 24).sin().alias('hour_sin'),
+            (2 * np.pi * pl.col('hour') / 24).cos().alias('hour_cos'),
+            (2 * np.pi * pl.col('day') / 365).sin().alias('day_sin'),
+            (2 * np.pi * pl.col('day') / 365).cos().alias('day_cos'),
+            (2 * np.pi * pl.col('year') / 365).sin().alias('year_sin'),
+            (2 * np.pi * pl.col('year') / 365).cos().alias('year_cos'),
         ])
 
-        return df
+        return self.df
+
 
     def reduce_features(self, df) -> pl.LazyFrame:
         """_summary_
@@ -153,7 +155,8 @@ class DataLoader:
         Returns:
             pl.LazyFrame: _description_
         """
-        return df.select(self.features).filter(pl.any_horizontal(cs.numeric().is_not_null()))
+        df = df.select(self.features).filter(pl.any_horizontal(cs.numeric().is_not_null()))
+        return df
 
     def resample(self, df) -> pl.LazyFrame:
         return df.with_columns(pl.col("time").dt.round(f"{self.dt}s").alias("time"))\
@@ -165,17 +168,18 @@ class DataLoader:
         Returns:
             pl.LazyFrame: _description_
         """
-        if self.df is None:
+        if df is None:
             raise ValueError("Data not loaded > call read_multi_netcdf() first.")
         
-        # Normalize non-time features
-        features_to_normalize = [col for col in df.columns
-                                 if all(c not in col for c in ['Time', 'hour', 'day', 'year'])]
+        features_to_normalize = [col for col in self.df.columns
+                                 if all(c not in col for c in ['time', 'hour', 'day', 'year'])]
         
-        # INFO: @Juan 10/02/24 Explicitly convert to numpy and back to DF to ensure compatibility with MinMaxScaler
-        normalized_data = MinMaxScaler().fit_transform(self.df.select(features_to_normalize).to_numpy())
-        # INFO: @Juan 10/02/24 Hstack (grow horizontally) the normalized data df back to the original DF
-        return df.drop(features_to_normalize).hstack(pl.DataFrame(normalized_data, schema=features_to_normalize))
+        scaler = MinMaxScaler()
+        normalized_data = scaler.fit_transform(self.df.select(features_to_normalize).to_numpy())
+        normalized_df = pl.DataFrame(normalized_data, schema=features_to_normalize)
+        
+        df = df.drop(features_to_normalize).hstack(normalized_df)
+        return df
     
     def create_sequences(self, df, target_turbine: str, 
                          features: list[str] | None = None, 
@@ -205,6 +209,8 @@ class DataLoader:
         try:
             with nc.Dataset(file_path, 'r') as dataset:
                 time = dataset.variables['date']
+
+                #time = pl.from_numpy(nc.num2date(times=time[:], units=time.units, calendar=time.calendar, only_use_cftime_datetimes=False, only_use_python_datetimes=True))
                 time = pd_to_datetime(nc.num2date(times=time[:], units=time.units, calendar=time.calendar, only_use_cftime_datetimes=False, only_use_python_datetimes=True))
                 
                 # TODO add column mapping
