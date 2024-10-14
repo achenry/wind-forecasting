@@ -19,3 +19,5 @@ module load impi
 #export LD_LIBRARy_PATH=$CONDA_PREFIX/lib
 
 mpirun -np $SLURM_NTASKS python data_loader.py
+
+# rm -rf 
