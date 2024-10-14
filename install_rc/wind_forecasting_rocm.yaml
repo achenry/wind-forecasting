@@ -32,6 +32,7 @@ dependencies:
   - pytorch-lightning
   - performer-pytorch
   - nystrom-attention
+  - pip
   - pip:
     - openoa
     - torch --index-url https://download.pytorch.org/whl/rocm6.1
