@@ -1,9 +1,9 @@
 name: wind_forecasting_cuda
 channels:
+  - pytorch
+  - nvidia
   - conda-forge
   - defaults
-  - nvidia
-  - pytorch
 dependencies:
   - python=3.11
   - pytorch
@@ -36,4 +36,6 @@ dependencies:
   - opt_einsum
   - torchmetrics
   - pytorch-lightning
-prefix: /projects/jubo7621/software/anaconda/envs/wind_forecasting_cuda
+  - pip:
+    - openoa
+prefix: /projects/$USER/software/anaconda/envs/wind_forecasting_cuda
