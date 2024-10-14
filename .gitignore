@@ -2,10 +2,7 @@ wind_forecasting/run_scripts/lightning_logs/
 wind_forecasting/models/.eggs
 .vscode
 
-<<<<<<< HEAD
 wind_forecasting/models/spacetimeformer/spacetimeformer/data
-=======
->>>>>>> 34f637744784dc480af01683029dd1d6885d21d2
 wind_forecasting/models/__pycache__
 wind_forecasting/preprocessing/__pycache__
 wind_forecasting/__pycache__
@@ -39,6 +36,7 @@ wind_forecasting.code-workspace
 *.png
 *.nc
 *.pyc
+*.dbf
 *.egg-info
 
 examples/data/*
