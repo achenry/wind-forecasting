@@ -210,6 +210,7 @@ class DataLoader:
             with nc.Dataset(file_path, 'r') as dataset:
                 time = dataset.variables['date']
 
+                #TODO: @Juan 10/14/24 Check if this is correct and if pandas can be substituted for polars
                 #time = pl.from_numpy(nc.num2date(times=time[:], units=time.units, calendar=time.calendar, only_use_cftime_datetimes=False, only_use_python_datetimes=True))
                 time = pd_to_datetime(nc.num2date(times=time[:], units=time.units, calendar=time.calendar, only_use_cftime_datetimes=False, only_use_python_datetimes=True))
                 
