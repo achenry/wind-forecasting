@@ -5,10 +5,6 @@ import os
 import time
 import logging
 
-<<<<<<< HEAD
-=======
-
->>>>>>> ecdaa4c8053b6a31129fa098d87de52e6bfc745a
 import seaborn as sns
 import matplotlib.pyplot as plt
 from windrose import WindroseAxes
