@@ -35,10 +35,10 @@ create_and_activate_env() {
 }
 
 # Create and activate environments
-for env_file in wind_forecasting_cuda.yml wind_forecasting_rocm.yml; do
+for env_file in wind_forecasting_cuda.yaml wind_forecasting_rocm.yaml; do
     if create_and_activate_env "$env_file"; then
         # Install additional packages if needed
-        pip install matplotlib==3.7.1 pyside6==6.5.0
+        # pip install matplotlib==3.7.1 pyside6==6.5.0
         conda deactivate
     else
         echo "Skipping environment: ${env_file%.yml}"
