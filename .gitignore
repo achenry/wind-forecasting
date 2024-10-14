@@ -38,6 +38,7 @@ wind_forecasting.code-workspace
 *.pyc
 *.dbf
 *.egg-info
+*.zip
 
 examples/data/*
 .vscode/
