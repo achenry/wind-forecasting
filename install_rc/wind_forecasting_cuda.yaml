@@ -39,4 +39,3 @@ dependencies:
   - pip
   - pip:
     - openoa
-prefix: /projects/$USER/software/anaconda/envs/wind_forecasting_cuda
