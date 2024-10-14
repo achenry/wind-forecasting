@@ -5,6 +5,10 @@ import os
 import time
 import logging
 
+<<<<<<< HEAD
+=======
+
+>>>>>>> ecdaa4c8053b6a31129fa098d87de52e6bfc745a
 import seaborn as sns
 import matplotlib.pyplot as plt
 from windrose import WindroseAxes
@@ -65,7 +69,20 @@ class DataInspector:
             raise FileNotFoundError(f"Turbine input file not found: {turbine_input_filepath}")
         if farm_input_filepath is not None and not os.path.exists(farm_input_filepath):
             raise FileNotFoundError(f"Farm input file not found: {farm_input_filepath}")
-        
+
+    def _get_valid_turbine_ids(self, df, turbine_ids: list[str]) -> list[str]:
+        if isinstance(turbine_ids, str):
+            turbine_ids = [turbine_ids]  # Convert single ID to list
+
+        valid_turbines = df.select("turbine_id").unique().filter(pl.col("turbine_id").is_in(turbine_ids)).collect(streaming=True).to_numpy()[:, 0]
+         
+        if not valid_turbines:
+            print(f"Error: No valid turbine IDs")
+            # print("Available turbine IDs:", available_turbines)
+            return []
+
+        return valid_turbines 
+
     def plot_time_series(self, df, turbine_ids: list[str]) -> None:
         if isinstance(turbine_ids, str):
             turbine_ids = [turbine_ids]  # Convert single ID to list
@@ -117,24 +134,24 @@ class DataInspector:
         if not valid_turbines:
              return
         
-        # _, ax = plt.subplots(1, 1, figsize=(12, 6))
-        plt.figure(figsize=(12, 6))
 
         for turbine_id in valid_turbines:
+            _, ax = plt.subplots(1, 1, figsize=(12, 6))
+            # TODO does seaborn plot null/nan values??
             turbine_data = df.select(["wind_speed", "power_output", "turbine_id"])\
                 .filter(pl.col("turbine_id") == turbine_id, 
                         pl.all_horizontal(pl.col("wind_speed", "power_output").is_not_nan()))\
                             .collect(streaming=True).to_pandas()
-            sns.scatterplot(data=turbine_data, x='wind_speed', y='power_output', label=turbine_id, alpha=0.5)
+            sns.scatterplot(data=turbine_data, ax=ax, x='wind_speed', y='power_output', label=turbine_id, alpha=0.5)
 
-        plt.xlabel('Wind Speed [m/s]')
-        plt.ylabel('Power Output [kW]')
-        plt.title('Scatter Plot of Wind Speed vs Power Output')
-        plt.legend(title='Turbine ID', loc='upper left', bbox_to_anchor=(1, 1))
-        plt.grid(True, alpha=0.3)
-        sns.despine()
-        plt.tight_layout()
-        plt.show()
+            plt.xlabel('Wind Speed [m/s]')
+            plt.ylabel('Power Output [kW]')
+            plt.title('Scatter Plot of Wind Speed vs Power Output')
+            plt.legend(title='Turbine ID', loc='upper left', bbox_to_anchor=(1, 1))
+            plt.grid(True, alpha=0.3)
+            sns.despine()
+            plt.tight_layout()
+            plt.show()
 
     def plot_wind_rose(self, df, turbine_ids: list[str] | str) -> None:
         """_summary_
@@ -198,7 +215,7 @@ class DataInspector:
         """
         plt.figure(figsize=(12, 10))
         sns.heatmap(df.select(features).collect(streaming=True).to_pandas().corr(), 
-                    annot=True, cmap='coolwarm', linewidths=0.5,  vmin=-1, vmax=1, center=0,
+                    annot=True, cmap='coolwarm', linewidths=0.5,  vmin=-1, vmax=1, center=0, ax=ax,
                     xticklabels=features, yticklabels=features)
         plt.title('Feature Correlation Matrix')
         plt.tight_layout()
@@ -392,7 +409,7 @@ class DataInspector:
         return mi_scores_u, mi_scores_v, mi_scores_dir
 
     #INFO: @Juan 10/02/24 Added method to calculate MI scores
-    def calculate_and_display_mutual_info_scores(self, X: np.ndarray, y: np.ndarray, feature_names: list[str], sequence_length: int, prediction_horizon: int) -> None:
+    def calculate_and_display_mutual_info_scores(self, X: np.ndarray, y: np.ndarray, features: list[str], sequence_length: int, prediction_horizon: int) -> None:
         start_time = time.time()
         
         # Calculate wind direction for the entire prediction horizon
@@ -406,7 +423,6 @@ class DataInspector:
         
         # INFO: @Juan 10/02/24 Use MPI for parallel processing
         comm = MPI.COMM_WORLD
-        rank = comm.Get_rank()
         
         # Use multiprocessing Pool with tqdm progress bar
         with MPICommExecutor(comm, root=0) as executor:
@@ -426,7 +442,7 @@ class DataInspector:
                 mi_scores_dir /= total_steps
                 
                 mi_df = pl.LazyFrame({
-                    'Feature': feature_names,
+                    'Feature': features,
                     'MI Score (u)': mi_scores_u,
                     'MI Score (v)': mi_scores_v,
                     'MI Score (direction)': mi_scores_dir,
@@ -467,13 +483,13 @@ class DataInspector:
     #INFO: @Juan 10/02/24 Added method to calculate and display mutual information scores for the target turbine
     #NOTE: Future work: Accept more than one turbine ID as input, Accept feature_names as input
     def calculate_mi_scores(self, target_turbine: str, X: np.ndarray, y: np.ndarray, features: int, sequence_length: int, prediction_horizon: int) -> None:
-        self._validate_input_data(self, X=X, y=y, features=features, sequence_length=sequence_length, prediction_horizon=prediction_horizon)
+        self._validate_input_data(X=X, y=y, features=features, sequence_length=sequence_length, prediction_horizon=prediction_horizon)
         # Remove the target turbine data in Y from the feature set X
         # 1. Create bool mask to filter out (~) data of target turbine. This works for both u and v components
         feature_mask = ~np.char.startswith(features, f'TurbineWindMag_{target_turbine}_')
         
         # 2. Apply the mask to filter X and feature_names
-        X_filtered = self.X[:, :, feature_mask]
+        X_filtered = X[:, :, feature_mask]
         feature_names_filtered = np.array(features)[feature_mask]
         
         # 3. Calculate and display mutual information scores
