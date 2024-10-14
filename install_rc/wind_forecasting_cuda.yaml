@@ -2,6 +2,8 @@ name: wind_forecasting_cuda
 channels:
   - conda-forge
   - defaults
+  - nvidia
+  - pytorch
 dependencies:
   - python=3.11
   - pytorch
