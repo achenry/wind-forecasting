@@ -97,7 +97,6 @@ class DataLoader:
                 if self.multiprocessor == "mpi":
                     run_simulations_exec.max_workers = comm_size
                 
-                # INFO: @Juan 10/02/24 Turned read_single_netcdf into a private method
                 futures = [run_simulations_exec.submit(self._read_single_netcdf, file_path=file_path) for file_path in self.file_paths]
                 df_query = [fut.result() for fut in futures]
         else:
@@ -123,7 +122,7 @@ class DataLoader:
         """_summary_
             convert timestamp to cosine and sinusoidal components
         Returns:
-            pl.LaxyFrame: _description_
+            pl.LazyFrame: _description_
         """
         if df is None:
             raise ValueError("Data not loaded > call read_multi_netcdf() first.")
@@ -205,44 +204,18 @@ class DataLoader:
         """
         try:
             with nc.Dataset(file_path, 'r') as dataset:
-                # Convert time to datetime
-
-                # if "date" in dataset.variables:
                 time = dataset.variables['date']
-                # INFO: @Juan 10/02/24 Changed pandas to polars for time conversion pl.from_numpy
-                # BUG: Time is not being converted correctly, check if this new implementation with polars is working!
-                # time = pl.from_numpy(nc.num2date(times=time[:], units=time.units, calendar=time.calendar, only_use_cftime_datetimes=False, only_use_python_datetimes=True))
                 time = pd_to_datetime(nc.num2date(times=time[:], units=time.units, calendar=time.calendar, only_use_cftime_datetimes=False, only_use_python_datetimes=True))
-
-                # NOTE: Future work: Have config file to define turbine feature names in data etc
+                
+                # TODO add column mapping
                 data = {
                     'turbine_id': [os.path.basename(file_path).split('.')[-2]] * dataset.variables["date"].shape[0],
                     'time': time,
                     'turbine_status': dataset.variables['WTUR.TurSt'][:],
-                    # 'turbine_availability': dataset.variables['WAVL.TurAvl'][:],
                     'wind_direction': dataset.variables['WMET.HorWdDir'][:],
                     'wind_speed': dataset.variables['WMET.HorWdSpd'][:],
-                    # 'generator_current_phase_1': dataset.variables['WCNV.GnA1'][:],
-                    # 'generator_current_phase_2': dataset.variables['WCNV.GnA2'][:],
-                    # 'generator_current_phase_3': dataset.variables['WCNV.GnA3'][:],
-                    # 'generator_voltage_phase_1': dataset.variables['WCNV.GnPNV1'][:],
-                    # 'generator_voltage_phase_2': dataset.variables['WCNV.GnPNV2'][:],
-                    # 'generator_voltage_phase_3': dataset.variables['WCNV.GnPNV3'][:],
                     'power_output': dataset.variables['WTUR.W'][:],
-                    
-                    # 'generator_bearing_de_temp': dataset.variables['WGEN.BrgDETmp'][:],
-                    # 'generator_bearing_nde_temp': dataset.variables['WGEN.BrgNDETmp'][:],
-                    # 'generator_inlet_temp': dataset.variables['WGEN.InLetTmp'][:],
-                    # 'generator_stator_temp_1': dataset.variables['WGEN.SttTmp1'][:],
-                    # 'generator_stator_temp_2': dataset.variables['WGEN.SttTmp2'][:],
-                    # 'generator_rotor_speed': dataset.variables['WGEN.RotSpd'][:],
-                    'nacelle_direction': dataset.variables['WNAC.Dir'][:],
-                    # 'nacelle_temperature': dataset.variables['WNAC.Tmp'][:],
-                    # 'ambient_temperature': dataset.variables['WMET.EnvTmp'][:],
-                    # 'blade_pitch_angle_1': dataset.variables['WROT.BlPthAngVal1'][:],
-                    # 'blade_pitch_angle_2': dataset.variables['WROT.BlPthAngVal2'][:],
-                    # 'blade_pitch_angle_3': dataset.variables['WROT.BlPthAngVal3'][:],
-                    # 'rotor_speed': dataset.variables['WROT.RotSpd'][:],
+                    'nacelle_direction': dataset.variables['WNAC.Dir'][:]
                 }
                 
                 df_query = pl.LazyFrame(data).group_by("turbine_id", "time").agg(
@@ -260,8 +233,7 @@ class DataLoader:
                 return df_query
             
         except Exception as e:
-            logging.error(f"Error processing {file_path}: {e}")
-            return None
+            print(f"\nError processing {file_path}: {e}")
 
 if __name__ == "__main__":
     from sys import platform

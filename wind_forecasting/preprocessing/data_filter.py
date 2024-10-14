@@ -10,6 +10,9 @@ import numpy as np
 import polars as pl
 from scipy.interpolate import CubicSpline
 
+# from line_profiler import profile
+from memory_profiler import profile
+
 class DataFilter:
     """_summary_
     """
@@ -45,7 +48,6 @@ class DataFilter:
     def resolve_missing_data(self, df, how="linear_interp", features=None) -> pl.LazyFrame:
         """_summary_
         option 1) interpolate via linear, or forward
-        option 2) remove rows TODO may need to split into multiple datasets
         """
         if how == "forward_fill":
             return df.fill_null(strategy="forward")
