@@ -1,0 +1,37 @@
+name: wind_forecasting_cuda
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.11
+  - pytorch
+  - torchvision
+  - torchaudio
+  - pytorch-cuda=12.1
+  - ca-certificates
+  - openssl
+  - seaborn
+  - numpy
+  - matplotlib
+  - polars
+  - mpi4py
+  - certifi
+  - windrose
+  - floris
+  - tqdm
+  - cython
+  - cmdstanpy
+  - pystan
+  - convertdate
+  - python-dateutil
+  - performer-pytorch
+  - nystrom-attention
+  - netcdf4
+  - omegaconf
+  - wandb
+  - einops
+  - chardet
+  - opt_einsum
+  - torchmetrics
+  - pytorch-lightning
+prefix: /projects/jubo7621/software/anaconda/envs/wind_forecasting_cuda
