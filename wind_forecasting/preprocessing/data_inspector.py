@@ -14,10 +14,12 @@ from floris.flow_visualization import visualize_cut_plane
 import floris.layout_visualization as layoutviz
 import scipy.stats as stats
 import polars as pl
+import polars.selectors as cs
 from mpi4py import MPI
 from mpi4py.futures import MPICommExecutor
 from sklearn.feature_selection import mutual_info_regression
 from tqdm.auto import tqdm
+import re
 
 #INFO: TO use MPI, need to run the script with the following command:
 # mpiexec -n <number_of_processes> python your_script.py
@@ -40,11 +42,14 @@ class DataInspector:
         if isinstance(turbine_ids, str):
             turbine_ids = [turbine_ids]  # Convert single ID to list
         
-        valid_turbines = df.select("turbine_id").unique().filter(pl.col("turbine_id").is_in(turbine_ids)).collect(streaming=True).to_numpy()[:, 0]
-         
-        if not valid_turbines:
+        # valid_turbines = df.select("turbine_id").unique().filter(pl.col("turbine_id").is_in(turbine_ids)).collect(streaming=True).to_numpy()[:, 0]
+        cols = df.collect_schema().names()
+        available_turbines = np.unique([re.findall(f"(?<=wind_direction_)(.*)", col)[0] for col in cols if "wind_direction" in col])
+        valid_turbines = [tid for tid in available_turbines if tid in turbine_ids]
+
+        if len(valid_turbines) == 0:
             print(f"Error: No valid turbine IDs")
-            # print("Available turbine IDs:", available_turbines)
+            print("Available turbine IDs:", available_turbines)
             return []
         
         return valid_turbines
@@ -66,26 +71,13 @@ class DataInspector:
         if farm_input_filepath is not None and not os.path.exists(farm_input_filepath):
             raise FileNotFoundError(f"Farm input file not found: {farm_input_filepath}")
 
-    def _get_valid_turbine_ids(self, df, turbine_ids: list[str]) -> list[str]:
-        if isinstance(turbine_ids, str):
-            turbine_ids = [turbine_ids]  # Convert single ID to list
-
-        valid_turbines = df.select("turbine_id").unique().filter(pl.col("turbine_id").is_in(turbine_ids)).collect(streaming=True).to_numpy()[:, 0]
-         
-        if not valid_turbines:
-            print(f"Error: No valid turbine IDs")
-            # print("Available turbine IDs:", available_turbines)
-            return []
-
-        return valid_turbines 
-
     def plot_time_series(self, df, turbine_ids: list[str]) -> None:
         if isinstance(turbine_ids, str):
             turbine_ids = [turbine_ids]  # Convert single ID to list
         
         valid_turbines = self._get_valid_turbine_ids(df, turbine_ids=turbine_ids)
         
-        if not valid_turbines:
+        if len(valid_turbines) == 0:
             return
         
         sns.set_style("whitegrid")
@@ -94,14 +86,14 @@ class DataInspector:
         fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(12, 10), sharex=True)
         
         for turbine_id in valid_turbines:
-            turbine_data = df.select(["time", "wind_speed", "wind_direction", "power_output", "turbine_id"]).filter(pl.col("turbine_id") == turbine_id).drop_nulls()
+            turbine_data = df.select([pl.col("time"), cs.ends_with(f"{turbine_id}")]).drop_nulls()
             # plt.plot(turbine_data["time"], turbine_data["wind_speed"])
             sns.lineplot(data=turbine_data.collect(streaming=True).to_pandas(),
-                         x='time', y='wind_speed', ax=ax1, label=f'{turbine_id} Wind Speed')
+                         x='time', y=f'wind_speed_{turbine_id}', ax=ax1, label=f'{turbine_id} Wind Speed')
             sns.lineplot(data=turbine_data.collect(streaming=True).to_pandas(),
-                         x='time', y='wind_direction', ax=ax2, label=f'{turbine_id} Wind Direction')
+                         x='time', y=f'wind_direction_{turbine_id}', ax=ax2, label=f'{turbine_id} Wind Direction')
             sns.lineplot(data=turbine_data.collect(streaming=True).to_pandas(),
-                         x='time', y='power_output', ax=ax3, label=f'{turbine_id} Power Output')
+                         x='time', y=f'power_output_{turbine_id}', ax=ax3, label=f'{turbine_id} Power Output')
         
         ax1.set_ylabel('Wind Speed (m/s)')
         ax2.set_ylabel('Wind Direction (kW)')
@@ -127,18 +119,16 @@ class DataInspector:
         """
         valid_turbines = self._get_valid_turbine_ids(df, turbine_ids=turbine_ids)
         
-        if not valid_turbines:
+        if len(valid_turbines) == 0:
              return
         
-
         for turbine_id in valid_turbines:
             _, ax = plt.subplots(1, 1, figsize=(12, 6))
             # TODO does seaborn plot null/nan values??
-            turbine_data = df.select(["wind_speed", "power_output", "turbine_id"])\
-                .filter(pl.col("turbine_id") == turbine_id, 
-                        pl.all_horizontal(pl.col("wind_speed", "power_output").is_not_nan()))\
+            turbine_data = df.select(pl.col(f"wind_speed_{turbine_id}"), pl.col(f"power_output_{turbine_id}"))\
+                .filter(pl.all_horizontal(pl.col(f"wind_speed_{turbine_id}", f"power_output_{turbine_id}").is_not_null()))\
                             .collect(streaming=True).to_pandas()
-            sns.scatterplot(data=turbine_data, ax=ax, x='wind_speed', y='power_output', label=turbine_id, alpha=0.5)
+            sns.scatterplot(data=turbine_data, ax=ax, x=f"wind_speed_{turbine_id}", y=f"power_output_{turbine_id}", label=turbine_id, alpha=0.5)
 
             plt.xlabel('Wind Speed [m/s]')
             plt.ylabel('Power Output [kW]')
@@ -159,8 +149,8 @@ class DataInspector:
         if turbine_ids == "all":
             plt.figure(figsize=(10, 10))
             ax = WindroseAxes.from_ax()
-            ax.bar(df.select("wind_direction").collect(streaming=True).to_numpy()[:, 0], 
-                   df.select("wind_speed").collect(streaming=True).to_numpy()[:, 0], 
+            ax.bar(df.select(pl.col("wind_direction*")).collect(streaming=True).to_numpy()[:, 0], 
+                   df.select(pl.col("wind_speed*")).collect(streaming=True).to_numpy()[:, 0], 
                    normed=True, opening=0.8, edgecolor='white')
             ax.set_legend()
             plt.title('Wind Rose for all Turbines')
@@ -168,17 +158,16 @@ class DataInspector:
         else:
             valid_turbines = self._get_valid_turbine_ids(df, turbine_ids=turbine_ids)
         
-            if not valid_turbines:
+            if len(valid_turbines) == 0:
                 return
 
             for turbine_id in valid_turbines:
-                turbine_data = df.select(["turbine_id", "wind_speed", "wind_direction"])\
-                    .filter(pl.col("turbine_id") == turbine_id,
-                            pl.all_horizontal(pl.col("wind_speed", "wind_direction").is_not_null()))
+                turbine_data = df.select([pl.col(f"wind_speed_{turbine_id}"), pl.col(f"wind_direction_{turbine_id}")])\
+                    .filter(pl.all_horizontal(pl.col(f"wind_speed_{turbine_id}").is_not_null(), pl.col(f"wind_direction_{turbine_id}").is_not_null()))
                 plt.figure(figsize=(10, 10))
                 ax = WindroseAxes.from_ax()
-                ax.bar(turbine_data.select("wind_direction").collect(streaming=True).to_numpy()[:, 0], 
-                       turbine_data.select("wind_speed").collect(streaming=True).to_numpy()[:, 0], normed=True, opening=0.8, edgecolor='white')
+                ax.bar(turbine_data.select(f"wind_direction_{turbine_id}").collect(streaming=True).to_numpy()[:, 0], 
+                       turbine_data.select(f"wind_speed_{turbine_id}").collect(streaming=True).to_numpy()[:, 0], normed=True, opening=0.8, edgecolor='white')
                 ax.set_legend()
                 plt.title(f'Wind Rose for Turbine {turbine_id}')
                 plt.show()
@@ -209,7 +198,7 @@ class DataInspector:
     def plot_correlation(self, df, features) -> None:
         """_summary_
         """
-        plt.figure(figsize=(12, 10))
+        _, ax = plt.subplots(1, 1, figsize=(12, 10))
         sns.heatmap(df.select(features).collect(streaming=True).to_pandas().corr(), 
                     annot=True, cmap='coolwarm', linewidths=0.5,  vmin=-1, vmax=1, center=0, ax=ax,
                     xticklabels=features, yticklabels=features)
@@ -225,17 +214,15 @@ class DataInspector:
         """
         valid_turbines = self._get_valid_turbine_ids(df, turbine_ids=turbine_ids)
         
-        if not valid_turbines:
+        if len(valid_turbines) == 0:
             return
-        
-        cols = ["hour", "wind_speed", "wind_direction", "turbine_id"] if "hour" in df.columns else ["time", "wind_speed", "wind_direction", "turbine_id"]
 
         for turbine_id in valid_turbines:
             # Select data for the specified turbine
             # turbine_data = df.loc[turbine_id]
             
-            turbine_data = df.select(cols)\
-                .filter(pl.col("turbine_id") == turbine_id, pl.any_horizontal(pl.col("wind_speed", "wind_direction").is_not_null()))\
+            turbine_data = df.select([pl.col("time"), pl.col(f"wind_speed_{turbine_id}"), pl.col(f"wind_direction_{turbine_id}")])\
+                .filter(pl.any_horizontal(pl.col(f"wind_speed_{turbine_id}", f"wind_direction_{turbine_id}").is_not_null()))\
                 .collect(streaming=True).to_pandas()
             
             if "hour" not in turbine_data.columns:
@@ -245,8 +232,8 @@ class DataInspector:
                 turbine_data["hour"] = turbine_data["time"].dt.hour
             
             fig, ax = plt.subplots(2, 1, figsize=(12, 6))
-            sns.boxplot(data=turbine_data, x='hour', y='wind_speed', ax=ax[0])
-            sns.boxplot(data=turbine_data, x='hour', y='wind_direction', ax=ax[1])
+            sns.boxplot(data=turbine_data, x='hour', y=f"wind_speed_{turbine_id}", ax=ax[0])
+            sns.boxplot(data=turbine_data, x='hour', y=f"wind_direction_{turbine_id}", ax=ax[1])
             ax[0].set_title(f'Wind Speed Distribution by Hour for Turbine {turbine_id}')
             ax[1].set_title(f'Wind Direction Distribution by Hour for Turbine {turbine_id}')
             ax[0].set_xlabel("")
@@ -265,15 +252,15 @@ class DataInspector:
         """
         valid_turbines = self._get_valid_turbine_ids(df, turbine_ids=turbine_ids)
         
-        if not valid_turbines:
+        if len(valid_turbines) == 0:
             return
         
         for turbine_id in valid_turbines: 
 
             # Extract wind speed data
-            wind_speeds = df.select(["turbine_id", "wind_speed"])\
-                .filter(pl.col("turbine_id") == turbine_id, pl.col("wind_speed").is_not_null())\
-                .select(["wind_speed"]).collect(streaming=True).to_pandas()
+            wind_speeds = df.select(f"wind_speed_{turbine_id}")\
+                .filter(pl.col(f"wind_speed_{turbine_id}").is_not_null())\
+                .collect(streaming=True).to_pandas()
 
             # Fit Weibull distribution
             shape, loc, scale = stats.weibull_min.fit(wind_speeds, floc=0)

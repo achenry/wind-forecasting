@@ -8,6 +8,7 @@ import glob
 import os
 import logging
 from concurrent.futures import ProcessPoolExecutor
+import re
 
 import netCDF4 as nc
 import polars as pl
@@ -34,14 +35,14 @@ class DataLoader:
        - normalize data 
     """
     def __init__(self, data_dir: str = r"/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data", 
-                 file_signature: str = r"kp.turbine.z02.b0.*.wt*.nc", 
+                 file_signature: str = r"kp.turbine.z02.b0.*.wt*.nc",
                  save_path: str = r"/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/kp.turbine.zo2.b0.raw.parquet",
                  multiprocessor: str | None = None,
                  features: list[str] = None,
                  dt: int | None = 5):
         
         if features is None:
-            self.features = ["time", "turbine_id", "turbine_status", "turbine_availability", "wind_direction", "wind_speed", "power_output"]
+            self.features = ["time", "turbine_id", "turbine_status", "turbine_availability", "wind_direction", "wind_speed", "power_output", "nacelle_direction"]
         else:
             self.features = features
 
@@ -107,7 +108,13 @@ class DataLoader:
         if (self.multiprocessor == "mpi" and (comm_rank := MPI.COMM_WORLD.Get_rank()) == 0) \
             or (self.multiprocessor != "mpi") or (self.multiprocessor is None):
             if [df for df in df_query if df is not None]:
-                df_query = pl.concat([df for df in df_query if df is not None]).sort(["turbine_id", "time"])
+                df_query = pl.concat([df for df in df_query if df is not None], how="diagonal")\
+                    .group_by("time").agg(cs.numeric().drop_nulls().first()).sort("time")
+                cols = df_query.collect_schema().names()
+                turbine_ids = np.unique([re.findall(f"(?<=wind_direction_)(.*)", col)[0] for col in cols if "wind_direction" in col])
+                df_query = df_query.select([pl.col("time")] 
+                                            + [f"{feat}_{tid}" for feat in ["turbine_status", "wind_direction", "wind_speed", "power_output", "nacelle_direction"] 
+                                               for tid in turbine_ids])
                 df_query.collect(streaming=True).write_parquet(self.save_path)
                 # combined_df.set_index(['turbine_id', 'time'], inplace=True)
                 # logging.info(f"Combined DataFrame shape: {combined_df.shape}")
@@ -153,11 +160,11 @@ class DataLoader:
         Returns:
             pl.LazyFrame: _description_
         """
-        return df.select(self.features).filter(pl.any_horizontal(cs.numeric().is_not_null()))
+        return df.select([cs.contains(feat) for feat in self.features]).filter(pl.any_horizontal(cs.numeric().is_not_null()))
 
     def resample(self, df) -> pl.LazyFrame:
         return df.with_columns(pl.col("time").dt.round(f"{self.dt}s").alias("time"))\
-                 .group_by("turbine_id", "time").agg(cs.numeric().drop_nulls().first()).sort(["turbine_id", "time"])
+                 .group_by("time", "turbine_id").agg(cs.numeric().drop_nulls().first()).sort(["time", "turbine_id"])
 
     def normalize_features(self, df) -> pl.LazyFrame:
         """_summary_
@@ -218,15 +225,24 @@ class DataLoader:
                     'nacelle_direction': dataset.variables['WNAC.Dir'][:]
                 }
                 
-                df_query = pl.LazyFrame(data).group_by("turbine_id", "time").agg(
-                    # remove the rows with all nans (corresponding to rows where excluded columns would have had a value)
-                    # and bundle all values corresponding to identical time stamps together
-                    cs.numeric().drop_nans().first()
-                ).fill_nan(None)
-                df_query = self.reduce_features(df_query)
-                if self.dt is not None:
-                    df_query = self.resample(df_query)
-
+                # df_query = pl.LazyFrame(data).group_by("turbine_id", "time").agg(
+                #     
+                #     cs.numeric().first()
+                # ).fill_nan(None)
+                # remove the rows with all nans (corresponding to rows where excluded columns would have had a value)
+                # and bundle all values corresponding to identical time stamps together
+                # forward fill missing values
+                df_query = pl.LazyFrame(data).fill_nan(None)\
+                                             .with_columns(pl.col("time").dt.round(f"{self.dt}s").alias("time"))\
+                                             .select([cs.contains(feat) for feat in self.features])\
+                                             .filter(pl.any_horizontal(cs.numeric().is_not_null()))\
+                                             .group_by("time", "turbine_id")\
+                                             .agg(cs.numeric().drop_nulls().first())\
+                                             .sort(["turbine_id", "time"])\
+                                             .fill_null(strategy="forward")
+                
+                # pivot table to have columns for each turbine and measurement
+                df_query = df_query.collect(streaming=True).pivot(on="turbine_id", index="time", values=["power_output", "nacelle_direction", "wind_speed", "wind_direction", "turbine_status"]).lazy()
                 del data
                 
                 logging.info(f"Processed {file_path}") #, shape: {df.shape}")
@@ -237,10 +253,10 @@ class DataLoader:
 
 if __name__ == "__main__":
     from sys import platform
-    
+    RELOAD_DATA = True
     if platform == "darwin":
         DATA_DIR = "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data"
-        PL_SAVE_PATH = "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/kp.turbine.zo2.b0.raw.parquet"
+        PL_SAVE_PATH = "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/short_kp.turbine.zo2.b0.raw.parquet"
         FILE_SIGNATURE = "kp.turbine.z02.b0.20220301.*.*.nc"
         MULTIPROCESSOR = "cf"
         TURBINE_INPUT_FILEPATH = "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/inputs/ge_282_127.yaml"
@@ -261,16 +277,14 @@ if __name__ == "__main__":
                                  multiprocessor=MULTIPROCESSOR, dt=DT,
                          features=["time", "turbine_id", "turbine_status", "wind_direction", "wind_speed", "power_output", "nacelle_direction"])
         
-        if os.path.exists(data_loader.save_path):
+        if not RELOAD_DATA and os.path.exists(data_loader.save_path):
             # Note that the order of the columns in the provided schema must match the order of the columns in the CSV being read.
-            schema = pl.Schema({"turbine_id": pl.String(),
-                                "time": pl.Datetime(time_unit="ms"),
-                                "turbine_status": pl.Float64,
-                                "wind_direction": pl.Float64,
-                                "wind_speed": pl.Float64,
-                                "power_output": pl.Float64,
-                                "nacelle_direction": pl.Float64,
-                            })
+            schema = pl.Schema({**{"time": pl.Datetime(time_unit="ms")},
+                        **{
+                            f"{feat}_{tid}": pl.Float64
+                            for feat in ["turbine_status", "wind_direction", "wind_speed", "power_output", "nacelle_direction"] 
+                            for tid in [f"wt{d+1:03d}" for d in range(88)]}
+                        })
             
             df_query = pl.scan_parquet(source=data_loader.save_path, hive_schema=schema)
         else:

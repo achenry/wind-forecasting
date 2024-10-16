@@ -8,6 +8,7 @@ from functools import partial
 
 import numpy as np
 import polars as pl
+import polars.selectors as cs
 from scipy.interpolate import CubicSpline
 
 # from line_profiler import profile
@@ -31,18 +32,24 @@ class DataFilter:
         include_status_mask = status_codes is not None and self.turbine_status_col is not None
         include_availability_mask = availability_codes is not None and self.turbine_availability_col is not None
 
-        # Combine masks
+        # Combine masks 
         if include_status_mask and include_availability_mask:
-            return df.filter((pl.col(self.turbine_status_col).is_in(status_codes) 
-                              | (pl.col(self.turbine_status_col).is_null() if include_nan else False)) 
-                             & (pl.col(self.turbine_availability_col).is_in(availability_codes) 
-                                | (pl.col(self.turbine_availability_col).is_null() if include_nan else False)))
+            return df.with_columns(pl.when(cs.starts_with(self.turbine_status_col).is_in(status_codes) 
+                                            | (cs.starts_with(self.turbine_status_col).is_null() if include_nan else False))\
+                                     .then(cs.starts_with(self.turbine_status_col)),
+                                    pl.when(cs.starts_with(self.turbine_availability_col).is_in(availability_codes) 
+                                            | (cs.starts_with(self.turbine_availabilty_col).is_null() if include_nan else False))\
+                                     .then(cs.starts_with(self.turbine_availability_col)) )
         elif include_status_mask:
-            return df.filter(pl.col(self.turbine_status_col).is_in(status_codes)
-                             | (pl.col(self.turbine_status_col).is_null() if include_nan else False))
+            return df.with_columns(pl.when(cs.starts_with(self.turbine_status_col).is_in(status_codes) 
+                                            | (cs.starts_with(self.turbine_status_col).is_null() if include_nan else False))\
+                                     .then(cs.starts_with(self.turbine_status_col)))
         elif include_availability_mask:
-            return df.filter(pl.col(self.turbine_availability_col).is_in(availability_codes) 
-                             | (pl.col(self.turbine_availability_col).is_null() if include_nan else False))
+            # return df.filter(cs.starts_with(self.turbine_availability_col).is_in(availability_codes) 
+            #                  | (cs.starts_with(self.turbine_availability_col).is_null() if include_nan else False))
+            return df.with_columns(pl.when(cs.starts_with(self.turbine_availability_col).is_in(availability_codes) 
+                                            | (cs.starts_with(self.turbine_availabilty_col).is_null() if include_nan else False))\
+                                     .then(cs.starts_with(self.turbine_availability_col)))
 
     
     def resolve_missing_data(self, df, how="linear_interp", features=None) -> pl.LazyFrame:
