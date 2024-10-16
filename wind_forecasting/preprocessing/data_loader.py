@@ -8,7 +8,9 @@ import glob
 import os
 import logging
 from concurrent.futures import ProcessPoolExecutor
+import multiprocessing
 import time
+import psutil
 
 import netCDF4 as nc
 import polars as pl
@@ -65,8 +67,14 @@ class DataLoader:
         logging.info(f"✅ Starting read_multi_files with {len(self.file_paths)} files")
         
         if self.multiprocessor:
-            executor = MPICommExecutor(MPI.COMM_WORLD, root=0) if self.multiprocessor == "mpi" else ProcessPoolExecutor()
-            logging.info(f"🔧 Using {self.multiprocessor} executor with {MPI.COMM_WORLD.Get_size()} processes")
+            if self.multiprocessor == "mpi":
+                executor = MPICommExecutor(MPI.COMM_WORLD, root=0)
+                logging.info(f"🚀 Using MPI executor with {MPI.COMM_WORLD.Get_size()} processes")
+            else:  # "cf" case
+                max_workers = multiprocessing.cpu_count()
+                executor = ProcessPoolExecutor(max_workers=max_workers)
+                logging.info(f"🖥️ Using ProcessPoolExecutor with {max_workers} workers")
+            
             with executor as exec:
                 futures = [exec.submit(self._read_single_file, file_path) for file_path in self.file_paths]
                 df_query = [fut.result() for fut in futures if fut.result() is not None]
@@ -76,19 +84,17 @@ class DataLoader:
 
         logging.info(f"✅ Finished reading individual files. Time elapsed: {time.time() - start_time:.2f} s")
 
-        if (self.multiprocessor == "mpi" and (comm_rank := MPI.COMM_WORLD.Get_rank()) == 0) \
-            or (self.multiprocessor != "mpi") or (self.multiprocessor is None):
-
+        if (self.multiprocessor == "mpi" and MPI.COMM_WORLD.Get_rank() == 0) or (self.multiprocessor != "mpi"):
             if [df for df in df_query if df is not None]:
                 # logging.info("🔄 Starting concatenation of DataFrames")
                 concat_start = time.time()
                 df_query = pl.concat([df for df in df_query if df is not None]).lazy()
-                logging.info(f"✅ Finished concatenation. Time elapsed: {time.time() - concat_start:.2f} s")
+                logging.info(f"🔗 Finished concatenation. Time elapsed: {time.time() - concat_start:.2f} s")
 
                 # logging.info("🔄 Starting sorting")
                 sort_start = time.time()
                 df_query = df_query.sort(["turbine_id", "time"])
-                logging.info(f"✅ Finished sorting. Time elapsed: {time.time() - sort_start:.2f} s")
+                logging.info(f"🔀 Finished sorting. Time elapsed: {time.time() - sort_start:.2f} s")
           
                 # INFO: @Juan 10/16/24 Separate method for writing parquet file
                 self._write_parquet(df_query)
@@ -100,31 +106,45 @@ class DataLoader:
             return None
 
         logging.info(f"⏱️ Total time elapsed: {time.time() - start_time:.2f} s")
-        
+        return None
+
     def _write_parquet(self, df_query: pl.LazyFrame):
-        logging.info("🔄 Starting Parquet write")
+        logging.info("📝 Starting Parquet write")
         write_start = time.time()
         
         try:
             # Collect a small sample to check for issues
             sample = df_query.limit(10).collect()
-            logging.info(f"Total rows in df_query: {df_query.collect().shape[0]}")
-            logging.info(f"Sample data types: {sample.dtypes}")
-            logging.info(f"Sample data:\n{sample}")
+            total_rows = df_query.select(pl.count()).collect().item()
+            logging.info(f"📊 Total rows in df_query: {total_rows}")
+            logging.info(f"🔢 Sample data types: {sample.dtypes}")
+            logging.info(f"🔍 Sample data:\n{sample}")
 
-            # Collect the entire LazyFrame into a DataFrame
-            df = df_query.collect()
-            
-            # Write the DataFrame to a Parquet file
-            df.write_parquet(
-                self.save_path, 
-                row_group_size=100000  # Adjust as needed
-            )
+            # Estimate memory usage
+            estimated_memory = total_rows * len(sample.columns) * 8  # Rough estimate, assumes 8 bytes per value
+            available_memory = psutil.virtual_memory().available
+
+            if estimated_memory > available_memory * 0.8:  # If estimated memory usage is more than 80% of available memory
+                logging.warning("⚠️💾 Large dataset detected. Writing in chunks.")
+                with pl.StringIO() as buffer:
+                    df_query.sink_parquet(buffer, row_group_size=100000)
+                    with open(self.save_path, 'wb') as f:
+                        f.write(buffer.getvalue())
+            else:
+                # Collect the entire LazyFrame into a DataFrame and write
+                df_query.collect().write_parquet(self.save_path, row_group_size=100000)
             
             logging.info(f"✅ Finished writing Parquet. Time elapsed: {time.time() - write_start:.2f} s")
+        except PermissionError:
+            logging.error("❌🔒 Permission denied when writing Parquet file. Check file permissions.")
+        except OSError as e:
+            if e.errno == 28:  # No space left on device
+                logging.error("❌💽 No space left on device. Free up some disk space and try again.")
+            else:
+                logging.error(f"❌💻 OS error occurred: {str(e)}")
         except Exception as e:
             logging.error(f"❌ Error during Parquet write: {str(e)}")
-            logging.info("Attempting to write as CSV instead...")
+            logging.info("📄 Attempting to write as CSV instead...")
             try:
                 csv_path = self.save_path.replace('.parquet', '.csv')
                 df_query.collect().write_csv(csv_path)
@@ -187,41 +207,54 @@ class DataLoader:
             return df_query
 
     def _read_single_csv(self, file_path: str) -> pl.LazyFrame:
-        df = pl.read_csv(file_path, low_memory=False)
-        
-        # Apply column mapping if provided
-        if self.column_mapping:
-            df = df.rename(self.column_mapping)
-        
-        # Convert time column to datetime
-        df = df.with_columns(pl.col("time").str.to_datetime())
-        
-        # Group by turbine_id and time if necessary
-        if "turbine_id" in df.columns:
-            df = df.group_by("turbine_id", "time").agg(
-                cs.numeric().drop_nans().first()
-            ).fill_nan(None)
-        
-        df = self.reduce_features(df)
-        if self.dt is not None:
-            df = self.resample(df)
-        
-        logging.info(f"Processed {file_path}")
-        return df.lazy()
+        try:
+            # Read the CSV file
+            df = pl.read_csv(file_path, low_memory=False)
+            
+            # Apply column mapping if provided
+            if self.column_mapping:
+                df = df.rename(self.column_mapping)
+            
+            # Convert time column to datetime
+            if "time" in df.columns:
+                df = df.with_columns(pl.col("time").str.to_datetime())
+            else:
+                logging.warning("⚠️ 'time' column not found in CSV file.")
+            
+            # Check if turbine_id exists, if not, create it from the filename
+            if "turbine_id" not in df.columns:
+                turbine_id = os.path.basename(file_path).split('.')[0]  # Adjust this based on your filename format
+                df = df.with_columns(pl.lit(turbine_id).alias("turbine_id"))
+            
+            # Group by turbine_id and time if necessary
+            if "turbine_id" in df.columns and "time" in df.columns:
+                df = df.group_by("turbine_id", "time").agg(
+                    cs.numeric().drop_nans().first()
+                ).fill_nan(None)
+            
+            df = self.reduce_features(df)
+            if self.dt is not None:
+                df = self.resample(df)
+            
+            logging.info(f"📁 Processed {file_path}")
+            return df.lazy()
+        except Exception as e:
+            logging.error(f"❌ Error processing CSV file {file_path}: {str(e)}")
+            return None
 
     def print_netcdf_structure(self, file_path) -> None: #INFO: @Juan 10/02/24 Changed print to logging
         try:
             with nc.Dataset(file_path, 'r') as dataset:
-                logging.info(f"NetCDF File: {os.path.basename(file_path)}")
-                logging.info("\nGlobal Attributes:")
+                logging.info(f"📊 NetCDF File: {os.path.basename(file_path)}")
+                logging.info("\n🌐 Global Attributes:")
                 for attr in dataset.ncattrs():
                     logging.info(f"  {attr}: {getattr(dataset, attr)}")
 
-                logging.info("\nDimensions:")
+                logging.info("\n📏 Dimensions:")
                 for dim_name, dim in dataset.dimensions.items():
                     logging.info(f"  {dim_name}: {len(dim)}")
 
-                logging.info("\nVariables:")
+                logging.info("\n🔢 Variables:")
                 for var_name, var in dataset.variables.items():
                     logging.info(f"  {var_name}:")
                     logging.info(f"    Dimensions: {var.dimensions}")
@@ -232,7 +265,7 @@ class DataLoader:
                         logging.info(f"      {attr}: {getattr(var, attr)}")
 
         except Exception as e:
-            logging.error(f"Error reading NetCDF file: {e}")
+            logging.error(f"❌ Error reading NetCDF file: {e}")
 
     def convert_time_to_sin(self, df) -> pl.LazyFrame:
         """_summary_
@@ -281,7 +314,7 @@ class DataLoader:
             pl.LazyFrame: _description_
         """
         if df is None:
-            raise ValueError("Data not loaded > call read_multi_netcdf() first.")
+            raise ValueError("⚠️ Data not loaded > call read_multi_netcdf() first.")
         
         features_to_normalize = [col for col in self.df.columns
                                  if all(c not in col for c in ['time', 'hour', 'day', 'year'])]
@@ -353,19 +386,23 @@ if __name__ == "__main__":
         MULTIPROCESSOR = "cf"
         TURBINE_INPUT_FILEPATH = "/Users/$USER/Documents/toolboxes/wind_forecasting/examples/inputs/ge_282_127.yaml"
         FARM_INPUT_FILEPATH = "/Users/$USER/Documents/toolboxes/wind_forecasting/examples/inputs/gch_KP_v4.yaml"
+        FEATURES = ["time", "turbine_id", "turbine_status", "wind_direction", "wind_speed", "power_output", "nacelle_direction"]
     elif platform == "linux":
         # DATA_DIR = "/pl/active/paolab/awaken_data/kp.turbine.z02.b0/"
-        DATA_DIR = "examples/inputs/awaken_data"
+        # DATA_DIR = "examples/inputs/awaken_data"
+        DATA_DIR = "examples/inputs/SMARTEOLE-WFC-open-dataset"
         # PL_SAVE_PATH = "/scratch/alpine/aohe7145/awaken_data/kp.turbine.zo2.b0.raw.parquet"
-        PL_SAVE_PATH = "examples/inputs/awaken_data/processed/kp.turbine.zo2.b0.raw.parquet"
+        PL_SAVE_PATH = "examples/inputs/SMARTEOLE-WFC-open-dataset/processed/SMARTEOLE_WakeSteering_SCADA_1minData.parquet"
         # FILE_SIGNATURE = "kp.turbine.z02.b0.20220301.*.*.nc"
         # FILE_SIGNATURE = "kp.turbine.z02.b0.*.*.*.nc"
-        FILE_SIGNATURE = "kp.turbine.z02.b0.20220101.000000.wt001.nc"
-        MULTIPROCESSOR = "mpi"
+        # FILE_SIGNATURE = "kp.turbine.z02.b0.20220101.000000.wt001.nc"
+        FILE_SIGNATURE = "SMARTEOLE_WakeSteering_SCADA_1minData.csv"
+        MULTIPROCESSOR = "cf" # mpi for HPC or "cf" for local computing
         # TURBINE_INPUT_FILEPATH = "/projects/$USER/toolboxes/wind-forecasting/examples/inputs/ge_282_127.yaml"
         # FARM_INPUT_FILEPATH = "/projects/$USER/toolboxes/wind-forecasting/examples/inputs/gch_KP_v4.yaml"
         TURBINE_INPUT_FILEPATH = "examples/inputs/ge_282_127.yaml"
         FARM_INPUT_FILEPATH = "examples/inputs/gch_KP_v4.yaml"
+        FEATURES = ["time", "turbine_id", "turbine_status", "wind_direction", "wind_speed", "power_output", "nacelle_direction"]
     
     DT = 5
     RUN_ONCE = (MULTIPROCESSOR == "mpi" and (comm_rank := MPI.COMM_WORLD.Get_rank()) == 0) or (MULTIPROCESSOR != "mpi") or (MULTIPROCESSOR is None)
@@ -385,7 +422,7 @@ if __name__ == "__main__":
                 save_path=PL_SAVE_PATH,
                 multiprocessor=MULTIPROCESSOR,
                 dt=DT,
-                features=["time", "turbine_id", "turbine_status", "wind_direction", "wind_speed", "power_output", "nacelle_direction"],
+                features=FEATURES,
                 data_format=data_format
             )
             
@@ -396,18 +433,13 @@ if __name__ == "__main__":
             else:
                 logging.info("🔄 Processing new data files")
                 df_query = data_loader.read_multi_files()
-                if df_query is not None:
-                    try:
-                        data_loader._write_parquet(df_query)
-                    except Exception as e:
-                        logging.error(f"❌ Error during data writing: {str(e)}")
-                        logging.info("Attempting to process data in smaller chunks...")
-                        chunk_size = 1000000  # Adjust this value as needed
-                        for i, chunk in enumerate(df_query.collect(streaming=True).iter_batches(batch_size=chunk_size)):
-                            chunk_path = f"{data_loader.save_path}_chunk_{i}.parquet"
-                            pl.DataFrame(chunk).write_parquet(chunk_path)
-                            logging.info(f"✅ Wrote chunk {i} to {chunk_path}")
-                
-            logging.info("✅ Script completed successfully")
+            
+            if df_query is not None:
+                # Perform any additional operations on df_query if needed
+                logging.info("✅ Data processing completed successfully")
+            else:
+                logging.warning("⚠️ No data was processed")
+            
+            logging.info("🎉 Script completed successfully")
         except Exception as e:
             logging.error(f"❌ An error occurred: {str(e)}")
