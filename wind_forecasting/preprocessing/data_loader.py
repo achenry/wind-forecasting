@@ -23,6 +23,7 @@ SECONDS_PER_MINUTE = np.float64(60)
 SECONDS_PER_HOUR = SECONDS_PER_MINUTE * 60
 SECONDS_PER_DAY = SECONDS_PER_HOUR * 24
 SECONDS_PER_YEAR = SECONDS_PER_DAY * 365  # non-leap year, 365 days
+FFILL_LIMIT = 10 * SECONDS_PER_MINUTE 
 
 # INFO: @Juan 10/02/24 Set Looging up
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -38,13 +39,14 @@ class DataLoader:
                  file_signature: str = r"kp.turbine.z02.b0.*.wt*.nc",
                  save_path: str = r"/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/kp.turbine.zo2.b0.raw.parquet",
                  multiprocessor: str | None = None,
-                 features: list[str] = None,
-                 dt: int | None = 5):
+                 desired_feature_types: list[str] = None,
+                 dt: int | None = 5,
+                 ffill_limit: int | None = None):
         
-        if features is None:
-            self.features = ["time", "turbine_id", "turbine_status", "turbine_availability", "wind_direction", "wind_speed", "power_output", "nacelle_direction"]
+        if desired_feature_types is None:
+            self.desired_feature_types = ["time", "turbine_id", "turbine_status", "turbine_availability", "wind_direction", "wind_speed", "power_output", "nacelle_direction"]
         else:
-            self.features = features
+            self.desired_feature_types = desired_feature_types
 
         # Get all the wts in the folder
         self.file_paths = glob.glob(f"{data_dir}/{file_signature}")
@@ -53,6 +55,7 @@ class DataLoader:
 
         self.multiprocessor = multiprocessor
         self.dt = dt
+        self.ffill_limit = ffill_limit
         self.save_path = save_path
 
     def print_netcdf_structure(self, file_path) -> None: #INFO: @Juan 10/02/24 Changed print to logging
@@ -109,12 +112,21 @@ class DataLoader:
             or (self.multiprocessor != "mpi") or (self.multiprocessor is None):
             if [df for df in df_query if df is not None]:
                 df_query = pl.concat([df for df in df_query if df is not None], how="diagonal")\
-                    .group_by("time").agg(cs.numeric().drop_nulls().first()).sort("time")
-                cols = df_query.collect_schema().names()
-                turbine_ids = np.unique([re.findall(f"(?<=wind_direction_)(.*)", col)[0] for col in cols if "wind_direction" in col])
+                             .group_by("time").agg(cs.numeric().drop_nulls().first())\
+                             .sort("time")
+
+                full_datetime_range = df_query.select(pl.datetime_range(start=df_query.select("time").first().collect(streaming=True),
+                                    end=df_query.select("time").last().collect(streaming=True),
+                                    interval=f"{self.dt}s", time_unit=df_query.collect_schema()["time"].time_unit).alias("time"))
+                
+                df_query = full_datetime_range.join(df_query, on="time", how="left")
+                df_query = df_query.fill_null(strategy="forward", limit=self.ffill_limit) # TODO put limit on forward fill? or let stuck sensor catch it
+
+                self.available_features = sorted(df_query.collect_schema().names())
+                self.turbine_ids = sorted(np.unique([re.findall(f"(?<=wind_direction_)(.*)", feat)[0] for feat in self.available_features if "wind_direction" in feat]))
                 df_query = df_query.select([pl.col("time")] 
                                             + [f"{feat}_{tid}" for feat in ["turbine_status", "wind_direction", "wind_speed", "power_output", "nacelle_direction"] 
-                                               for tid in turbine_ids])
+                                               for tid in self.turbine_ids])
                 df_query.collect(streaming=True).write_parquet(self.save_path)
                 # combined_df.set_index(['turbine_id', 'time'], inplace=True)
                 # logging.info(f"Combined DataFrame shape: {combined_df.shape}")
@@ -160,7 +172,7 @@ class DataLoader:
         Returns:
             pl.LazyFrame: _description_
         """
-        return df.select([cs.contains(feat) for feat in self.features]).filter(pl.any_horizontal(cs.numeric().is_not_null()))
+        return df.select([cs.contains(feat) for feat in self.desired_feature_types]).filter(pl.any_horizontal(cs.numeric().is_not_null()))
 
     def resample(self, df) -> pl.LazyFrame:
         return df.with_columns(pl.col("time").dt.round(f"{self.dt}s").alias("time"))\
@@ -234,13 +246,18 @@ class DataLoader:
                 # forward fill missing values
                 df_query = pl.LazyFrame(data).fill_nan(None)\
                                              .with_columns(pl.col("time").dt.round(f"{self.dt}s").alias("time"))\
-                                             .select([cs.contains(feat) for feat in self.features])\
-                                             .filter(pl.any_horizontal(cs.numeric().is_not_null()))\
-                                             .group_by("time", "turbine_id")\
-                                             .agg(cs.numeric().drop_nulls().first())\
-                                             .sort(["turbine_id", "time"])\
-                                             .fill_null(strategy="forward")
-                
+                                             .select([cs.contains(feat) for feat in self.desired_feature_types])\
+                                                .filter(pl.any_horizontal(cs.numeric().is_not_null()))\
+                                                .group_by("turbine_id", "time")\
+                                                    .agg(cs.numeric().drop_nulls().first()).sort("turbine_id", "time")
+                                                
+                # df_query.select(pl.col("time")).filter(pl.col("time").diff() != np.timedelta64(self.dt, 's')).collect(streaming=True)
+
+                # from datetime import datetime
+                # df_query.select(pl.col("time"), cs.starts_with("wind_direction"))\
+                #         .filter((pl.col("time") >= datetime.strptime("2022-03-16 20:18:00", '%Y-%m-%d %H:%M:%S')) &
+                #                                                       (pl.col("time") <= datetime.strptime("2022-03-16 20:19:00", '%Y-%m-%d %H:%M:%S'))).collect(streaming=True)
+
                 # pivot table to have columns for each turbine and measurement
                 df_query = df_query.collect(streaming=True).pivot(on="turbine_id", index="time", values=["power_output", "nacelle_direction", "wind_speed", "wind_direction", "turbine_status"]).lazy()
                 del data
@@ -257,7 +274,7 @@ if __name__ == "__main__":
     if platform == "darwin":
         DATA_DIR = "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data"
         PL_SAVE_PATH = "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/short_kp.turbine.zo2.b0.raw.parquet"
-        FILE_SIGNATURE = "kp.turbine.z02.b0.20220301.*.*.nc"
+        FILE_SIGNATURE = "kp.turbine.z02.b0.202203*.*.*.nc"
         MULTIPROCESSOR = "cf"
         TURBINE_INPUT_FILEPATH = "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/inputs/ge_282_127.yaml"
         FARM_INPUT_FILEPATH = "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/inputs/gch_KP_v4.yaml"

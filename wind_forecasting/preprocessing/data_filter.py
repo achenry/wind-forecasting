@@ -10,6 +10,9 @@ import numpy as np
 import polars as pl
 import polars.selectors as cs
 from scipy.interpolate import CubicSpline
+from scipy.stats import entropy
+from scipy.spatial.distance import jensenshannon
+from scipy.special import kl_div
 
 # from line_profiler import profile
 from memory_profiler import profile
@@ -85,6 +88,84 @@ class DataFilter:
         
         if how == "cubic_interp":
             return CubicSpline(xp, fp, extrapolate=False)(x)
+    
+    @staticmethod
+    def _compute_probs(data, n=10): 
+        h, e = np.histogram(data, n)
+        p = h / data.shape[0]
+        return e, p
+
+    @staticmethod
+    def _support_intersection(p, q): 
+        sup_int = (
+            list(
+                filter(
+                    lambda x: (x[0] != 0) & (x[1] != 0), zip(p, q)
+                )
+            )
+        )
+        return sup_int
+
+    @staticmethod
+    def _get_probs(list_of_tuples): 
+        p = np.array([p[0] for p in list_of_tuples])
+        q = np.array([p[1] for p in list_of_tuples])
+        return p, q
+
+    @staticmethod
+    def _kl_divergence(p, q): 
+        return np.sum(p * np.log(p / q))
+
+    @staticmethod
+    def _js_divergence(p, q):
+        m = (1./2.) * (p + q)
+        return (1./2.) * __class__._kl_divergence(p, m) + (1./2.) * __class__._kl_divergence(q, m)
+
+    @staticmethod
+    def _compute_kl_divergence(train_sample, test_sample, n_bins=10): 
+        """
+        Computes the KL Divergence using the support 
+        intersection between two different samples
+        """
+        e, p = __class__._compute_probs(train_sample, n=n_bins)
+        _, q = __class__._compute_probs(test_sample, n=e)
+
+        list_of_tuples = __class__._support_intersection(p, q)
+        p, q = __class__._get_probs(list_of_tuples)
+        
+        return __class__._kl_divergence(p, q)
+
+    @staticmethod
+    def _compute_js_divergence(train_sample, test_sample, n_bins=100): 
+        """
+        Computes the JS Divergence using the support 
+        intersection between two different samples
+        """
+        e, p = __class__._compute_probs(train_sample, n=n_bins)
+        _, q = __class__._compute_probs(test_sample, n=e)
+        
+        list_of_tuples = __class__._support_intersection(p, q)
+        p, q = __class__._get_probs(list_of_tuples)
+        
+        return __class__._js_divergence(p, q)
+
+    def conditional_filter(self, df, threshold, mask, features):
+        """
+        only applies mask to features if the Jensen-Shannon metric between filtered and unfiltered data exceeds a threshold
+        """
+        for feat in features:
+            tid = feat.split("_")[-1]
+            js_score = __class__._compute_js_divergence(
+                train_sample=df.filter(mask(tid)).select(feat).drop_nulls().collect(streaming=True).to_numpy().flatten(),
+                test_sample=df.select(feat).drop_nulls().collect(streaming=True).to_numpy().flatten()
+                )
+            
+            if js_score > threshold:
+                df = df.with_columns(pl.when(mask(tid)).then(feat).alias(feat))
+
+            print(f"JS Score for feature {feat} = {js_score}")
+        
+        return df
     
     @staticmethod
     def wrap_180(x):
