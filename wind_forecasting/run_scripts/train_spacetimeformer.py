@@ -71,7 +71,9 @@ def create_model(config):
         yt_dim = 137
     elif config.dset == "windfarm":
         #TODO
+        # horizontal wind, vertical wind, yaw angle, for each input turbine = 3 * T_i
         x_dim = 6
+        # horizontal wind, vertical wind for each target turbine = 3 * T_o
         yc_dim = 3
         yt_dim = 3
 

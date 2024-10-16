@@ -352,6 +352,83 @@ class DataInspector:
         
         return fmodel
 
+    def plot_filtered_vs_unfiltered(self, df, mask, features, feature_types, feature_labels):
+        # feature_types = np.unique(["_".join(feat.split("_")[:-1]) for feat in features])
+        _, ax = plt.subplots(len(feature_types), 1, sharex=True)
+        if not hasattr(ax, "__len__"):
+            ax = [ax]
+
+        for feature in features:
+            for ft, feature_type in enumerate(feature_types):
+                if feature_type in feature:
+                    ax_idx = ft
+                    ax[ax_idx].set_title(feature_labels[ft])
+                    break
+
+            tid = feature.split("_")[-1]
+            y = df.filter(mask(tid)).select(feature).collect(streaming=True).to_numpy().flatten()
+            # ax[0].scatter(x=["operational"] * y.shape[0], y=y, color="red")
+            ax[ax_idx].scatter(x=[tid] * y.shape[0], y=y, color="red", label="operational and null measurements")
+            y = df.select(feature).collect(streaming=True).to_numpy().flatten()
+            # ax[0].scatter(x=["inoperational"] * y.shape[0], y=y, color="blue", label="inoperational measurements")
+            ax[ax_idx].scatter(x=[tid] * y.shape[0], y=y, color="blue", label="all measurements")
+        
+        h, l = ax[-1].get_legend_handles_labels()
+        ax[-1].legend(h[:2], l[:2])
+        del y
+
+    @staticmethod
+    def print_pc_unfiltered_vals(df, features, mask):
+        out = []
+        for feature in features:
+            turbine_id = feature.split("_")[-1]
+            pc_unfiltered_vals = 100 * (
+                df.filter(mask(turbine_id)).select(feature).collect(streaming=True).shape[0] 
+                / df.select(feature).collect(streaming=True).shape[0] 
+            )
+            print(f"Feature {feature} has {pc_unfiltered_vals} % unfiltered values.")
+            out.append((feature, pc_unfiltered_vals))
+            #   qa.describe(DataInspector.collect_data(df=df_query, feature_types=feature_type, turbine_ids=[turbine_id], mask=out_of_window[:, t_idx]))
+        return out
+
+    @staticmethod
+    def get_features(df, feature_types, turbine_ids="all"):
+        if feature_types is not None and not isinstance(feature_types, list):
+            feature_types = [feature_types]
+
+        if turbine_ids == "all":
+            return sorted([col for col in df.collect_schema().names() if any(feat in col for feat in feature_types)])
+        elif isinstance(turbine_ids, str):
+            return sorted([col for col in df.collect_schema().names() if any((feat in col and turbine_ids in col) or (feat == col) for feat in feature_types)])
+        else:
+            return sorted([col for col in df.collect_schema().names() if any((feat in col and tid in col) or (feat == col) for feat in feature_types for tid in turbine_ids)])
+
+    @staticmethod
+    def collect_data(df, feature_types=None, turbine_ids="all", mask=None, to_pandas=True):
+        if feature_types is not None and not isinstance(feature_types, list):
+            feature_types = [feature_types]
+
+        if feature_types is not None:
+            df = df.select([pl.col(feat) for feat in DataInspector.get_features(df, feature_types, turbine_ids)])
+        
+        if mask is not None:
+            df = df.filter(mask)
+
+        if to_pandas:
+            return df.collect(streaming=True).to_pandas()
+        else:
+            return df.collect(streaming=True)
+
+    @staticmethod
+    def unpivot_dataframe(df):
+        # Unpivot LazyFrame into Long Form with `turbine_id` Column
+        return pl.concat([
+            df.select(pl.col("time"), cs.starts_with(feature_type))\
+            .unpivot(index="time", value_name=feature_type)\
+            .with_columns(pl.col("variable").str.slice(-5).alias("turbine_id"))\
+            .drop("variable") for feature_type in ["wind_speed", "wind_direction", "turbine_status", "power_output"]], how="align")\
+                .group_by("turbine_id", "time").agg(cs.numeric().drop_nulls().first()).sort("turbine_id", "time")
+
     #INFO: @Juan 10/02/24 Added method to calculate wind direction
     @staticmethod
     def calculate_wind_direction(u: np.ndarray, v: np.ndarray) -> np.ndarray:
