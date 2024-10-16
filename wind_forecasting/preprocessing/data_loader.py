@@ -55,7 +55,7 @@ class DataLoader:
         self.column_mapping = column_mapping or {}
         self.chunk_size = chunk_size
         self.features = features or ["time", "turbine_id", "turbine_status", "turbine_availability", "wind_direction", "wind_speed", "power_output"]
-
+        
         # Get all the wts in the folder @Juan 10/16/24 used os.path.join for OS compatibility
         self.file_paths = glob.glob(os.path.join(data_dir, file_signature))
         if not self.file_paths:
@@ -211,7 +211,7 @@ class DataLoader:
             # Read the CSV file
             df = pl.read_csv(file_path, low_memory=False)
             
-            # Apply column mapping if provided
+            # Apply column mapping
             if self.column_mapping:
                 df = df.rename(self.column_mapping)
             
@@ -377,16 +377,12 @@ if __name__ == "__main__":
     from sys import platform
     
     if platform == "darwin":
-        # DATA_DIR = "/Users/$USER/Documents/toolboxes/wind_forecasting/examples/data"
-        DATA_DIR = "examples/inputs/awaken_data"
-        # PL_SAVE_PATH = "/Users/$USER/Documents/toolboxes/wind_forecasting/examples/data/kp.turbine.zo2.b0.raw.parquet"
-        PL_SAVE_PATH = "examples/inputs/awaken_data/processed/kp.turbine.zo2.b0.raw.parquet"
-        # FILE_SIGNATURE = "kp.turbine.z02.b0.20220301.*.*.nc"
-        FILE_SIGNATURE = "kp.turbine.z02.b0.*.*.*.nc"
+        DATA_DIR = "/Users/$USER/Documents/toolboxes/wind_forecasting/examples/data"
+        PL_SAVE_PATH = "/Users/$USER/Documents/toolboxes/wind_forecasting/examples/data/kp.turbine.zo2.b0.raw.parquet"
+        FILE_SIGNATURE = "kp.turbine.z02.b0.20220301.*.*.nc"
         MULTIPROCESSOR = "cf"
         TURBINE_INPUT_FILEPATH = "/Users/$USER/Documents/toolboxes/wind_forecasting/examples/inputs/ge_282_127.yaml"
         FARM_INPUT_FILEPATH = "/Users/$USER/Documents/toolboxes/wind_forecasting/examples/inputs/gch_KP_v4.yaml"
-        FEATURES = ["time", "turbine_id", "turbine_status", "wind_direction", "wind_speed", "power_output", "nacelle_direction"]
     elif platform == "linux":
         # DATA_DIR = "/pl/active/paolab/awaken_data/kp.turbine.z02.b0/"
         # DATA_DIR = "examples/inputs/awaken_data"
@@ -402,7 +398,8 @@ if __name__ == "__main__":
         # FARM_INPUT_FILEPATH = "/projects/$USER/toolboxes/wind-forecasting/examples/inputs/gch_KP_v4.yaml"
         TURBINE_INPUT_FILEPATH = "examples/inputs/ge_282_127.yaml"
         FARM_INPUT_FILEPATH = "examples/inputs/gch_KP_v4.yaml"
-        FEATURES = ["time", "turbine_id", "turbine_status", "wind_direction", "wind_speed", "power_output", "nacelle_direction"]
+        
+    FEATURES = ["time", "turbine_id", "turbine_status", "wind_direction", "wind_speed", "power_output", "nacelle_direction"]
     
     DT = 5
     RUN_ONCE = (MULTIPROCESSOR == "mpi" and (comm_rank := MPI.COMM_WORLD.Get_rank()) == 0) or (MULTIPROCESSOR != "mpi") or (MULTIPROCESSOR is None)
