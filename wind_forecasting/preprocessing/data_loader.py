@@ -9,6 +9,7 @@ import os
 import logging
 from concurrent.futures import ProcessPoolExecutor
 import multiprocessing
+from site import makepath
 import time
 import psutil
 
@@ -46,15 +47,19 @@ class DataLoader:
                  features: list[str] = None,
                  dt: int | None = 5,
                  data_format: str = "netcdf", # INFO:@Juan 10/14/24  Added arg for data format. Either "netcdf" or "csv" 
-                 column_mapping: dict = None): # INFO:@Juan 10/14/24 Added arg for column mapping of csv files. 
+                 column_mapping: dict = None, # INFO:@Juan 10/14/24 Added arg for column mapping of csv files.
+                 wide_format: bool = True): # INFO: @Juan 10/16/24 Added arg for wide format. If true, the data is loaded in wide format. If false, the data is loaded in long format.
         
-        self.save_path = save_path
+        # INFO: @Juan 10/16/24 Added arg for data directory. 
+        self.data_dir = data_dir
+        self.save_path = makepath
         self.multiprocessor = multiprocessor
         self.dt = dt
         self.data_format = data_format.lower()
         self.column_mapping = column_mapping or {}
         self.chunk_size = chunk_size
         self.features = features or ["time", "turbine_id", "turbine_status", "turbine_availability", "wind_direction", "wind_speed", "power_output"]
+        self.wide_format = wide_format
         
         # Get all the wts in the folder @Juan 10/16/24 used os.path.join for OS compatibility
         self.file_paths = glob.glob(os.path.join(data_dir, file_signature))
@@ -96,7 +101,10 @@ class DataLoader:
                 df_query = df_query.sort(["turbine_id", "time"])
                 logging.info(f"🔀 Finished sorting. Time elapsed: {time.time() - sort_start:.2f} s")
           
-                # INFO: @Juan 10/16/24 Separate method for writing parquet file
+                # INFO: @Juan 10/16/24 Convert to wide format if the user wants it.
+                if self.wide_format:
+                    df_query = self.convert_to_wide_format(df_query)
+                # INFO:@Juan 10/16/24 Added arg for column mapping of csv files.
                 self._write_parquet(df_query)
                 
                 logging.info(f"⏱️ Total time elapsed: {time.time() - start_time:.2f} s")
@@ -373,6 +381,40 @@ class DataLoader:
             df = self.normalize_features(df)
         return df
 
+    def convert_to_wide_format(self, df: pl.LazyFrame) -> pl.LazyFrame:
+        logging.info("🔄 Converting data to wide format")
+        
+        # Get unique turbine IDs
+        turbine_ids = df.select(pl.col("turbine_id").unique()).collect().to_series().to_list()
+        
+        # List of features to pivot (excluding 'time' and 'turbine_id')
+        pivot_features = [col for col in df.columns if col not in ['time', 'turbine_id']]
+        
+        # Create expressions for pivot
+        pivot_exprs = [
+            pl.col(feature).pivot(
+                index="time",
+                columns="turbine_id",
+                aggregate_function="first",
+                sort_columns=True
+            ).prefix(f"{feature}_") for feature in pivot_features
+        ]
+        
+        # Pivot the data
+        df_wide = df.pivot(
+            index="time",
+            columns="turbine_id",
+            values=pivot_features,
+            aggregate_function="first",
+            sort_columns=True
+        ).select([
+            pl.col("time"),
+            *pivot_exprs
+        ])
+        
+        logging.info("✅ Data pivoted to wide format successfully")
+        return df_wide
+
 if __name__ == "__main__":
     from sys import platform
     
@@ -420,7 +462,8 @@ if __name__ == "__main__":
                 multiprocessor=MULTIPROCESSOR,
                 dt=DT,
                 features=FEATURES,
-                data_format=data_format
+                data_format=data_format,
+                wide_format=True  # Set this to True to use wide format
             )
             
             if os.path.exists(data_loader.save_path):
