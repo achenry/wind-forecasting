@@ -426,8 +426,12 @@ class DataInspector:
             df.select(pl.col("time"), cs.starts_with(feature_type))\
             .unpivot(index="time", value_name=feature_type)\
             .with_columns(pl.col("variable").str.slice(-5).alias("turbine_id"))\
-            .drop("variable") for feature_type in ["wind_speed", "wind_direction", "turbine_status", "power_output"]], how="align")\
+            .drop("variable") for feature_type in ["wind_speed", "wind_direction", "turbine_status", "power_output", "nacelle_direction"]], how="align")\
                 .group_by("turbine_id", "time").agg(cs.numeric().drop_nulls().first()).sort("turbine_id", "time")
+
+    @staticmethod
+    def pivot_dataframe(df):
+        return df.collect(streaming=True).pivot(on="turbine_id", index="time").lazy()
 
     #INFO: @Juan 10/02/24 Added method to calculate wind direction
     @staticmethod
