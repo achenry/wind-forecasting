@@ -39,6 +39,7 @@ wind_forecasting.code-workspace
 *.dbf
 *.egg-info
 *.zip
+*.parquet
 
 examples/data/*
 .vscode/
