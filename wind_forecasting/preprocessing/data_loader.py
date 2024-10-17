@@ -16,13 +16,12 @@ import psutil
 import netCDF4 as nc
 import polars as pl
 import polars.selectors as cs
-#from pandas import to_datetime as pd_to_datetime
 import numpy as np
 from sklearn.preprocessing import MinMaxScaler
 from mpi4py import MPI
 from mpi4py.futures import MPICommExecutor
 
-from pandas import to_datetime as pd_to_datetime # INFO: @Juan 10/16/24 Added pd_to_datetime to avoid conflict with polars to_datetime
+# from pandas import to_datetime as pd_to_datetime # INFO: @Juan 10/16/24 Added pd_to_datetime to avoid conflict with polars to_datetime
 
 SECONDS_PER_MINUTE = np.float64(60)
 SECONDS_PER_HOUR = SECONDS_PER_MINUTE * 60
@@ -52,7 +51,7 @@ class DataLoader:
         
         # INFO: @Juan 10/16/24 Added arg for data directory. 
         self.data_dir = data_dir
-        self.save_path = makepath
+        self.save_path = save_path
         self.multiprocessor = multiprocessor
         self.dt = dt
         self.data_format = data_format.lower()
@@ -78,7 +77,7 @@ class DataLoader:
             else:  # "cf" case
                 max_workers = multiprocessing.cpu_count()
                 executor = ProcessPoolExecutor(max_workers=max_workers)
-                logging.info(f"🖥️ Using ProcessPoolExecutor with {max_workers} workers")
+                logging.info(f"🖥️  Using ProcessPoolExecutor with {max_workers} workers")
             
             with executor as exec:
                 futures = [exec.submit(self._read_single_file, file_path) for file_path in self.file_paths]
@@ -96,15 +95,26 @@ class DataLoader:
                 df_query = pl.concat([df for df in df_query if df is not None]).lazy()
                 logging.info(f"🔗 Finished concatenation. Time elapsed: {time.time() - concat_start:.2f} s")
 
-                # logging.info("🔄 Starting sorting")
-                sort_start = time.time()
-                df_query = df_query.sort(["turbine_id", "time"])
-                logging.info(f"🔀 Finished sorting. Time elapsed: {time.time() - sort_start:.2f} s")
-          
-                # INFO: @Juan 10/16/24 Convert to wide format if the user wants it.
-                if self.wide_format:
-                    df_query = self.convert_to_wide_format(df_query)
-                # INFO:@Juan 10/16/24 Added arg for column mapping of csv files.
+                # Check if the resulting DataFrame is empty
+                if df_query.select(pl.count()).collect().item() == 0:
+                    logging.warning("⚠️  No data after concatenation. Skipping further processing.")
+                    return None
+
+                # Check if the data is already in wide format
+                is_already_wide = "turbine_id" not in df_query.columns
+
+                if is_already_wide:
+                    logging.info("📊 Data is already in wide format. Skipping conversion.")
+                else:
+                    # logging.info("🔄 Starting sorting")
+                    sort_start = time.time()
+                    df_query = df_query.sort(["turbine_id", "time"])
+                    logging.info(f"🔀 Finished sorting. Time elapsed: {time.time() - sort_start:.2f} s")
+
+                    # INFO: @Juan 10/16/24 Convert to wide format if the user wants it.
+                    if self.wide_format:
+                        df_query = self.convert_to_wide_format(df_query)
+
                 self._write_parquet(df_query)
                 
                 logging.info(f"⏱️ Total time elapsed: {time.time() - start_time:.2f} s")
@@ -127,10 +137,19 @@ class DataLoader:
             logging.info(f"📊 Total rows in df_query: {total_rows}")
             logging.info(f"🔢 Sample data types: {sample.dtypes}")
             logging.info(f"🔍 Sample data:\n{sample}")
+            
+            if total_rows == 0:
+                logging.warning("⚠️ No data to write. Skipping Parquet write.")
+                return
+            
+            # Ensure the directory exists
+            self._ensure_dir_exists(self.save_path)
 
             # Estimate memory usage
             estimated_memory = total_rows * len(sample.columns) * 8  # Rough estimate, assumes 8 bytes per value
             available_memory = psutil.virtual_memory().available
+            logging.info(f"💾 Estimated/Available memory: {estimated_memory}/{available_memory} bytes")
+            
 
             if estimated_memory > available_memory * 0.8:  # If estimated memory usage is more than 80% of available memory
                 logging.warning("⚠️💾 Large dataset detected. Writing in chunks.")
@@ -143,6 +162,7 @@ class DataLoader:
                 df_query.collect().write_parquet(self.save_path, row_group_size=100000)
             
             logging.info(f"✅ Finished writing Parquet. Time elapsed: {time.time() - write_start:.2f} s")
+            
         except PermissionError:
             logging.error("❌🔒 Permission denied when writing Parquet file. Check file permissions.")
         except OSError as e:
@@ -159,6 +179,13 @@ class DataLoader:
                 logging.info(f"✅ Successfully wrote data as CSV to {csv_path}")
             except Exception as csv_e:
                 logging.error(f"❌ Error during CSV write: {str(csv_e)}")
+                
+    # INFO: @Juan 10/16/24 Added method to ensure the directory exists.
+    def _ensure_dir_exists(self, file_path):
+        directory = os.path.dirname(file_path)
+        if not os.path.exists(directory):
+            os.makedirs(directory)
+            logging.info(f"📁 Created directory: {directory}")
 
     # INFO: @Juan 10/14/24 Added method to read single file based on the file signature. 
     def _read_single_file(self, file_path: str) -> pl.LazyFrame:
@@ -183,15 +210,20 @@ class DataLoader:
         with nc.Dataset(file_path, 'r') as dataset:
             #TODO: @Juan 10/14/24 Check if this is correct and if pandas can be substituted for polars
             time_var = dataset.variables['date']
-            time = pd_to_datetime(nc.num2date(times=time_var[:], 
-                                              units=time_var.units, 
-                                              calendar=time_var.calendar, 
-                                              only_use_cftime_datetimes=False, 
-                                              only_use_python_datetimes=True))
+            # time = pd_to_datetime(nc.num2date(times=time_var[:], 
+            #                                   units=time_var.units, 
+            #                                   calendar=time_var.calendar, 
+            #                                   only_use_cftime_datetimes=False, 
+            #                                   only_use_python_datetimes=True))
+            time = nc.num2date(times=time_var[:], 
+                               units=time_var.units, 
+                               calendar=time_var.calendar, 
+                               only_use_cftime_datetimes=False, 
+                               only_use_python_datetimes=True)
             
             data = {
                 'turbine_id': [os.path.basename(file_path).split('.')[-2]] * len(time),
-                'time': time,
+                'time': pl.Series(time).cast(pl.Datetime),  # Convert to Polars datetime
                 'turbine_status': dataset.variables['WTUR.TurSt'][:],
                 'wind_direction': dataset.variables['WMET.HorWdDir'][:],
                 'wind_speed': dataset.variables['WMET.HorWdSpd'][:],
@@ -216,45 +248,48 @@ class DataLoader:
 
     def _read_single_csv(self, file_path: str) -> pl.LazyFrame:
         try:
-            # Read the CSV file
             df = pl.read_csv(file_path, low_memory=False)
+            logging.info(f"Initial CSV columns: {df.columns}")
+            logging.info(f"Initial CSV shape: {df.shape}")
             
-            # Convert time column to datetime
+            if self.column_mapping:
+                df = df.rename(self.column_mapping)
+                logging.info(f"Columns after mapping: {df.columns}")
+            
+            # INFO: @Juan 10/16/24 Select only the relevant columns based on self.features
+            relevant_columns = ["time"] + [col for col in df.columns if any(feature in col for feature in self.features if feature != "time")]
+            df = df.select(relevant_columns)
+            logging.info(f"Columns after selecting relevant features: {df.columns}")
+            logging.info(f"Shape after selecting relevant features: {df.shape}")
+            
             if "time" in df.columns:
                 df = df.with_columns(pl.col("time").str.to_datetime())
             else:
                 logging.warning("⚠️ 'time' column not found in CSV file.")
             
-            # Apply column mapping
-            if self.column_mapping:
-                df = df.rename(self.column_mapping)
-            
-            # Extract features based on the provided list
-            feature_cols = [col for col in df.columns if any(feature in col for feature in self.features)]
-            df = df.select(feature_cols)
+            # Check if data is already in wide format
+            is_already_wide = all(any(feature in col for col in df.columns) for feature in self.features if feature != "time")
             
             # INFO: @Juan 10/16/24 Added explicit check for wide_format to ensure consistent behavior
-            # BUG: Make sure that this works with SMARTEOLE data.
-            if not self.wide_format:
-                id_vars = ["time"]
-                value_vars = [col for col in df.columns if col not in id_vars]
-                df = df.melt(id_vars=id_vars, value_vars=value_vars, variable_name="feature", value_name="value")
+            # DEBUG: Make sure that this works with SMARTEOLE data.
+            if is_already_wide:
+                # Extract features based on the provided list
+                feature_cols = [col for col in df.columns if any(feature in col for feature in self.features)]
+                if "time" not in feature_cols:
+                    feature_cols = ["time"] + feature_cols
+                df = df.select(feature_cols)
                 
-                # Extract turbine_id and feature name from the 'feature' column
-                df = df.with_columns([
-                    pl.col("feature").str.extract(r"(\d+)$").alias("turbine_id"),
-                    pl.col("feature").str.replace(r"_\d+$", "").alias("feature_name")
-                ])
-                
-                # Pivot the data to have features as columns
-                df = df.pivot(index=["time", "turbine_id"], columns="feature_name", values="value")
-            
-            # Ensure all required columns are present
-            for feature in self.features:
-                if feature not in df.columns and feature != "turbine_id":
-                    df = df.with_columns(pl.lit(None).alias(feature))
+                # Convert to long format if needed
+                if not self.wide_format:
+                    df = self._convert_to_long_format(df)
+            else:
+                df = df.select(self.features)
+                if self.wide_format:
+                    df = self.convert_to_wide_format(df)
             
             df = self.reduce_features(df)
+            logging.info(f"Shape after reduce_features: {df.shape}")
+            
             if self.dt is not None:
                 df = self.resample(df)
             
@@ -263,6 +298,77 @@ class DataLoader:
         except Exception as e:
             logging.error(f"❌ Error processing CSV file {file_path}: {str(e)}")
             return None
+
+    # INFO: @Juan 10/16/24 Added method to convert to long format. May need refining!!! #UNTESTED
+    def _convert_to_long_format(self, df: pl.LazyFrame) -> pl.LazyFrame:
+        # It will only trigger when wide_format is False.
+        # Identify the columns that contain turbine-specific data
+        logging.info("🔄 Converting data to long format")
+        turbine_columns = [col for col in df.columns if col != "time"]
+        
+        # Melt the DataFrame to convert it to long format
+        df_long = df.melt(
+            id_vars=["time"], 
+            value_vars=turbine_columns,
+            variable_name="feature",
+            value_name="value"
+        )
+        
+        # Extract turbine_id and feature_name from the 'feature' column
+        df_long = df_long.with_columns([
+            pl.col("feature").str.extract(r"_(\d+)(?:_avg|$)").alias("turbine_id"),
+            pl.col("feature").str.replace(r"_\d+(?:_avg|$)", "").alias("feature_name")
+        ])
+        
+        # Pivot the data to have features as columns
+        df_final = df_long.pivot(
+            index=["time", "turbine_id"],
+            columns="feature_name",
+            values="value"
+        )
+        
+        # Ensure turbine_id is a string with leading zeros
+        df_final = df_final.with_columns(
+            pl.col("turbine_id").cast(pl.Int32).cast(pl.Utf8).str.zfill(3)
+        )
+        
+        logging.info("✅ Data pivoted to long format successfully")
+        return df_final
+    
+    # INFO: @Juan 10/16/24 Added method to convert to wide format.
+    def convert_to_wide_format(self, df: pl.LazyFrame) -> pl.LazyFrame:
+        logging.info("🔄 Converting data to wide format")
+        
+        # Get unique turbine IDs
+        turbine_ids = df.select(pl.col("turbine_id").unique()).collect().to_series().to_list()
+        
+        # List of features to pivot (excluding 'time' and 'turbine_id')
+        pivot_features = [col for col in df.columns if col not in ['time', 'turbine_id']]
+        
+        # Create expressions for pivot
+        pivot_exprs = [
+            pl.col(feature).pivot(
+                index="time",
+                columns="turbine_id",
+                aggregate_function="first",
+                sort_columns=True
+            ).prefix(f"{feature}_") for feature in pivot_features
+        ]
+        
+        # Pivot the data
+        df_wide = df.pivot(
+            index="time",
+            columns="turbine_id",
+            values=pivot_features,
+            aggregate_function="first",
+            sort_columns=True
+        ).select([
+            pl.col("time"),
+            *pivot_exprs
+        ])
+        
+        logging.info("✅ Data pivoted to wide format successfully")
+        return df_wide
 
     def print_netcdf_structure(self, file_path) -> None: #INFO: @Juan 10/02/24 Changed print to logging
         try:
@@ -316,18 +422,31 @@ class DataLoader:
 
         return self.df
 
+    # DEBUG: @Juan 10/16/24 Check that this is reducing the features correctly.
     def reduce_features(self, df) -> pl.LazyFrame:
-        """_summary_
-
-        Returns:
-            pl.LazyFrame: _description_
         """
-        df = df.select(self.features).filter(pl.any_horizontal(cs.numeric().is_not_null()))
+        Reduce the DataFrame to include only the specified features that exist in the DataFrame.
+        """
+        existing_features = [f for f in self.features if any(f in col for col in df.columns)]
+        df = df.select([pl.col(col) for col in df.columns if any(feature in col for feature in existing_features)])
+        
+        # Only filter rows if there are numeric columns
+        numeric_cols = df.select(cs.numeric()).columns
+        if numeric_cols:
+            df = df.filter(pl.any_horizontal(pl.col(numeric_cols).is_not_null()))
+        
+        logging.info(f"Columns after reduce_features: {df.columns}")
+        logging.info(f"Shape after reduce_features: {df.shape}")
         return df
 
+    # INFO: @Juan 10/16/24 Modified resampling method to handle both wide and long formats.
     def resample(self, df) -> pl.LazyFrame:
-        return df.with_columns(pl.col("time").dt.round(f"{self.dt}s").alias("time"))\
-                 .group_by("turbine_id", "time").agg(cs.numeric().drop_nulls().first()).sort(["turbine_id", "time"])
+        if self.wide_format:
+            return df.with_columns(pl.col("time").dt.round(f"{self.dt}s").alias("time"))\
+                     .group_by("time").agg(cs.numeric().drop_nulls().first()).sort("time")
+        else:
+            return df.with_columns(pl.col("time").dt.round(f"{self.dt}s").alias("time"))\
+                     .group_by("turbine_id", "time").agg(cs.numeric().drop_nulls().first()).sort(["turbine_id", "time"])
 
     def normalize_features(self, df) -> pl.LazyFrame:
         """_summary_
@@ -394,43 +513,8 @@ class DataLoader:
             df = self.convert_time_to_sin(df)
             df = self.normalize_features(df)
         return df
-
-    def convert_to_wide_format(self, df: pl.LazyFrame) -> pl.LazyFrame:
-        logging.info("🔄 Converting data to wide format")
-        
-        # Get unique turbine IDs
-        turbine_ids = df.select(pl.col("turbine_id").unique()).collect().to_series().to_list()
-        
-        # List of features to pivot (excluding 'time' and 'turbine_id')
-        pivot_features = [col for col in df.columns if col not in ['time', 'turbine_id']]
-        
-        # Create expressions for pivot
-        pivot_exprs = [
-            pl.col(feature).pivot(
-                index="time",
-                columns="turbine_id",
-                aggregate_function="first",
-                sort_columns=True
-            ).prefix(f"{feature}_") for feature in pivot_features
-        ]
-        
-        # Pivot the data
-        df_wide = df.pivot(
-            index="time",
-            columns="turbine_id",
-            values=pivot_features,
-            aggregate_function="first",
-            sort_columns=True
-        ).select([
-            pl.col("time"),
-            *pivot_exprs
-        ])
-        
-        logging.info("✅ Data pivoted to wide format successfully")
-        return df_wide
     
-######################################### MAIN FUNCTION ##########################################################
-
+########################################################## INPUTS ##########################################################
 if __name__ == "__main__":
     from sys import platform
     
@@ -458,7 +542,8 @@ if __name__ == "__main__":
         FARM_INPUT_FILEPATH = "examples/inputs/gch_KP_v4.yaml"
         
     # FEATURES = ["time", "turbine_id", "turbine_status", "wind_direction", "wind_speed", "power_output", "nacelle_direction"]
-    FEATURES = ["time", "turbine_id", "active_power", "wind_speed", "nacelle_position", "wind_direction", "derate"]
+    WIDE_FORMAT = True
+    FEATURES = ["time", "active_power", "wind_speed", "nacelle_position", "wind_direction", "derate"]
     COLUMN_MAPPING = {
         "time": "time",
         
@@ -504,8 +589,8 @@ if __name__ == "__main__":
         "wind_direction_7_avg": "wind_direction_007",
         "derate_7": "derate_007",        
     }
-
-    DT = 5
+    DT = 5    
+########################################################## RUN ##########################################################
     RUN_ONCE = (MULTIPROCESSOR == "mpi" and (comm_rank := MPI.COMM_WORLD.Get_rank()) == 0) or (MULTIPROCESSOR != "mpi") or (MULTIPROCESSOR is None)
     
     if FILE_SIGNATURE.endswith(".nc"):
@@ -526,7 +611,7 @@ if __name__ == "__main__":
                 features=FEATURES,
                 data_format=data_format,
                 column_mapping=COLUMN_MAPPING,
-                wide_format=True
+                wide_format=WIDE_FORMAT
             )
             
             if os.path.exists(data_loader.save_path):
@@ -541,7 +626,7 @@ if __name__ == "__main__":
                 # Perform any additional operations on df_query if needed
                 logging.info("✅ Data processing completed successfully")
             else:
-                logging.warning("⚠️ No data was processed")
+                logging.warning("⚠️  No data was processed")
             
             logging.info("🎉 Script completed successfully")
         except Exception as e:
