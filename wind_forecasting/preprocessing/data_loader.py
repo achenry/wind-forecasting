@@ -58,7 +58,7 @@ class DataLoader:
         self.data_format = data_format.lower()
         self.column_mapping = column_mapping or {}
         self.chunk_size = chunk_size
-        self.features = features or ["time", "turbine_id", "turbine_status", "turbine_availability", "wind_direction", "wind_speed", "power_output"]
+        self.features = features or ["time", "turbine_id", "turbine_status", "wind_direction", "wind_speed", "power_output", "nacelle_direction"]
         self.wide_format = wide_format
         
         # Get all the wts in the folder @Juan 10/16/24 used os.path.join for OS compatibility
@@ -219,26 +219,40 @@ class DataLoader:
             # Read the CSV file
             df = pl.read_csv(file_path, low_memory=False)
             
-            # Apply column mapping
-            if self.column_mapping:
-                df = df.rename(self.column_mapping)
-            
             # Convert time column to datetime
             if "time" in df.columns:
                 df = df.with_columns(pl.col("time").str.to_datetime())
             else:
                 logging.warning("⚠️ 'time' column not found in CSV file.")
             
-            # Check if turbine_id exists, if not, create it from the filename
-            if "turbine_id" not in df.columns:
-                turbine_id = os.path.basename(file_path).split('.')[0]  # Adjust this based on your filename format
-                df = df.with_columns(pl.lit(turbine_id).alias("turbine_id"))
+            # Apply column mapping
+            if self.column_mapping:
+                df = df.rename(self.column_mapping)
             
-            # Group by turbine_id and time if necessary
-            if "turbine_id" in df.columns and "time" in df.columns:
-                df = df.group_by("turbine_id", "time").agg(
-                    cs.numeric().drop_nans().first()
-                ).fill_nan(None)
+            # Extract features based on the provided list
+            feature_cols = [col for col in df.columns if any(feature in col for feature in self.features)]
+            df = df.select(feature_cols)
+            
+            # INFO: @Juan 10/16/24 Added explicit check for wide_format to ensure consistent behavior
+            # BUG: Make sure that this works with SMARTEOLE data.
+            if not self.wide_format:
+                id_vars = ["time"]
+                value_vars = [col for col in df.columns if col not in id_vars]
+                df = df.melt(id_vars=id_vars, value_vars=value_vars, variable_name="feature", value_name="value")
+                
+                # Extract turbine_id and feature name from the 'feature' column
+                df = df.with_columns([
+                    pl.col("feature").str.extract(r"(\d+)$").alias("turbine_id"),
+                    pl.col("feature").str.replace(r"_\d+$", "").alias("feature_name")
+                ])
+                
+                # Pivot the data to have features as columns
+                df = df.pivot(index=["time", "turbine_id"], columns="feature_name", values="value")
+            
+            # Ensure all required columns are present
+            for feature in self.features:
+                if feature not in df.columns and feature != "turbine_id":
+                    df = df.with_columns(pl.lit(None).alias(feature))
             
             df = self.reduce_features(df)
             if self.dt is not None:
@@ -414,6 +428,8 @@ class DataLoader:
         
         logging.info("✅ Data pivoted to wide format successfully")
         return df_wide
+    
+######################################### MAIN FUNCTION ##########################################################
 
 if __name__ == "__main__":
     from sys import platform
@@ -441,8 +457,54 @@ if __name__ == "__main__":
         TURBINE_INPUT_FILEPATH = "examples/inputs/ge_282_127.yaml"
         FARM_INPUT_FILEPATH = "examples/inputs/gch_KP_v4.yaml"
         
-    FEATURES = ["time", "turbine_id", "turbine_status", "wind_direction", "wind_speed", "power_output", "nacelle_direction"]
-    
+    # FEATURES = ["time", "turbine_id", "turbine_status", "wind_direction", "wind_speed", "power_output", "nacelle_direction"]
+    FEATURES = ["time", "turbine_id", "active_power", "wind_speed", "nacelle_position", "wind_direction", "derate"]
+    COLUMN_MAPPING = {
+        "time": "time",
+        
+        "active_power_1_avg": "active_power_001",
+        "wind_speed_1_avg": "wind_speed_001",
+        "nacelle_position_1_avg": "nacelle_position_001",
+        "wind_direction_1_avg": "wind_direction_001",
+        "derate_1": "derate_001",
+        
+        "active_power_2_avg": "active_power_002",
+        "wind_speed_2_avg": "wind_speed_002",
+        "nacelle_position_2_avg": "nacelle_position_002",
+        "wind_direction_2_avg": "wind_direction_002",
+        "derate_2": "derate_002",
+        
+        "active_power_3_avg": "active_power_003",
+        "wind_speed_3_avg": "wind_speed_003",
+        "nacelle_position_3_avg": "nacelle_position_003",
+        "wind_direction_3_avg": "wind_direction_003",
+        "derate_3": "derate_003",
+
+        "active_power_4_avg": "active_power_004",
+        "wind_speed_4_avg": "wind_speed_004",
+        "nacelle_position_4_avg": "nacelle_position_004",
+        "wind_direction_4_avg": "wind_direction_004",
+        "derate_4": "derate_004",
+        
+        "active_power_5_avg": "active_power_005",
+        "wind_speed_5_avg": "wind_speed_005",
+        "nacelle_position_5_avg": "nacelle_position_005",
+        "wind_direction_5_avg": "wind_direction_005",
+        "derate_5": "derate_005",
+        
+        "active_power_6_avg": "active_power_006",
+        "wind_speed_6_avg": "wind_speed_006",
+        "nacelle_position_6_avg": "nacelle_position_006",
+        "wind_direction_6_avg": "wind_direction_006",
+        "derate_6": "derate_006",
+        
+        "active_power_7_avg": "active_power_007",
+        "wind_speed_7_avg": "wind_speed_007",
+        "nacelle_position_7_avg": "nacelle_position_007",
+        "wind_direction_7_avg": "wind_direction_007",
+        "derate_7": "derate_007",        
+    }
+
     DT = 5
     RUN_ONCE = (MULTIPROCESSOR == "mpi" and (comm_rank := MPI.COMM_WORLD.Get_rank()) == 0) or (MULTIPROCESSOR != "mpi") or (MULTIPROCESSOR is None)
     
@@ -463,7 +525,8 @@ if __name__ == "__main__":
                 dt=DT,
                 features=FEATURES,
                 data_format=data_format,
-                wide_format=True  # Set this to True to use wide format
+                column_mapping=COLUMN_MAPPING,
+                wide_format=True
             )
             
             if os.path.exists(data_loader.save_path):
