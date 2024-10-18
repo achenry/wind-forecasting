@@ -687,28 +687,28 @@ if __name__ == "__main__":
                 wide_format=WIDE_FORMAT
             )
         
-        if not RELOAD_DATA and os.path.exists(data_loader.save_path):
-            # Note that the order of the columns in the provided schema must match the order of the columns in the CSV being read.
-            schema = pl.Schema({**{"time": pl.Datetime(time_unit="ms")},
-                        **{
-                            f"{feat}_{tid}": pl.Float64
-                            for feat in ["turbine_status", "wind_direction", "wind_speed", "power_output", "nacelle_direction"] 
-                            for tid in [f"wt{d+1:03d}" for d in range(88)]}
-                        })
-            if os.path.exists(data_loader.save_path):
-                logging.info("🔄 Loading existing Parquet file")
-                df_query = pl.scan_parquet(source=data_loader.save_path)
-                logging.info("✅ Loaded existing Parquet file successfully")
-            else:
-                logging.info("🔄 Processing new data files")
-                df_query = data_loader.read_multi_files()
-            
-            if df_query is not None:
-                # Perform any additional operations on df_query if needed
-                logging.info("✅ Data processing completed successfully")
-            else:
-                logging.warning("⚠️  No data was processed")
-            
-            logging.info("🎉 Script completed successfully")
+            if not RELOAD_DATA and os.path.exists(data_loader.save_path):
+                # Note that the order of the columns in the provided schema must match the order of the columns in the CSV being read.
+                schema = pl.Schema({**{"time": pl.Datetime(time_unit="ms")},
+                            **{
+                                f"{feat}_{tid}": pl.Float64
+                                for feat in ["turbine_status", "wind_direction", "wind_speed", "power_output", "nacelle_direction"] 
+                                for tid in [f"wt{d+1:03d}" for d in range(88)]}
+                            })
+                if os.path.exists(data_loader.save_path):
+                    logging.info("🔄 Loading existing Parquet file")
+                    df_query = pl.scan_parquet(source=data_loader.save_path)
+                    logging.info("✅ Loaded existing Parquet file successfully")
+                else:
+                    logging.info("🔄 Processing new data files")
+                    df_query = data_loader.read_multi_files()
+                
+                if df_query is not None:
+                    # Perform any additional operations on df_query if needed
+                    logging.info("✅ Data processing completed successfully")
+                else:
+                    logging.warning("⚠️  No data was processed")
+                
+                logging.info("🎉 Script completed successfully")
         except Exception as e:
             logging.error(f"❌ An error occurred: {str(e)}")
