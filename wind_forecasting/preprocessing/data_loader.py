@@ -556,7 +556,6 @@ class DataLoader:
     #             time = dataset.variables['date']
     #             time = pd_to_datetime(nc.num2date(times=time[:], units=time.units, calendar=time.calendar, only_use_cftime_datetimes=False, only_use_python_datetimes=True))
                 
-    #             # TODO add column mapping
     #             data = {
     #                 'turbine_id': [os.path.basename(file_path).split('.')[-2]] * dataset.variables["date"].shape[0],
     #                 'time': time,
