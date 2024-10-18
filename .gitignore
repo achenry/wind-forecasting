@@ -16,6 +16,7 @@ preprocessing/preprocessing_scada/examples
 preprocessing/preprocessing_scada/shapefiles
 .identifier
 .code-workspace
+.ipynb_checkpoints
 Miniforge3-Linux-x86_64.sh
 wind_forecasting.egg-info
 preprocessing/preprocessing_scada/.ipynb*
