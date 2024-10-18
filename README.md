@@ -95,7 +95,6 @@ The `wind_forecasting/preprocessing` folder contains scripts for data preprocess
 - `preprocessing_main.ipynb`: Main script for loading and preprocessing data
 - `load_data.sh`: Script for loading the data in the HPC
 - `data_loader.py`: Contains methods for loading data
-- `data_reader.py`: Contains methods for reading and plotting
 - `data_inspector.py`: Methods for plotting and analysing data
 - `data_filter.py`: Methods for filtering and arranging data
 
@@ -146,7 +145,6 @@ wind-forecasting/
 │   ├── preprocessing/
 │   │   ├── preprocessing_main.ipynb
 │   │   ├── data_loader.py
-│   │   ├── data_reader.py
 │   │   ├── data_inspector.py
 │   │   ├── data_filter.py
 │   │   └── load_data.sh
