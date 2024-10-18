@@ -1,38 +1,55 @@
-# Wind Forecasting
+# 🌪️ Wind Forecasting Project
 
-By @achenry and @boujuan
+<div align="center">
 
-... Work in Progress ... [10/18/2024]
+![Project Status](https://img.shields.io/badge/status-work%20in%20progress-yellow)
+![Last Updated](https://img.shields.io/badge/last%20updated-October%2018%2C%202024-blue)
+![Contributors](https://img.shields.io/badge/contributors-@achenry%20%7C%20@boujuan-orange)
 
-## Project Overview
+</div>
 
-This project focuses on wind forecasting using various deep learning models. It includes data preprocessing, model implementation, and training scripts for different architectures such as STTRE and Spacetimeformer. [add references]
+## 🚀 Project Overview
 
-## Setup for Jupyter Notebook Collaboration
+This project focuses on wind forecasting using various deep learning models. It includes data preprocessing, model implementation, and training scripts for different architectures such as STTRE and Spacetimeformer.
+
+<details>
+<summary>📚 Table of Contents</summary>
+
+- [🌪️ Wind Forecasting Project](#️-wind-forecasting-project)
+  - [🚀 Project Overview](#-project-overview)
+  - [🛠 Setup](#-setup)
+    - [Jupyter Notebook Collaboration](#jupyter-notebook-collaboration)
+    - [Data](#data)
+    - [Environment Setup](#environment-setup)
+  - [🧠 Models](#-models)
+  - [🔄 Preprocessing](#-preprocessing)
+  - [🖥️ Running Jobs](#️-running-jobs)
+  - [📂 Project Structure](#-project-structure)
+  - [📋 Usage](#-usage)
+
+</details>
+
+## 🛠 Setup
+
+### Jupyter Notebook Collaboration
 
 To ensure consistent handling of Jupyter notebooks in this repository, please follow these steps after cloning:
 
 1. Install `nbstripout` using Mamba:
-
    ```bash
    mamba install nbstripout
    ```
 
 2. Set up `nbstripout` for this repository:
-
    ```bash
    nbstripout --install --attributes .gitattributes
    ```
-
-This setup will help maintain clean version control for Jupyter notebooks by stripping out execution counts and other output metadata before committing changes.
-
-## Setup
 
 ### Data
 
 The `examples` folder contains scripts for downloading and processing input data:
 
-```python:
+```python
 examples/download_flasc_data.py
 ```
 
@@ -53,7 +70,7 @@ To set up the environments, run:
 install_rc/install.sh
 ```
 
-## Models
+## 🧠 Models
 
 The `wind_forecasting/models` directory contains implementations of various forecasting models:
 
@@ -64,7 +81,7 @@ The `wind_forecasting/models` directory contains implementations of various fore
 
 Each model has its own subdirectory with specific implementation details and training scripts.
 
-## Preprocessing
+## 🔄 Preprocessing
 
 The `wind_forecasting/preprocessing` folder contains scripts for data preprocessing:
 
@@ -75,7 +92,7 @@ The `wind_forecasting/preprocessing` folder contains scripts for data preprocess
 - `data_inspector.py`: Methods for plotting and analysing data
 - `data_filter.py`: Methods for filtering and arranging data
 
-## Running Jobs
+## 🖥️ Running Jobs
 
 The `rc_jobs` folder contains SLURM scripts for running jobs on HPC environments:
 
@@ -89,13 +106,12 @@ To submit a job from the HPC to the cluster, use:
 sbatch rc_jobs/job.slurm
 ```
 
-## Training models
+## 📂 Project Structure
 
-...
+<details>
+<summary>Click to expand</summary>
 
-## Project Structure
-
-``` markdown
+```
 wind-forecasting/
 ├── examples/
 │   ├── download_flasc_data.py
@@ -139,11 +155,22 @@ wind-forecasting/
 └── README.md
 ```
 
-## Usage
+</details>
+
+## 📋 Usage
 
 1. Clone the repository and set up the Jupyter notebook collaboration as described in the setup section.
-2. Download the required data using the script in `examples` or use own data.
+2. Download the required data using the script in `examples` or use your own data.
 3. Set up the appropriate environment (CUDA or ROCm) using the scripts in the `install_rc` folder.
 4. Preprocess the data using the script in the `wind_forecasting/preprocessing` folder.
 5. Train and evaluate models using the scripts in the `wind_forecasting/models` directory.
 6. For running jobs on HPC environments, use the SLURM scripts provided in the `rc_jobs` folder.
+
+---
+
+<div align="center">
+
+<!-- [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT) -->
+[![Made by achenry and boujuan](https://img.shields.io/badge/Made%20with%20%E2%9D%A4%EF%B8%8F%20by-achenry%20and%20boujuan-red)](https://github.com/achenry/wind-forecasting)
+
+</div>
