@@ -686,7 +686,9 @@ if __name__ == "__main__":
                 column_mapping=COLUMN_MAPPING,
                 wide_format=WIDE_FORMAT
             )
-        
+        except Exception as e:
+            logging.error(f"❌ An error occurred: {str(e)}")
+
         if not RELOAD_DATA and os.path.exists(data_loader.save_path):
             # Note that the order of the columns in the provided schema must match the order of the columns in the CSV being read.
             schema = pl.Schema({**{"time": pl.Datetime(time_unit="ms")},
@@ -710,5 +712,4 @@ if __name__ == "__main__":
                 logging.warning("⚠️  No data was processed")
             
             logging.info("🎉 Script completed successfully")
-        except Exception as e:
-            logging.error(f"❌ An error occurred: {str(e)}")
+        
