@@ -12,11 +12,18 @@
 
 This project focuses on wind forecasting using various deep learning models. It includes data preprocessing, model implementation, and training scripts for different architectures such as STTRE and Spacetimeformer.
 
+### 📜 Full Project Title
+
+**Ultra-Short-Term Probabilistic Spatio-Temporal Modeling of Wind Farm Dynamics and Disturbances for Wake Steering Control**
+
+This open-source framework aims to predict wind speed and direction in the short term, specifically tailored for wake steering control applications in wind farms.
+
 <details>
 <summary>📚 Table of Contents</summary>
 
 - [🌪️ Wind Forecasting Project](#️-wind-forecasting-project)
   - [🚀 Project Overview](#-project-overview)
+    - [📜 Full Project Title](#-full-project-title)
   - [🛠 Setup](#-setup)
     - [Jupyter Notebook Collaboration](#jupyter-notebook-collaboration)
     - [Data](#data)
@@ -168,9 +175,9 @@ wind-forecasting/
 
 ---
 
-<div align="center">
+<!-- <div align="center">
 
-<!-- [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT) -->
-<!-- [![Made with ❤️ by achenry and boujuan](https://img.shields.io/badge/Made%20with%20%E2%9D%A4%EF%B8%8F%20by-achenry%20and%20boujuan-red)](https://github.com/achenry/wind-forecasting) -->
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
+[![Made with ❤️ by achenry and boujuan](https://img.shields.io/badge/Made%20with%20%E2%9D%A4%EF%B8%8F%20by-achenry%20and%20boujuan-red)](https://github.com/achenry/wind-forecasting)
 
-</div>
+</div> -->
