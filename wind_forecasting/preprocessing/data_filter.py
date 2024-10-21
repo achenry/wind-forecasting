@@ -13,6 +13,7 @@ from scipy.interpolate import CubicSpline
 from scipy.stats import entropy
 from scipy.spatial.distance import jensenshannon
 from scipy.special import kl_div
+import logging
 
 # from line_profiler import profile
 from memory_profiler import profile
@@ -20,9 +21,10 @@ from memory_profiler import profile
 class DataFilter:
     """_summary_
     """
-    def __init__(self, turbine_availability_col=None, turbine_status_col=None):
+    def __init__(self, turbine_availability_col=None, turbine_status_col=None, data_format='wide'):
         self.turbine_availability_col = turbine_availability_col
         self.turbine_status_col = turbine_status_col
+        self.data_format = data_format
 
     def filter_inoperational(self, df, status_codes=None, availability_codes=None, include_nan=True) -> pl.LazyFrame:
         """
@@ -32,29 +34,59 @@ class DataFilter:
         """
         
         # Create masks for filtering
+        if self.data_format == 'wide':
+            return self._filter_inoperational_wide(df, status_codes, availability_codes, include_nan)
+        else:
+            return self._filter_inoperational_long(df, status_codes, availability_codes, include_nan)
+
+    def _filter_inoperational_wide(self, df, status_codes, availability_codes, include_nan):
         include_status_mask = status_codes is not None and self.turbine_status_col is not None
         include_availability_mask = availability_codes is not None and self.turbine_availability_col is not None
 
-        # Combine masks 
         if include_status_mask and include_availability_mask:
-            return df.with_columns(pl.when(cs.starts_with(self.turbine_status_col).is_in(status_codes) 
-                                            | (cs.starts_with(self.turbine_status_col).is_null() if include_nan else False))\
-                                     .then(cs.starts_with(self.turbine_status_col)),
-                                    pl.when(cs.starts_with(self.turbine_availability_col).is_in(availability_codes) 
-                                            | (cs.starts_with(self.turbine_availabilty_col).is_null() if include_nan else False))\
-                                     .then(cs.starts_with(self.turbine_availability_col)) )
+            return df.with_columns(
+                pl.when(cs.starts_with(self.turbine_status_col).is_in(status_codes) 
+                        | (cs.starts_with(self.turbine_status_col).is_null() if include_nan else False))
+                .then(cs.starts_with(self.turbine_status_col)),
+                pl.when(cs.starts_with(self.turbine_availability_col).is_in(availability_codes) 
+                        | (cs.starts_with(self.turbine_availability_col).is_null() if include_nan else False))
+                .then(cs.starts_with(self.turbine_availability_col))
+            )
         elif include_status_mask:
-            return df.with_columns(pl.when(cs.starts_with(self.turbine_status_col).is_in(status_codes) 
-                                            | (cs.starts_with(self.turbine_status_col).is_null() if include_nan else False))\
-                                     .then(cs.starts_with(self.turbine_status_col)))
+            return df.with_columns(
+                pl.when(cs.starts_with(self.turbine_status_col).is_in(status_codes) 
+                        | (cs.starts_with(self.turbine_status_col).is_null() if include_nan else False))
+                .then(cs.starts_with(self.turbine_status_col))
+            )
         elif include_availability_mask:
-            # return df.filter(cs.starts_with(self.turbine_availability_col).is_in(availability_codes) 
-            #                  | (cs.starts_with(self.turbine_availability_col).is_null() if include_nan else False))
-            return df.with_columns(pl.when(cs.starts_with(self.turbine_availability_col).is_in(availability_codes) 
-                                            | (cs.starts_with(self.turbine_availabilty_col).is_null() if include_nan else False))\
-                                     .then(cs.starts_with(self.turbine_availability_col)))
+            return df.with_columns(
+                pl.when(cs.starts_with(self.turbine_availability_col).is_in(availability_codes) 
+                        | (cs.starts_with(self.turbine_availability_col).is_null() if include_nan else False))
+                .then(cs.starts_with(self.turbine_availability_col))
+            )
+        return df
 
-    
+    def _filter_inoperational_long(self, df, status_codes, availability_codes, include_nan):
+        include_status_mask = status_codes is not None and self.turbine_status_col is not None
+        include_availability_mask = availability_codes is not None and self.turbine_availability_col is not None
+
+        if include_status_mask and include_availability_mask:
+            return df.filter(
+                (pl.col(self.turbine_status_col).is_in(status_codes) | (pl.col(self.turbine_status_col).is_null() if include_nan else False))
+                & (pl.col(self.turbine_availability_col).is_in(availability_codes) | (pl.col(self.turbine_availability_col).is_null() if include_nan else False))
+            )
+        elif include_status_mask:
+            return df.filter(
+                pl.col(self.turbine_status_col).is_in(status_codes) 
+                | (pl.col(self.turbine_status_col).is_null() if include_nan else False)
+            )
+        elif include_availability_mask:
+            return df.filter(
+                pl.col(self.turbine_availability_col).is_in(availability_codes) 
+                | (pl.col(self.turbine_availability_col).is_null() if include_nan else False)
+            )
+        return df
+
     def resolve_missing_data(self, df, how="linear_interp", features=None) -> pl.LazyFrame:
         """_summary_
         option 1) interpolate via linear, or forward
@@ -151,19 +183,40 @@ class DataFilter:
 
     def conditional_filter(self, df, threshold, mask, features):
         """
-        only applies mask to features if the Jensen-Shannon metric between filtered and unfiltered data exceeds a threshold
+        only applies mask to features if the Jensen-Shannon metric between filtered and unfiltered 
+        data exceeds a threshold
         """
+        if self.data_format == 'wide':
+            return self._conditional_filter_wide(df, threshold, mask, features)
+        else:
+            return self._conditional_filter_long(df, threshold, mask, features)
+
+    def _conditional_filter_wide(self, df, threshold, mask, features):
         for feat in features:
             tid = feat.split("_")[-1]
-            js_score = __class__._compute_js_divergence(
-                train_sample=df.filter(mask(tid)).select(feat).drop_nulls().collect(streaming=True).to_numpy().flatten(),
-                test_sample=df.select(feat).drop_nulls().collect(streaming=True).to_numpy().flatten()
-                )
+            js_score = self._compute_js_divergence(
+                train_sample=df.filter(mask(tid)).select(feat).drop_nulls().collect().to_numpy().flatten(),
+                test_sample=df.select(feat).drop_nulls().collect().to_numpy().flatten()
+            )
             
             if js_score > threshold:
-                df = df.with_columns(pl.when(mask(tid)).then(feat).alias(feat))
+                df = df.with_columns(pl.when(mask(tid)).then(pl.col(feat)).otherwise(None).alias(feat))
 
-            print(f"JS Score for feature {feat} = {js_score}")
+            logging.info(f"JS Score for feature {feat} = {js_score}")
+        
+        return df
+
+    def _conditional_filter_long(self, df, threshold, mask, features):
+        for feat in features:
+            js_score = self._compute_js_divergence(
+                train_sample=df.filter(mask).select(feat).drop_nulls().collect().to_numpy().flatten(),
+                test_sample=df.select(feat).drop_nulls().collect().to_numpy().flatten()
+            )
+            
+            if js_score > threshold:
+                df = df.with_columns(pl.when(mask).then(pl.col(feat)).otherwise(None).alias(feat))
+
+            logging.info(f"JS Score for feature {feat} = {js_score}")
         
         return df
     
@@ -179,21 +232,25 @@ class DataFilter:
             :obj:`float` or :obj:`numpy.ndarray`: The input angle(s) converted to the range -180 to +180 degrees (degrees)
         """
         input_type = type(x)
-
-        x = x % 360.0  # convert to range 0 to 360 degrees
+        if isinstance(x, pl.Series):
+            x = x.to_numpy()
+        x = x % 360.0
         x = np.where(x > 180.0, x - 360.0, x)
         return x if input_type != float else float(x)
 
     @staticmethod
     def circ_mean(x):
-        y = (
-                np.degrees(
-                    np.arctan2(
-                        np.nanmean(np.sin(np.radians(x))),
-                        np.nanmean(np.cos(np.radians(x))),
-                    )
-                )
-                % 360.0
-            )
-        
+        """
+        Computes the circular mean of an angle or array of angles in degrees.
+
+        Args:
+            x (:obj:`float` or :obj:`numpy.ndarray`): Input angle(s) (degrees)
+
+        Returns:
+            :obj:`float`: The circular mean of the input angle(s) (degrees)
+        """
+        if isinstance(x, pl.Series):
+            x = x.to_numpy()
+        y = (np.degrees(np.arctan2(np.nanmean(np.sin(np.radians(x))), np.nanmean(np.cos(np.radians(x))))) % 360.0)
         return y
+
