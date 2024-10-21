@@ -675,3 +675,4 @@ class DataInspector:
         # 3. Calculate and display mutual information scores
         logging.info(f"Calculating Mutual Information scores for target turbine: {target_turbine}")
         self.calculate_and_display_mutual_info_scores(X_filtered, y, feature_names_filtered, sequence_length, prediction_horizon)
+        
