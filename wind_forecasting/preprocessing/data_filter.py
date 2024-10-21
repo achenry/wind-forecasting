@@ -156,8 +156,8 @@ class DataFilter:
         for feat in features:
             tid = feat.split("_")[-1]
             js_score = __class__._compute_js_divergence(
-                train_sample=df.filter(mask(tid)).select(feat).drop_nulls().collect(streaming=True).to_numpy().flatten(),
-                test_sample=df.select(feat).drop_nulls().collect(streaming=True).to_numpy().flatten()
+                train_sample=df.filter(mask(tid)).select(feat).drop_nulls().collect().to_numpy().flatten(),
+                test_sample=df.select(feat).drop_nulls().collect().to_numpy().flatten()
                 )
             
             if js_score > threshold:
