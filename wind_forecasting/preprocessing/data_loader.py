@@ -64,6 +64,7 @@ class DataLoader:
         self.desired_feature_types = desired_feature_types or ["time", "turbine_id", "turbine_status", "wind_direction", "wind_speed", "power_output", "nacelle_direction"]
         self.wide_format = wide_format
         self.turbine_ids = turbine_ids
+        self.ffill_limit = ffill_limit
         
         # Get all the wts in the folder @Juan 10/16/24 used os.path.join for OS compatibility
         self.file_paths = glob.glob(os.path.join(data_dir, file_signature))
@@ -108,18 +109,17 @@ class DataLoader:
                                     interval=f"{self.dt}s", time_unit=df_query.collect_schema()["time"].time_unit).alias("time"))
                 
                 df_query = full_datetime_range.join(df_query, on="time", how="left") # NOTE: @Aoife 10/18 make sure all time stamps are included, to interpolate continuously later
-                df_query = df_query.fill_null(strategy="forward", limit=self.ffill_limit) # NOTE: @Aoife for KP data, need to fill forward null gaps, don't know about Juan's data
+                df_query = df_query.fill_null(strategy="forward", limit=self.ffill_limit).fill_null(strategy="backward") # NOTE: @Aoife for KP data, need to fill forward null gaps, don't know about Juan's data
 
                 self.available_features = sorted(df_query.collect_schema().names())
-                df_query = df_query.select([pl.col("time")] 
-                                            + [f"{feat}_{tid}" for feat in self.desired_feature_types 
-                                               for tid in self.turbine_ids])
+                self.turbine_ids = sorted(set(col.split("_")[-1] for col in self.available_features if "wt" in col))
+                df_query = df_query.select([feat for feat in self.available_features if any(feat_type in feat for feat_type in self.desired_feature_types)])
 
 
                 logging.info(f"🔗 Finished concatenation. Time elapsed: {time.time() - concat_start:.2f} s")
 
                 # Check if the resulting DataFrame is empty
-                if df_query.select(pl.count()).collect().item() == 0:
+                if df_query.select(pl.len()).collect().item() == 0:
                     logging.warning("⚠️  No data after concatenation. Skipping further processing.")
                     return None
 
@@ -232,7 +232,7 @@ class DataLoader:
     def _read_single_netcdf(self, file_path: str) -> pl.LazyFrame:
         with nc.Dataset(file_path, 'r') as dataset:
             #TODO: @Juan 10/14/24 Check if this is correct and if pandas can be substituted for polars
-            time_var = dataset.variables['date']
+            time_var = dataset.variables[self.column_mapping["time"]]
             # time = pd_to_datetime(nc.num2date(times=time_var[:], 
             #                                   units=time_var.units, 
             #                                   calendar=time_var.calendar, 
@@ -246,12 +246,12 @@ class DataLoader:
             
             data = {
                 'turbine_id': [os.path.basename(file_path).split('.')[-2]] * len(time),
-                'time': pl.Series(time).cast(pl.Datetime),  # Convert to Polars datetime
-                'turbine_status': dataset.variables['WTUR.TurSt'][:],
-                'wind_direction': dataset.variables['WMET.HorWdDir'][:],
-                'wind_speed': dataset.variables['WMET.HorWdSpd'][:],
-                'power_output': dataset.variables['WTUR.W'][:],
-                'nacelle_direction': dataset.variables['WNAC.Dir'][:]
+                'time': time.tolist(),  # Convert to Polars datetime
+                'turbine_status': dataset.variables[self.column_mapping["turbine_status"]][:],
+                'wind_direction': dataset.variables[self.column_mapping["wind_direction"]][:],
+                'wind_speed': dataset.variables[self.column_mapping["wind_speed"]][:],
+                'power_output': dataset.variables[self.column_mapping["power_output"]][:],
+                'nacelle_direction': dataset.variables[self.column_mapping["nacelle_direction"]][:]
             }
 
             # remove the rows with all nans (corresponding to rows where excluded columns would have had a value)
@@ -591,14 +591,25 @@ class DataLoader:
 ########################################################## INPUTS ##########################################################
 if __name__ == "__main__":
     from sys import platform
-    RELOAD_DATA = True
+    RELOAD_DATA = False 
     if platform == "darwin":
-        DATA_DIR = "/Users/$USER/Documents/toolboxes/wind_forecasting/examples/data"
-        PL_SAVE_PATH = "/Users/$USER/Documents/toolboxes/wind_forecasting/examples/data/kp.turbine.zo2.b0.raw.parquet"
-        FILE_SIGNATURE = "kp.turbine.z02.b0.20220301.*.*.nc"
+        ROOT_DIR = os.path.join("/Users", "ahenry", "Documents", "toolboxes", "wind_forecasting")
+        DATA_DIR = os.path.join(ROOT_DIR, "examples/data")
+        PL_SAVE_PATH = os.path.join(ROOT_DIR, "examples/data/kp.turbine.zo2.b0.raw.parquet")
+        FILE_SIGNATURE = "kp.turbine.z02.b0.202203*.*.*.nc"
         MULTIPROCESSOR = "cf"
-        TURBINE_INPUT_FILEPATH = "/Users/$USER/Documents/toolboxes/wind_forecasting/examples/inputs/ge_282_127.yaml"
-        FARM_INPUT_FILEPATH = "/Users/$USER/Documents/toolboxes/wind_forecasting/examples/inputs/gch_KP_v4.yaml"
+        TURBINE_INPUT_FILEPATH = os.path.join(ROOT_DIR, "examples/inputs/ge_282_127.yaml")
+        FARM_INPUT_FILEPATH = os.path.join(ROOT_DIR, "examples/inputs/gch_KP_v4.yaml")
+        FEATURES = ["time", "turbine_id", "turbine_status", "wind_direction", "wind_speed", "power_output", "nacelle_direction"]
+        WIDE_FORMAT = False
+        COLUMN_MAPPING = {"time": "date",
+                              "turbine_id": "turbine_id",
+                              "turbine_status": "WTUR.TurSt",
+                              "wind_direction": "WMET.HorWdDir",
+                              "wind_speed": "WMET.HorWdSpd",
+                              "power_output": "WTUR.W",
+                              "nacelle_direction": "WNAC.Dir"
+                              }
     elif platform == "linux":
         # DATA_DIR = "/pl/active/paolab/awaken_data/kp.turbine.z02.b0/"
         # DATA_DIR = "examples/inputs/awaken_data"
@@ -614,55 +625,17 @@ if __name__ == "__main__":
         # FARM_INPUT_FILEPATH = "/projects/$USER/toolboxes/wind-forecasting/examples/inputs/gch_KP_v4.yaml"
         TURBINE_INPUT_FILEPATH = "examples/inputs/ge_282_127.yaml"
         FARM_INPUT_FILEPATH = "examples/inputs/gch_KP_v4.yaml"
-        
-    # FEATURES = ["time", "turbine_id", "turbine_status", "wind_direction", "wind_speed", "power_output", "nacelle_direction"]
-    WIDE_FORMAT = True
-    FEATURES = ["time", "active_power", "wind_speed", "nacelle_position", "wind_direction", "derate"]
-    COLUMN_MAPPING = {
-        "time": "time",
-        
-        "active_power_1_avg": "active_power_001",
-        "wind_speed_1_avg": "wind_speed_001",
-        "nacelle_position_1_avg": "nacelle_position_001",
-        "wind_direction_1_avg": "wind_direction_001",
-        "derate_1": "derate_001",
-        
-        "active_power_2_avg": "active_power_002",
-        "wind_speed_2_avg": "wind_speed_002",
-        "nacelle_position_2_avg": "nacelle_position_002",
-        "wind_direction_2_avg": "wind_direction_002",
-        "derate_2": "derate_002",
-        
-        "active_power_3_avg": "active_power_003",
-        "wind_speed_3_avg": "wind_speed_003",
-        "nacelle_position_3_avg": "nacelle_position_003",
-        "wind_direction_3_avg": "wind_direction_003",
-        "derate_3": "derate_003",
+        FEATURES = ["time", "active_power", "wind_speed", "nacelle_position", "wind_direction", "derate"]
+        WIDE_FORMAT = True
 
-        "active_power_4_avg": "active_power_004",
-        "wind_speed_4_avg": "wind_speed_004",
-        "nacelle_position_4_avg": "nacelle_position_004",
-        "wind_direction_4_avg": "wind_direction_004",
-        "derate_4": "derate_004",
-        
-        "active_power_5_avg": "active_power_005",
-        "wind_speed_5_avg": "wind_speed_005",
-        "nacelle_position_5_avg": "nacelle_position_005",
-        "wind_direction_5_avg": "wind_direction_005",
-        "derate_5": "derate_005",
-        
-        "active_power_6_avg": "active_power_006",
-        "wind_speed_6_avg": "wind_speed_006",
-        "nacelle_position_6_avg": "nacelle_position_006",
-        "wind_direction_6_avg": "wind_direction_006",
-        "derate_6": "derate_006",
-        
-        "active_power_7_avg": "active_power_007",
-        "wind_speed_7_avg": "wind_speed_007",
-        "nacelle_position_7_avg": "nacelle_position_007",
-        "wind_direction_7_avg": "wind_direction_007",
-        "derate_7": "derate_007",        
-    }
+        COLUMN_MAPPING = {
+            **{"time": "time"},
+            **{f"active_power_{i}_avg": f"active_power_{i:03d}" for i in range(1, 8)},
+            **{f"wind_speed_{i}_avg": f"wind_speed_{i:03d}" for i in range(1, 8)},
+            **{f"nacelle_position_{i}_avg": f"nacelle_position_{i:03d}" for i in range(1, 8)},
+            **{f"wind_direction_{i}_avg": f"wind_direction_{i:03d}" for i in range(1, 8)},
+            **{f"derate_{i}": f"derate_{i:03d}" for i in range(1, 8)}
+        }
     DT = 5    
     RUN_ONCE = (MULTIPROCESSOR == "mpi" and (comm_rank := MPI.COMM_WORLD.Get_rank()) == 0) or (MULTIPROCESSOR != "mpi") or (MULTIPROCESSOR is None)
     
@@ -681,7 +654,7 @@ if __name__ == "__main__":
                 save_path=PL_SAVE_PATH,
                 multiprocessor=MULTIPROCESSOR,
                 dt=DT,
-                desired_feature_type=FEATURES,
+                desired_feature_types=FEATURES,
                 data_format=data_format,
                 column_mapping=COLUMN_MAPPING,
                 wide_format=WIDE_FORMAT
@@ -691,25 +664,24 @@ if __name__ == "__main__":
 
         if not RELOAD_DATA and os.path.exists(data_loader.save_path):
             # Note that the order of the columns in the provided schema must match the order of the columns in the CSV being read.
-            schema = pl.Schema({**{"time": pl.Datetime(time_unit="ms")},
+            schema = pl.Schema(dict(sorted(({**{"time": pl.Datetime(time_unit="ms")},
                         **{
                             f"{feat}_{tid}": pl.Float64
-                            for feat in ["turbine_status", "wind_direction", "wind_speed", "power_output", "nacelle_direction"] 
+                            for feat in FEATURES 
                             for tid in [f"wt{d+1:03d}" for d in range(88)]}
-                        })
-            if os.path.exists(data_loader.save_path):
-                logging.info("🔄 Loading existing Parquet file")
-                df_query = pl.scan_parquet(source=data_loader.save_path)
-                logging.info("✅ Loaded existing Parquet file successfully")
-            else:
-                logging.info("🔄 Processing new data files")
-                df_query = data_loader.read_multi_files()
-            
+                        }).items())))
+            logging.info("🔄 Loading existing Parquet file")
+            df_query = pl.scan_parquet(source=data_loader.save_path)
+            logging.info("✅ Loaded existing Parquet file successfully")
+        else:
+            logging.info("🔄 Processing new data files")
+            df_query = data_loader.read_multi_files()
+        
             if df_query is not None:
                 # Perform any additional operations on df_query if needed
                 logging.info("✅ Data processing completed successfully")
             else:
                 logging.warning("⚠️  No data was processed")
-            
-            logging.info("🎉 Script completed successfully")
+        
+        logging.info("🎉 Script completed successfully")
         
