@@ -85,8 +85,8 @@ class DataLoader:
                 executor = ProcessPoolExecutor(max_workers=max_workers)
                 logging.info(f"🖥️  Using ProcessPoolExecutor with {max_workers} workers")
             
-            with executor as exec:
-                futures = [exec.submit(self._read_single_file, file_path) for file_path in self.file_paths]
+            with executor as ex:
+                futures = [ex.submit(self._read_single_file, file_path) for file_path in self.file_paths]
                 df_query = [fut.result() for fut in futures if fut.result() is not None]
         else:
             logging.info("🔧 Using single process executor")
