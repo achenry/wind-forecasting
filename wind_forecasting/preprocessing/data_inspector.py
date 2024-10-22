@@ -421,8 +421,8 @@ class DataInspector:
         for feature in features:
             turbine_id = feature.split("_")[-1]
             pc_unfiltered_vals = 100 * (
-                df.filter(mask(turbine_id)).select(feature).collect(streaming=True).shape[0] 
-                / df.select(feature).collect(streaming=True).shape[0] 
+                df.filter(mask(turbine_id)).select(pl.len()).collect(streaming=True).item() 
+                / df.select(pl.len()).collect(streaming=True).item() 
             )
             print(f"Feature {feature} has {pc_unfiltered_vals} % unfiltered values.")
             out.append((feature, pc_unfiltered_vals))
@@ -461,15 +461,19 @@ class DataInspector:
     def unpivot_dataframe(df):
         # Unpivot LazyFrame into Long Form with `turbine_id` Column
         return pl.concat([
-            df.select(pl.col("time"), cs.starts_with(feature_type))\
-            .unpivot(index="time", value_name=feature_type)\
+            df.select(pl.col("time"), pl.col("continuity_group"), cs.starts_with(feature_type))\
+            .unpivot(index=["time", "continuity_group"], value_name=feature_type)\
             .with_columns(pl.col("variable").str.slice(-5).alias("turbine_id"))\
             .drop("variable") for feature_type in ["wind_speed", "wind_direction", "turbine_status", "power_output", "nacelle_direction"]], how="align")\
                 .group_by("turbine_id", "time").agg(cs.numeric().drop_nulls().first()).sort("turbine_id", "time")
 
     @staticmethod
     def pivot_dataframe(df):
-        return df.collect(streaming=True).pivot(on="turbine_id", index="time").lazy()
+        # make wide
+        if "continuity_group" in df.collect_schema().names():
+            return df.collect(streaming=True).pivot(on="turbine_id", index=["time", "continuity_group"]).lazy()
+        else:
+            return df.collect(streaming=True).pivot(on="turbine_id", index="time").lazy()
 
     #INFO: @Juan 10/02/24 Added method to calculate wind direction
     @staticmethod

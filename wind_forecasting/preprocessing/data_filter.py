@@ -14,9 +14,15 @@ from scipy.interpolate import CubicSpline
 from scipy.stats import entropy
 from scipy.spatial.distance import jensenshannon
 from scipy.special import kl_div
-from openoa.utils import imputing
+# from openoa.utils import imputing
+import imputing
 
 from data_inspector import DataInspector
+
+from mpi4py import MPI
+from mpi4py.futures import MPICommExecutor
+from concurrent.futures import ProcessPoolExecutor
+import multiprocessing
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -26,9 +32,10 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 class DataFilter:
     """_summary_
     """
-    def __init__(self, turbine_availability_col=None, turbine_status_col=None):
+    def __init__(self, turbine_availability_col=None, turbine_status_col=None, multiprocessor=None):
         self.turbine_availability_col = turbine_availability_col
         self.turbine_status_col = turbine_status_col
+        self.multiprocessor = multiprocessor
 
     def filter_inoperational(self, df, status_codes=None, availability_codes=None, include_nan=True) -> pl.LazyFrame:
         """
@@ -60,7 +67,7 @@ class DataFilter:
                                             | (cs.starts_with(self.turbine_availabilty_col).is_null() if include_nan else False))\
                                      .then(cs.starts_with(self.turbine_availability_col)))
 
-    def fill_multi_missing_datasets(self, dfs, missing_features):
+    def fill_multi_missing_datasets(self, dfs, impute_missing_features, interpolate_missing_features, available_features):
         if self.multiprocessor:
             if self.multiprocessor == "mpi":
                 executor = MPICommExecutor(MPI.COMM_WORLD, root=0)
@@ -71,44 +78,57 @@ class DataFilter:
                 logging.info(f"🖥️  Using ProcessPoolExecutor with {max_workers} workers")
             
             with executor as ex:
-                futures = [ex.submit(self._fill_single_missing_dataset, dfs=dfs, df_idx=df_idx, feature=feat) for df_idx in range(len(dfs)) for feat in missing_features]
-                _ = [fut.result() for fut in futures if fut.result() is not None]
+                futures = [ex.submit(self._fill_single_missing_dataset, df_idx=df_idx, df=df, 
+                impute_missing_features=impute_missing_features, interpolate_missing_features=interpolate_missing_features,
+                 available_features=available_features) 
+                for df_idx, df in enumerate(dfs)]
+                return [fut.result() for fut in futures if fut.result() is not None]
         else:
             logging.info("🔧 Using single process executor")
-            _ = [self._fill_single_missing_dataset(dfs, df_idx, feat) for df_idx in range(len(dfs)) for feat in missing_features]
+            return [self._fill_single_missing_dataset(df_idx=df_idx, df=df, impute_missing_features=impute_missing_features, 
+            interpolate_missing_features=interpolate_missing_features, available_features=available_features) 
+            for df_idx, df in enumerate(dfs)]
     
-    def _fill_single_missing_dataset(self, dfs, df_idx, feature):
-        unpivot_df = DataInspector.unpivot_dataframe(dfs[df_idx])
-        imputed = False
-        for other_feature in [feature] + [f for f in ["wind_speed", "wind_direction", "power_output", "nacelle_direction"] if f != feature]:
-            try:
-                imputed_vals = imputing.impute_all_assets_by_correlation(data=unpivot_df.collect().to_pandas().set_index(["turbine_id", "time"]),
-                                                            impute_col=feature, reference_col=other_feature,
-                                                            asset_id_col="turbine_id", method="linear").to_numpy()
-                dfs[df_idx] = DataInspector.pivot_dataframe(
-                    unpivot_df.with_columns({feature: imputed_vals}))
-                
-                logging.info(f"\nSuccessfully imputed feature {feature} in DataFrame {df_idx} using other feature {other_feature}.")
-                imputed = True
-                break
-            except ValueError as e:
-                continue
+    def _fill_single_missing_dataset(self, df_idx, df, impute_missing_features, interpolate_missing_features, available_features):
+
+        unpivot_df = DataInspector.unpivot_dataframe(df)
+
+        for feature in impute_missing_features:
+            imputed = False
+            # for other_feature in [feature] + [f for f in ["wind_speed", "wind_direction", "power_output", "nacelle_direction"] if f != feature]:
+            other_feature = feature # TODO how to impute from other columns ERIC ASK
+            imputed_vals = imputing.impute_all_assets_by_correlation(data=unpivot_df.collect().to_pandas().set_index(["time", "turbine_id"]),
+                                                        impute_col=feature, reference_col=other_feature,
+                                                        asset_id_col="turbine_id", method="linear").to_numpy()
+            df = DataInspector.pivot_dataframe(
+                unpivot_df.with_columns({feature: imputed_vals}))
             
-        if not imputed:
-            # allow interpolation from its own colums, (and others if that is not possible using interpolate_by?)
-            dfs[df_idx] = dfs[df_idx].with_columns({feature: pl.col(feature).interpolate()})
-            logging.info(f"\nSuccessfully interpolated feature {feature} in DataFrame {df_idx}.")
-        
-        # fill any remaining null values with forward fill or backward fill
-    
-        if dfs[df_idx].select(pl.any_horizontal(cs.starts_with(feature).is_null())).select(pl.len()).collect().item():
+            logging.info(f"Successfully imputed feature {feature} in DataFrame {df_idx} using other feature {other_feature}.")
+            # imputed = True
+            # break
 
-            dfs[df_idx] = dfs[df_idx].with_columns(cs.starts_with(feature).fill_null(strategy="forward"))\
-                                    .with_columns(cs.starts_with(feature).fill_null(strategy="backward"))
+        df = df.with_columns({feat: pl.col(feat).interpolate() for feat in interpolate_missing_features})
+        df = df.with_columns({feat: pl.col(feat).fill_null(strategy="forward") for feat in interpolate_missing_features})\
+               .with_columns({feat: pl.col(turbine_feature).fill_null(strategy="backward") for feat in interpolate_missing_features})
+               
+        # for feature in interpolate_missing_features:       
+        #     # if not imputed:
+        #     # allow interpolation from its own colums, (and others if that is not possible using interpolate_by?)
+        #     # df = df.with_columns(pl.col(feature).interpolate())
+        #     for turbine_feature in [f for f in available_features if feature in f]:
+        #         # interpolate remaining null values with forward fill or backward fill
+        #         if df.filter(pl.col(turbine_feature).is_null()).select(pl.len()).collect().item():
+        #             df = df.with_columns(pl.col(turbine_feature).interpolate())
+        #             # logging.info(f"Successfully interpolated feature {turbine_feature} in DataFrame {df_idx}.")
+            
+        #         # fill any remaining null values with forward fill or backward fill
+        #         if df.filter(pl.col(turbine_feature).is_null()).select(pl.len()).collect().item():
 
-            # for col in [c for c in data_loader.available_features if any(cc in c for cc in missing_data_cols)]:
-            #     if dfs[df_idx].select(pl.col(col).is_null()).select(pl.len()).collect().item():
-            logging.info(f"\nSuccessfully filled feature {feature} in DataFrame {df_idx}.")
+        #             df = df.with_columns(pl.col(turbine_feature).fill_null(strategy="forward"))\
+        #                 .with_columns(pl.col(turbine_feature).fill_null(strategy="backward"))
+
+        #             logging.info(f"Successfully filled feature {turbine_feature} in DataFrame {df_idx}.")
+        return df
 
     def resolve_missing_data(self, df, how="linear_interp", features=None) -> pl.LazyFrame:
         """_summary_

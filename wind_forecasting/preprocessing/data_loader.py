@@ -7,7 +7,7 @@
 import glob
 import os
 import logging
-from concurrent.futures import ProcessPoolExecutor
+
 import re
 import multiprocessing
 from site import makepath
@@ -21,7 +21,7 @@ import numpy as np
 from sklearn.preprocessing import MinMaxScaler
 from mpi4py import MPI
 from mpi4py.futures import MPICommExecutor
-
+from concurrent.futures import ProcessPoolExecutor
 # from pandas import to_datetime as pd_to_datetime # INFO: @Juan 10/16/24 Added pd_to_datetime to avoid conflict with polars to_datetime
 
 SECONDS_PER_MINUTE = np.float64(60)
@@ -120,11 +120,11 @@ class DataLoader:
 
                 # Check if the resulting DataFrame is empty
                 if df_query.select(pl.len()).collect().item() == 0:
-                    logging.warning("⚠️  No data after concatenation. Skipping further processing.")
+                    logging.warning("⚠️ No data after concatenation. Skipping further processing.")
                     return None
 
                 # Check if the data is already in wide format
-                is_already_wide = "turbine_id" not in df_query.columns
+                is_already_wide = "turbine_id" not in df_query.collect_schema().names()
 
                 if is_already_wide:
                     logging.info("📊 Data is already in wide format. Skipping conversion.")
@@ -156,7 +156,7 @@ class DataLoader:
         try:
             # Collect a small sample to check for issues
             sample = df_query.limit(10).collect()
-            total_rows = df_query.select(pl.count()).collect().item()
+            total_rows = df_query.select(pl.len()).collect().item()
             logging.info(f"📊 Total rows in df_query: {total_rows}")
             logging.info(f"🔢 Sample data types: {sample.dtypes}")
             logging.info(f"🔍 Sample data:\n{sample}")
@@ -171,7 +171,7 @@ class DataLoader:
             # Estimate memory usage
             estimated_memory = total_rows * len(sample.columns) * 8  # Rough estimate, assumes 8 bytes per value
             available_memory = psutil.virtual_memory().available
-            logging.info(f"💾 Estimated/Available memory: {estimated_memory}/{available_memory} bytes")
+            logging.info(f"💾 Estimated/Available memory: {100 * estimated_memory / available_memory} bytes")
             
 
             if estimated_memory > available_memory * 0.8:  # If estimated memory usage is more than 80% of available memory
@@ -591,7 +591,7 @@ class DataLoader:
 ########################################################## INPUTS ##########################################################
 if __name__ == "__main__":
     from sys import platform
-    RELOAD_DATA = False 
+    RELOAD_DATA = True 
     if platform == "darwin":
         ROOT_DIR = os.path.join("/Users", "ahenry", "Documents", "toolboxes", "wind_forecasting")
         DATA_DIR = os.path.join(ROOT_DIR, "examples/data")
