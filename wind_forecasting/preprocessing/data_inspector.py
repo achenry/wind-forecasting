@@ -5,6 +5,8 @@ import os
 import time
 import logging
 
+from itertools import cycle
+
 import seaborn as sns
 import matplotlib.pyplot as plt
 from windrose import WindroseAxes
@@ -474,6 +476,68 @@ class DataInspector:
             return df.collect(streaming=True).pivot(on="turbine_id", index=["time", "continuity_group"]).lazy()
         else:
             return df.collect(streaming=True).pivot(on="turbine_id", index="time").lazy()
+    
+    #INFO: @Juan 10/18/24 Adapted and incorporated plotting method for yaw and power time series from old defunct data_reader.py
+    def plot_yaw_power_ts(self, df, turbine_ids, save_path=None, include_yaw=True, include_power=True, controller_dt=None):
+        df = df.collect(streaming=True).to_pandas()
+        colors = sns.color_palette(palette='Paired')
+
+        turbine_wind_direction_cols = self.get_features(df, "wind_direction", turbine_ids)
+        turbine_power_cols = self.get_features(df, "power_output", turbine_ids)
+        yaw_angle_cols = self.get_features(df, "nacelle_direction", turbine_ids)
+
+        for seed in sorted(np.unique(df["WindSeed"])):
+            fig, ax = plt.subplots(int(include_yaw + include_power), 1, sharex=True, figsize=(15.12, 7.98))
+            ax = np.atleast_1d(ax)
+
+            seed_df = df.loc[df["WindSeed"] == seed].sort_values(by="time")
+            
+            if include_yaw:
+                ax_idx = 0
+                ax[ax_idx].plot(seed_df["time"], seed_df["FreestreamWindDir"], label="Freestream wind dir.", color="black")
+                ax[ax_idx].plot(seed_df["time"], seed_df["FilteredFreestreamWindDir"], label="Filtered freestream wind dir.", color="black", linestyle="--")
+                
+            for t, (wind_dir_col, power_col, yaw_col, color) in enumerate(zip(turbine_wind_direction_cols, turbine_power_cols, yaw_angle_cols, cycle(colors))):
+                if include_yaw:
+                    ax_idx = 0
+                    ax[ax_idx].plot(seed_df["time"], seed_df[yaw_col], color=color, label=f"T{t+1} yaw setpoint", linestyle=":")
+                    
+                    if controller_dt is not None:
+                        [ax[ax_idx].axvline(x=_x, linestyle=(0, (1, 10)), linewidth=0.5) for _x in np.arange(0, seed_df["time"].iloc[-1], controller_dt)]
+
+                if include_power:
+                    next_ax_idx = (1 if include_yaw else 0)
+                    if t == 0:
+                        ax[next_ax_idx].fill_between(seed_df["time"], seed_df[power_col] / 1e3, color=color, label=f"T{t+1} power")
+                    else:
+                        ax[next_ax_idx].fill_between(seed_df["time"], seed_df[turbine_power_cols[:t+1]].sum(axis=1) / 1e3, 
+                                        seed_df[turbine_power_cols[:t]].sum(axis=1)  / 1e3,
+                            color=color, label=f"T{t+1} power")
+            
+            if include_power:
+                next_ax_idx = (1 if include_yaw else 0)
+                ax[next_ax_idx].plot(seed_df["time"], seed_df[turbine_power_cols].sum(axis=1) / 1e3, color="black", label="Farm power")
+        
+            if include_yaw:
+                ax_idx = 0
+                ax[ax_idx].set(title="Wind Direction / Yaw Angle [$^\\circ$]", xlim=(0, int((seed_df["time"].max() + seed_df["time"].diff().iloc[1]) // 1)), ylim=(245, 295))
+                ax[ax_idx].legend(ncols=2, loc="lower right")
+                if not include_power:
+                    ax[ax_idx].set(xlabel="Time [s]", title="Turbine Powers [MW]")
+            
+            if include_power:
+                next_ax_idx = (1 if include_yaw else 0)
+                ax[next_ax_idx].set(xlabel="Time [s]", title="Turbine Powers [MW]", ylim=(0, None))
+                ax[next_ax_idx].legend(ncols=2, loc="lower right")
+
+            fig.suptitle(f"Yaw and Power Time Series for Seed {seed}")
+            
+            if save_path:
+                fig.savefig(save_path.replace(".png", f"_seed{seed}.png"))
+            else:
+                plt.show()
+
+        return fig, ax
 
     #INFO: @Juan 10/02/24 Added method to calculate wind direction
     @staticmethod
