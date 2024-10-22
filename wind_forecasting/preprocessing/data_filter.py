@@ -5,6 +5,7 @@ Returns:
 """
 
 from functools import partial
+import logging
 
 import numpy as np
 import polars as pl
@@ -13,16 +14,28 @@ from scipy.interpolate import CubicSpline
 from scipy.stats import entropy
 from scipy.spatial.distance import jensenshannon
 from scipy.special import kl_div
+# from openoa.utils import imputing
+import imputing
+
+from data_inspector import DataInspector
+
+from mpi4py import MPI
+from mpi4py.futures import MPICommExecutor
+from concurrent.futures import ProcessPoolExecutor
+import multiprocessing
+
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # from line_profiler import profile
-from memory_profiler import profile
+# from memory_profiler import profile
 
 class DataFilter:
     """_summary_
     """
-    def __init__(self, turbine_availability_col=None, turbine_status_col=None):
+    def __init__(self, turbine_availability_col=None, turbine_status_col=None, multiprocessor=None):
         self.turbine_availability_col = turbine_availability_col
         self.turbine_status_col = turbine_status_col
+        self.multiprocessor = multiprocessor
 
     def filter_inoperational(self, df, status_codes=None, availability_codes=None, include_nan=True) -> pl.LazyFrame:
         """
@@ -54,7 +67,69 @@ class DataFilter:
                                             | (cs.starts_with(self.turbine_availabilty_col).is_null() if include_nan else False))\
                                      .then(cs.starts_with(self.turbine_availability_col)))
 
+    def fill_multi_missing_datasets(self, dfs, impute_missing_features, interpolate_missing_features, available_features):
+        if self.multiprocessor:
+            if self.multiprocessor == "mpi":
+                executor = MPICommExecutor(MPI.COMM_WORLD, root=0)
+                logging.info(f"🚀 Using MPI executor with {MPI.COMM_WORLD.Get_size()} processes")
+            else:  # "cf" case
+                max_workers = multiprocessing.cpu_count()
+                executor = ProcessPoolExecutor(max_workers=max_workers)
+                logging.info(f"🖥️  Using ProcessPoolExecutor with {max_workers} workers")
+            
+            with executor as ex:
+                futures = [ex.submit(self._fill_single_missing_dataset, df_idx=df_idx, df=df, 
+                impute_missing_features=impute_missing_features, interpolate_missing_features=interpolate_missing_features,
+                 available_features=available_features) 
+                for df_idx, df in enumerate(dfs)]
+                return [fut.result() for fut in futures if fut.result() is not None]
+        else:
+            logging.info("🔧 Using single process executor")
+            return [self._fill_single_missing_dataset(df_idx=df_idx, df=df, impute_missing_features=impute_missing_features, 
+            interpolate_missing_features=interpolate_missing_features, available_features=available_features) 
+            for df_idx, df in enumerate(dfs)]
     
+    def _fill_single_missing_dataset(self, df_idx, df, impute_missing_features, interpolate_missing_features, available_features):
+
+        unpivot_df = DataInspector.unpivot_dataframe(df)
+
+        for feature in impute_missing_features:
+            # imputed = False
+            # for other_feature in [feature] + [f for f in ["wind_speed", "wind_direction", "power_output", "nacelle_direction"] if f != feature]:
+            other_feature = feature # TODO how to impute from other columns ERIC ASK
+            imputed_vals = imputing.impute_all_assets_by_correlation(data=unpivot_df.collect().to_pandas().set_index(["time", "turbine_id"]),
+                                                        impute_col=feature, reference_col=other_feature,
+                                                        asset_id_col="turbine_id", method="linear").to_numpy()
+            df = DataInspector.pivot_dataframe(
+                unpivot_df.with_columns({feature: imputed_vals}))
+            
+            logging.info(f"Successfully imputed feature {feature} in DataFrame {df_idx} using other feature {other_feature}.")
+            # imputed = True
+            # break
+
+        df = df.with_columns(cs.starts_with(feat).interpolate() for feat in interpolate_missing_features)
+        df = df.with_columns(cs.starts_with(feat).fill_null(strategy="forward") for feat in interpolate_missing_features)\
+               .with_columns(cs.starts_with(feat).fill_null(strategy="backward") for feat in interpolate_missing_features)
+
+        # for feature in interpolate_missing_features:       
+        #     # if not imputed:
+        #     # allow interpolation from its own colums, (and others if that is not possible using interpolate_by?)
+        #     # df = df.with_columns(pl.col(feature).interpolate())
+        #     for turbine_feature in [f for f in available_features if feature in f]:
+        #         # interpolate remaining null values with forward fill or backward fill
+        #         if df.filter(pl.col(turbine_feature).is_null()).select(pl.len()).collect().item():
+        #             df = df.with_columns(pl.col(turbine_feature).interpolate())
+        #             # logging.info(f"Successfully interpolated feature {turbine_feature} in DataFrame {df_idx}.")
+            
+        #         # fill any remaining null values with forward fill or backward fill
+        #         if df.filter(pl.col(turbine_feature).is_null()).select(pl.len()).collect().item():
+
+        #             df = df.with_columns(pl.col(turbine_feature).fill_null(strategy="forward"))\
+        #                 .with_columns(pl.col(turbine_feature).fill_null(strategy="backward"))
+
+        #             logging.info(f"Successfully filled feature {turbine_feature} in DataFrame {df_idx}.")
+        return df
+
     def resolve_missing_data(self, df, how="linear_interp", features=None) -> pl.LazyFrame:
         """_summary_
         option 1) interpolate via linear, or forward
@@ -156,8 +231,8 @@ class DataFilter:
         for feat in features:
             tid = feat.split("_")[-1]
             js_score = __class__._compute_js_divergence(
-                train_sample=df.filter(mask(tid)).select(feat).drop_nulls().collect(streaming=True).to_numpy().flatten(),
-                test_sample=df.select(feat).drop_nulls().collect(streaming=True).to_numpy().flatten()
+                train_sample=df.filter(mask(tid)).select(feat).drop_nulls().collect().to_numpy().flatten(),
+                test_sample=df.select(feat).drop_nulls().collect().to_numpy().flatten()
                 )
             
             if js_score > threshold:
