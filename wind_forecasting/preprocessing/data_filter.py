@@ -94,7 +94,7 @@ class DataFilter:
         unpivot_df = DataInspector.unpivot_dataframe(df)
 
         for feature in impute_missing_features:
-            imputed = False
+            # imputed = False
             # for other_feature in [feature] + [f for f in ["wind_speed", "wind_direction", "power_output", "nacelle_direction"] if f != feature]:
             other_feature = feature # TODO how to impute from other columns ERIC ASK
             imputed_vals = imputing.impute_all_assets_by_correlation(data=unpivot_df.collect().to_pandas().set_index(["time", "turbine_id"]),
@@ -107,10 +107,10 @@ class DataFilter:
             # imputed = True
             # break
 
-        df = df.with_columns({feat: pl.col(feat).interpolate() for feat in interpolate_missing_features})
-        df = df.with_columns({feat: pl.col(feat).fill_null(strategy="forward") for feat in interpolate_missing_features})\
-               .with_columns({feat: pl.col(turbine_feature).fill_null(strategy="backward") for feat in interpolate_missing_features})
-               
+        df = df.with_columns(cs.starts_with(feat).interpolate() for feat in interpolate_missing_features)
+        df = df.with_columns(cs.starts_with(feat).fill_null(strategy="forward") for feat in interpolate_missing_features)\
+               .with_columns(cs.starts_with(feat).fill_null(strategy="backward") for feat in interpolate_missing_features)
+
         # for feature in interpolate_missing_features:       
         #     # if not imputed:
         #     # allow interpolation from its own colums, (and others if that is not possible using interpolate_by?)
