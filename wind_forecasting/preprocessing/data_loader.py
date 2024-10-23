@@ -109,7 +109,7 @@ class DataLoader:
                                     interval=f"{self.dt}s", time_unit=df_query.collect_schema()["time"].time_unit).alias("time"))
                 
                 df_query = full_datetime_range.join(df_query, on="time", how="left") # NOTE: @Aoife 10/18 make sure all time stamps are included, to interpolate continuously later
-                df_query = df_query.fill_null(strategy="forward", limit=self.ffill_limit).fill_null(strategy="backward") # NOTE: @Aoife for KP data, need to fill forward null gaps, don't know about Juan's data
+                df_query = df_query.fill_null(strategy="forward").fill_null(strategy="backward") # NOTE: @Aoife for KP data, need to fill forward null gaps, don't know about Juan's data
 
                 self.available_features = sorted(df_query.collect_schema().names())
                 self.turbine_ids = sorted(set(col.split("_")[-1] for col in self.available_features if "wt" in col))
@@ -429,17 +429,17 @@ class DataLoader:
         Returns:
             pl.LazyFrame: _description_
         """
-        if self.df is None:
+        if df is None:
             raise ValueError("⚠️ Data not loaded > call read_multi_netcdf() first.")
         
-        self.df = self.df.with_columns([
+        df = self.df.with_columns([
             pl.col('time').dt.hour().alias('hour'),
             pl.col('time').dt.ordinal_day().alias('day'),
             pl.col('time').dt.year().alias('year'),
         ])
 
         # Normalize time features using sin/cos for capturing cyclic patterns using Polars vectorized operations
-        self.df = self.df.with_columns([
+        df = df.with_columns([
             (2 * np.pi * pl.col('hour') / 24).sin().alias('hour_sin'),
             (2 * np.pi * pl.col('hour') / 24).cos().alias('hour_cos'),
             (2 * np.pi * pl.col('day') / 365).sin().alias('day_sin'),
@@ -448,7 +448,7 @@ class DataLoader:
             (2 * np.pi * pl.col('year') / 365).cos().alias('year_cos'),
         ])
 
-        return self.df
+        return df
 
     # DEBUG: @Juan 10/16/24 Check that this is reducing the features correctly.
     def reduce_features(self, df) -> pl.LazyFrame:
@@ -541,51 +541,6 @@ class DataLoader:
             df = self.convert_time_to_sin(df)
             df = self.normalize_features(df)
         return df
-    
-    # def _read_single_netcdf(self, file_path: str) -> pl.DataFrame:
-    #     """_summary_
-
-    #     Args:
-    #         file_path (_type_): _description_
-
-    #     Returns:
-    #         _type_: _description_
-    #     """
-    #     try:
-    #         with nc.Dataset(file_path, 'r') as dataset:
-    #             time = dataset.variables['date']
-    #             time = pd_to_datetime(nc.num2date(times=time[:], units=time.units, calendar=time.calendar, only_use_cftime_datetimes=False, only_use_python_datetimes=True))
-                
-    #             data = {
-    #                 'turbine_id': [os.path.basename(file_path).split('.')[-2]] * dataset.variables["date"].shape[0],
-    #                 'time': time,
-    #                 'turbine_status': dataset.variables['WTUR.TurSt'][:],
-    #                 'wind_direction': dataset.variables['WMET.HorWdDir'][:],
-    #                 'wind_speed': dataset.variables['WMET.HorWdSpd'][:],
-    #                 'power_output': dataset.variables['WTUR.W'][:],
-    #                 'nacelle_direction': dataset.variables['WNAC.Dir'][:]
-    #             }
-                
-    #             # remove the rows with all nans (corresponding to rows where excluded columns would have had a value)
-    #             # and bundle all values corresponding to identical time stamps together
-    #             # forward fill missing values
-    #             df_query = pl.LazyFrame(data).fill_nan(None)\
-    #                                          .with_columns(pl.col("time").dt.round(f"{self.dt}s").alias("time"))\
-    #                                          .select([cs.contains(feat) for feat in self.desired_feature_types])\
-    #                                             .filter(pl.any_horizontal(cs.numeric().is_not_null()))\
-    #                                             .group_by("turbine_id", "time")\
-    #                                                 .agg(cs.numeric().drop_nulls().first()).sort("turbine_id", "time")
-
-    #             # pivot table to have columns for each turbine and measurement
-    #             df_query = df_query.collect(streaming=True).pivot(on="turbine_id", index="time", values=["power_output", "nacelle_direction", "wind_speed", "wind_direction", "turbine_status"]).lazy()
-    #             del data
-                
-    #             logging.info(f"Processed {file_path}") #, shape: {df.shape}")
-    #             return df_query
-            
-    #     except Exception as e:
-    #         print(f"\nError processing {file_path}: {e}")
-
 
 ########################################################## INPUTS ##########################################################
 if __name__ == "__main__":
@@ -684,7 +639,6 @@ if __name__ == "__main__":
                 logging.info("🎉 Script completed successfully")
         except Exception as e:
             logging.error(f"❌ An error occurred: {str(e)}")
-<<<<<<< HEAD
 
         if not RELOAD_DATA and os.path.exists(data_loader.save_path):
             # Note that the order of the columns in the provided schema must match the order of the columns in the CSV being read.
@@ -709,5 +663,3 @@ if __name__ == "__main__":
         
         logging.info("🎉 Script completed successfully")
         
-=======
->>>>>>> 93c709fc7369340dada1e746b729f49f8a06d482

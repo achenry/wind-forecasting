@@ -460,13 +460,13 @@ class DataInspector:
             return df.collect(streaming=True)
 
     @staticmethod
-    def unpivot_dataframe(df):
+    def unpivot_dataframe(df, feature_types):
         # Unpivot LazyFrame into Long Form with `turbine_id` Column
         return pl.concat([
             df.select(pl.col("time"), pl.col("continuity_group"), cs.starts_with(feature_type))\
             .unpivot(index=["time", "continuity_group"], value_name=feature_type)\
             .with_columns(pl.col("variable").str.slice(-5).alias("turbine_id"))\
-            .drop("variable") for feature_type in ["wind_speed", "wind_direction", "turbine_status", "power_output", "nacelle_direction"]], how="align")\
+            .drop("variable") for feature_type in feature_types], how="align")\
                 .group_by("turbine_id", "time").agg(cs.numeric().drop_nulls().first()).sort("turbine_id", "time")
 
     @staticmethod
