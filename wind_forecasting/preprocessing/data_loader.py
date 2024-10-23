@@ -87,7 +87,15 @@ class DataLoader:
             
             with executor as ex:
                 futures = [ex.submit(self._read_single_file, file_path) for file_path in self.file_paths]
-                df_query = [fut.result() for fut in futures if fut.result() is not None]
+                df_query = []
+                for f, fut in enumerate(futures):
+                    try:
+                        res = fut.result()
+                    except Exception as e:
+                        logging.error(f"Error reading {f}th file: {e}")
+                    if res is None:
+                        continue
+                    df_query.append(res)
         else:
             logging.info("🔧 Using single process executor")
             df_query = [self._read_single_file(file_path) for file_path in self.file_paths if self._read_single_file(file_path) is not None]
@@ -574,7 +582,7 @@ if __name__ == "__main__":
         DATA_DIR = "/pl/active/paolab/awaken_data/kp.turbine.z02.b0/"
         PL_SAVE_PATH = "/scratch/alpine/aohe7145/awaken_data/kp.turbine.zo2.b0.raw.parquet"
         FILE_SIGNATURE = "kp.turbine.z02.b0.*.*.*.nc"
-        MULTIPROCESSOR = "mpi"
+        MULTIPROCESSOR = "cf"
         TURBINE_INPUT_FILEPATH = "/projects/aohe7145/toolboxes/wind-forecasting/examples/inputs/ge_282_127.yaml"
         FARM_INPUT_FILEPATH = "/projects/aohe7145/toolboxes/wind-forecasting/examples/inputs/gch_KP_v4.yaml"
         FEATURES = ["time", "turbine_id", "turbine_status", "wind_direction", "wind_speed", "power_output", "nacelle_direction"]
