@@ -194,7 +194,10 @@ def impute_all_assets_by_correlation(
                                         impute_df=impute_df, impute_col=impute_col, reference_col=reference_col,
                                         target_id=target_id, method=method, degree=degree) for target_id in corr_df.columns]
             for fut in futures:
-                ix_target, sub_df = fut.result()
+                res = fut.result()
+                if res is None:
+                    continue
+                ix_target, sub_df = res
                 impute_df.loc[ix_target, [impute_col]] = sub_df
     else:
         for target_id in corr_df.columns:
