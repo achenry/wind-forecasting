@@ -9,7 +9,8 @@ import numpy as np
 import pandas as pd
 from tqdm import tqdm
 from numpy.polynomial import Polynomial
-
+from mpi4py import MPI
+from mpi4py.futures import MPICommExecutor
 
 def asset_correlation_matrix(data: pd.DataFrame, value_col: str) -> pd.DataFrame:
     """Create a correlation matrix on a MultiIndex `DataFrame` with time (or a different
@@ -140,7 +141,7 @@ def impute_all_assets_by_correlation(
     r2_threshold: float = 0.7,
     method: str = "linear",
     degree: int = 1,
-    parallel: bool = False
+    multiprocessor: str | None = None,
 ):
     """Imputes NaN data in a Pandas data frame to the best extent possible by considering available data
     across different assets in the data frame. Highest correlated assets are prioritized in the imputation process.
@@ -181,9 +182,12 @@ def impute_all_assets_by_correlation(
     ix_sort = (-corr_df.fillna(-2)).values.argsort(axis=1)
     sort_df = pd.DataFrame(corr_df.columns.to_numpy()[ix_sort], index=corr_df.index)
     # Loop over the assets and impute missing data
-    if parallel:
-        max_workers = multiprocessing.cpu_count()
-        executor = ProcessPoolExecutor(max_workers=max_workers)
+    if multiprocessor is not None:
+        if multiprocessor == "mpi":
+            executor = MPICommExecutor(MPI.COMM_WORLD, root=0)
+        else:  # "cf" case
+            max_workers = multiprocessing.cpu_count()
+            executor = ProcessPoolExecutor(max_workers=max_workers)
         with executor as ex:
             futures = [ex.submit(impute_target_id, 
                                         data=data,
