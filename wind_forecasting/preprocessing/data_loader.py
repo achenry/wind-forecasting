@@ -545,26 +545,49 @@ class DataLoader:
 ########################################################## INPUTS ##########################################################
 if __name__ == "__main__":
     from sys import platform
-    RELOAD_DATA = True 
-    if platform == "darwin":
-        ROOT_DIR = os.path.join("/Users", "ahenry", "Documents", "toolboxes", "wind_forecasting")
-        DATA_DIR = os.path.join(ROOT_DIR, "examples/data")
-        PL_SAVE_PATH = os.path.join(ROOT_DIR, "examples/data/kp.turbine.zo2.b0.raw.parquet")
+    RELOAD_DATA = True
+    PLOT = False
+
+    DT = 5
+    DATA_FORMAT = "netcdf"
+
+    if platform == "darwin" and DATA_FORMAT == "netcdf":
+        DATA_DIR = "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data"
+        # PL_SAVE_PATH = "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/kp.turbine.zo2.b0.raw.parquet"
+        # FILE_SIGNATURE = "kp.turbine.z02.b0.*.*.*.nc"
+        PL_SAVE_PATH = "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/kp.turbine.zo2.b0.raw.parquet"
         FILE_SIGNATURE = "kp.turbine.z02.b0.202203*.*.*.nc"
         MULTIPROCESSOR = "cf"
-        TURBINE_INPUT_FILEPATH = os.path.join(ROOT_DIR, "examples/inputs/ge_282_127.yaml")
-        FARM_INPUT_FILEPATH = os.path.join(ROOT_DIR, "examples/inputs/gch_KP_v4.yaml")
+        TURBINE_INPUT_FILEPATH = "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/inputs/ge_282_127.yaml"
+        FARM_INPUT_FILEPATH = "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/inputs/gch_KP_v4.yaml"
         FEATURES = ["time", "turbine_id", "turbine_status", "wind_direction", "wind_speed", "power_output", "nacelle_direction"]
         WIDE_FORMAT = False
         COLUMN_MAPPING = {"time": "date",
-                              "turbine_id": "turbine_id",
-                              "turbine_status": "WTUR.TurSt",
-                              "wind_direction": "WMET.HorWdDir",
-                              "wind_speed": "WMET.HorWdSpd",
-                              "power_output": "WTUR.W",
-                              "nacelle_direction": "WNAC.Dir"
-                              }
-    elif platform == "linux":
+                                "turbine_id": "turbine_id",
+                                "turbine_status": "WTUR.TurSt",
+                                "wind_direction": "WMET.HorWdDir",
+                                "wind_speed": "WMET.HorWdSpd",
+                                "power_output": "WTUR.W",
+                                "nacelle_direction": "WNAC.Dir"
+                                }
+    elif platform == "linux" and DATA_FORMAT == "netcdf":
+        DATA_DIR = "/pl/active/paolab/awaken_data/kp.turbine.z02.b0/"
+        PL_SAVE_PATH = "/scratch/alpine/aohe7145/awaken_data/kp.turbine.zo2.b0.raw.parquet"
+        FILE_SIGNATURE = "kp.turbine.z02.b0.*.*.*.nc"
+        MULTIPROCESSOR = "cf"
+        TURBINE_INPUT_FILEPATH = "/projects/aohe7145/toolboxes/wind-forecasting/examples/inputs/ge_282_127.yaml"
+        FARM_INPUT_FILEPATH = "/projects/aohe7145/toolboxes/wind-forecasting/examples/inputs/gch_KP_v4.yaml"
+        FEATURES = ["time", "turbine_id", "turbine_status", "wind_direction", "wind_speed", "power_output", "nacelle_direction"]
+        WIDE_FORMAT = False
+        COLUMN_MAPPING = {"time": "date",
+                                "turbine_id": "turbine_id",
+                                "turbine_status": "WTUR.TurSt",
+                                "wind_direction": "WMET.HorWdDir",
+                                "wind_speed": "WMET.HorWdSpd",
+                                "power_output": "WTUR.W",
+                                "nacelle_direction": "WNAC.Dir"
+                                }
+    elif platform == "linux" and DATA_FORMAT == "csv":
         # DATA_DIR = "/pl/active/paolab/awaken_data/kp.turbine.z02.b0/"
         # DATA_DIR = "examples/inputs/awaken_data"
         DATA_DIR = "examples/inputs/SMARTEOLE-WFC-open-dataset"
@@ -590,16 +613,15 @@ if __name__ == "__main__":
             **{f"wind_direction_{i}_avg": f"wind_direction_{i:03d}" for i in range(1, 8)},
             **{f"derate_{i}": f"derate_{i:03d}" for i in range(1, 8)}
         }
-    DT = 5    
-    RUN_ONCE = (MULTIPROCESSOR == "mpi" and (comm_rank := MPI.COMM_WORLD.Get_rank()) == 0) or (MULTIPROCESSOR != "mpi") or (MULTIPROCESSOR is None)
     
     if FILE_SIGNATURE.endswith(".nc"):
-        data_format = "netcdf"
+        DATA_FORMAT = "netcdf"
     elif FILE_SIGNATURE.endswith(".csv"):
-        data_format = "csv"
+        DATA_FORMAT = "csv"
     else:
         raise ValueError("Invalid file signature. Please specify either '*.nc' or '*.csv'.")
-
+    
+    RUN_ONCE = (MULTIPROCESSOR == "mpi" and (comm_rank := MPI.COMM_WORLD.Get_rank()) == 0) or (MULTIPROCESSOR != "mpi") or (MULTIPROCESSOR is None)
     if RUN_ONCE:
         try:
             data_loader = DataLoader(
@@ -609,10 +631,10 @@ if __name__ == "__main__":
                 multiprocessor=MULTIPROCESSOR,
                 dt=DT,
                 desired_feature_types=FEATURES,
-                data_format=data_format,
+                data_format=DATA_FORMAT,
                 column_mapping=COLUMN_MAPPING,
-                wide_format=WIDE_FORMAT
-            )
+                wide_format=WIDE_FORMAT,
+                ffill_limit=int(60 * 60 * 10 // DT))
         
             if not RELOAD_DATA and os.path.exists(data_loader.save_path):
                 # Note that the order of the columns in the provided schema must match the order of the columns in the CSV being read.
