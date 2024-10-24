@@ -4,7 +4,6 @@ Returns:
     _type_: _description_
 """
 
-from functools import partial
 import logging
 
 import numpy as np
@@ -14,8 +13,7 @@ from scipy.interpolate import CubicSpline
 from scipy.stats import entropy
 from scipy.spatial.distance import jensenshannon
 from scipy.special import kl_div
-# from openoa.utils import imputing
-import imputing
+from openoa.utils import imputing
 
 from data_inspector import DataInspector
 
