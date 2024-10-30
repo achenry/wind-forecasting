@@ -101,28 +101,34 @@ class DataLoader:
         logging.info(f"✅ Finished reading individual files. Time elapsed: {time.time() - start_time:.2f} s")
 
         if (self.multiprocessor == "mpi" and MPI.COMM_WORLD.Get_rank() == 0) or (self.multiprocessor != "mpi"):
-            if [df for df in df_query if df is not None]:
+            if df_query:
                 # logging.info("🔄 Starting concatenation of DataFrames")
                 concat_start = time.time()
-
+                logging.info(f"✅ Started concatenation of {len(df_query)} files.")
                 # df_query = pl.concat([df for df in df_query if df is not None]).lazy()
-                df_query = pl.concat([df for df in df_query if df is not None], how="diagonal")\
+                df_query = pl.concat(df_query, how="diagonal")\
                              .group_by("time").agg(cs.numeric().drop_nulls().first())\
                              .sort("time")
+                logging.info(f"🔗 Finished concatenation of {len(df_query)} files. Time elapsed: {time.time() - concat_start:.2f} s")
 
-                full_datetime_range = df_query.select(pl.datetime_range(start=df_query.select("time").first().collect(streaming=True),
-                                    end=df_query.select("time").last().collect(streaming=True),
-                                    interval=f"{self.dt}s", time_unit=df_query.collect_schema()["time"].time_unit).alias("time"))
-                
-                df_query = full_datetime_range.join(df_query, on="time", how="left") # NOTE: @Aoife 10/18 make sure all time stamps are included, to interpolate continuously later
-                df_query = df_query.fill_null(strategy="forward").fill_null(strategy="backward") # NOTE: @Aoife for KP data, need to fill forward null gaps, don't know about Juan's data
-
+                logging.info(f"Started feature selection.") 
                 self.available_features = sorted(df_query.collect_schema().names())
                 self.turbine_ids = sorted(set(col.split("_")[-1] for col in self.available_features if "wt" in col))
                 df_query = df_query.select([feat for feat in self.available_features if any(feat_type in feat for feat_type in self.desired_feature_types)])
+                logging.info(f"Finished feature selection.") 
 
-
-                logging.info(f"🔗 Finished concatenation. Time elapsed: {time.time() - concat_start:.2f} s")
+                logging.info(f"Started resampling.") 
+                full_datetime_range = df_query.select(pl.datetime_range(
+                    start=df_query.select("time").first().collect(streaming=True),
+                    end=df_query.select("time").last().collect(streaming=True),
+                    interval=f"{self.dt}s", time_unit=df_query.collect_schema()["time"].time_unit).alias("time"))
+                
+                df_query = full_datetime_range.join(df_query, on="time", how="left") # NOTE: @Aoife 10/18 make sure all time stamps are included, to interpolate continuously later
+                logging.info(f"Finished resampling.") 
+                
+                logging.info(f"Started forward/backward fill.") 
+                df_query = df_query.fill_null(strategy="forward").fill_null(strategy="backward") # NOTE: @Aoife for KP data, need to fill forward null gaps, don't know about Juan's data
+                logging.info(f"Finished forward/backward fill.") 
 
                 # Check if the resulting DataFrame is empty
                 if df_query.select(pl.len()).collect().item() == 0:
