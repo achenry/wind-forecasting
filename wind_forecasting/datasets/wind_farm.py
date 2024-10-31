@@ -4,7 +4,7 @@ import pandas as pd
 from torch.utils.data import Dataset
 import numpy as np
 import torch
-import spacetimeformer as stf
+from wind_forecasting.models import spacetimeformer as stf
 import random
 from sklearn.preprocessing import MinMaxScaler
 
