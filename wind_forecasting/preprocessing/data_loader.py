@@ -115,7 +115,7 @@ class DataLoader:
             df_query = pl.concat(df_query, how="diagonal")\
                             .group_by("time").agg(cs.numeric().drop_nulls().first())\
                             .sort("time")
-            logging.info(f"🔗 Finished concatenation of {len(df_query)} files. Time elapsed: {time.time() - concat_start:.2f} s")
+            logging.info(f"🔗 Finished concatenation of {len(self.file_paths)} files. Time elapsed: {time.time() - concat_start:.2f} s")
 
             logging.info(f"Started feature selection.") 
             self.available_features = sorted(df_query.collect_schema().names())
