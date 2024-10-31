@@ -632,8 +632,7 @@ if __name__ == "__main__":
         raise ValueError("Invalid file signature. Please specify either '*.nc' or '*.csv'.")
     
     RUN_ONCE = (MULTIPROCESSOR == "mpi" and (comm_rank := MPI.COMM_WORLD.Get_rank()) == 0) or (MULTIPROCESSOR != "mpi") or (MULTIPROCESSOR is None)
-    if RUN_ONCE:
-        data_loader = DataLoader(
+    data_loader = DataLoader(
                 data_dir=DATA_DIR,
                 file_signature=FILE_SIGNATURE,
                 save_path=PL_SAVE_PATH,
@@ -646,6 +645,7 @@ if __name__ == "__main__":
                 ffill_limit=int(60 * 60 * 10 // DT))
     
     if RUN_ONCE:
+        
         if not RELOAD_DATA and os.path.exists(data_loader.save_path):
             # Note that the order of the columns in the provided schema must match the order of the columns in the CSV being read.
             schema = pl.Schema(dict(sorted(({**{"time": pl.Datetime(time_unit="ms")},
