@@ -1,3 +1,7 @@
+# cd /home/ahenry/toolboxes/wind_forecasting_env/wind-forecasting/
+# python setup.py develop
+# pip3 install torch torchvision torchaudio lightning
+
 from wind_forecasting.datasets.wind_farm import KPWindFarm
 import os
 from wind_forecasting.run_scripts.helpers import TorchDataModule
