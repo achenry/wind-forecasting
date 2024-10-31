@@ -73,20 +73,11 @@ class DataLoader:
     def read_multi_files(self) -> pl.LazyFrame | None:
         if self.multiprocessor is not None:
             if self.multiprocessor == "mpi":
-                comm_size = MPI.COMM_WORLD.Get_size()
                 executor = MPICommExecutor(MPI.COMM_WORLD, root=0)
-                
             else:  # "cf" case
-                max_workers = multiprocessing.cpu_count()
                 executor = ProcessPoolExecutor()
                 
-            # TODO Kestrel crashes here...for mpi
             with executor as ex:
-                if self.multiprocessor == "mpi":
-                    logging.info(f"🚀 Using MPI executor with {comm_size} processes.")
-                else:
-                    logging.info(f"🖥️  Using ProcessPoolExecutor with {max_workers} workers.")
-
                 futures = [ex.submit(self._read_single_file, f, file_path) for f, file_path in enumerate(self.file_paths)]
                 df_query = [fut.result() for fut in futures]
                 df_query = [df for df in df_query if df is not None]
@@ -238,7 +229,8 @@ class DataLoader:
     def _read_single_netcdf(self, file_path: str) -> pl.LazyFrame:
         with nc.Dataset(file_path, 'r') as dataset:
             #TODO: @Juan 10/14/24 Check if this is correct and if pandas can be substituted for polars
-            time_var = dataset.variables[self.column_mapping["time"]]
+            col_mapping = dict((v, k) for k, v in self.column_mapping.items())
+            time_var = dataset.variables[col_mapping["time"]]
             # time = pd_to_datetime(nc.num2date(times=time_var[:], 
             #                                   units=time_var.units, 
             #                                   calendar=time_var.calendar, 
@@ -253,11 +245,11 @@ class DataLoader:
             data = {
                 'turbine_id': [os.path.basename(file_path).split('.')[-2]] * len(time),
                 'time': time.tolist(),  # Convert to Polars datetime
-                'turbine_status': dataset.variables[self.column_mapping["turbine_status"]][:],
-                'wind_direction': dataset.variables[self.column_mapping["wind_direction"]][:],
-                'wind_speed': dataset.variables[self.column_mapping["wind_speed"]][:],
-                'power_output': dataset.variables[self.column_mapping["power_output"]][:],
-                'nacelle_direction': dataset.variables[self.column_mapping["nacelle_direction"]][:]
+                'turbine_status': dataset.variables[col_mapping["turbine_status"]][:],
+                'wind_direction': dataset.variables[col_mapping["wind_direction"]][:],
+                'wind_speed': dataset.variables[col_mapping["wind_speed"]][:],
+                'power_output': dataset.variables[col_mapping["power_output"]][:],
+                'nacelle_direction': dataset.variables[col_mapping["nacelle_direction"]][:]
             }
 
             # remove the rows with all nans (corresponding to rows where excluded columns would have had a value)
@@ -581,7 +573,7 @@ if __name__ == "__main__":
         DATA_DIR = "/projects/ssc/ahenry/wind_forecasting/awaken_data/kp.turbine.z02.b0/"
         # PL_SAVE_PATH = "/scratch/alpine/aohe7145/awaken_data/kp.turbine.zo2.b0.raw.parquet"
         PL_SAVE_PATH = "/projects/ssc/ahenry/wind_forecasting/awaken_data/kp.turbine.zo2.b0.raw.parquet"
-        FILE_SIGNATURE = "kp.turbine.z02.b0.20220301.*.*.nc"
+        FILE_SIGNATURE = "kp.turbine.z02.b0.*.*.*.nc"
         MULTIPROCESSOR = "mpi"
         # TURBINE_INPUT_FILEPATH = "/projects/aohe7145/toolboxes/wind-forecasting/examples/inputs/ge_282_127.yaml"
         TURBINE_INPUT_FILEPATH = "/home/ahenry/toolboxes/wind_forecasting_env/wind-forecasting/examples/inputs/ge_282_127.yaml"
@@ -589,14 +581,14 @@ if __name__ == "__main__":
         FARM_INPUT_FILEPATH = "/home/ahenry/toolboxes/wind_forecasting_env/wind-forecasting/examples/inputs/gch_KP_v4.yaml"
         FEATURES = ["time", "turbine_id", "turbine_status", "wind_direction", "wind_speed", "power_output", "nacelle_direction"]
         WIDE_FORMAT = False
-        COLUMN_MAPPING = {"time": "date",
-                                "turbine_id": "turbine_id",
-                                "turbine_status": "WTUR.TurSt",
-                                "wind_direction": "WMET.HorWdDir",
-                                "wind_speed": "WMET.HorWdSpd",
-                                "power_output": "WTUR.W",
-                                "nacelle_direction": "WNAC.Dir"
-                                }
+        COLUMN_MAPPING = {"date": "time",
+                          "turbine_id": "turbine_id",
+                          "WTUR.TurSt": "turbine_status",
+                          "WMET.HorWdDir": "wind_direction",
+                          "WMET.HorWdSpd": "wind_speed",
+                          "WTUR.W": "power_output",
+                          "WNAC.Dir": "nacelle_direction"
+                          }
     elif platform == "linux" and DATA_FORMAT == "csv":
         # DATA_DIR = "/pl/active/paolab/awaken_data/kp.turbine.z02.b0/"
         # DATA_DIR = "examples/inputs/awaken_data"
@@ -614,7 +606,7 @@ if __name__ == "__main__":
         FARM_INPUT_FILEPATH = "examples/inputs/gch_KP_v4.yaml"
         FEATURES = ["time", "active_power", "wind_speed", "nacelle_position", "wind_direction", "derate"]
         WIDE_FORMAT = True
-
+        
         COLUMN_MAPPING = {
             **{"time": "time"},
             **{f"active_power_{i}_avg": f"active_power_{i:03d}" for i in range(1, 8)},
@@ -661,6 +653,13 @@ if __name__ == "__main__":
         logging.info("🔄 Processing new data files")
         start_time = time.time() # INFO: @Juan 10/16/24 Debbuging time measurements
         logging.info(f"✅ Starting read_multi_files with {len(data_loader.file_paths)} files")
+       
+        if MULTIPROCESSOR == "mpi":
+            comm_size = MPI.COMM_WORLD.Get_size()
+            logging.info(f"🚀 Using MPI executor with {comm_size} processes.")
+        else:
+            max_workers = multiprocessing.cpu_count()
+            logging.info(f"🖥️  Using ProcessPoolExecutor with {max_workers} workers.")
     
     df_query = data_loader.read_multi_files()
 
