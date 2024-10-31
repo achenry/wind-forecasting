@@ -77,25 +77,32 @@ class DataLoader:
         if self.multiprocessor:
             if self.multiprocessor == "mpi":
                 executor = MPICommExecutor(MPI.COMM_WORLD, root=0)
-                logging.info(f"🚀 Using MPI executor with {MPI.COMM_WORLD.Get_size()} processes to process {len(self.file_paths)} files.")
+                logging.info(f"🚀 Using MPI executor with {MPI.COMM_WORLD.Get_size()} processes.")
             else:  # "cf" case
                 max_workers = multiprocessing.cpu_count()
                 executor = ProcessPoolExecutor(max_workers=max_workers)
-                logging.info(f"🖥️  Using ProcessPoolExecutor with {max_workers} workers to process {len(self.file_paths)} files.")
+                logging.info(f"🖥️  Using ProcessPoolExecutor with {max_workers} workers.")
             
             with executor as ex:
                 futures = [ex.submit(self._read_single_file, f, file_path) for f, file_path in enumerate(self.file_paths)]
+                print("88")
                 df_query = []
                 for f, fut in enumerate(futures):
                     try:
+                        print(f, "92")
                         res = fut.result()
+                        print(f, "94")
                     except Exception as e:
                         logging.error(f"Error reading {f}th file: {e}")
                     if res is None:
+                        print(f, "98")
                         continue
+                    print(f, "100")
                     df_query.append(res)
+                    print(f, "102")
+            print("103")
         else:
-            logging.info(f"🔧 Using single process executor to process {len(self.file_paths)} files.")
+            logging.info(f"🔧 Using single process executor.")
             df_query = [self._read_single_file(f, file_path) for f, file_path in enumerate(self.file_paths) if self._read_single_file(file_path) is not None]
 
         logging.info(f"✅ Finished reading individual files. Time elapsed: {time.time() - start_time:.2f} s")
