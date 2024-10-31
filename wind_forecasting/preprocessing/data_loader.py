@@ -130,7 +130,7 @@ class DataLoader:
             if is_already_wide:
                 logging.info("📊 Data is already in wide format. Skipping conversion.")
             else:
-                # logging.info("🔄 Starting sorting")
+                logging.info("🔄 Starting sorting")
                 sort_start = time.time()
                 df_query = df_query.sort(["turbine_id", "time"])
                 logging.info(f"🔀 Finished sorting. Time elapsed: {time.time() - sort_start:.2f} s")
@@ -560,14 +560,14 @@ if __name__ == "__main__":
         FARM_INPUT_FILEPATH = "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/inputs/gch_KP_v4.yaml"
         FEATURES = ["time", "turbine_id", "turbine_status", "wind_direction", "wind_speed", "power_output", "nacelle_direction"]
         WIDE_FORMAT = False
-        COLUMN_MAPPING = {"time": "date",
-                                "turbine_id": "turbine_id",
-                                "turbine_status": "WTUR.TurSt",
-                                "wind_direction": "WMET.HorWdDir",
-                                "wind_speed": "WMET.HorWdSpd",
-                                "power_output": "WTUR.W",
-                                "nacelle_direction": "WNAC.Dir"
-                                }
+        COLUMN_MAPPING = {"date": "time",
+                          "turbine_id": "turbine_id",
+                          "WTUR.TurSt": "turbine_status",
+                          "WMET.HorWdDir": "wind_direction",
+                          "WMET.HorWdSpd": "wind_speed",
+                          "WTUR.W": "power_output",
+                          "WNAC.Dir": "nacelle_direction"
+                          }
     elif platform == "linux" and DATA_FORMAT == "netcdf":
         # DATA_DIR = "/pl/active/paolab/awaken_data/kp.turbine.z02.b0/"
         DATA_DIR = "/projects/ssc/ahenry/wind_forecasting/awaken_data/kp.turbine.z02.b0/"
