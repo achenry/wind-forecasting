@@ -71,48 +71,35 @@ class DataLoader:
 
     # INFO: @Juan 10/14/24 Added method to read multiple files based on the file signature. 
     def read_multi_files(self) -> pl.LazyFrame | None:
-        start_time = time.time() # INFO: @Juan 10/16/24 Debbuging time measurements
-        logging.info(f"✅ Starting read_multi_files with {len(self.file_paths)} files")
-        
         if self.multiprocessor is not None:
             if self.multiprocessor == "mpi":
                 comm_size = MPI.COMM_WORLD.Get_size()
                 executor = MPICommExecutor(MPI.COMM_WORLD, root=0)
-                logging.info(f"🚀 Using MPI executor with {comm_size} processes.")
+                
             else:  # "cf" case
                 max_workers = multiprocessing.cpu_count()
                 executor = ProcessPoolExecutor()
-                logging.info(f"🖥️  Using ProcessPoolExecutor with {max_workers} workers.")
-            
+                
+            # TODO Kestrel crashes here...for mpi
             with executor as ex:
                 if self.multiprocessor == "mpi":
-                    ex.max_workers = comm_size
+                    logging.info(f"🚀 Using MPI executor with {comm_size} processes.")
+                else:
+                    logging.info(f"🖥️  Using ProcessPoolExecutor with {max_workers} workers.")
+
                 futures = [ex.submit(self._read_single_file, f, file_path) for f, file_path in enumerate(self.file_paths)]
                 df_query = [fut.result() for fut in futures]
                 df_query = [df for df in df_query if df is not None]
-            #     print("88")
-            #     df_query = []
-            #     for f, fut in enumerate(futures):
-            #         try:
-            #             print(f, "92")
-            #             res = fut.result()
-            #             print(f, "94")
-            #         except Exception as e:
-            #             logging.error(f"Error reading {f}th file: {e}")
-            #         if res is None:
-            #             print(f, "98")
-            #             continue
-            #         print(f, "100")
-            #         df_query.append(res)
-            #         print(f, "102")
-            # print("103")
+                return df_query
         else:
             logging.info(f"🔧 Using single process executor.")
             df_query = [self._read_single_file(f, file_path) for f, file_path in enumerate(self.file_paths) if self._read_single_file(file_path) is not None]
-
-        logging.info(f"✅ Finished reading individual files. Time elapsed: {time.time() - start_time:.2f} s")
-
-        if df_query and ((self.multiprocessor == "mpi" and MPI.COMM_WORLD.Get_rank() == 0) or (self.multiprocessor != "mpi")):
+            return df_query
+    
+    def postprocess_multi_files(self, df_query) -> pl.LazyFrame | None:
+        # Run once
+        if df_query:
+            logging.info(f"✅ Finished reading individual files. Time elapsed: {time.time() - start_time:.2f} s")
             # logging.info("🔄 Starting concatenation of DataFrames")
             concat_start = time.time()
             logging.info(f"✅ Started concatenation of {len(df_query)} files.")
@@ -163,7 +150,6 @@ class DataLoader:
 
             self._write_parquet(df_query)
             
-            logging.info(f"⏱️ Total time elapsed: {time.time() - start_time:.2f} s")
             return df_query #INFO: @Juan 10/16/24 Added .lazy() to the return statement to match the expected return type. Is this necessary?
     
         logging.warning("⚠️ No data frames were created.")
@@ -647,8 +633,7 @@ if __name__ == "__main__":
     
     RUN_ONCE = (MULTIPROCESSOR == "mpi" and (comm_rank := MPI.COMM_WORLD.Get_rank()) == 0) or (MULTIPROCESSOR != "mpi") or (MULTIPROCESSOR is None)
     if RUN_ONCE:
-        try:
-            data_loader = DataLoader(
+        data_loader = DataLoader(
                 data_dir=DATA_DIR,
                 file_signature=FILE_SIGNATURE,
                 save_path=PL_SAVE_PATH,
@@ -659,53 +644,34 @@ if __name__ == "__main__":
                 column_mapping=COLUMN_MAPPING,
                 wide_format=WIDE_FORMAT,
                 ffill_limit=int(60 * 60 * 10 // DT))
-        
-            if not RELOAD_DATA and os.path.exists(data_loader.save_path):
-                # Note that the order of the columns in the provided schema must match the order of the columns in the CSV being read.
-                schema = pl.Schema({**{"time": pl.Datetime(time_unit="ms")},
-                            **{
-                                f"{feat}_{tid}": pl.Float64
-                                for feat in ["turbine_status", "wind_direction", "wind_speed", "power_output", "nacelle_direction"] 
-                                for tid in [f"wt{d+1:03d}" for d in range(88)]}
-                            })
-                if os.path.exists(data_loader.save_path):
-                    logging.info("🔄 Loading existing Parquet file")
-                    df_query = pl.scan_parquet(source=data_loader.save_path)
-                    logging.info("✅ Loaded existing Parquet file successfully")
-                else:
-                    logging.info("🔄 Processing new data files")
-                    df_query = data_loader.read_multi_files()
-                
-                if df_query is not None:
-                    # Perform any additional operations on df_query if needed
-                    logging.info("✅ Data processing completed successfully")
-                else:
-                    logging.warning("⚠️  No data was processed")
-                
-                logging.info("🎉 Script completed successfully")
-        except Exception as e:
-            logging.error(f"❌ An error occurred: {str(e)}")
-
+    
+    if RUN_ONCE:
         if not RELOAD_DATA and os.path.exists(data_loader.save_path):
             # Note that the order of the columns in the provided schema must match the order of the columns in the CSV being read.
             schema = pl.Schema(dict(sorted(({**{"time": pl.Datetime(time_unit="ms")},
                         **{
                             f"{feat}_{tid}": pl.Float64
-                            for feat in FEATURES 
+                            for feat in FEATURES if feat != "time"
                             for tid in [f"wt{d+1:03d}" for d in range(88)]}
                         }).items())))
             logging.info("🔄 Loading existing Parquet file")
             df_query = pl.scan_parquet(source=data_loader.save_path)
             logging.info("✅ Loaded existing Parquet file successfully")
-        else:
-            logging.info("🔄 Processing new data files")
-            df_query = data_loader.read_multi_files()
         
-            if df_query is not None:
-                # Perform any additional operations on df_query if needed
-                logging.info("✅ Data processing completed successfully")
-            else:
-                logging.warning("⚠️  No data was processed")
+        logging.info("🔄 Processing new data files")
+        start_time = time.time() # INFO: @Juan 10/16/24 Debbuging time measurements
+        logging.info(f"✅ Starting read_multi_files with {len(data_loader.file_paths)} files")
+    
+    df_query = data_loader.read_multi_files()
+
+    if RUN_ONCE:
+        df_query = data_loader.postprocess_multi_files(df_query)
+        logging.info(f"⏱️ Total time elapsed: {time.time() - start_time:.2f} s")
+    
+        if df_query is not None:
+            # Perform any additional operations on df_query if needed
+            logging.info("✅ Data processing completed successfully")
+        else:
+            logging.warning("⚠️  No data was processed")
         
         logging.info("🎉 Script completed successfully")
-        
