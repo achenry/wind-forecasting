@@ -77,14 +77,14 @@ class DataLoader:
         if self.multiprocessor:
             if self.multiprocessor == "mpi":
                 executor = MPICommExecutor(MPI.COMM_WORLD, root=0)
-                logging.info(f"🚀 Using MPI executor with {MPI.COMM_WORLD.Get_size()} processes")
+                logging.info(f"🚀 Using MPI executor with {MPI.COMM_WORLD.Get_size()} processes to process {len(self.file_paths)} files.")
             else:  # "cf" case
                 max_workers = multiprocessing.cpu_count()
                 executor = ProcessPoolExecutor(max_workers=max_workers)
-                logging.info(f"🖥️  Using ProcessPoolExecutor with {max_workers} workers")
+                logging.info(f"🖥️  Using ProcessPoolExecutor with {max_workers} workers to process {len(self.file_paths)} files.")
             
             with executor as ex:
-                futures = [ex.submit(self._read_single_file, file_path) for file_path in self.file_paths]
+                futures = [ex.submit(self._read_single_file, f, file_path) for f, file_path in enumerate(self.file_paths)]
                 df_query = []
                 for f, fut in enumerate(futures):
                     try:
@@ -95,68 +95,67 @@ class DataLoader:
                         continue
                     df_query.append(res)
         else:
-            logging.info("🔧 Using single process executor")
-            df_query = [self._read_single_file(file_path) for file_path in self.file_paths if self._read_single_file(file_path) is not None]
+            logging.info(f"🔧 Using single process executor to process {len(self.file_paths)} files.")
+            df_query = [self._read_single_file(f, file_path) for f, file_path in enumerate(self.file_paths) if self._read_single_file(file_path) is not None]
 
         logging.info(f"✅ Finished reading individual files. Time elapsed: {time.time() - start_time:.2f} s")
 
-        if (self.multiprocessor == "mpi" and MPI.COMM_WORLD.Get_rank() == 0) or (self.multiprocessor != "mpi"):
-            if df_query:
-                # logging.info("🔄 Starting concatenation of DataFrames")
-                concat_start = time.time()
-                logging.info(f"✅ Started concatenation of {len(df_query)} files.")
-                # df_query = pl.concat([df for df in df_query if df is not None]).lazy()
-                df_query = pl.concat(df_query, how="diagonal")\
-                             .group_by("time").agg(cs.numeric().drop_nulls().first())\
-                             .sort("time")
-                logging.info(f"🔗 Finished concatenation of {len(df_query)} files. Time elapsed: {time.time() - concat_start:.2f} s")
+        if df_query and ((self.multiprocessor == "mpi" and MPI.COMM_WORLD.Get_rank() == 0) or (self.multiprocessor != "mpi")):
+            # logging.info("🔄 Starting concatenation of DataFrames")
+            concat_start = time.time()
+            logging.info(f"✅ Started concatenation of {len(df_query)} files.")
+            # df_query = pl.concat([df for df in df_query if df is not None]).lazy()
+            df_query = pl.concat(df_query, how="diagonal")\
+                            .group_by("time").agg(cs.numeric().drop_nulls().first())\
+                            .sort("time")
+            logging.info(f"🔗 Finished concatenation of {len(df_query)} files. Time elapsed: {time.time() - concat_start:.2f} s")
 
-                logging.info(f"Started feature selection.") 
-                self.available_features = sorted(df_query.collect_schema().names())
-                self.turbine_ids = sorted(set(col.split("_")[-1] for col in self.available_features if "wt" in col))
-                df_query = df_query.select([feat for feat in self.available_features if any(feat_type in feat for feat_type in self.desired_feature_types)])
-                logging.info(f"Finished feature selection.") 
+            logging.info(f"Started feature selection.") 
+            self.available_features = sorted(df_query.collect_schema().names())
+            self.turbine_ids = sorted(set(col.split("_")[-1] for col in self.available_features if "wt" in col))
+            df_query = df_query.select([feat for feat in self.available_features if any(feat_type in feat for feat_type in self.desired_feature_types)])
+            logging.info(f"Finished feature selection.") 
 
-                logging.info(f"Started resampling.") 
-                full_datetime_range = df_query.select(pl.datetime_range(
-                    start=df_query.select("time").first().collect(streaming=True),
-                    end=df_query.select("time").last().collect(streaming=True),
-                    interval=f"{self.dt}s", time_unit=df_query.collect_schema()["time"].time_unit).alias("time"))
-                
-                df_query = full_datetime_range.join(df_query, on="time", how="left") # NOTE: @Aoife 10/18 make sure all time stamps are included, to interpolate continuously later
-                logging.info(f"Finished resampling.") 
-                
-                logging.info(f"Started forward/backward fill.") 
-                df_query = df_query.fill_null(strategy="forward").fill_null(strategy="backward") # NOTE: @Aoife for KP data, need to fill forward null gaps, don't know about Juan's data
-                logging.info(f"Finished forward/backward fill.") 
+            logging.info(f"Started resampling.") 
+            full_datetime_range = df_query.select(pl.datetime_range(
+                start=df_query.select("time").first().collect(streaming=True),
+                end=df_query.select("time").last().collect(streaming=True),
+                interval=f"{self.dt}s", time_unit=df_query.collect_schema()["time"].time_unit).alias("time"))
+            
+            df_query = full_datetime_range.join(df_query, on="time", how="left") # NOTE: @Aoife 10/18 make sure all time stamps are included, to interpolate continuously later
+            logging.info(f"Finished resampling.") 
+            
+            logging.info(f"Started forward/backward fill.") 
+            df_query = df_query.fill_null(strategy="forward").fill_null(strategy="backward") # NOTE: @Aoife for KP data, need to fill forward null gaps, don't know about Juan's data
+            logging.info(f"Finished forward/backward fill.") 
 
-                # Check if the resulting DataFrame is empty
-                if df_query.select(pl.len()).collect().item() == 0:
-                    logging.warning("⚠️ No data after concatenation. Skipping further processing.")
-                    return None
+            # Check if the resulting DataFrame is empty
+            if df_query.select(pl.len()).collect().item() == 0:
+                logging.warning("⚠️ No data after concatenation. Skipping further processing.")
+                return None
 
-                # Check if the data is already in wide format
-                is_already_wide = "turbine_id" not in df_query.collect_schema().names()
+            # Check if the data is already in wide format
+            is_already_wide = "turbine_id" not in df_query.collect_schema().names()
 
-                if is_already_wide:
-                    logging.info("📊 Data is already in wide format. Skipping conversion.")
-                else:
-                    # logging.info("🔄 Starting sorting")
-                    sort_start = time.time()
-                    df_query = df_query.sort(["turbine_id", "time"])
-                    logging.info(f"🔀 Finished sorting. Time elapsed: {time.time() - sort_start:.2f} s")
+            if is_already_wide:
+                logging.info("📊 Data is already in wide format. Skipping conversion.")
+            else:
+                # logging.info("🔄 Starting sorting")
+                sort_start = time.time()
+                df_query = df_query.sort(["turbine_id", "time"])
+                logging.info(f"🔀 Finished sorting. Time elapsed: {time.time() - sort_start:.2f} s")
 
-                    # INFO: @Juan 10/16/24 Convert to wide format if the user wants it.
-                    if self.wide_format:
-                        df_query = self.convert_to_wide_format(df_query)
+                # INFO: @Juan 10/16/24 Convert to wide format if the user wants it.
+                if self.wide_format:
+                    df_query = self.convert_to_wide_format(df_query)
 
-                self._write_parquet(df_query)
-                
-                logging.info(f"⏱️ Total time elapsed: {time.time() - start_time:.2f} s")
-                return df_query #INFO: @Juan 10/16/24 Added .lazy() to the return statement to match the expected return type. Is this necessary?
-        
-            logging.warning("⚠️ No data frames were created.")
-            return None
+            self._write_parquet(df_query)
+            
+            logging.info(f"⏱️ Total time elapsed: {time.time() - start_time:.2f} s")
+            return df_query #INFO: @Juan 10/16/24 Added .lazy() to the return statement to match the expected return type. Is this necessary?
+    
+        logging.warning("⚠️ No data frames were created.")
+        return None
 
         logging.info(f"⏱️ Total time elapsed: {time.time() - start_time:.2f} s")
         return None
@@ -223,7 +222,7 @@ class DataLoader:
             logging.info(f"📁 Created directory: {directory}")
 
     # INFO: @Juan 10/14/24 Added method to read single file based on the file signature. 
-    def _read_single_file(self, file_path: str) -> pl.LazyFrame:
+    def _read_single_file(self, file_number: int, file_path: str) -> pl.LazyFrame:
         start_time = time.time()
         # logging.info(f"Starting to process {file_path}")
         try:
@@ -234,7 +233,7 @@ class DataLoader:
             else:
                 raise ValueError(f"❌ Unsupported data format: {self.data_format}")
             
-            logging.info(f"✅ Processed {file_path}. Time: {time.time() - start_time:.2f} s")
+            logging.info(f"✅ Processed {file_number}-th {file_path}. Time: {time.time() - start_time:.2f} s")
             return result
         except Exception as e:
             logging.error(f"❌ Error processing {file_path}: {e}")
@@ -587,8 +586,8 @@ if __name__ == "__main__":
         DATA_DIR = "/projects/ssc/ahenry/wind_forecasting/awaken_data/kp.turbine.z02.b0/"
         # PL_SAVE_PATH = "/scratch/alpine/aohe7145/awaken_data/kp.turbine.zo2.b0.raw.parquet"
         PL_SAVE_PATH = "/projects/ssc/ahenry/wind_forecasting/awaken_data/kp.turbine.zo2.b0.raw.parquet"
-        FILE_SIGNATURE = "kp.turbine.z02.b0.*.*.*.nc"
-        MULTIPROCESSOR = "cf"
+        FILE_SIGNATURE = "kp.turbine.z02.b0.2022030*.*.*.nc"
+        MULTIPROCESSOR = "mpi"
         # TURBINE_INPUT_FILEPATH = "/projects/aohe7145/toolboxes/wind-forecasting/examples/inputs/ge_282_127.yaml"
         TURBINE_INPUT_FILEPATH = "/home/ahenry/toolboxes/wind_forecasting_env/wind-forecasting/examples/inputs/ge_282_127.yaml"
         # FARM_INPUT_FILEPATH = "/projects/aohe7145/toolboxes/wind-forecasting/examples/inputs/gch_KP_v4.yaml"

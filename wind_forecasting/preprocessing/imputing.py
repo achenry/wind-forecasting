@@ -7,7 +7,6 @@ from concurrent.futures import ProcessPoolExecutor
 import multiprocessing
 import numpy as np
 import pandas as pd
-from tqdm import tqdm
 from numpy.polynomial import Polynomial
 from mpi4py import MPI
 from mpi4py.futures import MPICommExecutor

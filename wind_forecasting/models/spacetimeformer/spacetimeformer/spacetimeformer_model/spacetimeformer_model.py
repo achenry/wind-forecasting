@@ -16,6 +16,8 @@ class Spacetimeformer_Forecaster(stf.Forecaster):
         d_yt: int = 1,
         d_x: int = 4,
         max_seq_len: int = None,
+        context_len: int = None,
+        target_len: int = None,
         start_token_len: int = 64,
         attn_factor: int = 5,
         d_model: int = 200,
@@ -71,7 +73,11 @@ class Spacetimeformer_Forecaster(stf.Forecaster):
         recon_mask_drop_standard: float = 0.2,
         recon_mask_drop_full: float = 0.05,
         verbose=True,
+        **kwargs
     ):
+        if max_seq_len is None:
+            max_seq_len = context_len + target_len
+        
         super().__init__(
             d_x=d_x,
             d_yc=d_yc,
