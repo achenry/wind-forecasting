@@ -74,8 +74,9 @@ class DataLoader:
         start_time = time.time() # INFO: @Juan 10/16/24 Debbuging time measurements
         logging.info(f"✅ Starting read_multi_files with {len(self.file_paths)} files")
         
-        if self.multiprocessor:
+        if self.multiprocessor is not None:
             if self.multiprocessor == "mpi":
+                comm_size = MPI.COMM_WORLD.Get_size()
                 executor = MPICommExecutor(MPI.COMM_WORLD, root=0)
                 logging.info(f"🚀 Using MPI executor with {MPI.COMM_WORLD.Get_size()} processes.")
             else:  # "cf" case
@@ -84,23 +85,27 @@ class DataLoader:
                 logging.info(f"🖥️  Using ProcessPoolExecutor with {max_workers} workers.")
             
             with executor as ex:
+                if self.multiprocessor == "mpi":
+                    ex.max_workers = comm_size
                 futures = [ex.submit(self._read_single_file, f, file_path) for f, file_path in enumerate(self.file_paths)]
-                print("88")
-                df_query = []
-                for f, fut in enumerate(futures):
-                    try:
-                        print(f, "92")
-                        res = fut.result()
-                        print(f, "94")
-                    except Exception as e:
-                        logging.error(f"Error reading {f}th file: {e}")
-                    if res is None:
-                        print(f, "98")
-                        continue
-                    print(f, "100")
-                    df_query.append(res)
-                    print(f, "102")
-            print("103")
+                df_query = [fut.result() for fut in futures]
+                df_query = [df for df in df_query if df is not None]
+            #     print("88")
+            #     df_query = []
+            #     for f, fut in enumerate(futures):
+            #         try:
+            #             print(f, "92")
+            #             res = fut.result()
+            #             print(f, "94")
+            #         except Exception as e:
+            #             logging.error(f"Error reading {f}th file: {e}")
+            #         if res is None:
+            #             print(f, "98")
+            #             continue
+            #         print(f, "100")
+            #         df_query.append(res)
+            #         print(f, "102")
+            # print("103")
         else:
             logging.info(f"🔧 Using single process executor.")
             df_query = [self._read_single_file(f, file_path) for f, file_path in enumerate(self.file_paths) if self._read_single_file(file_path) is not None]
@@ -162,9 +167,6 @@ class DataLoader:
             return df_query #INFO: @Juan 10/16/24 Added .lazy() to the return statement to match the expected return type. Is this necessary?
     
         logging.warning("⚠️ No data frames were created.")
-        return None
-
-        logging.info(f"⏱️ Total time elapsed: {time.time() - start_time:.2f} s")
         return None
             
     def _write_parquet(self, df_query: pl.LazyFrame):
