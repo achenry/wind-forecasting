@@ -9,7 +9,7 @@
 #SBATCH --output=data_loader.out
 
 module purge
-module load mambaforge
+module load mamba
 mamba activate wind_forecasting_env
 #module load gcc
 #module load openmpi
