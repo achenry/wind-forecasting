@@ -26,7 +26,7 @@ from pathlib import Path
 from setuptools import setup
 
 # Package meta-data.
-NAME = "whoc"
+NAME = "wind_forecasting"
 DESCRIPTION = "Wind Forecasting"
 URL = "https://github.com/achenry/wind-forecasting"
 EMAIL = "aoife.henry@nrel.gov"
@@ -47,7 +47,7 @@ REQUIRED = [
     # "dash-daq==0.5.0",
     # "scikit-image",
     # ZMQ stuff
-    "zmq",
+    # "zmq",
     # NETCDF
     # "netCDF4",
     # YAML
