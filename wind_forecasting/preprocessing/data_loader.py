@@ -78,10 +78,10 @@ class DataLoader:
             if self.multiprocessor == "mpi":
                 comm_size = MPI.COMM_WORLD.Get_size()
                 executor = MPICommExecutor(MPI.COMM_WORLD, root=0)
-                logging.info(f"🚀 Using MPI executor with {MPI.COMM_WORLD.Get_size()} processes.")
+                logging.info(f"🚀 Using MPI executor with {comm_size} processes.")
             else:  # "cf" case
                 max_workers = multiprocessing.cpu_count()
-                executor = ProcessPoolExecutor(max_workers=max_workers)
+                executor = ProcessPoolExecutor()
                 logging.info(f"🖥️  Using ProcessPoolExecutor with {max_workers} workers.")
             
             with executor as ex:
