@@ -120,9 +120,9 @@ class DataLoader:
             logging.info(f"Finished forward/backward fill.") 
 
             # Check if the resulting DataFrame is empty
-            if df_query.select(pl.len()).collect().item() == 0:
-                logging.warning("⚠️ No data after concatenation. Skipping further processing.")
-                return None
+            # if df_query.select(pl.len()).collect().item() == 0:
+            #     logging.warning("⚠️ No data after concatenation. Skipping further processing.")
+            #     return None
 
             # Check if the data is already in wide format
             is_already_wide = "turbine_id" not in df_query.collect_schema().names()
@@ -228,7 +228,7 @@ class DataLoader:
     # INFO: @Juan 10/16/24 Added method to read single netcdf file. Use pl.Series to convert the time variable to a polars series. and combined time extraction operations into a single line to remove intermediate variables. Removed try/except block as it is done in the calling method (_read_single_file())
     def _read_single_netcdf(self, file_path: str) -> pl.LazyFrame:
         with nc.Dataset(file_path, 'r') as dataset:
-            #TODO: @Juan 10/14/24 Check if this is correct and if pandas can be substituted for polars
+            # @Juan 10/14/24 Check if this is correct and if pandas can be substituted for polars
             col_mapping = dict((v, k) for k, v in self.column_mapping.items())
             time_var = dataset.variables[col_mapping["time"]]
             # time = pd_to_datetime(nc.num2date(times=time_var[:], 
@@ -554,7 +554,7 @@ if __name__ == "__main__":
         # PL_SAVE_PATH = "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/kp.turbine.zo2.b0.raw.parquet"
         # FILE_SIGNATURE = "kp.turbine.z02.b0.*.*.*.nc"
         PL_SAVE_PATH = "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/kp.turbine.zo2.b0.raw.parquet"
-        FILE_SIGNATURE = "kp.turbine.z02.b0.202203*.*.*.nc"
+        FILE_SIGNATURE = "kp.turbine.z02.b0.20220301.*.*.nc"
         MULTIPROCESSOR = "cf"
         TURBINE_INPUT_FILEPATH = "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/inputs/ge_282_127.yaml"
         FARM_INPUT_FILEPATH = "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/inputs/gch_KP_v4.yaml"
