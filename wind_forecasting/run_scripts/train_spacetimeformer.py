@@ -11,7 +11,7 @@ import torch
 
 import spacetimeformer as stf
 
-from ..datasets.wind_farm import KPWindFarm
+from wind_forecasting.datasets.wind_farm import KPWindFarm
 
 def create_parser():
     model = sys.argv[1]
@@ -230,35 +230,6 @@ def create_dset(config, dataset_obj):
     PLOT_VAR_NAMES = None
     PAD_VAL = None
     
-    # time_col_name = "Datetime"
-    # data_path = config.data_path
-    # time_features = ["year", "month", "day", "weekday", "hour", "minute"]
-    # if config.dset == "solar_energy":
-    #     if data_path == "auto":
-    #         data_path = "/Users/ahenry/Documents/toolboxes/transformer_toolbox/spacetimeformer/spacetimeformer/data/solar_AL_converted.csv"
-    #     target_cols = [str(i) for i in range(137)]
-    # if "windfarm" in config.dset:
-    #     # turbine_power_cols = sorted([col for col in data.columns if "TurbinePower_" in col])
-        
-    #     if config.data_path == "auto":
-    #         data_path = "/Users/ahenry/Documents/toolboxes/wind-hybrid-open-controller/examples/floris_case_studies/lut"
-    #     target_cols = turbine_power_cols
-    #     time_col_name = "Time"
-    #     time_features = ["year", "month", "day", "hour", "minute", "second"]
-    # return multiple datasets
-
-    # assert os.path.exists(data_path)
-    # if os.path.isdir(data_path):
-    #     dset = [stf.data.CSVTimeSeries(
-    #             data_path=os.path.join(data_path, csv_file),
-    #             target_cols=target_cols,
-    #             ignore_cols="all",
-    #             time_col_name=time_col_name,
-    #             time_features=time_features,
-    #             val_split=0.2,
-    #             test_split=0.2,
-    #     ) for csv_file in glob.glob(os.path.join(data_path, "*.csv"))]
-    # else:
     dset = stf.data.CSVTimeSeries(
             data_path=dataset_obj.data_path,
             target_cols=dataset_obj.target_cols,
@@ -339,7 +310,7 @@ def create_callbacks(config, save_dir):
     return callbacks
 
 
-def main(args):
+def main(args, dataset):
     log_dir = os.getenv("STF_LOG_DIR")
     if log_dir is None:
         log_dir = "./data/STF_LOG_DIR"
@@ -382,7 +353,7 @@ def main(args):
         plot_var_idxs,
         plot_var_names,
         pad_val,
-    ) = create_dset(args)
+    ) = create_dset(args, dataset)
 
     # Model
     args.null_value = null_val
@@ -474,13 +445,14 @@ def main(args):
 
 if __name__ == "__main__":
 
-    # Dataset
-    dataset = KPWindFarm(data_dir="/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/normalized_data.parquet", 
-                        is_normalized=True, target_turbine_ids=["wt029", "wt034", "wt074"])
-
     # CLI
     parser = create_parser()
     args = parser.parse_args()
 
+    # Dataset
+    dataset = KPWindFarm(data_path="/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/normalized_data.parquet", 
+                        is_normalized=True, target_turbine_ids=["wt029", "wt034", "wt074"], 
+                        context_len=args.context_points, target_len=args.target_points)
+
     for trial in range(args.trials):
-        main(args)
+        main(args, dataset)
