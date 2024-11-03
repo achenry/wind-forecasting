@@ -147,40 +147,41 @@ class DataLoader:
         return None
             
     def _write_parquet(self, df_query: pl.LazyFrame):
-        logging.info("📝 Starting Parquet write")
+        
         write_start = time.time()
         
         try:
+            logging.info("📝 Starting Parquet write")
             # Collect a small sample to check for issues
-            sample = df_query.limit(10).collect()
-            total_rows = df_query.select(pl.len()).collect().item()
-            logging.info(f"📊 Total rows in df_query: {total_rows}")
-            logging.info(f"🔢 Sample data types: {sample.dtypes}")
-            logging.info(f"🔍 Sample data:\n{sample}")
+            # sample = df_query.limit(10).collect()
+            # total_rows = df_query.select(pl.len()).collect().item()
+            # logging.info(f"📊 Total rows in df_query: {total_rows}")
+            # logging.info(f"🔢 Sample data types: {sample.dtypes}")
+            # logging.info(f"🔍 Sample data:\n{sample}")
             
-            if total_rows == 0:
-                logging.warning("⚠️ No data to write. Skipping Parquet write.")
-                return
+            # if total_rows == 0:
+            #     logging.warning("⚠️ No data to write. Skipping Parquet write.")
+            #     return
             
             # Ensure the directory exists
             self._ensure_dir_exists(self.save_path)
 
             # Estimate memory usage
-            estimated_memory = total_rows * len(sample.columns) * 8  # Rough estimate, assumes 8 bytes per value
-            available_memory = psutil.virtual_memory().available
-            logging.info(f"💾 Estimated/Available memory: {100 * estimated_memory / available_memory} bytes")
+            # estimated_memory = total_rows * len(sample.columns) * 8  # Rough estimate, assumes 8 bytes per value
+            # available_memory = psutil.virtual_memory().available
+            # logging.info(f"💾 Estimated/Available memory: {100 * estimated_memory / available_memory} bytes")
             
 
-            if estimated_memory > available_memory * 0.8:  # If estimated memory usage is more than 80% of available memory
-                logging.warning("⚠️💾 Large dataset detected. Writing in chunks.")
-                with pl.StringIO() as buffer:
-                    df_query.sink_parquet(buffer, row_group_size=100000)
-                    with open(self.save_path, 'wb') as f:
-                        f.write(buffer.getvalue())
-            else:
-                # Collect the entire LazyFrame into a DataFrame and write
-                df_query.collect().write_parquet(self.save_path, row_group_size=100000)
-            
+            # if estimated_memory > available_memory * 0.8:  # If estimated memory usage is more than 80% of available memory
+            #     logging.warning("⚠️💾 Large dataset detected. Writing in chunks.")
+            #     with pl.StringIO() as buffer:
+            #         df_query.sink_parquet(buffer, row_group_size=100000)
+            #         with open(self.save_path, 'wb') as f:
+            #             f.write(buffer.getvalue())
+            # else:
+            #     # Collect the entire LazyFrame into a DataFrame and write
+            #     df_query.collect().write_parquet(self.save_path, row_group_size=100000)
+            df_query.sink_parquet(self.save_path, statistics=False)
             logging.info(f"✅ Finished writing Parquet. Time elapsed: {time.time() - write_start:.2f} s")
             
         except PermissionError:
