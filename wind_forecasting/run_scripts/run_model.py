@@ -1,6 +1,8 @@
 # cd /home/ahenry/toolboxes/wind_forecasting_env/wind-forecasting/
 # python setup.py develop
 # pip3 install torch torchvision torchaudio lightning
+# cd /home/ahenry/toolboxes/wind_forecasting_env/wind-forecasting/wind_forecasting/models/spacetimeformer
+# pip install -r requirements.txt && pip install -e .
 
 from wind_forecasting.datasets.wind_farm import KPWindFarm
 import os
@@ -10,8 +12,14 @@ import pytorch_lightning as pl
 import warnings
 import uuid
 warnings.filterwarnings(action="ignore", category=FutureWarning)
+from sys import platform
 
 if __name__ == "__main__":
+
+    if platform == "darwin":
+        DATA_PATH = "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/normalized_data.parquet"
+    elif platform == "linux":
+        DATA_PATH = "/projects/ssc/ahenry/wind_forecasting/awaken_data/normalized_data.parquet/"
     # Configuration
     config = {
         "experiment" : {"run_name": "windfarm_debug"},
