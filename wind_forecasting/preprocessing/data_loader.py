@@ -27,7 +27,7 @@ SECONDS_PER_HOUR = SECONDS_PER_MINUTE * 60
 SECONDS_PER_DAY = SECONDS_PER_HOUR * 24
 SECONDS_PER_YEAR = SECONDS_PER_DAY * 365  # non-leap year, 365 days
 FFILL_LIMIT = 10 * SECONDS_PER_MINUTE 
-pl.Config.set_streaming_chunk_size(1000)
+# pl.Config.set_streaming_chunk_size(None)
 # INFO: @Juan 10/02/24 Set Logging up
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -95,16 +95,41 @@ class DataLoader:
             concat_start = time.time()
             logging.info(f"✅ Started concatenation of {len(df_query)} files.")
             # df_query = pl.concat([df for df in df_query if df is not None]).lazy()
-            
+            all_cols = set()
             df_query_list = df_query
             df_query = None
             for df in df_query_list:
+                # df = df.collect()
+                new_cols = [col for col in df.collect_schema().names() if col != "time"]
                 if df_query is None:
                     df_query = df
+                elif len(all_cols.intersection(new_cols)):
+                    # data for the turbine contained in this frame has already been added, albeit from another day
+                    df_query = df_query.join(df, on="time", how="full", coalesce=True)\
+                                        .with_columns([pl.coalesce(col, f"{col}_right").alias(col) for col in new_cols])\
+                                        .select(~cs.ends_with("right"))
+                                        #  .select({**{"time": pl.col("time")},
+                                        #           **{col: pl.coalesce(col, f"{col}_right") for col in new_cols},
+                                        #           **{col: pl.col(col) for col in all_cols}})
+
+                                        #  .select(~cs.ends_with("right"))
                 else:
-                    df_query = df_query.join(df, on="time", how="left")
+                    df_query = df_query.join(df, on="time", how="full", coalesce=True)
+                    # df.sort("time").collect()
+                    # df_query.filter((pl.col("time") >= df.select("time").min().collect().item()) & (pl.col("time") <= df.select("time").max().collect().item())).sort("time").select(pl.col("time"), cs.contains(df.columns[1].split("_")[-1])).collect()
+
+                all_cols.update(new_cols)
             del df_query_list
-            # df_query = pl.concat(df_query, how="diagonal")\
+            # x = df.sort("time").select("time", cs.contains("wind_direction_wt067")).collect()
+            # all_cols = [col for col in df_query1.columns if col != "time"]
+            # new_cols = [col for col in df.columns if col != "time"]
+            # y = df_query1.join(df.collect(), on="time", how="full", coalesce=True)\
+            #          .with_columns([pl.coalesce(col, f"{col}_right").alias(col) for col in new_cols])\
+            #          .select(~cs.ends_with("right"))\
+            #          .select(pl.col("time"), cs.contains("wind_direction_wt067"))\
+            #          .filter((pl.col("time") >= df.select("time").min().collect().item()) & (pl.col("time") <= df.select("time").max().collect().item())).sort("time")
+            # df_query1.limit(10).collect()
+            # df_query2 = pl.concat(df_query, how="diagonal")\
             #              .group_by("time")\
             #              .agg(pl.all().drop_nulls().first())
                         #  .sort("time")
@@ -114,11 +139,11 @@ class DataLoader:
             # with open(os.path.join(os.path.dirname(self.save_path), "all_df_query_explan.txt"), "w") as f:
             #     f.write(df_query.explain(streaming=True))
 
-            logging.info(f"Started feature selection.") 
-            self.available_features = sorted(df_query.collect_schema().names())
-            self.turbine_ids = sorted(set(col.split("_")[-1] for col in self.available_features if "wt" in col))
-            df_query = df_query.select([feat for feat in self.available_features if any(feat_type in feat for feat_type in self.desired_feature_types)])
-            logging.info(f"Finished feature selection.") 
+            # logging.info(f"Started feature selection.") 
+            # self.available_features = sorted(df_query.collect_schema().names())
+            # self.turbine_ids = sorted(set(col.split("_")[-1] for col in self.available_features if "wt" in col))
+            # df_query = df_query.select([feat for feat in self.available_features if any(feat_type in feat for feat_type in self.desired_feature_types)])
+            # logging.info(f"Finished feature selection.") 
 
             # TODO !!!
             # logging.info(f"Started resampling.") 
@@ -208,8 +233,10 @@ class DataLoader:
             #                                                row_group_size=10000)
 
             # csv_path = self.save_path.replace('.parquet', '.csv')
-            # df_query.collect(streaming=True).write_csv(csv_path)
-            df_query.sink_parquet(self.save_path, statistics=False)
+            # df_query.sink_csv(csv_path)
+            df_query.sink_parquet(self.save_path)
+
+            # df = pl.scan_parquet(self.save_path)
             logging.info(f"✅ Finished writing Parquet. Time elapsed: {time.time() - write_start:.2f} s")
             
         except PermissionError:
@@ -295,8 +322,14 @@ class DataLoader:
                 # f.write(df_query.explain(streaming=True))
             
             # pivot table to have columns for each turbine and measurement
-            df_query = df_query.collect(streaming=True).pivot(on="turbine_id", index="time", values=["power_output", "nacelle_direction", "wind_speed", "wind_direction", "turbine_status"]).lazy()
-
+            pivot_features = [col for col in df_query.collect_schema().names() if col not in ['time', 'turbine_id']]
+            df_query = df_query.collect(streaming=True).pivot(
+                index="time",
+                columns="turbine_id",
+                values=pivot_features,
+                aggregate_function="first",
+                sort_columns=True
+            ).lazy()
             # with open(os.path.join(os.path.dirname(file_path), "ind_df_query_explan.txt"), "w") as f:
             #     f.write(df_query.explain(streaming=True))
 
@@ -405,26 +438,27 @@ class DataLoader:
         pivot_features = [col for col in df.columns if col not in ['time', 'turbine_id']]
         
         # Create expressions for pivot
-        pivot_exprs = [
-            pl.col(feature).pivot(
-                index="time",
-                columns="turbine_id",
-                aggregate_function="first",
-                sort_columns=True
-            ).prefix(f"{feature}_") for feature in pivot_features
-        ]
+        # pivot_exprs = [
+        #     pl.col(feature).pivot(
+        #         index="time",
+        #         columns="turbine_id",
+        #         aggregate_function="first",
+        #         sort_columns=True
+        #     ).prefix(f"{feature}_") for feature in pivot_features
+        # ]
         
         # Pivot the data
         df_wide = df.pivot(
             index="time",
             columns="turbine_id",
             values=pivot_features,
-            aggregate_function="first",
+            # aggregate_function="first",
             sort_columns=True
-        ).select([
-            pl.col("time"),
-            *pivot_exprs
-        ])
+        )
+        # .select([
+        #     pl.col("time"),
+        #     *pivot_exprs
+        # ])
         
         logging.info("✅ Data pivoted to wide format successfully")
         return df_wide
@@ -589,7 +623,7 @@ if __name__ == "__main__":
         # PL_SAVE_PATH = "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/kp.turbine.zo2.b0.raw.parquet"
         # FILE_SIGNATURE = "kp.turbine.z02.b0.*.*.*.nc"
         PL_SAVE_PATH = "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/kp.turbine.zo2.b0.raw.parquet"
-        FILE_SIGNATURE = "kp.turbine.z02.b0.20220301.*.*.nc"
+        FILE_SIGNATURE = "kp.turbine.z02.b0.2022030*.*.*.nc"
         MULTIPROCESSOR = "cf"
         TURBINE_INPUT_FILEPATH = "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/inputs/ge_282_127.yaml"
         FARM_INPUT_FILEPATH = "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/inputs/gch_KP_v4.yaml"
