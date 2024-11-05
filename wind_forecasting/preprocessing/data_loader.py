@@ -27,7 +27,7 @@ SECONDS_PER_HOUR = SECONDS_PER_MINUTE * 60
 SECONDS_PER_DAY = SECONDS_PER_HOUR * 24
 SECONDS_PER_YEAR = SECONDS_PER_DAY * 365  # non-leap year, 365 days
 FFILL_LIMIT = 10 * SECONDS_PER_MINUTE 
-
+pl.Config.set_streaming_chunk_size(1000)
 # INFO: @Juan 10/02/24 Set Logging up
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -108,8 +108,8 @@ class DataLoader:
 
             logging.info(f"Started resampling.") 
             full_datetime_range = df_query.select(pl.datetime_range(
-                start=df_query.select("time").first().collect(streaming=True),
-                end=df_query.select("time").last().collect(streaming=True),
+                start=df_query.select("time").min().collect(streaming=True).item(),
+                end=df_query.select("time").max().collect(streaming=True).item(),
                 interval=f"{self.dt}s", time_unit=df_query.collect_schema()["time"].time_unit).alias("time"))
             
             df_query = full_datetime_range.join(df_query, on="time", how="left") # NOTE: @Aoife 10/18 make sure all time stamps are included, to interpolate continuously later
@@ -181,7 +181,9 @@ class DataLoader:
             # else:
             #     # Collect the entire LazyFrame into a DataFrame and write
             #     df_query.collect().write_parquet(self.save_path, row_group_size=100000)
-            df_query.sink_parquet(self.save_path, statistics=False)
+            # df_query.sink_parquet(self.save_path, statistics=False)
+            # print(df_query.show_graph(streaming=True))
+            df_query.collect(streaming=True).write_parquet(self.save_path, statistics=False)
             logging.info(f"✅ Finished writing Parquet. Time elapsed: {time.time() - write_start:.2f} s")
             
         except PermissionError:
@@ -365,7 +367,7 @@ class DataLoader:
         logging.info("🔄 Converting data to wide format")
         
         # Get unique turbine IDs
-        turbine_ids = df.select(pl.col("turbine_id").unique()).collect().to_series().to_list()
+        # turbine_ids = df.select(pl.col("turbine_id").unique()).collect().to_series().to_list()
         
         # List of features to pivot (excluding 'time' and 'turbine_id')
         pivot_features = [col for col in df.columns if col not in ['time', 'turbine_id']]
