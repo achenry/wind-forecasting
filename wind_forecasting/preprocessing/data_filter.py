@@ -117,7 +117,7 @@ class DataFilter:
                 imputed_vals = imputing.impute_all_assets_by_correlation(
                     data=unpivot_df.select(features).collect().to_pandas().set_index(["time", "turbine_id"]),
                                                             impute_col=feature, reference_col=other_feature,
-                                                            asset_id_col="turbine_id", method="linear", parallel=parallel=="turbine_id").to_numpy()
+                                                            asset_id_col="turbine_id", method="linear", multiprocessor=self.multiprocessor).to_numpy()
                 
                 unpivot_df = unpivot_df.with_columns({feature: imputed_vals}).fill_nan(None)
                 # n_nulls_after = unpivot_df.select(cs.contains(feature)).select(pl.sum_horizontal(pl.all().is_null()).sum()).collect().item()
