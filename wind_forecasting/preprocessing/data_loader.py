@@ -98,7 +98,8 @@ class DataLoader:
             df_query = pl.concat(df_query, how="diagonal")\
                          .group_by("time")\
                          .agg(pl.all().drop_nulls().first())\
-                         .sort("time")
+                         .sort("time")\
+                         .collect(streaming=True).lazy()
             logging.info(f"🔗 Finished concatenation of {len(self.file_paths)} files. Time elapsed: {time.time() - concat_start:.2f} s")
 
             # with open(os.path.join(os.path.dirname(self.save_path), "all_df_query_explan.txt"), "w") as f:
@@ -111,18 +112,19 @@ class DataLoader:
             logging.info(f"Finished feature selection.") 
 
             # TODO !!!
-            # logging.info(f"Started resampling.") 
-            # full_datetime_range = df_query.select(pl.datetime_range(
-            #     start=df_query.select("time").min().collect(streaming=True).item(),
-            #     end=df_query.select("time").max().collect(streaming=True).item(),
-            #     interval=f"{self.dt}s", time_unit=df_query.collect_schema()["time"].time_unit).alias("time"))
+            logging.info(f"Started resampling.") 
+            full_datetime_range = df_query.select(pl.datetime_range(
+                start=df_query.select("time").min().collect(streaming=True).item(),
+                end=df_query.select("time").max().collect(streaming=True).item(),
+                interval=f"{self.dt}s", time_unit=df_query.collect_schema()["time"].time_unit).alias("time"))
              
-            # df_query = full_datetime_range.join(df_query, on="time", how="left") # NOTE: @Aoife 10/18 make sure all time stamps are included, to interpolate continuously later
-            # logging.info(f"Finished resampling.") 
+            df_query = full_datetime_range.join(df_query, on="time", how="left")\
+                                          .collect(streaming=True).lazy() # NOTE: @Aoife 10/18 make sure all time stamps are included, to interpolate continuously later
+            logging.info(f"Finished resampling.") 
             
-            # logging.info(f"Started forward/backward fill.") 
-            # df_query = df_query.fill_null(strategy="forward").fill_null(strategy="backward") # NOTE: @Aoife for KP data, need to fill forward null gaps, don't know about Juan's data
-            # logging.info(f"Finished forward/backward fill.") 
+            logging.info(f"Started forward/backward fill.") 
+            df_query = df_query.fill_null(strategy="forward").fill_null(strategy="backward").collect(streaming=True).lazy() # NOTE: @Aoife for KP data, need to fill forward null gaps, don't know about Juan's data
+            logging.info(f"Finished forward/backward fill.") 
 
             # Check if the resulting DataFrame is empty
             # if df_query.select(pl.len()).collect().item() == 0:
@@ -137,12 +139,12 @@ class DataLoader:
             else:
                 logging.info("🔄 Starting sorting")
                 sort_start = time.time()
-                df_query = df_query.sort(["turbine_id", "time"])
+                df_query = df_query.sort(["turbine_id", "time"]).collect(streaming=True).lazy()
                 logging.info(f"🔀 Finished sorting. Time elapsed: {time.time() - sort_start:.2f} s")
 
                 # INFO: @Juan 10/16/24 Convert to wide format if the user wants it.
                 if self.wide_format:
-                    df_query = self.convert_to_wide_format(df_query)
+                    df_query = self.convert_to_wide_format(df_query).collect(streaming=True).lazy()
 
             self._write_parquet(df_query)
             
@@ -190,8 +192,12 @@ class DataLoader:
             #     df_query.collect().write_parquet(self.save_path, row_group_size=100000)
             # df_query.sink_parquet(self.save_path, statistics=False)
             # print(df_query.show_graph(streaming=True))
-            df_query.collect(streaming=True).write_parquet(self.save_path, statistics=False,
-                                                           row_group_size=10000)
+            # df_query.collect(streaming=True).write_parquet(self.save_path, statistics=False,
+            #                                                row_group_size=10000)
+
+            # csv_path = self.save_path.replace('.parquet', '.csv')
+            # df_query.collect(streaming=True).write_csv(csv_path)
+            df_query.sink_parquet(self.save_path, statistics=False)
             logging.info(f"✅ Finished writing Parquet. Time elapsed: {time.time() - write_start:.2f} s")
             
         except PermissionError:
