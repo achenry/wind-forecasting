@@ -96,9 +96,13 @@ class DataLoader:
             logging.info(f"✅ Started concatenation of {len(df_query)} files.")
             # df_query = pl.concat([df for df in df_query if df is not None]).lazy()
             df_query = pl.concat(df_query, how="diagonal")\
-                            .group_by("time").agg(cs.numeric().drop_nulls().first())\
-                            .sort("time")
+                         .group_by("time")\
+                         .agg(pl.all().drop_nulls().first())\
+                         .sort("time")
             logging.info(f"🔗 Finished concatenation of {len(self.file_paths)} files. Time elapsed: {time.time() - concat_start:.2f} s")
+
+            # with open(os.path.join(os.path.dirname(self.save_path), "all_df_query_explan.txt"), "w") as f:
+            #     f.write(df_query.explain(streaming=True))
 
             logging.info(f"Started feature selection.") 
             self.available_features = sorted(df_query.collect_schema().names())
@@ -106,18 +110,19 @@ class DataLoader:
             df_query = df_query.select([feat for feat in self.available_features if any(feat_type in feat for feat_type in self.desired_feature_types)])
             logging.info(f"Finished feature selection.") 
 
-            logging.info(f"Started resampling.") 
-            full_datetime_range = df_query.select(pl.datetime_range(
-                start=df_query.select("time").min().collect(streaming=True).item(),
-                end=df_query.select("time").max().collect(streaming=True).item(),
-                interval=f"{self.dt}s", time_unit=df_query.collect_schema()["time"].time_unit).alias("time"))
+            # TODO !!!
+            # logging.info(f"Started resampling.") 
+            # full_datetime_range = df_query.select(pl.datetime_range(
+            #     start=df_query.select("time").min().collect(streaming=True).item(),
+            #     end=df_query.select("time").max().collect(streaming=True).item(),
+            #     interval=f"{self.dt}s", time_unit=df_query.collect_schema()["time"].time_unit).alias("time"))
+             
+            # df_query = full_datetime_range.join(df_query, on="time", how="left") # NOTE: @Aoife 10/18 make sure all time stamps are included, to interpolate continuously later
+            # logging.info(f"Finished resampling.") 
             
-            df_query = full_datetime_range.join(df_query, on="time", how="left") # NOTE: @Aoife 10/18 make sure all time stamps are included, to interpolate continuously later
-            logging.info(f"Finished resampling.") 
-            
-            logging.info(f"Started forward/backward fill.") 
-            df_query = df_query.fill_null(strategy="forward").fill_null(strategy="backward") # NOTE: @Aoife for KP data, need to fill forward null gaps, don't know about Juan's data
-            logging.info(f"Finished forward/backward fill.") 
+            # logging.info(f"Started forward/backward fill.") 
+            # df_query = df_query.fill_null(strategy="forward").fill_null(strategy="backward") # NOTE: @Aoife for KP data, need to fill forward null gaps, don't know about Juan's data
+            # logging.info(f"Finished forward/backward fill.") 
 
             # Check if the resulting DataFrame is empty
             # if df_query.select(pl.len()).collect().item() == 0:
@@ -170,20 +175,23 @@ class DataLoader:
             # estimated_memory = total_rows * len(sample.columns) * 8  # Rough estimate, assumes 8 bytes per value
             # available_memory = psutil.virtual_memory().available
             # logging.info(f"💾 Estimated/Available memory: {100 * estimated_memory / available_memory} bytes")
+            # with open(os.path.join(os.path.dirname(self.save_path), "all_df_query_explain.txt"), "w") as f:
+            #     f.write(df_query.explain(streaming=True))
             
-
             # if estimated_memory > available_memory * 0.8:  # If estimated memory usage is more than 80% of available memory
             #     logging.warning("⚠️💾 Large dataset detected. Writing in chunks.")
-            #     with pl.StringIO() as buffer:
-            #         df_query.sink_parquet(buffer, row_group_size=100000)
-            #         with open(self.save_path, 'wb') as f:
-            #             f.write(buffer.getvalue())
+            # from io import StringIO
+            # with StringIO() as buffer:
+            #     df_query.sink_parquet(buffer, row_group_size=100000, statistics=False)
+            #     with open(self.save_path, 'wb') as f:
+            #         f.write(buffer.getvalue())
             # else:
             #     # Collect the entire LazyFrame into a DataFrame and write
             #     df_query.collect().write_parquet(self.save_path, row_group_size=100000)
             # df_query.sink_parquet(self.save_path, statistics=False)
             # print(df_query.show_graph(streaming=True))
-            df_query.collect(streaming=True).write_parquet(self.save_path, statistics=False)
+            df_query.collect(streaming=True).write_parquet(self.save_path, statistics=False,
+                                                           row_group_size=10000)
             logging.info(f"✅ Finished writing Parquet. Time elapsed: {time.time() - write_start:.2f} s")
             
         except PermissionError:
@@ -263,11 +271,17 @@ class DataLoader:
                                             .select([cs.contains(feat) for feat in self.desired_feature_types])\
                                             .filter(pl.any_horizontal(cs.numeric().is_not_null()))\
                                             .group_by("turbine_id", "time")\
-                                                .agg(cs.numeric().drop_nulls().first()).sort("turbine_id", "time")
-
+                                            .agg(cs.numeric().drop_nulls().first())
+                                                # .sort("turbine_id", "time")
+            # with open(os.path.join(os.path.dirname(file_path), "ind_df_query_explan.txt"), "w") as f:
+                # f.write(df_query.explain(streaming=True))
+            
             # pivot table to have columns for each turbine and measurement
             df_query = df_query.collect(streaming=True).pivot(on="turbine_id", index="time", values=["power_output", "nacelle_direction", "wind_speed", "wind_direction", "turbine_status"]).lazy()
-            
+
+            # with open(os.path.join(os.path.dirname(file_path), "ind_df_query_explan.txt"), "w") as f:
+            #     f.write(df_query.explain(streaming=True))
+
             del data  # Free up memory
 
             # logging.info(f"Processed {file_path}")
