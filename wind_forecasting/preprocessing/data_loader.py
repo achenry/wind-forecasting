@@ -111,8 +111,8 @@ class DataLoader:
                         #  .collect(streaming=True).lazy()
             logging.info(f"🔗 Finished concatenation of {len(self.file_paths)} files. Time elapsed: {time.time() - concat_start:.2f} s")
 
-            with open(os.path.join(os.path.dirname(self.save_path), "all_df_query_explan.txt"), "w") as f:
-                f.write(df_query.explain(streaming=True))
+            # with open(os.path.join(os.path.dirname(self.save_path), "all_df_query_explan.txt"), "w") as f:
+            #     f.write(df_query.explain(streaming=True))
 
             logging.info(f"Started feature selection.") 
             self.available_features = sorted(df_query.collect_schema().names())
@@ -121,16 +121,16 @@ class DataLoader:
             logging.info(f"Finished feature selection.") 
 
             # TODO !!!
-            logging.info(f"Started resampling.") 
-            full_datetime_range = df_query.select(pl.datetime_range(
-                start=df_query.select("time").min().collect().item(),
-                end=df_query.select("time").max().collect().item(),
-                interval=f"{self.dt}s", time_unit=df_query.collect_schema()["time"].time_unit).alias("time"))\
-                    .collect(streaming=True).lazy()
+            # logging.info(f"Started resampling.") 
+            # full_datetime_range = df_query.select(pl.datetime_range(
+            #     start=df_query.select("time").min().collect().item(),
+            #     end=df_query.select("time").max().collect().item(),
+            #     interval=f"{self.dt}s", time_unit=df_query.collect_schema()["time"].time_unit).alias("time"))\
+            #         .collect(streaming=True).lazy()
              
-            df_query = full_datetime_range.join(df_query, on="time", how="left")
-                                        #   .collect(streaming=True).lazy() # NOTE: @Aoife 10/18 make sure all time stamps are included, to interpolate continuously later
-            logging.info(f"Finished resampling.") 
+            # df_query = full_datetime_range.join(df_query, on="time", how="left")
+            #                             #   .collect(streaming=True).lazy() # NOTE: @Aoife 10/18 make sure all time stamps are included, to interpolate continuously later
+            # logging.info(f"Finished resampling.") 
             
             # logging.info(f"Started forward/backward fill.") 
             # df_query = df_query.fill_null(strategy="forward").fill_null(strategy="backward")
