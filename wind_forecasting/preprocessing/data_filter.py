@@ -78,13 +78,13 @@ class DataFilter:
             with executor as ex:
                 futures = [ex.submit(self._fill_single_missing_dataset, df_idx=df_idx, df=df, 
                 impute_missing_features=impute_missing_features, interpolate_missing_features=interpolate_missing_features,
-                 available_features=available_features) 
+                 available_features=available_features, parallel="turbine_id") 
                 for df_idx, df in enumerate(dfs)]
                 return [fut.result() for fut in futures if fut.result() is not None]
         else:
             logging.info("🔧 Using single process executor")
             return [self._fill_single_missing_dataset(df_idx=df_idx, df=df, impute_missing_features=impute_missing_features, 
-            interpolate_missing_features=interpolate_missing_features, available_features=available_features) 
+            interpolate_missing_features=interpolate_missing_features, available_features=available_features, parallel="turbine_id") 
             for df_idx, df in enumerate(dfs)]
     
     def _impute_single_missing_dataset(self, df_idx, df, impute_missing_features, parallel=False):

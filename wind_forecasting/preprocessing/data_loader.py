@@ -108,11 +108,6 @@ class DataLoader:
                     df_query = df_query.join(df, on="time", how="full", coalesce=True)\
                                         .with_columns([pl.coalesce(col, f"{col}_right").alias(col) for col in new_cols])\
                                         .select(~cs.ends_with("right"))
-                                        #  .select({**{"time": pl.col("time")},
-                                        #           **{col: pl.coalesce(col, f"{col}_right") for col in new_cols},
-                                        #           **{col: pl.col(col) for col in all_cols}})
-
-                                        #  .select(~cs.ends_with("right"))
                 else:
                     df_query = df_query.join(df, on="time", how="full", coalesce=True)
                     # df.sort("time").collect()
@@ -120,68 +115,11 @@ class DataLoader:
 
                 all_cols.update(new_cols)
             del df_query_list
-            # x = df.sort("time").select("time", cs.contains("wind_direction_wt067")).collect()
-            # all_cols = [col for col in df_query1.columns if col != "time"]
-            # new_cols = [col for col in df.columns if col != "time"]
-            # y = df_query1.join(df.collect(), on="time", how="full", coalesce=True)\
-            #          .with_columns([pl.coalesce(col, f"{col}_right").alias(col) for col in new_cols])\
-            #          .select(~cs.ends_with("right"))\
-            #          .select(pl.col("time"), cs.contains("wind_direction_wt067"))\
-            #          .filter((pl.col("time") >= df.select("time").min().collect().item()) & (pl.col("time") <= df.select("time").max().collect().item())).sort("time")
-            # df_query1.limit(10).collect()
-            # df_query2 = pl.concat(df_query, how="diagonal")\
-            #              .group_by("time")\
-            #              .agg(pl.all().drop_nulls().first())
-                        #  .sort("time")
-                        #  .collect(streaming=True).lazy()
+            
             logging.info(f"🔗 Finished concatenation of {len(self.file_paths)} files. Time elapsed: {time.time() - concat_start:.2f} s")
 
             # with open(os.path.join(os.path.dirname(self.save_path), "all_df_query_explan.txt"), "w") as f:
             #     f.write(df_query.explain(streaming=True))
-
-            # logging.info(f"Started feature selection.") 
-            # self.available_features = sorted(df_query.collect_schema().names())
-            # self.turbine_ids = sorted(set(col.split("_")[-1] for col in self.available_features if "wt" in col))
-            # df_query = df_query.select([feat for feat in self.available_features if any(feat_type in feat for feat_type in self.desired_feature_types)])
-            # logging.info(f"Finished feature selection.") 
-
-            # TODO !!!
-            # logging.info(f"Started resampling.") 
-            # full_datetime_range = df_query.select(pl.datetime_range(
-            #     start=df_query.select("time").min().collect().item(),
-            #     end=df_query.select("time").max().collect().item(),
-            #     interval=f"{self.dt}s", time_unit=df_query.collect_schema()["time"].time_unit).alias("time"))\
-            #         .collect(streaming=True).lazy()
-             
-            # df_query = full_datetime_range.join(df_query, on="time", how="left")
-            #                             #   .collect(streaming=True).lazy() # NOTE: @Aoife 10/18 make sure all time stamps are included, to interpolate continuously later
-            # logging.info(f"Finished resampling.") 
-            
-            # logging.info(f"Started forward/backward fill.") 
-            # df_query = df_query.fill_null(strategy="forward").fill_null(strategy="backward")
-            # # .collect(streaming=True).lazy() # NOTE: @Aoife for KP data, need to fill forward null gaps, don't know about Juan's data
-            # logging.info(f"Finished forward/backward fill.") 
-
-            # Check if the resulting DataFrame is empty
-            # if df_query.select(pl.len()).collect().item() == 0:
-            #     logging.warning("⚠️ No data after concatenation. Skipping further processing.")
-            #     return None
-
-            # Check if the data is already in wide format
-            is_already_wide = "turbine_id" not in df_query.collect_schema().names()
-
-            if is_already_wide:
-                logging.info("📊 Data is already in wide format. Skipping conversion.")
-            else:
-                logging.info("🔄 Starting sorting")
-                sort_start = time.time()
-                df_query = df_query.sort(["turbine_id", "time"]).collect(streaming=True).lazy()
-                logging.info(f"🔀 Finished sorting. Time elapsed: {time.time() - sort_start:.2f} s")
-
-                # INFO: @Juan 10/16/24 Convert to wide format if the user wants it.
-                if self.wide_format:
-                    df_query = self.convert_to_wide_format(df_query)
-                        # .collect(streaming=True).lazy()
 
             self._write_parquet(df_query)
             
@@ -203,38 +141,10 @@ class DataLoader:
             # logging.info(f"🔢 Sample data types: {sample.dtypes}")
             # logging.info(f"🔍 Sample data:\n{sample}")
             
-            # if total_rows == 0:
-            #     logging.warning("⚠️ No data to write. Skipping Parquet write.")
-            #     return
-            
             # Ensure the directory exists
             self._ensure_dir_exists(self.save_path)
 
-            # Estimate memory usage
-            # estimated_memory = total_rows * len(sample.columns) * 8  # Rough estimate, assumes 8 bytes per value
-            # available_memory = psutil.virtual_memory().available
-            # logging.info(f"💾 Estimated/Available memory: {100 * estimated_memory / available_memory} bytes")
-            # with open(os.path.join(os.path.dirname(self.save_path), "all_df_query_explain.txt"), "w") as f:
-            #     f.write(df_query.explain(streaming=True))
-            
-            # if estimated_memory > available_memory * 0.8:  # If estimated memory usage is more than 80% of available memory
-            #     logging.warning("⚠️💾 Large dataset detected. Writing in chunks.")
-            # from io import StringIO
-            # with StringIO() as buffer:
-            #     df_query.sink_parquet(buffer, row_group_size=100000, statistics=False)
-            #     with open(self.save_path, 'wb') as f:
-            #         f.write(buffer.getvalue())
-            # else:
-            #     # Collect the entire LazyFrame into a DataFrame and write
-            #     df_query.collect().write_parquet(self.save_path, row_group_size=100000)
-            # df_query.sink_parquet(self.save_path, statistics=False)
-            # print(df_query.show_graph(streaming=True))
-            # df_query.collect(streaming=True).write_parquet(self.save_path, statistics=False,
-            #                                                row_group_size=10000)
-
-            # csv_path = self.save_path.replace('.parquet', '.csv')
-            # df_query.sink_csv(csv_path)
-            df_query.sink_parquet(self.save_path)
+            df_query.sink_parquet(self.save_path, statistics=False, maintain_order=False)
 
             # df = pl.scan_parquet(self.save_path)
             logging.info(f"✅ Finished writing Parquet. Time elapsed: {time.time() - write_start:.2f} s")
@@ -322,14 +232,15 @@ class DataLoader:
                 # f.write(df_query.explain(streaming=True))
             
             # pivot table to have columns for each turbine and measurement
-            pivot_features = [col for col in df_query.collect_schema().names() if col not in ['time', 'turbine_id']]
-            df_query = df_query.collect(streaming=True).pivot(
-                index="time",
-                columns="turbine_id",
-                values=pivot_features,
-                aggregate_function="first",
-                sort_columns=True
-            ).lazy()
+            if self.wide_format:
+                pivot_features = [col for col in df_query.collect_schema().names() if col not in ['time', 'turbine_id']]
+                df_query = df_query.collect(streaming=True).pivot(
+                    index="time",
+                    columns="turbine_id",
+                    values=pivot_features,
+                    aggregate_function="first",
+                    sort_columns=True
+                ).lazy()
             # with open(os.path.join(os.path.dirname(file_path), "ind_df_query_explan.txt"), "w") as f:
             #     f.write(df_query.explain(streaming=True))
 
@@ -623,7 +534,7 @@ if __name__ == "__main__":
         # PL_SAVE_PATH = "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/kp.turbine.zo2.b0.raw.parquet"
         # FILE_SIGNATURE = "kp.turbine.z02.b0.*.*.*.nc"
         PL_SAVE_PATH = "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/kp.turbine.zo2.b0.raw.parquet"
-        FILE_SIGNATURE = "kp.turbine.z02.b0.2022030*.*.*.nc"
+        FILE_SIGNATURE = "kp.turbine.z02.b0.*.*.*.nc"
         MULTIPROCESSOR = "cf"
         TURBINE_INPUT_FILEPATH = "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/inputs/ge_282_127.yaml"
         FARM_INPUT_FILEPATH = "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/inputs/gch_KP_v4.yaml"
