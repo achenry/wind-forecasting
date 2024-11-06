@@ -11,9 +11,9 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 from windrose import WindroseAxes
 import numpy as np
-from floris import FlorisModel
-from floris.flow_visualization import visualize_cut_plane
-import floris.layout_visualization as layoutviz
+# from floris import FlorisModel
+# from floris.flow_visualization import visualize_cut_plane
+# import floris.layout_visualization as layoutviz
 import scipy.stats as stats
 import polars as pl
 import polars.selectors as cs
