@@ -226,9 +226,9 @@ class DataLoader:
             df_query = pl.LazyFrame(data).fill_nan(None)\
                                             .with_columns(pl.col("time").dt.round(f"{self.dt}s").alias("time"))\
                                             .select([cs.contains(feat) for feat in self.desired_feature_types])\
-                                            .filter(pl.any_horizontal(cs.numeric().is_not_null()))\
-                                            .group_by("turbine_id", "time")\
-                                            .agg(cs.numeric().drop_nulls().first())
+                                            .filter(pl.any_horizontal(cs.numeric().is_not_null()))
+                                            # .group_by("turbine_id", "time")\
+                                            # .agg(cs.numeric().drop_nulls().first())
                                                 # .sort("turbine_id", "time")
             # with open(os.path.join(os.path.dirname(file_path), "ind_df_query_explan.txt"), "w") as f:
                 # f.write(df_query.explain(streaming=True))
@@ -240,7 +240,7 @@ class DataLoader:
                     index="time",
                     on="turbine_id",
                     values=pivot_features,
-                    # aggregate_function=pl.element().drop_nulls().first(),
+                    aggregate_function=pl.element().drop_nulls().first(),
                     sort_columns=True
                 ).lazy()
             else:
@@ -556,8 +556,10 @@ if __name__ == "__main__":
         # DATA_DIR = "/pl/active/paolab/awaken_data/kp.turbine.z02.b0/"
         DATA_DIR = "/projects/ssc/ahenry/wind_forecasting/awaken_data/kp.turbine.z02.b0/"
         # PL_SAVE_PATH = "/scratch/alpine/aohe7145/awaken_data/kp.turbine.zo2.b0.raw.parquet"
-        PL_SAVE_PATH = "/projects/ssc/ahenry/wind_forecasting/awaken_data/kp.turbine.zo2.b0_short.parquet"
-        FILE_SIGNATURE = "kp.turbine.z02.b0.2022030*.*.*.nc"
+        # PL_SAVE_PATH = "/projects/ssc/ahenry/wind_forecasting/awaken_data/kp.turbine.zo2.b0.raw.parquet"
+        PL_SAVE_PATH = os.path.join("/tmp/scratch", os.environ("SLURM_JOB_ID"), "kp.turbine.zo2.b0.raw.parquet")
+        print(f"PL_SAVE_PATH = {PL_SAVE_PATH}")
+        FILE_SIGNATURE = "kp.turbine.z02.b0.*.*.*.nc"
         MULTIPROCESSOR = "mpi"
         # TURBINE_INPUT_FILEPATH = "/projects/aohe7145/toolboxes/wind-forecasting/examples/inputs/ge_282_127.yaml"
         TURBINE_INPUT_FILEPATH = "/home/ahenry/toolboxes/wind_forecasting_env/wind-forecasting/examples/inputs/ge_282_127.yaml"
