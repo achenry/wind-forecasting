@@ -144,7 +144,9 @@ class DataLoader:
             # Ensure the directory exists
             self._ensure_dir_exists(self.save_path)
 
+            # df_query.sink_ipc(self.save_path)
             df_query.sink_parquet(self.save_path)
+            # df_query.sink_csv(self.save_path.replace(".arrow", ".csv"))
 
             # df = pl.scan_parquet(self.save_path)
             logging.info(f"✅ Finished writing Parquet. Time elapsed: {time.time() - write_start:.2f} s")
@@ -232,7 +234,7 @@ class DataLoader:
                 # f.write(df_query.explain(streaming=True))
             
             # pivot table to have columns for each turbine and measurement
-            if self.wide_format:
+            if not self.wide_format:
                 pivot_features = [col for col in df_query.collect_schema().names() if col not in ['time', 'turbine_id']]
                 df_query = df_query.collect(streaming=True).pivot(
                     index="time",
@@ -241,6 +243,8 @@ class DataLoader:
                     aggregate_function="first",
                     sort_columns=True
                 ).lazy()
+            else:
+                df_query = df_query.collect(streaming=True).lazy()
             # with open(os.path.join(os.path.dirname(file_path), "ind_df_query_explan.txt"), "w") as f:
             #     f.write(df_query.explain(streaming=True))
 
@@ -534,7 +538,7 @@ if __name__ == "__main__":
         # PL_SAVE_PATH = "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/kp.turbine.zo2.b0.raw.parquet"
         # FILE_SIGNATURE = "kp.turbine.z02.b0.*.*.*.nc"
         PL_SAVE_PATH = "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/kp.turbine.zo2.b0.raw.parquet"
-        FILE_SIGNATURE = "kp.turbine.z02.b0.*.*.*.nc"
+        FILE_SIGNATURE = "kp.turbine.z02.b0.2022030*.*.*.nc"
         MULTIPROCESSOR = "cf"
         TURBINE_INPUT_FILEPATH = "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/inputs/ge_282_127.yaml"
         FARM_INPUT_FILEPATH = "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/inputs/gch_KP_v4.yaml"
