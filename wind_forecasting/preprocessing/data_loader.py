@@ -161,7 +161,7 @@ class DataLoader:
             logging.info("📄 Attempting to write as CSV instead...")
             try:
                 csv_path = self.save_path.replace('.parquet', '.csv')
-                df_query.collect().write_csv(csv_path)
+                df_query.sink_csv(csv_path)
                 logging.info(f"✅ Successfully wrote data as CSV to {csv_path}")
             except Exception as csv_e:
                 logging.error(f"❌ Error during CSV write: {str(csv_e)}")
