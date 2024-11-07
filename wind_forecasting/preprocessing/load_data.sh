@@ -1,13 +1,14 @@
 #!/bin/bash
 
 #SBATCH --nodes=1
-#SBATCH --ntasks=52
+#SBATCH --ntasks=104
 ##SBATCH --mem=0
 #SBATCH --account=ssc
 #SBATCH --time=01:00:00
 ##SBATCH --partition=bigmem
-#SBATCH --partition=standard
-#SBATCH --output=data_loader.out
+#SBATCH --partition=debug
+#SBATCH --output=data_loader_scratch.out
+#SBATCH --tmp=1T
 
 module purge
 module load mamba
@@ -23,3 +24,4 @@ mpirun -np $SLURM_NTASKS python data_loader.py
 
 #rm /pl/active/paolab/awaken_data/kp.turbine.z02.b0/*.nc
 #mv /scratch/alpine/aohe7145/awaken_data/kp.turbine.zo2.b0.raw.parquet /pl/active/paolab/awaken_data/kp.turbine.zo2.b0.raw.parquet
+mv /tmp/scratch/$SLURM_JOB_ID/kp.turbine.zo2.b0.parquet /projects/ssc/ahenry/wind_forecasting/awaken_data/ 
