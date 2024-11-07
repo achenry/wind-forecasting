@@ -557,7 +557,7 @@ if __name__ == "__main__":
         DATA_DIR = "/projects/ssc/ahenry/wind_forecasting/awaken_data/kp.turbine.z02.b0/"
         # PL_SAVE_PATH = "/scratch/alpine/aohe7145/awaken_data/kp.turbine.zo2.b0.raw.parquet"
         # PL_SAVE_PATH = "/projects/ssc/ahenry/wind_forecasting/awaken_data/kp.turbine.zo2.b0.raw.parquet"
-        PL_SAVE_PATH = os.path.join("/tmp/scratch", os.environ("SLURM_JOB_ID"), "kp.turbine.zo2.b0.parquet")
+        PL_SAVE_PATH = os.path.join("/tmp/scratch", os.environ["SLURM_JOB_ID"], "kp.turbine.zo2.b0.parquet")
         print(f"PL_SAVE_PATH = {PL_SAVE_PATH}")
         FILE_SIGNATURE = "kp.turbine.z02.b0.*.*.*.nc"
         MULTIPROCESSOR = "mpi"
