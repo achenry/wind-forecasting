@@ -48,15 +48,20 @@ import wandb
 warnings.filterwarnings('ignore', category=UserWarning, module='pandas.core.computation.expressions')
 torch.set_float32_matmul_precision('medium')
 
+# INFO: Custom model checkpoint callback to stop training when validation loss is below a threshold (50.0)
 class ThresholdModelCheckpoint(ModelCheckpoint):
     def __init__(self, loss_threshold=50.0, **kwargs):
         super().__init__(**kwargs)
         self.loss_threshold = loss_threshold
 
     def _should_save_on_train_epoch_end(self, trainer):
+        return self._save_if_below_threshold(trainer)
+        
+    def _save_if_below_threshold(self, trainer):
+        """Only save if validation loss is below threshold"""
         current_loss = trainer.callback_metrics.get('val/loss')
         if current_loss is not None and current_loss < self.loss_threshold:
-            return super()._should_save_on_train_epoch_end(trainer)
+            return True
         return False
 
 class Colors:
@@ -629,18 +634,19 @@ class LitSTTRE(L.LightningModule):
             self.test_mae = MeanAbsoluteError().to(self.device)
             self.test_mape = MeanAbsolutePercentageError().to(self.device)
             self.test_metrics_initialized = True
+        print(f"Processing test batch {batch_idx}")  # DEBUG
         
         x, y = batch
         y_hat = self(x)
-        test_loss = F.mse_loss(y_hat, y)
+        loss = F.mse_loss(y_hat, y)
         
         # Add sync_dist=True to ensure proper metric synchronization across devices
-        self.log('test_loss', test_loss, sync_dist=True)
+        self.log('test_loss', loss, on_step=True, on_epoch=True)
         self.log('test_mse', self.test_mse(y_hat, y), sync_dist=True)
         self.log('test_mae', self.test_mae(y_hat, y), sync_dist=True)
         self.log('test_mape', self.test_mape(y_hat, y), sync_dist=True)
         
-        return test_loss
+        return loss
 
     # Called at the end of each training epoch
     def on_train_epoch_end(self):
@@ -722,6 +728,25 @@ class LitSTTRE(L.LightningModule):
             'val': {'MSE': [], 'MAE': [], 'MAPE': []}
         }
 
+    # INFO: Not used
+    def _verify_test_data(self, data_module):
+        print("Verifying test dataset...")
+        
+        try:
+            test_loader = data_module.test_dataloader()
+            if test_loader is None:
+                print(f"{Colors.RED}Test dataloader is None{Colors.ENDC}")
+                return False
+                
+            # Try to get a batch
+            test_batch = next(iter(test_loader))
+            print(f"Test batch shapes: input={test_batch[0].shape}, target={test_batch[1].shape}")
+            
+            return True
+        except Exception as e:
+            print(f"{Colors.RED}Error verifying test data: {str(e)}{Colors.ENDC}")
+            return False
+
 # INFO: Data module for STTRE using PyTorch Lightning
 class STTREDataModule(L.LightningDataModule):
     def __init__(self, dataset_class, data_path, batch_size, test_split=0.2, val_split=0.1):
@@ -747,15 +772,24 @@ class STTREDataModule(L.LightningDataModule):
                 
                 # Calculate lengths
                 dataset_size = len(full_dataset)
+                
+                # Calculate split sizes
                 test_size = int(self.test_split * dataset_size)
                 val_size = int(self.val_split * dataset_size)
                 train_size = dataset_size - test_size - val_size
                 
-                # Validate split sizes
-                if train_size < self.batch_size or val_size < self.batch_size or test_size < self.batch_size:
-                    raise ValueError(f"Split sizes (train: {train_size}, val: {val_size}, test: {test_size}) must each be greater than batch size ({self.batch_size})")
+                # Validate split sizes before creating splits
+                min_required_size = self.batch_size * 2  # Ensure at least 2 batches per split
+                if train_size < min_required_size or val_size < min_required_size or test_size < min_required_size:
+                    # Adjust batch size automatically
+                    suggested_batch_size = min(train_size // 2, val_size // 2, test_size // 2)
+                    raise ValueError(
+                        f"Dataset too small for current batch size ({self.batch_size}). "
+                        f"Split sizes - train: {train_size}, val: {val_size}, test: {test_size}. "
+                        f"Suggested batch size: {suggested_batch_size}"
+                    )
                 
-                # Create splits with fixed generator
+                # Create splits
                 generator = torch.Generator().manual_seed(42)
                 self.train_dataset, self.val_dataset, self.test_dataset = torch.utils.data.random_split(
                     full_dataset, 
@@ -771,8 +805,7 @@ class STTREDataModule(L.LightningDataModule):
                     print(f"{Colors.GREEN}Test samples: {test_size}{Colors.ENDC}")
                 
             except Exception as e:
-                print(f"{Colors.RED}Error preparing data: {str(e)}{Colors.CROSS}{Colors.ENDC}")
-                raise
+                raise ValueError(f"Error preparing data: {str(e)}")
 
     # Training dataloader
     def train_dataloader(self):
@@ -799,100 +832,100 @@ class STTREDataModule(L.LightningDataModule):
 
     # Test dataloader
     def test_dataloader(self):
-        return DataLoader(
-            self.test_dataset,
-            batch_size=self.batch_size,
-            num_workers=self.num_workers,
-            pin_memory=self.pin_memory,
-            persistent_workers=self.persistent_workers
-        )
+        print("Creating test dataloader...")
+        try:
+            loader = DataLoader(
+                self.test_dataset,
+                batch_size=self.batch_size,
+                num_workers=self.num_workers,
+                pin_memory=self.pin_memory,
+                persistent_workers=self.persistent_workers
+            )
+            print(f"Test dataloader created with {len(loader)} batches")
+            return loader
+        except Exception as e:
+            print(f"Error creating test dataloader: {str(e)}")
+            raise
 
-# INFO: General utility functions
-def cleanup_old_checkpoints(model_dir, dataset_name, keep_top_k=3):
-    """Clean up old checkpoints, keeping only the top k best models."""
-    try:
-        checkpoints = [f for f in os.listdir(model_dir) 
-                      if f.startswith(f'sttre-{dataset_name.lower()}-') 
-                      and f.endswith('.ckpt')]
+# INFO: Base class for all transformer models to inherit from
+class BaseTransformer:
+    def __init__(self):
+        self.model = None
+        self.trainer = None
+        self.data_module = None
         
-        if len(checkpoints) > keep_top_k:
-            # Sort checkpoints by validation loss (extracted from filename)
-            checkpoints.sort(key=lambda x: float(x.split('-loss')[1].split('.ckpt')[0]))
+    def cleanup_memory(self):
+        import gc
+        gc.collect()
+        torch.cuda.empty_cache()
+        if torch.cuda.is_available():
+            torch.cuda.reset_peak_memory_stats()
             
-            # Remove all but the top k checkpoints
-            for checkpoint in checkpoints[keep_top_k:]:
-                checkpoint_path = os.path.join(model_dir, checkpoint)
-                try:
-                    os.remove(checkpoint_path)
-                    print(f"{Colors.YELLOW}Removed old checkpoint: {checkpoint}{Colors.ENDC}")
-                except OSError as e:
-                    print(f"{Colors.RED}Error removing checkpoint {checkpoint}: {str(e)}{Colors.ENDC}")
+    def cleanup_old_checkpoints(self, model_dir, dataset_name, keep_top_k=3):
+        """Clean up old checkpoints, keeping only the top k best models."""
+        try:
+            print(f"{Colors.BLUE}CC start...{Colors.ENDC}")  # DEBUG
             
-            print(f"{Colors.GREEN}Kept top {keep_top_k} checkpoints for {dataset_name}{Colors.ENDC}")
-    except Exception as e:
-        print(f"{Colors.RED}Error during checkpoint cleanup: {str(e)}{Colors.ENDC}")
+            checkpoints = [f for f in os.listdir(model_dir) 
+                          if f.startswith(f'{self.model_prefix}-{dataset_name.lower()}-') 
+                          and f.endswith('.ckpt')]
+            
+            print(f"Found {len(checkpoints)} checkpoints")  # Debug line
+            
+            if len(checkpoints) > keep_top_k:
+                # Sort checkpoints by validation loss (extracted from filename)
+                checkpoints.sort(key=lambda x: float(x.split('-loss')[1].split('.ckpt')[0]))
+                
+                # Remove all but the top k checkpoints
+                for checkpoint in checkpoints[keep_top_k:]:
+                    checkpoint_path = os.path.join(model_dir, checkpoint)
+                    try:
+                        print(f"clean {checkpoint}")  # DEBUG
+                        os.remove(checkpoint_path)
+                        print(f"{Colors.YELLOW}Removed old checkpoint: {checkpoint}{Colors.ENDC}")
+                    except OSError as e:
+                        print(f"{Colors.RED}Error removing checkpoint {checkpoint}: {str(e)}{Colors.ENDC}")
+                
+                print(f"{Colors.GREEN}Kept top {keep_top_k} checkpoints for {dataset_name}{Colors.ENDC}")
+            
+            print(f"{Colors.BLUE}CCC{Colors.ENDC}")  # DEBUG
+            
+        except Exception as e:
+            print(f"{Colors.RED}Error during checkpoint cleanup: {str(e)}{Colors.ENDC}")
+            raise  # Re-raise the exception to be caught by the outer try-except
 
-def save_if_below_threshold(trainer, pl_module):
-    # Only save if validation loss is below 50 (eg)
-    current_loss = trainer.callback_metrics.get('val/loss')
-    if current_loss is not None and current_loss < 50.0:
-        return True
-    return False
+    def train(self, dataset_class, data_path, model_params, train_params):
+        raise NotImplementedError("Subclasses must implement train method")
 
-def train_sttre(dataset_class, data_path, model_params, train_params):
-    """Train the STTRE model using the specified dataset."""
-    try:
-        cleanup_memory() # Clean up memory before training
+    def test(self, dataset_class, data_path, model_params, train_params, checkpoint_path):
+        raise NotImplementedError("Subclasses must implement test method")
+
+class STTREModel(BaseTransformer):
+    """STTRE specific implementation"""
+    def __init__(self):
+        super().__init__()
+        self.model_prefix = 'sttre'
         
-        Config.create_directories() # Create directories for saving models and logs
-        
-        # Get local rank
-        local_rank = int(os.environ.get("LOCAL_RANK", 0))
-        
-        # Create a descriptive run name
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        run_name = f"{dataset_class.__name__}_" \
-                  f"e{model_params['embed_size']}_" \
-                  f"l{model_params['num_layers']}_" \
-                  f"h{model_params['heads']}_" \
-                  f"b{train_params['batch_size']}_" \
-                  f"lr{train_params['lr']}_" \
-                  f"{timestamp}"
-        
-        # Initialize data module
-        data_module = STTREDataModule(
+    def _initialize_data_module(self, dataset_class, data_path, train_params):
+        self.data_module = STTREDataModule(
             dataset_class=dataset_class,
             data_path=data_path,
             batch_size=train_params['batch_size']
         )
-        
-        # Setup and validate data
-        data_module.setup()
-        
-        # Only print dataset information from rank 0
-        if local_rank == 0:
-            print(f"\n{Colors.BOLD_GREEN}Starting training for {dataset_class.__name__} dataset {Colors.ROCKET}{Colors.ENDC}")
-            print(f"Dataset size: {len(data_module.train_dataset)}")
-            print(f"Batch size: {train_params['batch_size']}")
-        
-        # Validate we have enough data
-        if len(data_module.train_dataset) < train_params['batch_size']:
-            raise ValueError(f"Training dataset size ({len(data_module.train_dataset)}) is smaller than batch size ({train_params['batch_size']})")
-        
-        # Setup data module to get input shape
-        data_module.setup()
-        sample_batch = next(iter(data_module.train_dataloader()))
-        input_shape = sample_batch[0].shape
-        
-        # Initialize model
-        model = LitSTTRE(
+        self.data_module.setup()
+        return self.data_module
+
+    def _initialize_model(self, input_shape, model_params, train_params):
+        self.model = LitSTTRE(
             input_shape=input_shape,
             output_size=model_params['output_size'],
             model_params=model_params,
             train_params=train_params
         )
-        
-        # Initialize wandb logger only on rank 0
+        return self.model
+
+    def _setup_trainer(self, run_name, callbacks, train_params, local_rank):
+        wandb_logger = None
         if local_rank == 0:
             wandb_logger = WandbLogger(
                 project="STTRE",
@@ -905,12 +938,30 @@ def train_sttre(dataset_class, data_path, model_params, train_params):
                     "dataset": dataset_class.__name__,
                 }
             )
-        else:
-            wandb_logger = None
-        
-        # Setup callbacks based on rank
+            
+        self.trainer = L.Trainer(
+            max_epochs=train_params['epochs'],
+            accelerator='auto',
+            devices='auto',
+            strategy='ddp_find_unused_parameters_true',
+            logger=wandb_logger if local_rank == 0 else False,
+            callbacks=callbacks,
+            gradient_clip_val=train_params.get('gradient_clip', 1.0),
+            precision=train_params.get('precision', 32),
+            accumulate_grad_batches=train_params.get('accumulate_grad_batches', 1),
+            log_every_n_steps=1,
+            enable_progress_bar=(local_rank == 0),
+            detect_anomaly=False,
+            benchmark=True,
+            deterministic=False,
+        )
+        return self.trainer, wandb_logger
+
+    def _setup_callbacks(self, dataset_class, local_rank):
         callbacks = []
-        if local_rank == 0:  # Only add RichProgressBar for rank 0
+        
+        # Only add RichProgressBar for rank 0
+        if local_rank == 0:
             callbacks.append(
                 RichProgressBar(
                     theme=RichProgressBarTheme(
@@ -928,145 +979,201 @@ def train_sttre(dataset_class, data_path, model_params, train_params):
             )
         
         # Add other callbacks for all ranks
-        callbacks.extend([
-            ThresholdModelCheckpoint(
-                loss_threshold=50.0,
-                monitor='val/loss',
-                dirpath=Config.MODEL_DIR,
-                filename=f'sttre-{dataset_class.__name__.lower()}-' + 'epoch{epoch:03d}-loss{val/loss:.4f}',
-                save_top_k=3,
-                mode='min',
-                save_last=False,
-                auto_insert_metric_name=False
-            ),
-            EarlyStopping(
-                monitor='val/loss',
-                patience=train_params.get('patience', 20),
-                mode='min',
-                min_delta=0.001,
-                check_finite=True,
-                check_on_train_epoch_end=False
-            )
-        ])
-
-        # Initialize trainer
-        trainer = L.Trainer(
-            max_epochs=train_params['epochs'],
-            accelerator='auto',
-            devices='auto',
-            strategy='ddp_find_unused_parameters_true',
-            logger=wandb_logger if local_rank == 0 else False,  # Only use logger on rank 0
-            callbacks=callbacks,
-            gradient_clip_val=train_params.get('gradient_clip', 1.0),
-            precision=train_params.get('precision', 32),
-            accumulate_grad_batches=train_params.get('accumulate_grad_batches', 1),
-            log_every_n_steps=1,
-            enable_progress_bar=(local_rank == 0),  # Only show progress bar on rank 0
-            detect_anomaly=False,  # Disable anomaly detection for better performance
-            benchmark=True,  # Enable cudnn benchmarking
-            deterministic=False,  # Disable deterministic training for better performance
+        early_stopping = EarlyStopping(
+            monitor='val/loss',
+            patience=20,
+            mode='min',
+            min_delta=0.001,
+            check_finite=True,
+            check_on_train_epoch_end=False,
+            verbose=True  # Add verbose output
         )
+        
+        checkpoint_callback = ThresholdModelCheckpoint(
+            loss_threshold=50.0,
+            monitor='val/loss',
+            dirpath=Config.MODEL_DIR,
+            filename=f'sttre-{dataset_class.__name__.lower()}-' + 'epoch{epoch:03d}-loss{val/loss:.4f}',
+            save_top_k=3,
+            mode='min',
+            save_last=True,  # Save last model
+            auto_insert_metric_name=False,
+            verbose=True  # Add verbose output
+        )
+        
+        callbacks.extend([checkpoint_callback, early_stopping])
+        
+        return callbacks
 
-        # Train the model
-        trainer.fit(model, data_module)
+    # INFO: Train the STTRE model using the specified dataset
+    def train(self, dataset_class, data_path, model_params, train_params):
+        """Train the STTRE model using the specified dataset."""
+        wandb_logger = None
+        try:
+            self.cleanup_memory()
+            Config.create_directories()
+            
+            local_rank = int(os.environ.get("LOCAL_RANK", 0))
+            if local_rank == 0:
+                print(f"\n{Colors.BOLD_GREEN}Starting training for {dataset_class.__name__}{Colors.ENDC}")
+            
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            run_name = f"{dataset_class.__name__}_" \
+                      f"e{model_params['embed_size']}_" \
+                      f"l{model_params['num_layers']}_" \
+                      f"h{model_params['heads']}_" \
+                      f"b{train_params['batch_size']}_" \
+                      f"lr{train_params['lr']}_" \
+                      f"{timestamp}"
+            
+            # Initialize components
+            data_module = self._initialize_data_module(dataset_class, data_path, train_params)
+            sample_batch = next(iter(data_module.train_dataloader()))
+            model = self._initialize_model(sample_batch[0].shape, model_params, train_params)
+            
+            # Initialize wandb logger
+            if local_rank == 0:
+                wandb_logger = WandbLogger(
+                    project="STTRE",
+                    name=run_name,
+                    log_model=True,
+                    save_dir=Config.SAVE_DIR,
+                    config={
+                        "model_params": model_params,
+                        "train_params": train_params,
+                        "dataset": dataset_class.__name__,
+                    }
+                )
+            
+            # Setup callbacks and trainer
+            callbacks = self._setup_callbacks(dataset_class, local_rank)
+            trainer = L.Trainer(
+                max_epochs=train_params['epochs'],
+                accelerator='auto',
+                devices='auto',
+                strategy='ddp_find_unused_parameters_true',
+                logger=wandb_logger if local_rank == 0 else False,
+                callbacks=callbacks,
+                gradient_clip_val=train_params.get('gradient_clip', 1.0),
+                precision=train_params.get('precision', 32),
+                accumulate_grad_batches=train_params.get('accumulate_grad_batches', 1),
+                log_every_n_steps=1,
+                enable_progress_bar=(local_rank == 0),
+                detect_anomaly=False,
+                benchmark=True,
+                deterministic=False,
+            )
+            
+            # Train and test
+            print(f"{Colors.BLUE}Starting model training...{Colors.ENDC}")
+            trainer.fit(model, data_module)
+            print(f"{Colors.GREEN}Model training completed!{Colors.ENDC}")
+            
+            if local_rank == 0:
+                if trainer.callback_metrics.get('val/loss') is not None:
+                    print(f"\n{Colors.BOLD_GREEN}Final validation loss: {trainer.callback_metrics['val/loss']:.4f}{Colors.ENDC}")
+                
+                print(f"\n{Colors.BOLD_BLUE}Post-training phase:{Colors.ENDC}")
+                
+                try:
+                    print("Cleaning up checkpoints...")
+                    self.cleanup_old_checkpoints(Config.MODEL_DIR, dataset_class.__name__)
+                    print("Checkpoint cleanup completed successfully")
+                    
+                    print(f"\n{Colors.BOLD_BLUE}Starting testing...{Colors.ENDC}")
+                    
+                    # Create a new trainer specifically for testing
+                    test_trainer = L.Trainer(
+                        accelerator='gpu',
+                        devices=[0],  # Use single GPU
+                        num_nodes=1,  # Single node
+                        logger=wandb_logger,
+                        enable_progress_bar=True,
+                        strategy='auto'  # Use default strategy for single device
+                    )
+                    
+                    print("Test trainer created")
+                    print(f"Testing with model on device: {next(model.parameters()).device}")
+                    print(f"DataModule state: {data_module.test_dataloader() is not None}")
+                    
+                    try:
+                        test_results = test_trainer.test(model, datamodule=data_module)
+                        print(f"{Colors.BOLD_GREEN}Testing completed!{Colors.ENDC}")
+                        print(f"Test results: {test_results}")
+                    except Exception as e:
+                        print(f"{Colors.RED}Error during test phase: {str(e)}{Colors.ENDC}")
+                        print(f"Model state: {model.training}")
+                        print(f"Device info: {torch.cuda.get_device_properties(0)}")
+                        raise
+                    
+                except Exception as e:
+                    print(f"{Colors.RED}Error in post-training phase: {str(e)}{Colors.ENDC}")
+                    raise
+            else:
+                test_results = None
+                
+            return model, trainer, test_results
+            
+        except Exception as e:
+            if local_rank == 0:
+                print(f"{Colors.RED}Error during training: {str(e)} {Colors.CROSS}{Colors.ENDC}")
+                print(f"Current trainer state: {trainer.state if trainer else 'No trainer'}")
+            raise
+        finally:
+            self.cleanup_memory()
+            if local_rank == 0 and wandb_logger:
+                wandb.finish()
+
+    def test(self, dataset_class, data_path, model_params, train_params, checkpoint_path):
+        """Test the STTRE model using a saved checkpoint."""
+        Config.create_directories()
         
-        # Clean up old checkpoints
-        if local_rank == 0:  # Only clean up on rank 0
-            dataset_name = dataset_class.__name__
-            cleanup_old_checkpoints(Config.MODEL_DIR, dataset_name)
+        data_module = self._initialize_data_module(dataset_class, data_path, train_params)
+        sample_batch = next(iter(data_module.train_dataloader()))
         
-        # Only print completion message from rank 0
-        if local_rank == 0:
-            print(f"{Colors.BOLD_GREEN}Training completed! {Colors.CHECK}{Colors.ENDC}")
-            print(f"\n{Colors.BOLD_BLUE}Starting testing... {Colors.CHART}{Colors.ENDC}")
+        model = LitSTTRE.load_from_checkpoint(
+            checkpoint_path,
+            input_shape=sample_batch[0].shape,
+            output_size=model_params['output_size'],
+            model_params=model_params,
+            train_params=train_params
+        )
         
-        # Create a new trainer for testing with single device
+        wandb_logger = WandbLogger(
+            project="STTRE",
+            name=f"test_{dataset_class.__name__}",
+            log_model=False,
+            save_dir=Config.SAVE_DIR
+        )
+        
         test_trainer = L.Trainer(
             accelerator='gpu',
-            devices=[0],  # Use single GPU
-            num_nodes=1,  # Single node
-            logger=wandb_logger if local_rank == 0 else False,
-            enable_progress_bar=(local_rank == 0),
-            strategy='auto'  # Use default strategy for single device
+            devices=[0],
+            num_nodes=1,
+            logger=wandb_logger,
+            enable_progress_bar=True,
+            strategy='auto'
         )
         
-        # Only run test on rank 0
-        if local_rank == 0:
-            test_results = test_trainer.test(model, datamodule=data_module)
-            print(f"{Colors.BOLD_GREEN}Testing completed! {Colors.CHECK}{Colors.ENDC}")
-        else:
-            test_results = None
+        model = model.cuda()
+        test_results = test_trainer.test(model, datamodule=data_module, verbose=True)
+        print(f"{Colors.BOLD_GREEN}Testing completed! {Colors.CHECK}{Colors.ENDC}")
         
-        return model, trainer, test_results
+        return model, test_results
+
+# TODO: SpaceTimeFormer model
+class SpaceTimeFormer(BaseTransformer):
+    def __init__(self):
+        super().__init__()
+        # ...
         
-    except Exception as e:
-        if local_rank == 0:
-            print(f"{Colors.RED}Error during training: {str(e)} {Colors.CROSS}{Colors.ENDC}")
-        raise
-    finally:
-        cleanup_memory()  # Clean after training
-        if local_rank == 0:
-            wandb.finish()
-
-# INFO: Testing function for STTRE using a saved checkpoint
-def test_sttre(dataset_class, data_path, model_params, train_params, checkpoint_path):
-    Config.create_directories()
-    
-    # Initialize data module
-    data_module = STTREDataModule(
-        dataset_class=dataset_class,
-        data_path=data_path,
-        batch_size=train_params['batch_size'],
-        test_split=train_params.get('test_split', 0.2),
-        val_split=train_params.get('val_split', 0.1)
-    )
-
-    # Setup data module to get input shape
-    data_module.setup()
-    sample_batch = next(iter(data_module.train_dataloader()))
-    input_shape = sample_batch[0].shape
-
-    # Load model from checkpoint
-    model = LitSTTRE.load_from_checkpoint(
-        checkpoint_path,
-        input_shape=input_shape,
-        output_size=model_params['output_size'],
-        model_params=model_params,
-        train_params=train_params
-    )
-    
-    # Initialize wandb logger for testing
-    wandb_logger = WandbLogger(
-        project="STTRE",
-        name=f"test_{dataset_class.__name__}",
-        log_model=False,
-        save_dir=Config.SAVE_DIR
-    )
-
-    # Testing trainer
-    test_trainer = L.Trainer(
-        accelerator='gpu',
-        devices=[0],
-        num_nodes=1,
-        logger=wandb_logger,
-        enable_progress_bar=True,
-        strategy='auto'
-    )
-
-    # Move model to GPU and test
-    model = model.cuda()
-    test_results = test_trainer.test(model, datamodule=data_module, verbose=True)
-    print(f"{Colors.BOLD_GREEN}Testing completed! {Colors.CHECK}{Colors.ENDC}")
-
-    return model, test_results
-
-# Utility function to clean up memory
-def cleanup_memory():
-    import gc
-    gc.collect()
-    torch.cuda.empty_cache()
-    if torch.cuda.is_available():
-        torch.cuda.reset_peak_memory_stats()
+    def train(self, dataset_class, data_path, model_params, train_params):
+        # ...
+        pass
+        
+    def test(self, dataset_class, data_path, model_params, train_params, checkpoint_path):
+        # ...
+        pass
 
 ##################################################################################################
 #########################################[ MAIN ]#################################################
@@ -1077,9 +1184,12 @@ if __name__ == "__main__":
     local_rank = int(os.environ.get("LOCAL_RANK", 0))
     if local_rank == 0:
         wandb.login() # Login to wandb website
-    
-    # Change to checkpoint path to test and validate
+        
+    # Change to checkpoint path to test and validate for pre-trained model
     checkpoint_path = os.path.join(Config.MODEL_DIR, 'sttre-uber-epoch=519-val_loss=6.46.ckpt')
+    
+    # Initialize model
+    sttre = STTREModel()
     
     # INFO: MAIN MODEL PARAMETERS
     model_params = {
@@ -1092,7 +1202,7 @@ if __name__ == "__main__":
 
     # INFO: MAIN TRAINING PARAMETERS
     train_params = {
-        'batch_size': 256, # larger = more stable gradients
+        'batch_size': 32, # larger = more stable gradients
         'epochs': 2000, # Maximum number of epochs to train
         'lr': 0.0001, # Step size
         'dropout': 0.1, # Regularization parameter (prevents overfitting)
@@ -1107,8 +1217,8 @@ if __name__ == "__main__":
     # INFO: DATASET CHOICE AND PATHS
     datasets = {
         # 'AirQuality': (AirQuality, None),
-        # 'Uber': (Uber, os.path.join(Config.DATA_DIR, 'uber_stock.csv')),
-        'IstanbulStock': (IstanbulStock, os.path.join(Config.DATA_DIR, 'istanbul_stock.csv')),
+        'Uber': (Uber, os.path.join(Config.DATA_DIR, 'uber_stock.csv')),
+        # 'IstanbulStock': (IstanbulStock, os.path.join(Config.DATA_DIR, 'istanbul_stock.csv')),
         # 'Traffic': (Traffic, os.path.join(Config.DATA_DIR, 'traffic.csv')),
         # 'AppliancesEnergy1': (AppliancesEnergy1, os.path.join(Config.DATA_DIR, 'appliances_energy1.csv')),
         # 'AppliancesEnergy2': (AppliancesEnergy2, os.path.join(Config.DATA_DIR, 'appliances_energy2.csv'))
@@ -1117,32 +1227,39 @@ if __name__ == "__main__":
     trainer = None
     for dataset_name, (dataset_class, data_path) in datasets.items():
         try:
-            # Add memory cleanup before each dataset
-            cleanup_memory()
-            
-            model, trainer, test_results = train_sttre(dataset_class, data_path, model_params, train_params)
-            
-            # Only print completion message from rank 0
             if local_rank == 0:
-                print(f"{Colors.BOLD_GREEN}Completed {dataset_name} dataset {Colors.CHECK}{Colors.ENDC}")
+                print(f"\n{Colors.BOLD_BLUE}Processing {dataset_name} dataset...{Colors.ENDC}")
             
-            # model, test_results = test_sttre(
-            #     dataset_class, 
-            #     data_path, 
-            #     model_params, 
-            #     train_params,
-            #     checkpoint_path
-            # )
-            # print(f"{Colors.BOLD_GREEN}Completed testing {dataset_name} dataset {Colors.CHECK}{Colors.ENDC}")
+            model, trainer, test_results = sttre.train(
+                dataset_class, 
+                data_path, 
+                model_params, 
+                train_params
+            )
+            
+            if local_rank == 0:
+                
+                # model, test_results = test_sttre(
+                #     dataset_class, 
+                #     data_path, 
+                #     model_params, 
+                #     train_params,
+                #     checkpoint_path
+                # )
+                # print(f"{Colors.BOLD_GREEN}Completed testing {dataset_name} dataset {Colors.CHECK}{Colors.ENDC}")
+            
+                print(f"\n{Colors.BOLD_GREEN}Completed {dataset_name} dataset{Colors.CHECK}{Colors.ENDC}")
+                if test_results:
+                    print(f"Test results: {test_results}")
             
             # Cleanup after training
             del model, trainer
-            cleanup_memory()
+            sttre.cleanup_memory()
             
         except Exception as e:
             if local_rank == 0:
                 print(f"{Colors.RED}Error processing {dataset_name}: {str(e)} {Colors.CROSS}{Colors.ENDC}")
-            cleanup_memory()
+            sttre.cleanup_memory()
             continue
 
     if local_rank == 0:
