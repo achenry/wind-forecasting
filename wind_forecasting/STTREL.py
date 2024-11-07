@@ -901,7 +901,7 @@ class BaseTransformer:
         raise NotImplementedError("Subclasses must implement test method")
 
 class STTREModel(BaseTransformer):
-    """STTRE specific implementation"""
+    """STTRE model implementation"""
     def __init__(self):
         super().__init__()
         self.model_prefix = 'sttre'
@@ -1007,7 +1007,6 @@ class STTREModel(BaseTransformer):
 
     # INFO: Train the STTRE model using the specified dataset
     def train(self, dataset_class, data_path, model_params, train_params):
-        """Train the STTRE model using the specified dataset."""
         wandb_logger = None
         try:
             self.cleanup_memory()
