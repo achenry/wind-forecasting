@@ -144,7 +144,7 @@ class DataLoader:
             # Ensure the directory exists
             self._ensure_dir_exists(self.save_path)
 
-            df_query.sink_parquet(self.save_path, statistics=False, maintain_order=False)
+            df_query.sink_parquet(self.save_path)
 
             # df = pl.scan_parquet(self.save_path)
             logging.info(f"✅ Finished writing Parquet. Time elapsed: {time.time() - write_start:.2f} s")
