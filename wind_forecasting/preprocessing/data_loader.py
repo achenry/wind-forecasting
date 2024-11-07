@@ -145,7 +145,7 @@ class DataLoader:
             self._ensure_dir_exists(self.save_path)
 
             # df_query.sink_ipc(self.save_path)
-            df_query.sink_parquet(self.save_path)
+            df_query.sink_parquet(self.save_path, statistics=False)
             # df_query.sink_csv(self.save_path.replace(".arrow", ".csv"))
 
             # df = pl.scan_parquet(self.save_path)
@@ -233,14 +233,14 @@ class DataLoader:
             # with open(os.path.join(os.path.dirname(file_path), "ind_df_query_explan.txt"), "w") as f:
                 # f.write(df_query.explain(streaming=True))
             
-            # pivot table to have columns for each turbine and measurement
+            # pivot table to have columns for each turbine and measurement if not originally in wide format
             if not self.wide_format:
                 pivot_features = [col for col in df_query.collect_schema().names() if col not in ['time', 'turbine_id']]
                 df_query = df_query.collect(streaming=True).pivot(
                     index="time",
-                    columns="turbine_id",
+                    on="turbine_id",
                     values=pivot_features,
-                    aggregate_function="first",
+                    # aggregate_function=pl.element().drop_nulls().first(),
                     sort_columns=True
                 ).lazy()
             else:
@@ -538,7 +538,7 @@ if __name__ == "__main__":
         # PL_SAVE_PATH = "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/kp.turbine.zo2.b0.raw.parquet"
         # FILE_SIGNATURE = "kp.turbine.z02.b0.*.*.*.nc"
         PL_SAVE_PATH = "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/kp.turbine.zo2.b0.raw.parquet"
-        FILE_SIGNATURE = "kp.turbine.z02.b0.2022030*.*.*.nc"
+        FILE_SIGNATURE = "kp.turbine.z02.b0.*.*.*.nc"
         MULTIPROCESSOR = "cf"
         TURBINE_INPUT_FILEPATH = "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/inputs/ge_282_127.yaml"
         FARM_INPUT_FILEPATH = "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/inputs/gch_KP_v4.yaml"
@@ -564,7 +564,7 @@ if __name__ == "__main__":
         # FARM_INPUT_FILEPATH = "/projects/aohe7145/toolboxes/wind-forecasting/examples/inputs/gch_KP_v4.yaml"
         FARM_INPUT_FILEPATH = "/home/ahenry/toolboxes/wind_forecasting_env/wind-forecasting/examples/inputs/gch_KP_v4.yaml"
         FEATURES = ["time", "turbine_id", "turbine_status", "wind_direction", "wind_speed", "power_output", "nacelle_direction"]
-        WIDE_FORMAT = False
+        WIDE_FORMAT = False # not originally in wide format
         COLUMN_MAPPING = {"date": "time",
                           "turbine_id": "turbine_id",
                           "WTUR.TurSt": "turbine_status",
