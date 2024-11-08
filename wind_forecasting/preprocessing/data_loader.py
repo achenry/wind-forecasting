@@ -38,7 +38,8 @@ class DataLoader:
        - convert circular measurements to sinusoidal measurements
        - normalize data 
     """
-    def __init__(self, data_dir: str = r"/Users/$USER/Documents/toolboxes/wind_forecasting/examples/data",
+    def __init__(self, 
+                 data_dir: str = r"/Users/$USER/Documents/toolboxes/wind_forecasting/examples/data",
                  file_signature: str = "kp.turbine.z02.b0.*.*.*.nc",
                  save_path: str = r"/Users/$USER/Documents/toolboxes/wind_forecasting/examples/data/kp.turbine.zo2.b0.raw.parquet",
                  turbine_ids: list[str] = None,
