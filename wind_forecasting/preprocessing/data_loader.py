@@ -8,9 +8,7 @@ import glob
 import os
 import logging
 
-import re
 import multiprocessing
-from site import makepath
 import time
 import psutil
 
@@ -29,7 +27,7 @@ SECONDS_PER_HOUR = SECONDS_PER_MINUTE * 60
 SECONDS_PER_DAY = SECONDS_PER_HOUR * 24
 SECONDS_PER_YEAR = SECONDS_PER_DAY * 365  # non-leap year, 365 days
 FFILL_LIMIT = 10 * SECONDS_PER_MINUTE 
-
+# pl.Config.set_streaming_chunk_size(None)
 # INFO: @Juan 10/02/24 Set Logging up
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -74,117 +72,84 @@ class DataLoader:
 
     # INFO: @Juan 10/14/24 Added method to read multiple files based on the file signature. 
     def read_multi_files(self) -> pl.LazyFrame | None:
-        start_time = time.time() # INFO: @Juan 10/16/24 Debbuging time measurements
-        logging.info(f"✅ Starting read_multi_files with {len(self.file_paths)} files")
-        
-        if self.multiprocessor:
+        if self.multiprocessor is not None:
             if self.multiprocessor == "mpi":
                 executor = MPICommExecutor(MPI.COMM_WORLD, root=0)
-                logging.info(f"🚀 Using MPI executor with {MPI.COMM_WORLD.Get_size()} processes")
             else:  # "cf" case
-                max_workers = multiprocessing.cpu_count()
-                executor = ProcessPoolExecutor(max_workers=max_workers)
-                logging.info(f"🖥️  Using ProcessPoolExecutor with {max_workers} workers")
-            
+                executor = ProcessPoolExecutor()
+                
             with executor as ex:
-                futures = [ex.submit(self._read_single_file, file_path) for file_path in self.file_paths]
-                df_query = [fut.result() for fut in futures if fut.result() is not None]
+                futures = [ex.submit(self._read_single_file, f, file_path) for f, file_path in enumerate(self.file_paths)]
+                df_query = [fut.result() for fut in futures]
+                df_query = [df for df in df_query if df is not None]
+                return df_query
         else:
-            logging.info("🔧 Using single process executor")
-            df_query = [self._read_single_file(file_path) for file_path in self.file_paths if self._read_single_file(file_path) is not None]
-
-        logging.info(f"✅ Finished reading individual files. Time elapsed: {time.time() - start_time:.2f} s")
-
-        if (self.multiprocessor == "mpi" and MPI.COMM_WORLD.Get_rank() == 0) or (self.multiprocessor != "mpi"):
-            if [df for df in df_query if df is not None]:
-                # logging.info("🔄 Starting concatenation of DataFrames")
-                concat_start = time.time()
-
-                # df_query = pl.concat([df for df in df_query if df is not None]).lazy()
-                df_query = pl.concat([df for df in df_query if df is not None], how="diagonal")\
-                             .group_by("time").agg(cs.numeric().drop_nulls().first())\
-                             .sort("time")
-
-                full_datetime_range = df_query.select(pl.datetime_range(start=df_query.select("time").first().collect(streaming=True),
-                                    end=df_query.select("time").last().collect(streaming=True),
-                                    interval=f"{self.dt}s", time_unit=df_query.collect_schema()["time"].time_unit).alias("time"))
-                
-                df_query = full_datetime_range.join(df_query, on="time", how="left") # NOTE: @Aoife 10/18 make sure all time stamps are included, to interpolate continuously later
-                df_query = df_query.fill_null(strategy="forward", limit=self.ffill_limit).fill_null(strategy="backward") # NOTE: @Aoife for KP data, need to fill forward null gaps, don't know about Juan's data
-
-                self.available_features = sorted(df_query.collect_schema().names())
-                self.turbine_ids = sorted(set(col.split("_")[-1] for col in self.available_features if "wt" in col))
-                df_query = df_query.select([feat for feat in self.available_features if any(feat_type in feat for feat_type in self.desired_feature_types)])
-
-
-                logging.info(f"🔗 Finished concatenation. Time elapsed: {time.time() - concat_start:.2f} s")
-
-                # Check if the resulting DataFrame is empty
-                if df_query.select(pl.len()).collect().item() == 0:
-                    logging.warning("⚠️ No data after concatenation. Skipping further processing.")
-                    return None
-
-                # Check if the data is already in wide format
-                is_already_wide = "turbine_id" not in df_query.collect_schema().names()
-
-                if is_already_wide:
-                    logging.info("📊 Data is already in wide format. Skipping conversion.")
+            logging.info(f"🔧 Using single process executor.")
+            df_query = [self._read_single_file(f, file_path) for f, file_path in enumerate(self.file_paths) if self._read_single_file(file_path) is not None]
+            return df_query
+    
+    def postprocess_multi_files(self, df_query) -> pl.LazyFrame | None:
+        # Run once
+        if df_query:
+            logging.info(f"✅ Finished reading individual files. Time elapsed: {time.time() - start_time:.2f} s")
+            # logging.info("🔄 Starting concatenation of DataFrames")
+            concat_start = time.time()
+            logging.info(f"✅ Started concatenation of {len(df_query)} files.")
+            # df_query = pl.concat([df for df in df_query if df is not None]).lazy()
+            all_cols = set()
+            df_query_list = df_query
+            df_query = None
+            for df in df_query_list:
+                # df = df.collect()
+                new_cols = [col for col in df.collect_schema().names() if col != "time"]
+                if df_query is None:
+                    df_query = df
+                elif len(all_cols.intersection(new_cols)):
+                    # data for the turbine contained in this frame has already been added, albeit from another day
+                    df_query = df_query.join(df, on="time", how="full", coalesce=True)\
+                                        .with_columns([pl.coalesce(col, f"{col}_right").alias(col) for col in new_cols])\
+                                        .select(~cs.ends_with("right"))
                 else:
-                    # logging.info("🔄 Starting sorting")
-                    sort_start = time.time()
-                    df_query = df_query.sort(["turbine_id", "time"])
-                    logging.info(f"🔀 Finished sorting. Time elapsed: {time.time() - sort_start:.2f} s")
+                    df_query = df_query.join(df, on="time", how="full", coalesce=True)
+                    # df.sort("time").collect()
+                    # df_query.filter((pl.col("time") >= df.select("time").min().collect().item()) & (pl.col("time") <= df.select("time").max().collect().item())).sort("time").select(pl.col("time"), cs.contains(df.columns[1].split("_")[-1])).collect()
 
-                    # INFO: @Juan 10/16/24 Convert to wide format if the user wants it.
-                    if self.wide_format:
-                        df_query = self.convert_to_wide_format(df_query)
+                all_cols.update(new_cols)
+            del df_query_list
+            
+            logging.info(f"🔗 Finished concatenation of {len(self.file_paths)} files. Time elapsed: {time.time() - concat_start:.2f} s")
 
-                self._write_parquet(df_query)
-                
-                logging.info(f"⏱️ Total time elapsed: {time.time() - start_time:.2f} s")
-                return df_query #INFO: @Juan 10/16/24 Added .lazy() to the return statement to match the expected return type. Is this necessary?
-        
-            logging.warning("⚠️ No data frames were created.")
-            return None
+            # with open(os.path.join(os.path.dirname(self.save_path), "all_df_query_explan.txt"), "w") as f:
+            #     f.write(df_query.explain(streaming=True))
 
-        logging.info(f"⏱️ Total time elapsed: {time.time() - start_time:.2f} s")
+            self._write_parquet(df_query)
+            
+            return df_query #INFO: @Juan 10/16/24 Added .lazy() to the return statement to match the expected return type. Is this necessary?
+    
+        logging.warning("⚠️ No data frames were created.")
         return None
             
     def _write_parquet(self, df_query: pl.LazyFrame):
-        logging.info("📝 Starting Parquet write")
+        
         write_start = time.time()
         
         try:
+            logging.info("📝 Starting Parquet write")
             # Collect a small sample to check for issues
-            sample = df_query.limit(10).collect()
-            total_rows = df_query.select(pl.len()).collect().item()
-            logging.info(f"📊 Total rows in df_query: {total_rows}")
-            logging.info(f"🔢 Sample data types: {sample.dtypes}")
-            logging.info(f"🔍 Sample data:\n{sample}")
-            
-            if total_rows == 0:
-                logging.warning("⚠️ No data to write. Skipping Parquet write.")
-                return
+            # sample = df_query.limit(10).collect()
+            # total_rows = df_query.select(pl.len()).collect().item()
+            # logging.info(f"📊 Total rows in df_query: {total_rows}")
+            # logging.info(f"🔢 Sample data types: {sample.dtypes}")
+            # logging.info(f"🔍 Sample data:\n{sample}")
             
             # Ensure the directory exists
             self._ensure_dir_exists(self.save_path)
 
-            # Estimate memory usage
-            estimated_memory = total_rows * len(sample.columns) * 8  # Rough estimate, assumes 8 bytes per value
-            available_memory = psutil.virtual_memory().available
-            logging.info(f"💾 Estimated/Available memory: {100 * estimated_memory / available_memory} bytes")
-            
+            # df_query.sink_ipc(self.save_path)
+            df_query.sink_parquet(self.save_path, statistics=False)
+            # df_query.sink_csv(self.save_path.replace(".arrow", ".csv"))
 
-            if estimated_memory > available_memory * 0.8:  # If estimated memory usage is more than 80% of available memory
-                logging.warning("⚠️💾 Large dataset detected. Writing in chunks.")
-                with pl.StringIO() as buffer:
-                    df_query.sink_parquet(buffer, row_group_size=100000)
-                    with open(self.save_path, 'wb') as f:
-                        f.write(buffer.getvalue())
-            else:
-                # Collect the entire LazyFrame into a DataFrame and write
-                df_query.collect().write_parquet(self.save_path, row_group_size=100000)
-            
+            # df = pl.scan_parquet(self.save_path)
             logging.info(f"✅ Finished writing Parquet. Time elapsed: {time.time() - write_start:.2f} s")
             
         except PermissionError:
@@ -199,7 +164,7 @@ class DataLoader:
             logging.info("📄 Attempting to write as CSV instead...")
             try:
                 csv_path = self.save_path.replace('.parquet', '.csv')
-                df_query.collect().write_csv(csv_path)
+                df_query.sink_csv(csv_path)
                 logging.info(f"✅ Successfully wrote data as CSV to {csv_path}")
             except Exception as csv_e:
                 logging.error(f"❌ Error during CSV write: {str(csv_e)}")
@@ -212,7 +177,7 @@ class DataLoader:
             logging.info(f"📁 Created directory: {directory}")
 
     # INFO: @Juan 10/14/24 Added method to read single file based on the file signature. 
-    def _read_single_file(self, file_path: str) -> pl.LazyFrame:
+    def _read_single_file(self, file_number: int, file_path: str) -> pl.LazyFrame:
         start_time = time.time()
         # logging.info(f"Starting to process {file_path}")
         try:
@@ -223,7 +188,7 @@ class DataLoader:
             else:
                 raise ValueError(f"❌ Unsupported data format: {self.data_format}")
             
-            logging.info(f"✅ Processed {file_path}. Time: {time.time() - start_time:.2f} s")
+            logging.info(f"✅ Processed {file_number}-th {file_path}. Time: {time.time() - start_time:.2f} s")
             return result
         except Exception as e:
             logging.error(f"❌ Error processing {file_path}: {e}")
@@ -232,8 +197,9 @@ class DataLoader:
     # INFO: @Juan 10/16/24 Added method to read single netcdf file. Use pl.Series to convert the time variable to a polars series. and combined time extraction operations into a single line to remove intermediate variables. Removed try/except block as it is done in the calling method (_read_single_file())
     def _read_single_netcdf(self, file_path: str) -> pl.LazyFrame:
         with nc.Dataset(file_path, 'r') as dataset:
-            #TODO: @Juan 10/14/24 Check if this is correct and if pandas can be substituted for polars
-            time_var = dataset.variables[self.column_mapping["time"]]
+            # @Juan 10/14/24 Check if this is correct and if pandas can be substituted for polars
+            col_mapping = dict((v, k) for k, v in self.column_mapping.items())
+            time_var = dataset.variables[col_mapping["time"]]
             # time = pd_to_datetime(nc.num2date(times=time_var[:], 
             #                                   units=time_var.units, 
             #                                   calendar=time_var.calendar, 
@@ -248,11 +214,11 @@ class DataLoader:
             data = {
                 'turbine_id': [os.path.basename(file_path).split('.')[-2]] * len(time),
                 'time': time.tolist(),  # Convert to Polars datetime
-                'turbine_status': dataset.variables[self.column_mapping["turbine_status"]][:],
-                'wind_direction': dataset.variables[self.column_mapping["wind_direction"]][:],
-                'wind_speed': dataset.variables[self.column_mapping["wind_speed"]][:],
-                'power_output': dataset.variables[self.column_mapping["power_output"]][:],
-                'nacelle_direction': dataset.variables[self.column_mapping["nacelle_direction"]][:]
+                'turbine_status': dataset.variables[col_mapping["turbine_status"]][:],
+                'wind_direction': dataset.variables[col_mapping["wind_direction"]][:],
+                'wind_speed': dataset.variables[col_mapping["wind_speed"]][:],
+                'power_output': dataset.variables[col_mapping["power_output"]][:],
+                'nacelle_direction': dataset.variables[col_mapping["nacelle_direction"]][:]
             }
 
             # remove the rows with all nans (corresponding to rows where excluded columns would have had a value)
@@ -261,13 +227,28 @@ class DataLoader:
             df_query = pl.LazyFrame(data).fill_nan(None)\
                                             .with_columns(pl.col("time").dt.round(f"{self.dt}s").alias("time"))\
                                             .select([cs.contains(feat) for feat in self.desired_feature_types])\
-                                            .filter(pl.any_horizontal(cs.numeric().is_not_null()))\
-                                            .group_by("turbine_id", "time")\
-                                                .agg(cs.numeric().drop_nulls().first()).sort("turbine_id", "time")
-
-            # pivot table to have columns for each turbine and measurement
-            df_query = df_query.collect(streaming=True).pivot(on="turbine_id", index="time", values=["power_output", "nacelle_direction", "wind_speed", "wind_direction", "turbine_status"]).lazy()
+                                            .filter(pl.any_horizontal(cs.numeric().is_not_null()))
+                                            # .group_by("turbine_id", "time")\
+                                            # .agg(cs.numeric().drop_nulls().first())
+                                                # .sort("turbine_id", "time")
+            # with open(os.path.join(os.path.dirname(file_path), "ind_df_query_explan.txt"), "w") as f:
+                # f.write(df_query.explain(streaming=True))
             
+            # pivot table to have columns for each turbine and measurement if not originally in wide format
+            if not self.wide_format:
+                pivot_features = [col for col in df_query.collect_schema().names() if col not in ['time', 'turbine_id']]
+                df_query = df_query.collect(streaming=True).pivot(
+                    index="time",
+                    on="turbine_id",
+                    values=pivot_features,
+                    aggregate_function=pl.element().drop_nulls().first(),
+                    sort_columns=True
+                ).lazy()
+            else:
+                df_query = df_query.collect(streaming=True).lazy()
+            # with open(os.path.join(os.path.dirname(file_path), "ind_df_query_explan.txt"), "w") as f:
+            #     f.write(df_query.explain(streaming=True))
+
             del data  # Free up memory
 
             # logging.info(f"Processed {file_path}")
@@ -367,32 +348,33 @@ class DataLoader:
         logging.info("🔄 Converting data to wide format")
         
         # Get unique turbine IDs
-        turbine_ids = df.select(pl.col("turbine_id").unique()).collect().to_series().to_list()
+        # turbine_ids = df.select(pl.col("turbine_id").unique()).collect().to_series().to_list()
         
         # List of features to pivot (excluding 'time' and 'turbine_id')
         pivot_features = [col for col in df.columns if col not in ['time', 'turbine_id']]
         
         # Create expressions for pivot
-        pivot_exprs = [
-            pl.col(feature).pivot(
-                index="time",
-                columns="turbine_id",
-                aggregate_function="first",
-                sort_columns=True
-            ).prefix(f"{feature}_") for feature in pivot_features
-        ]
+        # pivot_exprs = [
+        #     pl.col(feature).pivot(
+        #         index="time",
+        #         columns="turbine_id",
+        #         aggregate_function="first",
+        #         sort_columns=True
+        #     ).prefix(f"{feature}_") for feature in pivot_features
+        # ]
         
         # Pivot the data
         df_wide = df.pivot(
             index="time",
             columns="turbine_id",
             values=pivot_features,
-            aggregate_function="first",
+            # aggregate_function="first",
             sort_columns=True
-        ).select([
-            pl.col("time"),
-            *pivot_exprs
-        ])
+        )
+        # .select([
+        #     pl.col("time"),
+        #     *pivot_exprs
+        # ])
         
         logging.info("✅ Data pivoted to wide format successfully")
         return df_wide
@@ -430,17 +412,17 @@ class DataLoader:
         Returns:
             pl.LazyFrame: _description_
         """
-        if self.df is None:
+        if df is None:
             raise ValueError("⚠️ Data not loaded > call read_multi_netcdf() first.")
         
-        self.df = self.df.with_columns([
+        df = self.df.with_columns([
             pl.col('time').dt.hour().alias('hour'),
             pl.col('time').dt.ordinal_day().alias('day'),
             pl.col('time').dt.year().alias('year'),
         ])
 
         # Normalize time features using sin/cos for capturing cyclic patterns using Polars vectorized operations
-        self.df = self.df.with_columns([
+        df = df.with_columns([
             (2 * np.pi * pl.col('hour') / 24).sin().alias('hour_sin'),
             (2 * np.pi * pl.col('hour') / 24).cos().alias('hour_cos'),
             (2 * np.pi * pl.col('day') / 365).sin().alias('day_sin'),
@@ -449,7 +431,7 @@ class DataLoader:
             (2 * np.pi * pl.col('year') / 365).cos().alias('year_cos'),
         ])
 
-        return self.df
+        return df
 
     # DEBUG: @Juan 10/16/24 Check that this is reducing the features correctly.
     def reduce_features(self, df) -> pl.LazyFrame:
@@ -542,75 +524,59 @@ class DataLoader:
             df = self.convert_time_to_sin(df)
             df = self.normalize_features(df)
         return df
-    
-    # def _read_single_netcdf(self, file_path: str) -> pl.DataFrame:
-    #     """_summary_
-
-    #     Args:
-    #         file_path (_type_): _description_
-
-    #     Returns:
-    #         _type_: _description_
-    #     """
-    #     try:
-    #         with nc.Dataset(file_path, 'r') as dataset:
-    #             time = dataset.variables['date']
-    #             time = pd_to_datetime(nc.num2date(times=time[:], units=time.units, calendar=time.calendar, only_use_cftime_datetimes=False, only_use_python_datetimes=True))
-                
-    #             data = {
-    #                 'turbine_id': [os.path.basename(file_path).split('.')[-2]] * dataset.variables["date"].shape[0],
-    #                 'time': time,
-    #                 'turbine_status': dataset.variables['WTUR.TurSt'][:],
-    #                 'wind_direction': dataset.variables['WMET.HorWdDir'][:],
-    #                 'wind_speed': dataset.variables['WMET.HorWdSpd'][:],
-    #                 'power_output': dataset.variables['WTUR.W'][:],
-    #                 'nacelle_direction': dataset.variables['WNAC.Dir'][:]
-    #             }
-                
-    #             # remove the rows with all nans (corresponding to rows where excluded columns would have had a value)
-    #             # and bundle all values corresponding to identical time stamps together
-    #             # forward fill missing values
-    #             df_query = pl.LazyFrame(data).fill_nan(None)\
-    #                                          .with_columns(pl.col("time").dt.round(f"{self.dt}s").alias("time"))\
-    #                                          .select([cs.contains(feat) for feat in self.desired_feature_types])\
-    #                                             .filter(pl.any_horizontal(cs.numeric().is_not_null()))\
-    #                                             .group_by("turbine_id", "time")\
-    #                                                 .agg(cs.numeric().drop_nulls().first()).sort("turbine_id", "time")
-
-    #             # pivot table to have columns for each turbine and measurement
-    #             df_query = df_query.collect(streaming=True).pivot(on="turbine_id", index="time", values=["power_output", "nacelle_direction", "wind_speed", "wind_direction", "turbine_status"]).lazy()
-    #             del data
-                
-    #             logging.info(f"Processed {file_path}") #, shape: {df.shape}")
-    #             return df_query
-            
-    #     except Exception as e:
-    #         print(f"\nError processing {file_path}: {e}")
-
 
 ########################################################## INPUTS ##########################################################
 if __name__ == "__main__":
     from sys import platform
-    RELOAD_DATA = True 
-    if platform == "darwin":
-        ROOT_DIR = os.path.join("/Users", "ahenry", "Documents", "toolboxes", "wind_forecasting")
-        DATA_DIR = os.path.join(ROOT_DIR, "examples/data")
-        PL_SAVE_PATH = os.path.join(ROOT_DIR, "examples/data/kp.turbine.zo2.b0.raw.parquet")
-        FILE_SIGNATURE = "kp.turbine.z02.b0.202203*.*.*.nc"
+    RELOAD_DATA = True
+    PLOT = False
+
+    DT = 5
+    DATA_FORMAT = "netcdf"
+
+    if platform == "darwin" and DATA_FORMAT == "netcdf":
+        DATA_DIR = "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data"
+        # PL_SAVE_PATH = "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/kp.turbine.zo2.b0.raw.parquet"
+        # FILE_SIGNATURE = "kp.turbine.z02.b0.*.*.*.nc"
+        PL_SAVE_PATH = "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/kp.turbine.zo2.b0.raw.parquet"
+        FILE_SIGNATURE = "kp.turbine.z02.b0.*.*.*.nc"
         MULTIPROCESSOR = "cf"
-        TURBINE_INPUT_FILEPATH = os.path.join(ROOT_DIR, "examples/inputs/ge_282_127.yaml")
-        FARM_INPUT_FILEPATH = os.path.join(ROOT_DIR, "examples/inputs/gch_KP_v4.yaml")
+        TURBINE_INPUT_FILEPATH = "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/inputs/ge_282_127.yaml"
+        FARM_INPUT_FILEPATH = "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/inputs/gch_KP_v4.yaml"
         FEATURES = ["time", "turbine_id", "turbine_status", "wind_direction", "wind_speed", "power_output", "nacelle_direction"]
         WIDE_FORMAT = False
-        COLUMN_MAPPING = {"time": "date",
-                              "turbine_id": "turbine_id",
-                              "turbine_status": "WTUR.TurSt",
-                              "wind_direction": "WMET.HorWdDir",
-                              "wind_speed": "WMET.HorWdSpd",
-                              "power_output": "WTUR.W",
-                              "nacelle_direction": "WNAC.Dir"
-                              }
-    elif platform == "linux":
+        COLUMN_MAPPING = {"date": "time",
+                          "turbine_id": "turbine_id",
+                          "WTUR.TurSt": "turbine_status",
+                          "WMET.HorWdDir": "wind_direction",
+                          "WMET.HorWdSpd": "wind_speed",
+                          "WTUR.W": "power_output",
+                          "WNAC.Dir": "nacelle_direction"
+                          }
+    elif platform == "linux" and DATA_FORMAT == "netcdf":
+        # DATA_DIR = "/pl/active/paolab/awaken_data/kp.turbine.z02.b0/"
+        DATA_DIR = "/projects/ssc/ahenry/wind_forecasting/awaken_data/kp.turbine.z02.b0/"
+        # PL_SAVE_PATH = "/scratch/alpine/aohe7145/awaken_data/kp.turbine.zo2.b0.raw.parquet"
+        # PL_SAVE_PATH = "/projects/ssc/ahenry/wind_forecasting/awaken_data/kp.turbine.zo2.b0.raw.parquet"
+        PL_SAVE_PATH = os.path.join("/tmp/scratch", os.environ["SLURM_JOB_ID"], "kp.turbine.zo2.b0.parquet")
+        print(f"PL_SAVE_PATH = {PL_SAVE_PATH}")
+        FILE_SIGNATURE = "kp.turbine.z02.b0.*.*.*.nc"
+        MULTIPROCESSOR = "mpi"
+        # TURBINE_INPUT_FILEPATH = "/projects/aohe7145/toolboxes/wind-forecasting/examples/inputs/ge_282_127.yaml"
+        TURBINE_INPUT_FILEPATH = "/home/ahenry/toolboxes/wind_forecasting_env/wind-forecasting/examples/inputs/ge_282_127.yaml"
+        # FARM_INPUT_FILEPATH = "/projects/aohe7145/toolboxes/wind-forecasting/examples/inputs/gch_KP_v4.yaml"
+        FARM_INPUT_FILEPATH = "/home/ahenry/toolboxes/wind_forecasting_env/wind-forecasting/examples/inputs/gch_KP_v4.yaml"
+        FEATURES = ["time", "turbine_id", "turbine_status", "wind_direction", "wind_speed", "power_output", "nacelle_direction"]
+        WIDE_FORMAT = False # not originally in wide format
+        COLUMN_MAPPING = {"date": "time",
+                          "turbine_id": "turbine_id",
+                          "WTUR.TurSt": "turbine_status",
+                          "WMET.HorWdDir": "wind_direction",
+                          "WMET.HorWdSpd": "wind_speed",
+                          "WTUR.W": "power_output",
+                          "WNAC.Dir": "nacelle_direction"
+                          }
+    elif platform == "linux" and DATA_FORMAT == "csv":
         # DATA_DIR = "/pl/active/paolab/awaken_data/kp.turbine.z02.b0/"
         # DATA_DIR = "examples/inputs/awaken_data"
         DATA_DIR = "examples/inputs/SMARTEOLE-WFC-open-dataset"
@@ -627,7 +593,7 @@ if __name__ == "__main__":
         FARM_INPUT_FILEPATH = "examples/inputs/gch_KP_v4.yaml"
         FEATURES = ["time", "active_power", "wind_speed", "nacelle_position", "wind_direction", "derate"]
         WIDE_FORMAT = True
-
+        
         COLUMN_MAPPING = {
             **{"time": "time"},
             **{f"active_power_{i}_avg": f"active_power_{i:03d}" for i in range(1, 8)},
@@ -636,79 +602,62 @@ if __name__ == "__main__":
             **{f"wind_direction_{i}_avg": f"wind_direction_{i:03d}" for i in range(1, 8)},
             **{f"derate_{i}": f"derate_{i:03d}" for i in range(1, 8)}
         }
-    DT = 5    
-    RUN_ONCE = (MULTIPROCESSOR == "mpi" and (comm_rank := MPI.COMM_WORLD.Get_rank()) == 0) or (MULTIPROCESSOR != "mpi") or (MULTIPROCESSOR is None)
     
     if FILE_SIGNATURE.endswith(".nc"):
-        data_format = "netcdf"
+        DATA_FORMAT = "netcdf"
     elif FILE_SIGNATURE.endswith(".csv"):
-        data_format = "csv"
+        DATA_FORMAT = "csv"
     else:
         raise ValueError("Invalid file signature. Please specify either '*.nc' or '*.csv'.")
-
-    if RUN_ONCE:
-        try:
-            data_loader = DataLoader(
+    
+    RUN_ONCE = (MULTIPROCESSOR == "mpi" and (comm_rank := MPI.COMM_WORLD.Get_rank()) == 0) or (MULTIPROCESSOR != "mpi") or (MULTIPROCESSOR is None)
+    data_loader = DataLoader(
                 data_dir=DATA_DIR,
                 file_signature=FILE_SIGNATURE,
                 save_path=PL_SAVE_PATH,
                 multiprocessor=MULTIPROCESSOR,
                 dt=DT,
                 desired_feature_types=FEATURES,
-                data_format=data_format,
+                data_format=DATA_FORMAT,
                 column_mapping=COLUMN_MAPPING,
-                wide_format=WIDE_FORMAT
-            )
+                wide_format=WIDE_FORMAT,
+                ffill_limit=int(60 * 60 * 10 // DT))
+    
+    if RUN_ONCE:
         
-            if not RELOAD_DATA and os.path.exists(data_loader.save_path):
-                # Note that the order of the columns in the provided schema must match the order of the columns in the CSV being read.
-                schema = pl.Schema({**{"time": pl.Datetime(time_unit="ms")},
-                            **{
-                                f"{feat}_{tid}": pl.Float64
-                                for feat in ["turbine_status", "wind_direction", "wind_speed", "power_output", "nacelle_direction"] 
-                                for tid in [f"wt{d+1:03d}" for d in range(88)]}
-                            })
-                if os.path.exists(data_loader.save_path):
-                    logging.info("🔄 Loading existing Parquet file")
-                    df_query = pl.scan_parquet(source=data_loader.save_path)
-                    logging.info("✅ Loaded existing Parquet file successfully")
-                else:
-                    logging.info("🔄 Processing new data files")
-                    df_query = data_loader.read_multi_files()
-                
-                if df_query is not None:
-                    # Perform any additional operations on df_query if needed
-                    logging.info("✅ Data processing completed successfully")
-                else:
-                    logging.warning("⚠️  No data was processed")
-                
-                logging.info("🎉 Script completed successfully")
-        except Exception as e:
-            logging.error(f"❌ An error occurred: {str(e)}")
-<<<<<<< HEAD
-
         if not RELOAD_DATA and os.path.exists(data_loader.save_path):
             # Note that the order of the columns in the provided schema must match the order of the columns in the CSV being read.
             schema = pl.Schema(dict(sorted(({**{"time": pl.Datetime(time_unit="ms")},
                         **{
                             f"{feat}_{tid}": pl.Float64
-                            for feat in FEATURES 
+                            for feat in FEATURES if feat != "time"
                             for tid in [f"wt{d+1:03d}" for d in range(88)]}
                         }).items())))
             logging.info("🔄 Loading existing Parquet file")
             df_query = pl.scan_parquet(source=data_loader.save_path)
             logging.info("✅ Loaded existing Parquet file successfully")
-        else:
-            logging.info("🔄 Processing new data files")
-            df_query = data_loader.read_multi_files()
         
-            if df_query is not None:
-                # Perform any additional operations on df_query if needed
-                logging.info("✅ Data processing completed successfully")
-            else:
-                logging.warning("⚠️  No data was processed")
+        logging.info("🔄 Processing new data files")
+        start_time = time.time() # INFO: @Juan 10/16/24 Debbuging time measurements
+        logging.info(f"✅ Starting read_multi_files with {len(data_loader.file_paths)} files")
+       
+        if MULTIPROCESSOR == "mpi":
+            comm_size = MPI.COMM_WORLD.Get_size()
+            logging.info(f"🚀 Using MPI executor with {comm_size} processes.")
+        else:
+            max_workers = multiprocessing.cpu_count()
+            logging.info(f"🖥️  Using ProcessPoolExecutor with {max_workers} workers.")
+    
+    df_query = data_loader.read_multi_files()
+
+    if RUN_ONCE:
+        df_query = data_loader.postprocess_multi_files(df_query)
+        logging.info(f"⏱️ Total time elapsed: {time.time() - start_time:.2f} s")
+    
+        if df_query is not None:
+            # Perform any additional operations on df_query if needed
+            logging.info("✅ Data processing completed successfully")
+        else:
+            logging.warning("⚠️  No data was processed")
         
         logging.info("🎉 Script completed successfully")
-        
-=======
->>>>>>> 93c709fc7369340dada1e746b729f49f8a06d482

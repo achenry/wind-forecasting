@@ -220,6 +220,15 @@ class CSVTimeSeries:
 			return array
 		dim = array.shape[-1]
 		return (array - self._scaler.mean_[:dim]) / self._scaler.scale_[:dim]
+	
+	def reverse_scaling(self, array):
+		if not self.normalize:
+			return array
+		# self._scaler is fit for target_cols + exo_cols
+		# if the array dim is less than this length we start
+		# slicing from the target cols
+		dim = array.shape[-1]
+		return (array * self._scaler.scale_[:dim]) + self._scaler.mean_[:dim]
 
 	def apply_scaling_df(self, df):
 		if not self.normalize:
@@ -246,14 +255,7 @@ class CSVTimeSeries:
 		) + self._scaler.mean_.astype(dtype)
 		return scaled
 
-	def reverse_scaling(self, array):
-		if not self.normalize:
-			return array
-		# self._scaler is fit for target_cols + exo_cols
-		# if the array dim is less than this length we start
-		# slicing from the target cols
-		dim = array.shape[-1]
-		return (array * self._scaler.scale_[:dim]) + self._scaler.mean_[:dim]
+
 
 	@property
 	def train_data(self):

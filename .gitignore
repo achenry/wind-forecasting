@@ -26,6 +26,8 @@ examples/postprocessed
 examples/other
 examples/inputs/awaken_data
 wind-forecasting.code-workspace
+wind_forecasting/preprocessing/.ipynb_checkpoints
+lut/
 
 .DS_Store
 wind_forecasting/models/.DS_Store
