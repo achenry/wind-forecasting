@@ -43,11 +43,13 @@ This open-source framework aims to predict wind speed and direction in the short
 To ensure consistent handling of Jupyter notebooks in this repository, please follow these steps after cloning:
 
 1. Install `nbstripout` using Mamba:
+
    ```bash
    mamba install nbstripout
    ```
 
 2. Set up `nbstripout` for this repository:
+
    ```bash
    nbstripout --install --attributes .gitattributes
    ```
@@ -117,7 +119,7 @@ sbatch rc_jobs/job.slurm
 <details>
 <summary>Click to expand</summary>
 
-```
+``` markdown
 wind-forecasting/
 ├── examples/
 │   ├── download_flasc_data.py
