@@ -3,12 +3,13 @@ This module provides methods for filling in null data with interpolated (imputed
 """
 
 from copy import deepcopy
-
+from concurrent.futures import ProcessPoolExecutor
+import multiprocessing
 import numpy as np
 import pandas as pd
-from tqdm import tqdm
 from numpy.polynomial import Polynomial
-
+from mpi4py import MPI
+from mpi4py.futures import MPICommExecutor
 
 def asset_correlation_matrix(data: pd.DataFrame, value_col: str) -> pd.DataFrame:
     """Create a correlation matrix on a MultiIndex `DataFrame` with time (or a different
@@ -139,6 +140,7 @@ def impute_all_assets_by_correlation(
     r2_threshold: float = 0.7,
     method: str = "linear",
     degree: int = 1,
+    multiprocessor: str | None = None,
 ):
     """Imputes NaN data in a Pandas data frame to the best extent possible by considering available data
     across different assets in the data frame. Highest correlated assets are prioritized in the imputation process.
@@ -179,55 +181,91 @@ def impute_all_assets_by_correlation(
     ix_sort = (-corr_df.fillna(-2)).values.argsort(axis=1)
     sort_df = pd.DataFrame(corr_df.columns.to_numpy()[ix_sort], index=corr_df.index)
     # Loop over the assets and impute missing data
-    for target_id in corr_df.columns:
-        # If there are no NaN values, then skip the asset altogether, otherwise
-        # keep track of the number we need to continue checking for
-        ix_target = impute_df.index.get_level_values(1) == target_id
-        if (ix_nan := data.loc[ix_target, impute_col].isnull()).sum() == 0:
-            continue
-
-        # Get the correlation-based neareast neighbor and data
-        id_sort_neighbor = 0
-        id_neighbor = sort_df.loc[target_id, id_sort_neighbor]
-        r2_neighbor = corr_df.loc[target_id, id_neighbor]
-
-        # If the R2 value is too low, then move on to the next asset
-        if r2_neighbor <= r2_threshold:
-            continue
-
-        num_neighbors = corr_df.shape[0] - 1
-        while (ix_nan.sum() > 0) & (num_neighbors > 0) & (r2_neighbor > r2_threshold):
-            # Get the imputed data based on the correlation-based next nearest neighbor
-            try:
-                imputed_data = impute_data(
-                    # target_data=data.xs(target_id, level=1).loc[:, [impute_col]],
-                    target_data=data.loc[
-                        data.index.get_level_values(1) == target_id, [impute_col]
-                    ].droplevel(asset_id_col),
-                    target_col=impute_col,
-                    # reference_data=data.xs(id_neighbor, level=1).loc[:, [reference_col]],
-                    reference_data=data.loc[
-                        data.index.get_level_values(1) == id_neighbor, [reference_col]
-                    ].droplevel(asset_id_col),
-                    reference_col=reference_col,
-                    method=method,
-                    degree=degree,
-                )
-            except ValueError as e:
-                print(f"ValueError was raised while trying to impute {target_id}: {e}")
-                break
-
-            # Fill any NaN values with available imputed values
-            impute_df.loc[ix_target, [impute_col]] = impute_df.loc[ix_target, [impute_col]].where(
-                ~ix_nan, imputed_data.to_frame()
-            )
-
-            ix_nan = impute_df.loc[ix_target, impute_col].isnull()
-            num_neighbors -= 1
-            id_sort_neighbor += 1
-            id_neighbor = sort_df.loc[target_id, id_sort_neighbor]
-            r2_neighbor = corr_df.loc[target_id, id_neighbor]
+    if multiprocessor is not None:
+        if multiprocessor == "mpi":
+            executor = MPICommExecutor(MPI.COMM_WORLD, root=0)
+        else:  # "cf" case
+            max_workers = multiprocessing.cpu_count()
+            executor = ProcessPoolExecutor(max_workers=max_workers)
+        with executor as ex:
+            futures = [ex.submit(impute_target_id, 
+                                        data=data,
+                                        corr_df=corr_df,
+                                        sort_df=sort_df,
+                                        r2_threshold=r2_threshold,
+                                        asset_id_col=asset_id_col,
+                                        impute_df=impute_df, impute_col=impute_col, reference_col=reference_col,
+                                        target_id=target_id, method=method, degree=degree) for target_id in corr_df.columns]
+            for fut in futures:
+                res = fut.result()
+                if res is None:
+                    continue
+                ix_target, sub_df = res
+                impute_df.loc[ix_target, [impute_col]] = sub_df
+    else:
+        for target_id in corr_df.columns:
+            ix_target, sub_df = impute_target_id(data=data,
+                                                corr_df=corr_df,
+                                                sort_df=sort_df,
+                                                r2_threshold=r2_threshold,
+                                                asset_id_col=asset_id_col,
+                                                impute_df=impute_df, impute_col=impute_col, reference_col=reference_col,
+                                                target_id=target_id, method=method, degree=degree)
+            impute_df.loc[ix_target, [impute_col]] = sub_df
 
     # Return the results with the impute_col renamed with a leading "imputed_" for clarity
     # return impute_df.rename(columns={c: f"imputed_{c}" for c in impute_df.columns})
     return impute_df[impute_col].rename(f"imputed_{impute_col}")
+
+def impute_target_id(data, corr_df, sort_df, r2_threshold, asset_id_col, impute_df, impute_col, reference_col, target_id, method, degree):
+    print(f"Imputing feature {impute_col} for asset {target_id}")
+    # If there are no NaN values, then skip the asset altogether, otherwise
+    # keep track of the number we need to continue checking for
+    ix_target = impute_df.index.get_level_values(1) == target_id
+    sub_df = impute_df.loc[ix_target, [impute_col]]
+    if (ix_nan := data.loc[ix_target, impute_col].isnull()).sum() == 0:
+        return
+
+    # Get the correlation-based neareast neighbor and data
+    id_sort_neighbor = 0
+    id_neighbor = sort_df.loc[target_id, id_sort_neighbor]
+    r2_neighbor = corr_df.loc[target_id, id_neighbor]
+
+    # If the R2 value is too low, then move on to the next asset
+    if r2_neighbor <= r2_threshold:
+        return
+
+    num_neighbors = corr_df.shape[0] - 1
+    while (ix_nan.sum() > 0) & (num_neighbors > 0) & (r2_neighbor > r2_threshold):
+        # Get the imputed data based on the correlation-based next nearest neighbor
+        try:
+            imputed_data = impute_data(
+                # target_data=data.xs(target_id, level=1).loc[:, [impute_col]],
+                target_data=data.loc[
+                    data.index.get_level_values(1) == target_id, [impute_col]
+                ].droplevel(asset_id_col),
+                target_col=impute_col,
+                # reference_data=data.xs(id_neighbor, level=1).loc[:, [reference_col]],
+                reference_data=data.loc[
+                    data.index.get_level_values(1) == id_neighbor, [reference_col]
+                ].droplevel(asset_id_col),
+                reference_col=reference_col,
+                method=method,
+                degree=degree,
+            )
+        except ValueError as e:
+            print(f"ValueError was raised while trying to impute {target_id}: {e}")
+            break
+
+        # Fill any NaN values with available imputed values
+        sub_df = sub_df.where(
+            ~ix_nan, imputed_data.to_frame()
+        )
+
+        ix_nan = sub_df[impute_col].isnull()
+        num_neighbors -= 1
+        id_sort_neighbor += 1
+        id_neighbor = sort_df.loc[target_id, id_sort_neighbor]
+        r2_neighbor = corr_df.loc[target_id, id_neighbor]
+
+    return ix_target, sub_df 

@@ -510,7 +510,7 @@ class DataInspector:
             return df.collect(streaming=True)
 
     @staticmethod
-    def unpivot_dataframe(df):
+    def unpivot_dataframe(df, feature_types):
         data_format = DataInspector.detect_data_format(df)
         if data_format == 'wide':
             # Unpivot wide format to long format
@@ -526,7 +526,7 @@ class DataInspector:
                     df.select(pl.col("time"), cs.starts_with(feature_type))\
                     .melt(id_vars=["time"], variable_name="feature", value_name=feature_type)\
                     .with_columns(pl.col("feature").str.extract(r"_(\d+)$").alias("turbine_id"))\
-                    .drop("feature") for feature_type in ["wind_speed", "wind_direction", "turbine_status", "power_output", "nacelle_direction"]], how="align")\
+                    .drop("feature") for feature_type in feature_types], how="align")\
                         .group_by("turbine_id", "time").agg(cs.numeric().drop_nulls().first()).sort("turbine_id", "time")
         else:
             # Data is already in long format

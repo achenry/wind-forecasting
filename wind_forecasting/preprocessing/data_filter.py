@@ -4,7 +4,6 @@ Returns:
     _type_: _description_
 """
 
-from functools import partial
 import logging
 
 import numpy as np
@@ -115,36 +114,72 @@ class DataFilter:
             with executor as ex:
                 futures = [ex.submit(self._fill_single_missing_dataset, df_idx=df_idx, df=df, 
                 impute_missing_features=impute_missing_features, interpolate_missing_features=interpolate_missing_features,
-                 available_features=available_features) 
+                 available_features=available_features, parallel="turbine_id") 
                 for df_idx, df in enumerate(dfs)]
                 return [fut.result() for fut in futures if fut.result() is not None]
         else:
             logging.info("🔧 Using single process executor")
             return [self._fill_single_missing_dataset(df_idx=df_idx, df=df, impute_missing_features=impute_missing_features, 
-            interpolate_missing_features=interpolate_missing_features, available_features=available_features) 
+            interpolate_missing_features=interpolate_missing_features, available_features=available_features, parallel="turbine_id") 
             for df_idx, df in enumerate(dfs)]
     
-    def _fill_single_missing_dataset(self, df_idx, df, impute_missing_features, interpolate_missing_features, available_features):
+    def _impute_single_missing_dataset(self, df_idx, df, impute_missing_features, parallel=False):
+        unpivot_df = DataInspector.unpivot_dataframe(df, impute_missing_features)
 
-        unpivot_df = DataInspector.unpivot_dataframe(df)
-
-        for feature in impute_missing_features:
-            # imputed = False
-            # for other_feature in [feature] + [f for f in ["wind_speed", "wind_direction", "power_output", "nacelle_direction"] if f != feature]:
-            other_feature = feature # TODO how to impute from other columns ERIC ASK
-            imputed_vals = imputing.impute_all_assets_by_correlation(data=unpivot_df.collect().to_pandas().set_index(["time", "turbine_id"]),
-                                                        impute_col=feature, reference_col=other_feature,
-                                                        asset_id_col="turbine_id", method="linear").to_numpy()
-            df = DataInspector.pivot_dataframe(
-                unpivot_df.with_columns({feature: imputed_vals}))
+        if parallel == "feature":
+            if self.multiprocessor == "mpi":
+                executor = MPICommExecutor(MPI.COMM_WORLD, root=0)
+                logging.info(f"🚀 Using MPI executor with {MPI.COMM_WORLD.Get_size()} processes")
+            else:  # "cf" case
+                max_workers = multiprocessing.cpu_count()
+                executor = ProcessPoolExecutor(max_workers=max_workers)
+                logging.info(f"🖥️  Using ProcessPoolExecutor with {max_workers} workers")
             
-            logging.info(f"Successfully imputed feature {feature} in DataFrame {df_idx} using other feature {other_feature}.")
-            # imputed = True
-            # break
+            with executor as ex:
+                futures = {feature: ex.submit(imputing.impute_all_assets_by_correlation, 
+                                     data=unpivot_df.select(["time", "turbine_id", feature]).collect().to_pandas().set_index(["time", "turbine_id"]),
+                                     impute_col=feature, reference_col=feature,
+                                     asset_id_col="turbine_id", method="linear") for feature in impute_missing_features}
 
-        df = df.with_columns(cs.starts_with(feat).interpolate() for feat in interpolate_missing_features)
-        df = df.with_columns(cs.starts_with(feat).fill_null(strategy="forward") for feat in interpolate_missing_features)\
-               .with_columns(cs.starts_with(feat).fill_null(strategy="backward") for feat in interpolate_missing_features)
+                unpivot_df = unpivot_df.with_columns({k: v.result() for k, v in futures.items()}).fill_nan(None)
+        else:
+            for feature in impute_missing_features:
+                # n_nulls_before = unpivot_df.select(cs.contains(feature)).select(pl.sum_horizontal(pl.all().is_null()).sum()).collect().item()
+                # print(f"# Missing values before imputation = {n_nulls_before}")
+                
+                other_feature = feature
+                features = set(["time", "turbine_id", feature, other_feature])
+
+                imputed_vals = imputing.impute_all_assets_by_correlation(
+                    data=unpivot_df.select(features).collect().to_pandas().set_index(["time", "turbine_id"]),
+                                                            impute_col=feature, reference_col=other_feature,
+                                                            asset_id_col="turbine_id", method="linear", multiprocessor=self.multiprocessor).to_numpy()
+                
+                unpivot_df = unpivot_df.with_columns({feature: imputed_vals}).fill_nan(None)
+                # n_nulls_after = unpivot_df.select(cs.contains(feature)).select(pl.sum_horizontal(pl.all().is_null()).sum()).collect().item()
+                # print(f"# Missing values after imputation = {n_nulls_after}")
+                logging.info(f"Imputed feature {feature} in DataFrame {df_idx}.")
+                # logging.info(f"Successfully imputed {n_nulls_before - n_nulls_after} cells for feature {feature} in DataFrame {df_idx}.")
+        return DataInspector.pivot_dataframe(unpivot_df)
+
+    def _fill_single_missing_dataset(self, df_idx, df, impute_missing_features, interpolate_missing_features, available_features, parallel=None):
+        
+        df = self._impute_single_missing_dataset(df_idx, df, impute_missing_features, parallel=parallel)
+
+        # n_nulls_before = df.select([cs.contains(feat) for feat in interpolate_missing_features]).select(pl.sum_horizontal(pl.all().is_null()).sum()).collect().item()
+        # print(f"# Missing values before interpolation = {n_nulls_before}")
+        # TODO if any column is all nulls ... can't be imputed
+        df = df.with_columns([cs.starts_with(feat).interpolate().fill_null(strategy="forward").fill_null(strategy="backward") for feat in interpolate_missing_features])
+                                 
+        # df = df.with_columns(pl.col("wind_speed_wt030").fill_null(strategy="forward"), pl.col("wind_speed_wt081").fill_null(strategy="forward"))
+        
+        # .fill_null(strategy="backward"))
+        # n_nulls_after = df.select([cs.contains(feat) for feat in interpolate_missing_features]).select(pl.sum_horizontal(pl.all().is_null()).sum()).collect().item()
+        # print(f"# Missing values after interpolation = {n_nulls_after}")
+        # logging.info(f"Successfully interpolated {n_nulls_before - n_nulls_after} cells in DataFrame {df_idx}.")
+
+        if df.filter(pl.any_horizontal(pl.all().is_null())).select(pl.len()).collect().item():
+            print(f"Error, there are still nulls in dataframe {df_idx}!")
 
         # for feature in interpolate_missing_features:       
         #     # if not imputed:
