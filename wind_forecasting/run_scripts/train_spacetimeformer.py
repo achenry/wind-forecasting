@@ -1,13 +1,9 @@
 from argparse import ArgumentParser
-import random
 import sys
-import warnings
 import os
 import uuid
-import glob
 
 import pytorch_lightning as pl
-import torch
 
 import spacetimeformer as stf
 
@@ -441,7 +437,6 @@ def main(args, dataset):
 
     if args.wandb:
         experiment.finish()
-
 
 if __name__ == "__main__":
 
