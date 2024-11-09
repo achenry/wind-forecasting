@@ -8,16 +8,18 @@ from wind_forecasting.models import spacetimeformer as stf
 import random
 from sklearn.preprocessing import MinMaxScaler
 
+
+# TODO make a base class to enforce implementing certain methods...
 class KPWindFarm(Dataset):
-	def __init__(self, data_params):
+	def __init__(self, *, data_path, context_len, target_len, normalize, test_split, val_split, **kwargs):
 		# TODO input validation etc
-		self.context_len = data_params["context_len"]
-		self.target_len = data_params["target_len"]
-		self.normalize = data_params["normalize"]
-		self.time_col_name = "time" 
+		self.context_len = context_len
+		self.target_len = target_len
+		self.normalize = normalize
+		self.time_col_name = "time"
 		self.time_features = ["year", "month", "day", "hour", "minute", "second"]
 		
-		dfs = [df.to_pandas() for df in pl.scan_parquet(source=config["data_path"]).collect(streaming=True).partition_by("continuity_group")]
+		dfs = [df.to_pandas() for df in pl.scan_parquet(source=data_path).collect(streaming=True).partition_by("continuity_group")]
 		
 		horz_ws_cols = sorted([col for col in dfs[0].columns if "horizontal_ws" in col])
 		vert_ws_cols = sorted([col for col in dfs[0].columns if "vertical_ws" in col])
@@ -25,7 +27,7 @@ class KPWindFarm(Dataset):
 		nd_cos = sorted([col for col in dfs[0].columns if "nd_cos" in col])
 
 		self.input_cols = horz_ws_cols + vert_ws_cols + nd_sin + nd_cos
-		self.target_cols = [col for col in (horz_ws_cols + vert_ws_cols) if any(tid in col for tid in config["target_turbine_ids"])]
+		self.target_cols = [col for col in (horz_ws_cols + vert_ws_cols) if any(tid in col for tid in kwargs["target_turbine_ids"])]
 
 		self._x_dim = len(self.input_cols)
 		self._yc_dim = self._yt_dim = len(self.target_cols)
@@ -42,9 +44,9 @@ class KPWindFarm(Dataset):
 		# TODO split training/validation/testing as percentages of each dataset? OR shuffle and approximately select 70/20/10
 		random.shuffle(dfs)
 		total_rows = sum(len(df) for df in dfs)
-		n_train_rows = round(total_rows * (1.0 - config["test_split"] - config["val_split"]))
-		n_test_rows = round(total_rows * (config["test_split"]))
-		n_val_rows = round(total_rows * (config["val_split"]))
+		n_train_rows = round(total_rows * (1.0 - test_split - val_split))
+		n_test_rows = round(total_rows * test_split)
+		n_val_rows = round(total_rows * val_split)
 
 		train_indices = fill_split(dfs=dfs, n_split_rows=n_train_rows, taken_split_indices=[])
 		val_indices = fill_split(dfs=dfs, n_split_rows=n_val_rows, taken_split_indices=train_indices)
