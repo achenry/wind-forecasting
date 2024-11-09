@@ -1,18 +1,26 @@
 import os
-
+import gc
 import torch
-
 from ..utils.colors import Colors
 
-# INFO: Base class for all transformer models to inherit from
-class BaseModel:
-    def __init__(self):
-        self.model = None
-        self.trainer = None
-        self.data_module = None
+class Forecaster:
+    def __init__(self, *, data_module, config):
+        super().__init__()
+
+        self.model = config["model"]["model_class"](
+            d_x=data_module.dataset.x_dim, d_yc=data_module.dataset.yc_dim, d_yt=data_module.dataset.yt_dim, 
+            context_len=data_module.dataset.context_len, target_len=data_module.dataset.target_len, 
+            **config["model"])
+        self.model.set_inv_scaler(data_module.dataset.reverse_scaling)
+        self.model.set_scaler(data_module.dataset.apply_scaling)
         
+    def train(self, data_module):
+        return self.trainer.fit(self.model, data_module=data_module)
+        
+    def test(self, data_module):
+        return self.trainer.test(data_module=data_module, ckpt_path="best")
+    
     def cleanup_memory(self):
-        import gc
         gc.collect()
         torch.cuda.empty_cache()
         if torch.cuda.is_available():
@@ -50,9 +58,3 @@ class BaseModel:
         except Exception as e:
             print(f"{Colors.RED}Error during checkpoint cleanup: {str(e)}{Colors.ENDC}")
             raise  # Re-raise the exception to be caught by the outer try-except
-
-    def train(self, dataset_class, data_path, model_params, train_params):
-        raise NotImplementedError("Subclasses must implement train method")
-
-    def test(self, dataset_class, data_path, model_params, train_params, checkpoint_path):
-        raise NotImplementedError("Subclasses must implement test method")
