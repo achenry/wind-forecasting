@@ -30,7 +30,7 @@ FFILL_LIMIT = 10 * SECONDS_PER_MINUTE
 # pl.Config.set_streaming_chunk_size(None)
 # INFO: @Juan 10/02/24 Set Logging up
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-JOIN_CHUNK = int(88 * 30)
+JOIN_CHUNK = int(88 * 3)
 
 class DataLoader:
     """_summary_
