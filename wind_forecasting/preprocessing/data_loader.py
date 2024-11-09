@@ -30,7 +30,7 @@ FFILL_LIMIT = 10 * SECONDS_PER_MINUTE
 # pl.Config.set_streaming_chunk_size(None)
 # INFO: @Juan 10/02/24 Set Logging up
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-JOIN_CHUNK = int(22 * 3)
+JOIN_CHUNK = int(88 * 30)
 
 class DataLoader:
     """_summary_
@@ -89,6 +89,7 @@ class DataLoader:
             return df_query
     
     def _join_dfs(self, file_suffix, dfs):
+        
         all_cols = set()
         df_query = None
         for df in dfs:
@@ -109,50 +110,52 @@ class DataLoader:
             all_cols.update(new_cols)
         
         df_query.sink_parquet(self.save_path.replace(".parquet", f"_{file_suffix}.parquet"), statistics=False)
+        logging.info(f"🔗 Finished  first concatenation of {file_suffix}-th set of files.")
         return df_query
 
     def postprocess_multi_files(self, df_query) -> pl.LazyFrame | None:
-        if df_query:
+        
             if self.multiprocessor is not None:
                 if self.multiprocessor == "mpi":
                     executor = MPICommExecutor(MPI.COMM_WORLD, root=0)
                 else:  # "cf" case
                     executor = ProcessPoolExecutor()
                 with executor as ex:
-            
-                    logging.info(f"✅ Finished reading individual files. Time elapsed: {time.time() - start_time:.2f} s")
-                    # logging.info("🔄 Starting concatenation of DataFrames")
-                    concat_start = time.time()
-                    logging.info(f"✅ Started first concatenation of {len(df_query)} files.")
-                    # df_query = pl.concat([df for df in df_query if df is not None]).lazy()
-                    
-                    df_query_list = df_query
-                    n_dfs = len(df_query_list)
-                    df_slices = [slice(i * JOIN_CHUNK, (i + 1) * JOIN_CHUNK, 1) for i in range(math.ceil(n_dfs / JOIN_CHUNK))]
-                    n_df_slices = len(df_slices)
+                    if df_query:
+                        logging.info(f"✅ Finished reading individual files. Time elapsed: {time.time() - start_time:.2f} s")
+                        # logging.info("🔄 Starting concatenation of DataFrames")
+                        concat_start = time.time()
+                        # df_query = pl.concat([df for df in df_query if df is not None]).lazy()
+                        
+                        df_query_list = df_query
+                        n_dfs = len(df_query_list)
+                        df_slices = [slice(i * JOIN_CHUNK, (i + 1) * JOIN_CHUNK, 1) for i in range(math.ceil(n_dfs / JOIN_CHUNK))]
+                        n_df_slices = len(df_slices)
 
-                    futures = [ex.submit(self._join_dfs, i, df_query_list[indices]) for i, indices in enumerate(df_slices)]
-                    _ = [fut.result() for fut in futures] 
-                    
-                    del df_query_list
-                    logging.info(f"🔗 Finished first concatenation of {len(self.file_paths)} files. Time elapsed: {time.time() - concat_start:.2f} s")
+                        logging.info(f"✅ Started first concatenation of {len(df_query)} files in {n_df_slices} groups of {JOIN_CHUNK}.")
 
-                    concat_start = time.time()
-                    logging.info(f"✅ Started second concatenation of {n_df_slices} files.")
-                    df_query = self._join_dfs("", 
-                                   [pl.scan_parquet(self.save_path.replace(".parquet", f"_{i}.parquet")) for i in range(n_df_slices)])
+                        futures = [ex.submit(self._join_dfs, i, df_query_list[indices]) for i, indices in enumerate(df_slices)]
+                        _ = [fut.result() for fut in futures]
+                        
+                        del df_query_list
+                        logging.info(f"🔗 Finished first concatenation of {len(self.file_paths)} files. Time elapsed: {time.time() - concat_start:.2f} s")
 
-                    logging.info(f"🔗 Finished concatenation of {n_df_slices} files. Time elapsed: {time.time() - concat_start:.2f} s")
+                        concat_start = time.time()
+                        logging.info(f"✅ Started second concatenation of {n_df_slices} files.")
+                        df_query = self._join_dfs("", 
+                                    [pl.scan_parquet(self.save_path.replace(".parquet", f"_{i}.parquet")) for i in range(n_df_slices)])
 
-                    # with open(os.path.join(os.path.dirname(self.save_path), "all_df_query_explan.txt"), "w") as f:
-                    #     f.write(df_query.explain(streaming=True))
+                        logging.info(f"🔗 Finished second concatenation of {n_df_slices} files. Time elapsed: {time.time() - concat_start:.2f} s")
 
-                    self._write_parquet(df_query)
-                    
-                    return df_query #INFO: @Juan 10/16/24 Added .lazy() to the return statement to match the expected return type. Is this necessary?
-    
-        logging.warning("⚠️ No data frames were created.")
-        return None
+                        # with open(os.path.join(os.path.dirname(self.save_path), "all_df_query_explan.txt"), "w") as f:
+                        #     f.write(df_query.explain(streaming=True))
+
+                        self._write_parquet(df_query)
+                        
+                        return df_query #INFO: @Juan 10/16/24 Added .lazy() to the return statement to match the expected return type. Is this necessary?
+                    else:
+                        logging.warning("⚠️ No data frames were created.")
+                        return None
             
     def _write_parquet(self, df_query: pl.LazyFrame):
         
@@ -564,7 +567,7 @@ if __name__ == "__main__":
         # PL_SAVE_PATH = "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/kp.turbine.zo2.b0.raw.parquet"
         # FILE_SIGNATURE = "kp.turbine.z02.b0.*.*.*.nc"
         PL_SAVE_PATH = "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/kp.turbine.zo2.b0.raw.parquet"
-        FILE_SIGNATURE = "kp.turbine.z02.b0.202203*1.*.*.nc"
+        FILE_SIGNATURE = "kp.turbine.z02.b0.*.*.*.nc"
         MULTIPROCESSOR = "cf"
         TURBINE_INPUT_FILEPATH = "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/inputs/ge_282_127.yaml"
         FARM_INPUT_FILEPATH = "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/inputs/gch_KP_v4.yaml"
