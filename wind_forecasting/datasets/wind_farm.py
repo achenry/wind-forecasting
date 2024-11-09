@@ -9,11 +9,11 @@ import random
 from sklearn.preprocessing import MinMaxScaler
 
 class KPWindFarm(Dataset):
-	def __init__(self, **config):
+	def __init__(self, data_params):
 		# TODO input validation etc
-		self.context_len = config["context_len"]
-		self.target_len = config["target_len"]
-		self.normalize = config["normalize"]
+		self.context_len = data_params["context_len"]
+		self.target_len = data_params["target_len"]
+		self.normalize = data_params["normalize"]
 		self.time_col_name = "time" 
 		self.time_features = ["year", "month", "day", "hour", "minute", "second"]
 		
