@@ -30,7 +30,7 @@ FFILL_LIMIT = 10 * SECONDS_PER_MINUTE
 # pl.Config.set_streaming_chunk_size(None)
 # INFO: @Juan 10/02/24 Set Logging up
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-JOIN_CHUNK = int(88 * 3)
+JOIN_CHUNK = int(2000)
 
 class DataLoader:
     """_summary_
@@ -67,7 +67,7 @@ class DataLoader:
         self.ffill_limit = ffill_limit
         
         # Get all the wts in the folder @Juan 10/16/24 used os.path.join for OS compatibility
-        self.file_paths = glob.glob(os.path.join(data_dir, file_signature))
+        self.file_paths = sorted(glob.glob(os.path.join(data_dir, file_signature)))
         if not self.file_paths:
             raise FileExistsError(f"⚠️ File with signature {file_signature} in directory {data_dir} doesn't exist.")
 
@@ -271,7 +271,7 @@ class DataLoader:
                     values=pivot_features,
                     aggregate_function=pl.element().drop_nulls().first(),
                     sort_columns=True
-                ).lazy()
+                ).sort("time").lazy()
             else:
                 df_query = df_query.collect(streaming=True).lazy()
             # with open(os.path.join(os.path.dirname(file_path), "ind_df_query_explan.txt"), "w") as f:

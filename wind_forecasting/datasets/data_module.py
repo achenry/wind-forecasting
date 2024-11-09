@@ -112,7 +112,7 @@ class STTREDataModule(L.LightningDataModule):
             print(f"Error creating test dataloader: {str(e)}")
             raise
 
-class TorchDataModule(L.LightningDataModule):
+class DataModule(L.LightningDataModule):
     """_summary_
     The DataModule Encapsulates the entire data pipeline, including:
     Training, validation, and testing datasets.
@@ -125,7 +125,7 @@ class TorchDataModule(L.LightningDataModule):
     def __init__(
         self,
         dataset_class,
-        data_params
+        config
     ):
         # TODO add input validation etc
         super().__init__()
