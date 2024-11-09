@@ -1,7 +1,7 @@
 import os
 import gc
 import torch
-from ..utils.colors import Colors
+from wind_forecasting.utils.colors import Colors
 
 class Forecaster:
     def __init__(self, *, data_module, config):

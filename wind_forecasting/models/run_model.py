@@ -10,12 +10,10 @@ from lightning.pytorch.callbacks.progress.rich_progress import RichProgressBarTh
 
 import wandb
 
-import spacetimeformer as stf
-from .forecaster import Forecaster
-from ..utils.colors import Colors
-from ..utils.config import Config
-from ..datasets.data_module import DataModule
-from ..datasets.wind_farm import KPWindFarm
+from wind_forecasting.models.forecaster import Forecaster
+from wind_forecasting.utils.colors import Colors
+from wind_forecasting.utils.config import Config
+from wind_forecasting.datasets.data_module import DataModule
 
 class Callbacks:
     def __init__(self, *, config, local_rank):
@@ -65,7 +63,6 @@ class Callbacks:
 
         lr_monitor = L.callbacks.LearningRateMonitor()
 
-
         self.callbacks.extend([checkpoint_callback, early_stopping, lr_monitor])
     
     def __len__(self):
@@ -80,11 +77,14 @@ class Callbacks:
 ##################################################################################################
 
 if __name__ == "__main__":
+    from wind_forecasting.datasets.wind_farm import KPWindFarm
+    from wind_forecasting.models.spacetimeformer.spacetimeformer.spacetimeformer_model import Spacetimeformer_Forecaster
 
     ## DEFINE CONFIGURATION
     config = {
         "experiment": {
-            "run_name": "windfarm_debug"
+            "run_name": "windfarm_debug",
+            "log_dir": "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/logging/"
         },
         "dataset": {
             "dataset_class": KPWindFarm,
@@ -101,7 +101,7 @@ if __name__ == "__main__":
             "collate_fn": None
         },
         "model": {
-            "model_class": stf.spacetimeformer_model.Spacetimeformer_Forecaster,
+            "model_class": Spacetimeformer_Forecaster,
             'embed_size': 32, # Determines dimension of the embedding space
             'num_layers': 3, # Number of transformer blocks stacked
             'heads': 4, # Number of heads for spatio-temporal attention
@@ -133,12 +133,14 @@ if __name__ == "__main__":
     wandb_logger = None
     local_rank = int(os.environ.get("LOCAL_RANK", 0))
     if local_rank == 0:
+        if not os.path.exists(config["experiment"]["log_dir"]):
+            os.makedirs(config["experiment"]["log_dir"])
         wandb.login() # Login to wandb website
         wandb_logger = WandbLogger(
             project="wf_forecasting",
             name=config["experiment"]["run_name"],
             log_model=True,
-            save_dir=Config.SAVE_DIR,
+            save_dir=config["experiment"]["log_dir"],
             config=config
         )
         
