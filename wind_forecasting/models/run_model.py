@@ -96,10 +96,10 @@ if __name__ == "__main__":
         },
         "dataset": {
             "dataset_class": KPWindFarm,
-            "data_path": "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/normalized_data.parquet",
+            # "data_path": "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/normalized_data.parquet",
+            "data_path": "/projects/ssc/ahenry/wind_forecasting/awaken_data/normalized_data.parquet",
             # "normalization_consts": pd.read_csv("/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/normalization_consts.csv", index_col=None),
             "normalization_consts": pd.read_csv("/projects/ssc/ahenry/wind_forecasting/awaken_data/normalization_consts.csv", index_col=None),
-            # "data_path": "/projects/ssc/ahenry/wind_forecasting/awaken_data/normalized_data.parquet",
             "context_len": 120, # 10 minutes for 5 sec sample size,
             "target_len":  120, # 10 minutes for 5 sec sample size,
             "target_turbine_ids": ["wt029", "wt034", "wt074"],
