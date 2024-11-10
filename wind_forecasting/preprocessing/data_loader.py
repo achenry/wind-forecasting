@@ -30,7 +30,7 @@ FFILL_LIMIT = 10 * SECONDS_PER_MINUTE
 # pl.Config.set_streaming_chunk_size(None)
 # INFO: @Juan 10/02/24 Set Logging up
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-JOIN_CHUNK = int(2000)
+JOIN_CHUNK = 100 #int(2000)
 
 class DataLoader:
     """_summary_
@@ -92,7 +92,8 @@ class DataLoader:
         
         all_cols = set()
         first_df = True
-        temp_save_path = self.save_path.replace(".parquet", "_tmp.parquet")
+        temp_save_path = self.save_path.replace(".parquet", f"_{file_suffix}_tmp.parquet")
+        save_path = self.save_path.replace(".parquet", f"_{file_suffix}.parquet")
         # df_query = None
         for d, df in enumerate(dfs):
             # df = df.collect()
@@ -103,7 +104,7 @@ class DataLoader:
                 first_df = False
             else:
                 #df_query = pl.scan_parquet(self.save_path.replace(".parquet", f"_{file_suffix}.parquet"))
-                df_query = pl.scan_parquet(self.save_path)
+                df_query = pl.scan_parquet(save_path)
                 existing_cols = list(all_cols.intersection(new_cols))
                 if existing_cols:
                     # data for the turbine contained in this frame has already been added, albeit from another day
@@ -118,11 +119,11 @@ class DataLoader:
                     # df_query.filter((pl.col("time") >= df.select("time").min().collect().item()) & (pl.col("time") <= df.select("time").max().collect().item())).sort("time").select(pl.col("time"), cs.contains(df.columns[1].split("_")[-1])).collect()
 
             all_cols.update(new_cols)
-            os.rename(temp_save_path, self.save_path)
+            os.rename(temp_save_path, save_path)
             #df_query.sink_parquet(self.save_path.replace(".parquet", f"_{file_suffix}.parquet"), statistics=False)
             # df_query.sink_parquet(self.save_path) #, statistics=False)
         
-            logging.info(f"🔗 Finished {d}-th join.")
+            logging.info(f"🔗 Finished {d}-th join of {len(dfs)} of {file_suffix}-th collection of files.")
         return df_query
 
     def postprocess_multi_files(self, df_query) -> pl.LazyFrame | None:
@@ -132,48 +133,86 @@ class DataLoader:
             concat_start = time.time()
             logging.info(f"✅ Started concatenation of {len(self.file_paths)} files.")
             df_query = self._join_dfs("",df_query)
-
-            logging.info(f"🔗 Finished concatenation of {len(self.file_paths)} files. Time elapsed: {time.time() - concat_start:.2f} s")
             return df_query
-            # if self.multiprocessor is not None:
-            #     if self.multiprocessor == "mpi":
-            #         executor = MPICommExecutor(MPI.COMM_WORLD, root=0)
-            #     else:  # "cf" case
-            #         executor = ProcessPoolExecutor()
-            #     with executor as ex:
-            #         if df_query:
-                        
-                        # df_query = pl.concat([df for df in df_query if df is not None]).lazy()
-                        
-                        # df_query_list = df_query
-                        # n_dfs = len(df_query_list)
-                        # df_slices = [slice(i * JOIN_CHUNK, (i + 1) * JOIN_CHUNK, 1) for i in range(math.ceil(n_dfs / JOIN_CHUNK))]
-                        # n_df_slices = len(df_slices)
-
-                        # logging.info(f"✅ Started first concatenation of {len(df_query)} files in {n_df_slices} groups of {JOIN_CHUNK}.")
-
-                        # futures = [ex.submit(self._join_dfs, i, df_query_list[indices]) for i, indices in enumerate(df_slices)]
-                        # _ = [fut.result() for fut in futures]
-                        
-                        # del df_query_list
-                        # logging.info(f"🔗 Finished first concatenation of {len(self.file_paths)} files. Time elapsed: {time.time() - concat_start:.2f} s")
-
-                        # concat_start = time.time()
-                        # logging.info(f"✅ Started second concatenation of {n_df_slices} files.")
-                        # df_query = self._join_dfs("", 
-                        #             [pl.scan_parquet(self.save_path.replace(".parquet", f"_{i}.parquet")) for i in range(n_df_slices)])
-
-                        # logging.info(f"🔗 Finished second concatenation of {n_df_slices} files. Time elapsed: {time.time() - concat_start:.2f} s")
-
-                        # with open(os.path.join(os.path.dirname(self.save_path), "all_df_query_explan.txt"), "w") as f:
-                        #     f.write(df_query.explain(streaming=True))
-
-                        # self._write_parquet(df_query)
-                        
-                        # return df_query #INFO: @Juan 10/16/24 Added .lazy() to the return statement to match the expected return type. Is this necessary?
         else:
             logging.warning("⚠️ No data frames were created.")
             return None
+        
+        # if False and self.multiprocessor is not None:
+        #     if self.multiprocessor == "mpi":
+        #         executor = MPICommExecutor(MPI.COMM_WORLD, root=0)
+        #         # size = comm.Get_size()
+        #     else:  # "cf" case
+        #         executor = ProcessPoolExecutor()
+        #     with executor as ex:
+        #         if df_query:
+                    
+        #             # df_query = pl.concat([df for df in df_query if df is not None]).lazy()
+        #             num_processes = executor._max_workers
+        #             df_query_list = df_query
+        #             n_dfs = len(df_query_list)
+        #             join_chunk = math.ceil(n_dfs / num_processes)
+        #             df_slices = [slice(i * join_chunk, (i + 1) * join_chunk, 1) for i in range(math.ceil(n_dfs / join_chunk))]
+        #             n_df_slices = len(df_slices)
+
+        #             logging.info(f"✅ Started first concatenation of {len(df_query)} files in {n_df_slices} groups of {join_chunk}.")
+
+        #             futures = [ex.submit(self._join_dfs, i, df_query_list[indices]) for i, indices in enumerate(df_slices)]
+        #             _ = [fut.result() for fut in futures]
+                    
+        #             del df_query_list
+        #             logging.info(f"🔗 Finished first concatenation of {len(self.file_paths)} files. Time elapsed: {time.time() - concat_start:.2f} s")
+
+        #             concat_start = time.time()
+        #             logging.info(f"✅ Started second concatenation of {n_df_slices} files.")
+        #             df_query = self._join_dfs("", 
+        #                         [pl.scan_parquet(self.save_path.replace(".parquet", f"_{i}.parquet")) for i in range(n_df_slices)])
+
+        #             logging.info(f"🔗 Finished second concatenation of {n_df_slices} files. Time elapsed: {time.time() - concat_start:.2f} s")
+
+        #             # with open(os.path.join(os.path.dirname(self.save_path), "all_df_query_explan.txt"), "w") as f:
+        #             #     f.write(df_query.explain(streaming=True))
+
+        #             # self._write_parquet(df_query)
+                    
+        #             return df_query #INFO: @Juan 10/16/24 Added .lazy() to the return statement to match the expected return type. Is this necessary?
+        #         else:
+        #             logging.warning("⚠️ No data frames were created.")
+        #             return None
+        # else:
+        #     if df_query:
+        #         # logging.info(f"✅ Finished reading individual files. Time elapsed: {time.time() - start_time:.2f} s")
+        #         # # logging.info("🔄 Starting concatenation of DataFrames")
+        #         # concat_start = time.time()
+        #         # logging.info(f"✅ Started concatenation of {len(self.file_paths)} files.")
+        #         # df_query = self._join_dfs("",df_query)
+
+        #         # logging.info(f"🔗 Finished concatenation of {len(self.file_paths)} files. Time elapsed: {time.time() - concat_start:.2f} s")
+        #         num_processes = 12 
+        #         df_query_list = df_query
+        #         n_dfs = len(df_query_list)
+        #         join_chunk = math.ceil(n_dfs / num_processes)
+        #         df_slices = [slice(i * join_chunk, (i + 1) * join_chunk, 1) for i in range(math.ceil(n_dfs / join_chunk))]
+        #         n_df_slices = len(df_slices)
+
+        #         logging.info(f"✅ Started first concatenation of {len(df_query)} files in {n_df_slices} groups of {join_chunk}.")
+
+        #         dfs = []
+        #         for i, indices in enumerate(df_slices):
+        #             dfs.append(self._join_dfs(i, df_query_list[indices]))
+                
+        #         del df_query_list
+        #         logging.info(f"🔗 Finished first concatenation of {len(self.file_paths)} files. Time elapsed: {time.time() - concat_start:.2f} s")
+
+        #         concat_start = time.time()
+        #         logging.info(f"✅ Started second concatenation of {n_df_slices} files.")
+        #         df_query = self._join_dfs("", 
+        #                     [pl.scan_parquet(self.save_path.replace(".parquet", f"_{i}.parquet")) for i in range(n_df_slices)])
+
+        #         return df_query
+        #     else:
+        #         logging.warning("⚠️ No data frames were created.")
+        #         return None
             
     def _write_parquet(self, df_query: pl.LazyFrame):
         
@@ -695,10 +734,9 @@ if __name__ == "__main__":
             logging.info(f"🖥️  Using ProcessPoolExecutor with {max_workers} workers.")
     
     df_query = data_loader.read_multi_files()
-    
 
     if RUN_ONCE:
-        df_query = data_loader.postprocess_multi_files(df_query)
+        df_query = data_loader.postprocess_multi_files(df_query)        
         logging.info(f"⏱️ Total time elapsed: {time.time() - start_time:.2f} s")
     
         if df_query is not None:
