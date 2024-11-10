@@ -14,11 +14,11 @@ class Forecaster:
         self.model.set_inv_scaler(data_module.dataset.reverse_scaling)
         self.model.set_scaler(data_module.dataset.apply_scaling)
         
-    def train(self, data_module):
-        return self.trainer.fit(self.model, data_module=data_module)
+    def train(self, *, trainer, data_module):
+        return trainer.fit(self.model, datamodule=data_module)
         
-    def test(self, data_module):
-        return self.trainer.test(data_module=data_module, ckpt_path="best")
+    def test(self, *, trainer, data_module):
+        return trainer.test(datamodule=data_module, ckpt_path="best")
     
     def cleanup_memory(self):
         gc.collect()

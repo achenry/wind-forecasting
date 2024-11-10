@@ -129,15 +129,21 @@ class DataModule(L.LightningDataModule):
     ):
         # TODO add input validation etc
         super().__init__()
-        self.dataset = dataset_class(data_params)
-        self.batch_size = data_params["batch_size"]
-        self.workers = data_params["workers"]
-        self.collate_fn = data_params["collate_fn"]
-        self.context_len = data_params["context_len"]
-        self.target_len = data_params["target_len"]
-        if data_params["overfit"]:
+        self.dataset = dataset_class(data_path=config["dataset"]["data_path"], 
+                                      context_len=config["dataset"]["context_len"], 
+                                      target_len=config["dataset"]["target_len"], 
+                                      normalize=config["dataset"]["normalize"], 
+                                      test_split=config["dataset"]["test_split"], 
+                                      val_split=config["dataset"]["val_split"],
+                                      **config["dataset"]["dataset_kwargs"])
+        self.batch_size = config["dataset"]["batch_size"]
+        self.workers = config["dataset"]["workers"]
+        self.collate_fn = config["dataset"]["collate_fn"]
+        self.context_len = config["dataset"]["context_len"]
+        self.target_len = config["dataset"]["target_len"]
+        if config["dataset"]["overfit"]:
             warnings.warn("Overriding val and test dataloaders to use train set!")
-        self.overfit = data_params["overfit"]
+        self.overfit = config["dataset"]["overfit"]
 
     def train_dataloader(self, shuffle=True):
         return self._make_dloader("train", shuffle=shuffle)
