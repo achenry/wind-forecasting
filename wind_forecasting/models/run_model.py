@@ -88,20 +88,25 @@ if __name__ == "__main__":
     from wind_forecasting.models.spacetimeformer.spacetimeformer.spacetimeformer_model import Spacetimeformer_Forecaster
     from sys import platform
 
-    
+    if platform == "darwin":
+        LOG_DIR = "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/logging/"
+        DATA_PATH = "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/normalized_data.parquet"
+        NORM_CONSTS = pd.read_csv("/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/normalization_consts.csv", index_col=None)
+    elif platform == "linux":
+        LOG_DIR = "/projects/ssc/ahenry/wind_forecasting/logging/"
+        DATA_PATH = "/projects/ssc/ahenry/wind_forecasting/awaken_data/normalized_data.parquet"
+        NORM_CONSTS = pd.read_csv("/projects/ssc/ahenry/wind_forecasting/awaken_data/normalization_consts.csv", index_col=None)
+
     ## DEFINE CONFIGURATION
     config = {
         "experiment": {
             "run_name": "windfarm_debug",
-            "log_dir": "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/logging/"
-            # "log_dir": "/projects/ssc/ahenry/wind_forecasting/logging/"
+            "log_dir": LOG_DIR
         },
         "dataset": {
             "dataset_class": KPWindFarm,
-            "data_path": "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/normalized_data.parquet",
-            # "data_path": "/projects/ssc/ahenry/wind_forecasting/awaken_data/normalized_data.parquet",
-            "normalization_consts": pd.read_csv("/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/normalization_consts.csv", index_col=None),
-            # "normalization_consts": pd.read_csv("/projects/ssc/ahenry/wind_forecasting/awaken_data/normalization_consts.csv", index_col=None),
+            "data_path": DATA_PATH,
+            "normalization_consts": NORM_CONSTS,
             "context_len": 3, # 120=10 minutes for 5 sec sample size,
             "target_len":  3, # 120=10 minutes for 5 sec sample size,
             "target_turbine_ids": ["wt029", "wt034", "wt074"],
