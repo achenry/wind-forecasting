@@ -1,5 +1,6 @@
 import pandas as pd
-
+import warnings
+warnings.simplefilter(action='ignore', category=FutureWarning)
 
 def time_features(
     dates,

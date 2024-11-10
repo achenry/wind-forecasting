@@ -1,0 +1,36 @@
+{
+  "os": "macOS-14.7.1-arm64-arm-64bit",
+  "python": "3.11.5",
+  "startedAt": "2024-11-09T23:53:51.856473Z",
+  "program": "<python with no main file>",
+  "git": {
+    "remote": "https://github.com/achenry/wind-forecasting.git",
+    "commit": "3a57852e6fc2ff56c11678b98fb7a5f8c4df0df6"
+  },
+  "root": "/Users/ahenry/Documents/toolboxes/wind_forecasting",
+  "host": "ahenry-39583s",
+  "username": "ahenry",
+  "executable": "/Users/ahenry/miniconda3/bin/python",
+  "cpu_count": 12,
+  "cpu_count_logical": 12,
+  "disk": {
+    "/": {
+      "total": "1995218165760",
+      "used": "389465546752"
+    }
+  },
+  "memory": {
+    "total": "34359738368"
+  },
+  "cpu": {
+    "count": 12,
+    "countLogical": 12
+  },
+  "apple": {
+    "name": "Apple M2 Pro",
+    "ecpuCores": 4,
+    "pcpuCores": 8,
+    "gpuCores": 19,
+    "memoryGb": 32
+  }
+}
