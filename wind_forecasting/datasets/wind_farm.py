@@ -33,11 +33,11 @@ class KPWindFarm(Dataset):
 		nd_sin = sorted([col for col in dfs[0].columns if "nd_sin" in col])
 		nd_cos = sorted([col for col in dfs[0].columns if "nd_cos" in col])
 
-		self.input_cols = horz_ws_cols + vert_ws_cols + nd_sin + nd_cos
+		# self.input_cols = horz_ws_cols + vert_ws_cols + nd_sin + nd_cos
+		self.input_cols = [col for col in (horz_ws_cols + vert_ws_cols + nd_sin + nd_cos) if any(tid in col for tid in kwargs["target_turbine_ids"])]
 		self.target_cols = [col for col in (horz_ws_cols + vert_ws_cols) if any(tid in col for tid in kwargs["target_turbine_ids"])]
 
-		self._x_dim = len(self.input_cols)
-		self._yc_dim = self._yt_dim = len(self.target_cols)
+		dfs = [df[list(set([self.time_col_name] + self.input_cols + self.target_cols))] for df in dfs]
 
 		dfs = [stf.data.timefeatures.time_features(
 				pd.to_datetime(df[self.time_col_name], format="%Y-%m-%d %H:%M:%S"),
@@ -69,11 +69,13 @@ class KPWindFarm(Dataset):
 		else:
 			self._test_data = [dfs[i] for i in test_indices]
 
-		
 		not_exo_cols = self.time_cols + self.target_cols
 		self.exo_cols = dfs[0].columns.difference(not_exo_cols).tolist()
 		self.exo_cols.remove(self.time_col_name)
-		self.exo_cols.remove("continuity_group")
+
+		self._x_dim = len(self.time_features) # dimension of time feature
+		self._yc_dim = len(self.target_cols + self.exo_cols)
+		self._yt_dim = len(self.target_cols)
 
 		# scalar value are defined for target values
 		if normalize:
@@ -85,7 +87,6 @@ class KPWindFarm(Dataset):
 			self._scaler = MinMaxScaler()
 			self._scaler.min_ = [normalization_consts[f"{'_'.join(col.split('_')[:-1])}_min"].iloc[0] for col in self.target_cols + self.exo_cols]
 			self._scaler.max_ = [normalization_consts[f"{'_'.join(col.split('_')[:-1])}_max"].iloc[0] for col in self.target_cols + self.exo_cols]
-		
 		
 	@property
 	def x_dim(self):

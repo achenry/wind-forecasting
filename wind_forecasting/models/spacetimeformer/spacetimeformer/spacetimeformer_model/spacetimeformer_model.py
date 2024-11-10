@@ -288,7 +288,8 @@ class Spacetimeformer_Forecaster(stf.Forecaster):
         dec_y = torch.zeros_like(y_t).to(self.device)
         if self.start_token_len > 0:
             # add "start token" from informer. not really needed anymore...
-            dec_y = torch.cat((y_c[:, -self.start_token_len :, :], dec_y), dim=1).to(
+            # need to clip 3rd dimension to just capture target columns of y_c
+            dec_y = torch.cat((y_c[:, -self.start_token_len :, :dec_y.shape[2]], dec_y), dim=1).to(
                 self.device
             )
             dec_x = torch.cat((x_c[:, -self.start_token_len :, :], dec_x), dim=1)

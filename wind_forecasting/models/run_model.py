@@ -86,22 +86,24 @@ class Callbacks:
 if __name__ == "__main__":
     from wind_forecasting.datasets.wind_farm import KPWindFarm
     from wind_forecasting.models.spacetimeformer.spacetimeformer.spacetimeformer_model import Spacetimeformer_Forecaster
+    from sys import platform
 
+    
     ## DEFINE CONFIGURATION
     config = {
         "experiment": {
             "run_name": "windfarm_debug",
-            # "log_dir": "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/logging/"
-            "log_dir": "/projects/ssc/ahenry/wind_forecasting/logging/"
+            "log_dir": "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/logging/"
+            # "log_dir": "/projects/ssc/ahenry/wind_forecasting/logging/"
         },
         "dataset": {
             "dataset_class": KPWindFarm,
-            # "data_path": "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/normalized_data.parquet",
-            "data_path": "/projects/ssc/ahenry/wind_forecasting/awaken_data/normalized_data.parquet",
-            # "normalization_consts": pd.read_csv("/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/normalization_consts.csv", index_col=None),
-            "normalization_consts": pd.read_csv("/projects/ssc/ahenry/wind_forecasting/awaken_data/normalization_consts.csv", index_col=None),
-            "context_len": 120, # 10 minutes for 5 sec sample size,
-            "target_len":  120, # 10 minutes for 5 sec sample size,
+            "data_path": "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/normalized_data.parquet",
+            # "data_path": "/projects/ssc/ahenry/wind_forecasting/awaken_data/normalized_data.parquet",
+            "normalization_consts": pd.read_csv("/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/normalization_consts.csv", index_col=None),
+            # "normalization_consts": pd.read_csv("/projects/ssc/ahenry/wind_forecasting/awaken_data/normalization_consts.csv", index_col=None),
+            "context_len": 3, # 120=10 minutes for 5 sec sample size,
+            "target_len":  3, # 120=10 minutes for 5 sec sample size,
             "target_turbine_ids": ["wt029", "wt034", "wt074"],
             "normalize": False, 
             "batch_size": 128,
@@ -111,7 +113,7 @@ if __name__ == "__main__":
             "val_split": 0.15,
             "collate_fn": None,
             "dataset_kwargs": { # specific to class KPWindFarm or similar 
-                "target_turbine_ids": ["wt029", "wt034", "wt074"]
+                "target_turbine_ids": ["wt029"] #, "wt034", "wt074"]
             }
         },
         "model": {
