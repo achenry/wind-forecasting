@@ -57,7 +57,7 @@ class Callbacks:
             dirpath=model_ckpt_dir,
             monitor="val/loss",
             mode="min",
-            filename=f"{config['experiment']["run_name"]}" + "{epoch:02d}",
+            filename=f"{config['experiment']['run_name']}" + "{epoch:02d}",
             save_top_k=1,
             auto_insert_metric_name=True,
         )
