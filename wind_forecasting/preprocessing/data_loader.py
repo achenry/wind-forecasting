@@ -794,9 +794,10 @@ if __name__ == "__main__":
             logging.info(f"🖥️  Using ProcessPoolExecutor with {max_workers} workers.")
     
     df_query = data_loader.read_multi_files()
+    df_query = data_loader.postprocess_multi_files(df_query)
 
     if RUN_ONCE:
-        df_query = data_loader.postprocess_multi_files(df_query)        
+        
         logging.info(f"⏱️ Total time elapsed: {time.time() - start_time:.2f} s")
     
         if df_query is not None:
