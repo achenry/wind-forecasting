@@ -91,14 +91,14 @@ if __name__ == "__main__":
     config = {
         "experiment": {
             "run_name": "windfarm_debug",
-            "log_dir": "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/logging/"
-            # "log_dir": "/projects/ssc/ahenry/wind_forecasting/logging/"
+            # "log_dir": "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/logging/"
+            "log_dir": "/projects/ssc/ahenry/wind_forecasting/logging/"
         },
         "dataset": {
             "dataset_class": KPWindFarm,
             "data_path": "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/normalized_data.parquet",
-            "normalization_consts": pd.read_csv("/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/normalization_consts.csv", index_col=None),
-            # "normalization_consts": pd.read_csv("/projects/ssc/ahenry/wind_forecasting/awaken_data/normalization_consts.csv", index_col=None),
+            # "normalization_consts": pd.read_csv("/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/normalization_consts.csv", index_col=None),
+            "normalization_consts": pd.read_csv("/projects/ssc/ahenry/wind_forecasting/awaken_data/normalization_consts.csv", index_col=None),
             # "data_path": "/projects/ssc/ahenry/wind_forecasting/awaken_data/normalized_data.parquet",
             "context_len": 120, # 10 minutes for 5 sec sample size,
             "target_len":  120, # 10 minutes for 5 sec sample size,
