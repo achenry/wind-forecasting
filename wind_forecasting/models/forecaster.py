@@ -11,6 +11,8 @@ class Forecaster:
             d_x=data_module.dataset.x_dim, d_yc=data_module.dataset.yc_dim, d_yt=data_module.dataset.yt_dim, 
             context_len=data_module.dataset.context_len, target_len=data_module.dataset.target_len, 
             **config["model"])
+        # if torch.cuda.device_count() > 1:
+        #     self.model = self.model.DataParallel(net)
         self.model.set_inv_scaler(data_module.dataset.reverse_scaling)
         self.model.set_scaler(data_module.dataset.apply_scaling)
         
