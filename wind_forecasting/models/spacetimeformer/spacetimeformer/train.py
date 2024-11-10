@@ -1,12 +1,9 @@
 from argparse import ArgumentParser
-import random
 import sys
-import warnings
 import os
 import uuid
 
-import pytorch_lightning as pl
-import torch
+import lightning as L
 
 import spacetimeformer as stf
 
@@ -687,7 +684,7 @@ def create_callbacks(config, save_dir):
     filename = f"{config.run_name}_" + str(uuid.uuid1()).split("-")[0]
     model_ckpt_dir = os.path.join(save_dir, filename)
     config.model_ckpt_dir = model_ckpt_dir
-    saving = pl.callbacks.ModelCheckpoint(
+    saving = L.callbacks.ModelCheckpoint(
         dirpath=model_ckpt_dir,
         monitor="val/loss",
         mode="min",
@@ -699,14 +696,14 @@ def create_callbacks(config, save_dir):
 
     if not config.no_earlystopping:
         callbacks.append(
-            pl.callbacks.early_stopping.EarlyStopping(
+            L.callbacks.early_stopping.EarlyStopping(
                 monitor="val/loss",
                 patience=config.patience,
             )
         )
 
     if config.wandb:
-        callbacks.append(pl.callbacks.LearningRateMonitor())
+        callbacks.append(L.callbacks.LearningRateMonitor())
 
     if config.model == "lstm":
         callbacks.append(
@@ -756,7 +753,7 @@ def main(args):
         config = wandb.config
         wandb.run.name = args.run_name
         wandb.run.save()
-        logger = pl.loggers.WandbLogger(
+        logger = L.loggers.WandbLogger(
             experiment=experiment,
             save_dir=log_dir,
         )
@@ -831,7 +828,7 @@ def main(args):
     else:
         val_control = {"check_val_every_n_epoch": int(args.val_check_interval)}
 
-    trainer = pl.Trainer(
+    trainer = L.Trainer(
         gpus=args.gpus,
         callbacks=callbacks,
         logger=logger if args.wandb else None,
