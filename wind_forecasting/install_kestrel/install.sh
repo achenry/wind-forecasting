@@ -7,8 +7,9 @@ mamba activate wind_forecasting_env
 
 git clone --recurse-submodules https://github.com/achenry/wind-forecasting.git
 
-conda install notebook jupyterlab nb_conda_kernels cython pyyaml matplotlib numpy seaborn netcdf4 opt_einsum wandb scipy -c conda-forge -y
+conda install notebook jupyterlab nb_conda_kernels cython pyyaml matplotlib numpy seaborn netcdf4 opt_einsum scipy -c conda-forge -y
 conda install pytorch torchvision torchaudio torchmetrics lightning cudatoolkit -c pytorch -c nvidia -y
+pip install wandb
 # pytorch-forecasting
 
 #python -m pip install -r ./spacetimeformer/requirements.txt

@@ -22,7 +22,9 @@ if __name__ == "__main__":
         DATA_PATH = "/projects/ssc/ahenry/wind_forecasting/awaken_data/normalized_data.parquet/"
     # Configuration
     config = {
-        "experiment" : {"run_name": "windfarm_debug"},
+        "experiment" : {"run_name": "windfarm_debug",
+                        "debug": True # TODO use small datasets, input_cols, target_turbine_ids, context_len, target_len
+                        },
         "data": {"data_path": "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/normalized_data.parquet",
                 "context_len": 10, #120, # 10 minutes for 5 sec sample size,
                 "target_len": 10, # 120, # 10 minutes for 5 sec sample size,
