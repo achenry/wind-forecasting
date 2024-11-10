@@ -8,7 +8,7 @@ from wind_forecasting.datasets.wind_farm import KPWindFarm
 import os
 from wind_forecasting.run_scripts.helpers import TorchDataModule
 from wind_forecasting.models import spacetimeformer as stf
-import pytorch_lightning as pl
+import lightning as L
 import warnings
 import uuid
 warnings.filterwarnings(action="ignore", category=FutureWarning)
@@ -68,7 +68,7 @@ if __name__ == "__main__":
     filename = f"{config['experiment']['run_name']}_" + str(uuid.uuid1()).split("-")[0]
     model_ckpt_dir = os.path.join(log_dir, filename)
     config["experiment"]["model_ckpt_dir"] = model_ckpt_dir
-    saving = pl.callbacks.ModelCheckpoint(
+    saving = L.callbacks.ModelCheckpoint(
         dirpath=model_ckpt_dir,
         monitor="val/loss",
         mode="min",
@@ -85,7 +85,7 @@ if __name__ == "__main__":
     else:
         val_control = {"check_val_every_n_epoch": int(config["training"]["val_check_interval"])}
 
-    trainer = pl.Trainer(
+    trainer = L.Trainer(
         # gpus=args.gpus,
         callbacks=callbacks,
         logger=None,

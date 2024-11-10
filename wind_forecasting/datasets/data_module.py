@@ -4,10 +4,10 @@ import os
 
 import numpy as np
 import lightning as L
-from pytorch_lightning.utilities import CombinedLoader
+from lightning.pytorch.utilities import CombinedLoader
 import torch
 from torch.utils.data import Dataset, DataLoader
-from ..utils.colors import Colors
+from wind_forecasting.utils.colors import Colors
 
 from torch.utils.data import Dataset, DataLoader
 import warnings
@@ -132,7 +132,8 @@ class DataModule(L.LightningDataModule):
         self.dataset = dataset_class(data_path=config["dataset"]["data_path"], 
                                       context_len=config["dataset"]["context_len"], 
                                       target_len=config["dataset"]["target_len"], 
-                                      normalize=config["dataset"]["normalize"], 
+                                      normalize=config["dataset"]["normalize"],
+                                      normalization_consts=config["dataset"]["normalization_consts"], 
                                       test_split=config["dataset"]["test_split"], 
                                       val_split=config["dataset"]["val_split"],
                                       **config["dataset"]["dataset_kwargs"])
@@ -196,7 +197,7 @@ class ContinuousDataset(Dataset):
         this class represents a particular split from a particular individual continuous dataset to feed to the combined DataLoader.
         The Dataset represents a collection of data samples and must implement __len__ and __getitem__
         Args:
-            dataset (Dataset): _description_
+            dataset (Dataset): _description_ eg KPWindFarm object
             dataset_index (int, optional): _description_. Defaults to 0.
             split (str, optional): _description_. Defaults to "train".
             context_len (int, optional): _description_. Defaults to None.
@@ -207,11 +208,10 @@ class ContinuousDataset(Dataset):
         self.split = split
         self.context_len = dataset.context_len
         self.target_len = dataset.target_len
-        # TODO this will be empty if target points + context points is too long`
         self._slice_start_points = list(range(
                 0,
                 self.series.length(self.split, self.dataset_index)
-                + (-self.target_len - self.context_len)
+                - (self.target_len + self.context_len)
                 + 1,
             ))
 
