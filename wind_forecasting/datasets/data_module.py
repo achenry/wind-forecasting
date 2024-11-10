@@ -241,7 +241,7 @@ class ContinuousDataset(Dataset):
 
         ctxt_x = ctxt_slice[self.series.time_cols]
         trgt_x = trgt_slice[self.series.time_cols]
-
+        
         ctxt_y = ctxt_slice[self.series.target_cols + self.series.exo_cols]
         # ctxt_y = ctxt_y.drop(columns=self.series.remove_target_from_context_cols)
 
