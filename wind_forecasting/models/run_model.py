@@ -107,7 +107,7 @@ if __name__ == "__main__":
             "dataset_class": KPWindFarm,
             "data_path": DATA_PATH,
             "normalization_consts": NORM_CONSTS,
-            "context_len": 3, # 120=10 minutes for 5 sec sample size,
+            "context_len": 4, # 120=10 minutes for 5 sec sample size,
             "target_len":  3, # 120=10 minutes for 5 sec sample size,
             "target_turbine_ids": ["wt029", "wt034", "wt074"],
             "normalize": False, 
