@@ -2,14 +2,13 @@ from abc import ABC, abstractmethod
 from typing import Tuple
 
 import torch
-import torch.nn.functional as F
-import pytorch_lightning as pl
+import lightning as L
 import numpy as np
 from collections import defaultdict
 import spacetimeformer as stf
 
 
-class Forecaster(pl.LightningModule, ABC):
+class Forecaster(L.LightningModule, ABC):
     def __init__(
         self,
         d_x: int,
@@ -327,16 +326,16 @@ class Forecaster(pl.LightningModule, ABC):
             },
         }
 
-    @classmethod
-    def add_cli(self, parser):
-        parser.add_argument("--gpus", type=int, nargs="+")
-        parser.add_argument("--l2_coeff", type=float, default=1e-6)
-        parser.add_argument("--learning_rate", type=float, default=1e-4)
-        parser.add_argument("--grad_clip_norm", type=float, default=0)
-        parser.add_argument("--linear_window", type=int, default=0)
-        parser.add_argument("--use_revin", action="store_true")
-        parser.add_argument(
-            "--loss", type=str, default="mse", choices=["mse", "mae", "smape"]
-        )
-        parser.add_argument("--linear_shared_weights", action="store_true")
-        parser.add_argument("--use_seasonal_decomp", action="store_true")
+    # @classmethod
+    # def add_cli(self, parser):
+    #     parser.add_argument("--gpus", type=int, nargs="+")
+    #     parser.add_argument("--l2_coeff", type=float, default=1e-6)
+    #     parser.add_argument("--learning_rate", type=float, default=1e-4)
+    #     parser.add_argument("--grad_clip_norm", type=float, default=0)
+    #     parser.add_argument("--linear_window", type=int, default=0)
+    #     parser.add_argument("--use_revin", action="store_true")
+    #     parser.add_argument(
+    #         "--loss", type=str, default="mse", choices=["mse", "mae", "smape"]
+    #     )
+    #     parser.add_argument("--linear_shared_weights", action="store_true")
+    #     parser.add_argument("--use_seasonal_decomp", action="store_true")

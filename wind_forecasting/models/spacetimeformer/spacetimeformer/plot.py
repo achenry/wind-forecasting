@@ -3,7 +3,7 @@ import math
 import os
 import warnings
 
-import pytorch_lightning as pl
+import lightning as L
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
@@ -67,7 +67,7 @@ def plot(x_c, y_c, x_t, y_t, idx, title, preds, pad_val=None, conf=None):
     return img
 
 
-class PredictionPlotterCallback(pl.Callback):
+class PredictionPlotterCallback(L.Callback):
     def __init__(
         self,
         test_batch,
@@ -129,7 +129,7 @@ class PredictionPlotterCallback(pl.Callback):
             self.imgs = imgs
 
 
-class ImageCompletionCallback(pl.Callback):
+class ImageCompletionCallback(L.Callback):
     def __init__(self, test_batches, total_samples=12, mode="flat"):
         assert mode in ["flat", "left-right"]
         self.mode = mode
@@ -179,7 +179,7 @@ class ImageCompletionCallback(pl.Callback):
         )
 
 
-class CopyTaskCallback(pl.Callback):
+class CopyTaskCallback(L.Callback):
     def __init__(self, test_batches, total_samples=12):
         self.test_data = test_batches
         self.total_samples = total_samples
@@ -229,7 +229,7 @@ def show_image(data, title, tick_spacing=None, cmap="Blues"):
     return img
 
 
-class AttentionMatrixCallback(pl.Callback):
+class AttentionMatrixCallback(L.Callback):
     def __init__(self, test_batches, layer=0, total_samples=32):
         self.test_data = test_batches
         self.total_samples = total_samples
