@@ -1,11 +1,10 @@
 import warnings
 
-import pytorch_lightning as pl
-import torch
 from torch.utils.data import DataLoader
-from pytorch_lightning.utilities import CombinedLoader
+import lightning as L
+from lightning.pytorch.utilities import CombinedLoader
 
-class DataModule(pl.LightningDataModule):
+class DataModule(L.LightningDataModule):
     def __init__(
         self,
         datasetCls,
