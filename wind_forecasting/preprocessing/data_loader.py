@@ -92,39 +92,39 @@ class DataLoader:
         
         all_cols = set()
         first_df = True
-        temp_save_path = self.save_path.replace(".parquet", f"_{file_suffix}_tmp.parquet")
+        # temp_save_path = self.save_path.replace(".parquet", f"_{file_suffix}_tmp.parquet")
         save_path = self.save_path.replace(".parquet", f"_{file_suffix}.parquet")
         # df_query = None
         for d, df in enumerate(dfs):
             # df = df.collect()
             new_cols = [col for col in df.collect_schema().names() if col != "time"]
             if first_df:
-                # df_query = df
-                df.sink_parquet(temp_save_path)
+                df_query = df
+                # df.sink_parquet(temp_save_path)
                 first_df = False
             else:
                 #df_query = pl.scan_parquet(self.save_path.replace(".parquet", f"_{file_suffix}.parquet"))
-                df_query = pl.scan_parquet(save_path)
+                # df_query = pl.scan_parquet(save_path)
                 existing_cols = list(all_cols.intersection(new_cols))
                 if existing_cols:
                     # data for the turbine contained in this frame has already been added, albeit from another day
-                    df_query.join(df, on="time", how="full", coalesce=True)\
+                    df_query = df_query.join(df, on="time", how="full", coalesce=True)\
                                         .with_columns([pl.coalesce(col, f"{col}_right").alias(col) for col in existing_cols])\
-                                        .select(~cs.ends_with("right"))\
-                                        .sink_parquet(temp_save_path)
+                                        .select(~cs.ends_with("right"))
+                                        # .sink_parquet(temp_save_path)
                 else:
-                    df_query.join(df, on="time", how="full", coalesce=True)\
-                            .sink_parquet(temp_save_path)
+                    df_query = df_query.join(df, on="time", how="full", coalesce=True)
+                            # .sink_parquet(temp_save_path)
                     # df.sort("time").collect()
                     # df_query.filter((pl.col("time") >= df.select("time").min().collect().item()) & (pl.col("time") <= df.select("time").max().collect().item())).sort("time").select(pl.col("time"), cs.contains(df.columns[1].split("_")[-1])).collect()
 
             all_cols.update(new_cols)
-            os.rename(temp_save_path, save_path)
-            #df_query.sink_parquet(self.save_path.replace(".parquet", f"_{file_suffix}.parquet"), statistics=False)
+            # os.rename(temp_save_path, save_path)
+        df_query.sink_parquet(save_path, statistics=False)
             # df_query.sink_parquet(self.save_path) #, statistics=False)
         
-            logging.info(f"🔗 Finished {d}-th join of {len(dfs)} of {file_suffix}-th collection of files.")
-        return df_query
+        logging.info(f"🔗 Finished {d}-th join of {len(dfs)} of {file_suffix}-th collection of files.")
+        return pl.scan_parquet(save_path)
 
     def postprocess_multi_files(self, df_query) -> pl.LazyFrame | None:
         
@@ -171,6 +171,8 @@ class DataLoader:
                                          [df for d, df in enumerate(df_query) if ts in self.file_paths[d]]) 
                                          for ts in unique_file_timestamps]
                     dfs_to_concat = [fut.result() for fut in futures]
+                    # dfs_to_concat = [df_query.scan_parquet(self.save_path.replace(".parquet", f"_{ts}.parquet")) 
+                    #                  for ts in unique_file_timestamps]
 
                     logging.info(f"🔗 Finished join. Time elapsed: {time.time() - join_start:.2f} s")
                     
