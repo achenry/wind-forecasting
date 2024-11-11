@@ -123,15 +123,15 @@ class DataLoader:
                     # df_query.filter((pl.col("time") >= df.select("time").min().collect().item()) & (pl.col("time") <= df.select("time").max().collect().item())).sort("time").select(pl.col("time"), cs.contains(df.columns[1].split("_")[-1])).collect()
 
             all_cols.update(new_cols)
-            df_query = df_query.collect(streaming=True).lazy()
+            # df_query = df_query.collect(streaming=True).lazy()
             logging.info(f"🔗 Finished {d}-th join of {len(dfs)} of {file_suffix}-th collection of files.") 
             # os.rename(temp_save_path, save_path)
-        # df_query.sink_parquet(save_path, statistics=False)
+        df_query.sink_parquet(save_path, statistics=False)
             # df_query.sink_parquet(self.save_path) #, statistics=False)
         
         logging.info(f"🔗 Finished joins for {file_suffix}-th collection of files.")
         # return pl.scan_parquet(save_path)
-        return df_query
+        # return df_query
 
     def postprocess_multi_files(self, df_query) -> pl.LazyFrame | None:
         
@@ -175,16 +175,19 @@ class DataLoader:
                 futures = [ex.submit(self._join_dfs, ts, 
                                         [df for d, df in enumerate(df_query) if ts in self.file_paths[d]]) 
                                         for ts in unique_file_timestamps]
-                # _ = [fut.result() for fut in futures]
-                dfs_to_concat = [fut.result() for fut in futures]
+                _ = [fut.result() for fut in futures]
+                # dfs_to_concat = [fut.result() for fut in futures]
 
                 logging.info(f"🔗 Finished join. Time elapsed: {time.time() - join_start:.2f} s")
                 
                 concat_start = time.time()
-                # dfs_to_concat = [pl.scan_parquet(self.save_path.replace(".parquet", f"_{ts}.parquet")) 
-                #                     for ts in unique_file_timestamps]
+                dfs_to_concat = [pl.scan_parquet(self.save_path.replace(".parquet", f"_{ts}.parquet")) 
+                                    for ts in unique_file_timestamps]
                 pl.concat(dfs_to_concat, how="vertical").collect().write_parquet(self.save_path, statistics=False)
                 logging.info(f"🔗 Finished concat. Time elapsed: {time.time() - concat_start:.2f} s")
+
+                for ts in unique_file_timestamps:
+                    os.remove(self.save_path.replace(".parquet", f"_{ts}.parquet"))
 
                 return pl.scan_parquet(self.save_path)
                 
@@ -707,7 +710,7 @@ if __name__ == "__main__":
         # PL_SAVE_PATH = "/projects/ssc/ahenry/wind_forecasting/awaken_data/kp.turbine.zo2.b0.raw.parquet"
         PL_SAVE_PATH = os.path.join("/tmp/scratch", os.environ["SLURM_JOB_ID"], "kp.turbine.zo2.b0.parquet")
         # print(f"PL_SAVE_PATH = {PL_SAVE_PATH}")
-        FILE_SIGNATURE = "kp.turbine.z02.b0.202203*.*.*.nc"
+        FILE_SIGNATURE = "kp.turbine.z02.b0.202203*1.*.*.nc"
         MULTIPROCESSOR = "mpi"
         # TURBINE_INPUT_FILEPATH = "/projects/aohe7145/toolboxes/wind-forecasting/examples/inputs/ge_282_127.yaml"
         TURBINE_INPUT_FILEPATH = "/home/ahenry/toolboxes/wind_forecasting_env/wind-forecasting/examples/inputs/ge_282_127.yaml"
