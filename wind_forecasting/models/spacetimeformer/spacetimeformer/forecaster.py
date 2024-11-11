@@ -2,14 +2,13 @@ from abc import ABC, abstractmethod
 from typing import Tuple
 
 import torch
-import torch.nn.functional as F
-import pytorch_lightning as pl
+import lightning as L
 import numpy as np
 from collections import defaultdict
 import spacetimeformer as stf
 
 
-class Forecaster(pl.LightningModule, ABC):
+class Forecaster(L.LightningModule, ABC):
     def __init__(
         self,
         d_x: int,

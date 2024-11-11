@@ -25,6 +25,8 @@ examples/data
 examples/postprocessed
 examples/other
 examples/inputs/awaken_data
+examples/logging/
+wandb/
 wind-forecasting.code-workspace
 wind_forecasting/preprocessing/.ipynb_checkpoints
 lut/

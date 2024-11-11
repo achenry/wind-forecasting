@@ -1,7 +1,7 @@
-import pytorch_lightning as pl
+import lightning as L
 
 
-class TeacherForcingAnnealCallback(pl.Callback):
+class TeacherForcingAnnealCallback(L.Callback):
     def __init__(self, start, end, steps):
         assert start >= end
         self.start = start
@@ -15,14 +15,14 @@ class TeacherForcingAnnealCallback(pl.Callback):
         model.teacher_forcing_prob = new_teacher_forcing_prob
         model.log("teacher_forcing_prob", new_teacher_forcing_prob)
 
-    @classmethod
-    def add_cli(self, parser):
-        parser.add_argument("--teacher_forcing_start", type=float, default=0.8)
-        parser.add_argument("--teacher_forcing_end", type=float, default=0.0)
-        parser.add_argument("--teacher_forcing_anneal_steps", type=int, default=8000)
+    # @classmethod
+    # def add_cli(self, parser):
+    #     parser.add_argument("--teacher_forcing_start", type=float, default=0.8)
+    #     parser.add_argument("--teacher_forcing_end", type=float, default=0.0)
+    #     parser.add_argument("--teacher_forcing_anneal_steps", type=int, default=8000)
 
 
-class TimeMaskedLossCallback(pl.Callback):
+class TimeMaskedLossCallback(L.Callback):
     def __init__(self, start, end, steps):
         assert start <= end
         self.start = start
@@ -44,9 +44,9 @@ class TimeMaskedLossCallback(pl.Callback):
         model.time_masked_idx = self.time_mask
         model.log("time_masked_idx", self.time_mask)
 
-    @classmethod
-    def add_cli(self, parser):
-        parser.add_argument("--time_mask_start", type=int, default=1)
-        parser.add_argument("--time_mask_end", type=int, default=12)
-        parser.add_argument("--time_mask_anneal_steps", type=int, default=1000)
-        parser.add_argument("--time_mask_loss", action="store_true")
+    # @classmethod
+    # def add_cli(self, parser):
+    #     parser.add_argument("--time_mask_start", type=int, default=1)
+    #     parser.add_argument("--time_mask_end", type=int, default=12)
+    #     parser.add_argument("--time_mask_anneal_steps", type=int, default=1000)
+    #     parser.add_argument("--time_mask_loss", action="store_true")
