@@ -124,7 +124,7 @@ class DataLoader:
             # df_query.sink_parquet(self.save_path) #, statistics=False)
         
         logging.info(f"🔗 Finished {d}-th join of {len(dfs)} of {file_suffix}-th collection of files.")
-        return pl.scan_parquet(save_path)
+        # return pl.scan_parquet(save_path)
 
     def postprocess_multi_files(self, df_query) -> pl.LazyFrame | None:
         
@@ -171,8 +171,8 @@ class DataLoader:
                                          [df for d, df in enumerate(df_query) if ts in self.file_paths[d]]) 
                                          for ts in unique_file_timestamps]
                     dfs_to_concat = [fut.result() for fut in futures]
-                    # dfs_to_concat = [df_query.scan_parquet(self.save_path.replace(".parquet", f"_{ts}.parquet")) 
-                    #                  for ts in unique_file_timestamps]
+                    dfs_to_concat = [pl.scan_parquet(self.save_path.replace(".parquet", f"_{ts}.parquet")) 
+                                     for ts in unique_file_timestamps]
 
                     logging.info(f"🔗 Finished join. Time elapsed: {time.time() - join_start:.2f} s")
                     
