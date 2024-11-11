@@ -123,6 +123,7 @@ class DataLoader:
                     # df_query.filter((pl.col("time") >= df.select("time").min().collect().item()) & (pl.col("time") <= df.select("time").max().collect().item())).sort("time").select(pl.col("time"), cs.contains(df.columns[1].split("_")[-1])).collect()
 
             all_cols.update(new_cols)
+            df_query = df_query.collect(streaming=True).lazy()
             # os.rename(temp_save_path, save_path)
         df_query.sink_parquet(save_path, statistics=False)
             # df_query.sink_parquet(self.save_path) #, statistics=False)

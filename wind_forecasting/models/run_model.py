@@ -183,6 +183,12 @@ if __name__ == "__main__":
             dataset_class=config["dataset"]["dataset_class"],
             config=config
     )
+    for res in data_module.train_dataloader():
+        print(res)
+    for res in data_module.val_dataloader():
+        print(res)
+    for res in data_module.test_dataloader():
+        print(res)
 
     ## CREATE MODEL
     model = Forecaster(data_module=data_module, config=config)
