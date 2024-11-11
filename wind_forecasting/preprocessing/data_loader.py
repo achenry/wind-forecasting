@@ -79,13 +79,17 @@ class DataLoader:
             else:  # "cf" case
                 executor = ProcessPoolExecutor()
             with executor as ex:
+                start_time = time.time() # INFO: @Juan 10/16/24 Debbuging time measurements
+                logging.info(f"✅ Starting read_multi_files with {len(data_loader.file_paths)} files")
                 futures = [ex.submit(self._read_single_file, f, file_path) for f, file_path in enumerate(self.file_paths)]
                 df_query = [fut.result() for fut in futures]
                 df_query = [df for df in df_query if df is not None]
+                logging.info(f"✅ Finished reading individual files. Time elapsed: {time.time() - start_time:.2f} s")
                 return df_query
         else:
             logging.info(f"🔧 Using single process executor.")
-            df_query = [self._read_single_file(f, file_path) for f, file_path in enumerate(self.file_paths) if self._read_single_file(file_path) is not None]
+            df_query = [self._read_single_file(f, file_path) for f, file_path in enumerate(self.file_paths)]
+            df_query = [df for df in df_query if df is not None]
             return df_query
     
     def _join_dfs(self, file_suffix, dfs):
@@ -160,7 +164,7 @@ class DataLoader:
             with executor as ex:
                 if df_query:
                     # join dfs of different turbine types and same timestamps, then concat remaining
-                    logging.info(f"✅ Finished reading individual files. Time elapsed: {time.time() - start_time:.2f} s")
+                    
                     # logging.info("🔄 Starting concatenation of DataFrames")
                     join_start = time.time()
                     logging.info(f"✅ Started join of {len(self.file_paths)} files.")
@@ -707,7 +711,7 @@ if __name__ == "__main__":
         # PL_SAVE_PATH = "/projects/ssc/ahenry/wind_forecasting/awaken_data/kp.turbine.zo2.b0.raw.parquet"
         PL_SAVE_PATH = os.path.join("/tmp/scratch", os.environ["SLURM_JOB_ID"], "kp.turbine.zo2.b0.parquet")
         # print(f"PL_SAVE_PATH = {PL_SAVE_PATH}")
-        FILE_SIGNATURE = "kp.turbine.z02.b0.*.*.*.nc"
+        FILE_SIGNATURE = "kp.turbine.z02.b0.202203*.*.*.nc"
         MULTIPROCESSOR = "cf"
         # TURBINE_INPUT_FILEPATH = "/projects/aohe7145/toolboxes/wind-forecasting/examples/inputs/ge_282_127.yaml"
         TURBINE_INPUT_FILEPATH = "/home/ahenry/toolboxes/wind_forecasting_env/wind-forecasting/examples/inputs/ge_282_127.yaml"
@@ -785,8 +789,6 @@ if __name__ == "__main__":
             logging.info("✅ Loaded existing Parquet file successfully")
         
         logging.info("🔄 Processing new data files")
-        start_time = time.time() # INFO: @Juan 10/16/24 Debbuging time measurements
-        logging.info(f"✅ Starting read_multi_files with {len(data_loader.file_paths)} files")
        
         if MULTIPROCESSOR == "mpi":
             comm_size = MPI.COMM_WORLD.Get_size()
