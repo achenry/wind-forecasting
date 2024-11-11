@@ -4,6 +4,7 @@
 ### - convert circular measurements to sinusoidal measurements
 ### - normalize data
 
+import fcntl
 import glob
 import os
 import logging
@@ -96,7 +97,7 @@ class DataLoader:
         all_cols = set()
         first_df = True
         # temp_save_path = self.save_path.replace(".parquet", f"_{file_suffix}_tmp.parquet")
-        # save_path = self.save_path.replace(".parquet", f"_{file_suffix}.parquet")
+        save_path = self.save_path.replace(".parquet", f"_{file_suffix}.parquet")
         # df_query = None
         for d, df in enumerate(dfs):
             # df = df.collect()
@@ -125,12 +126,20 @@ class DataLoader:
             # df_query = df_query.collect(streaming=True).lazy()
             # logging.info(f"🔗 Finished {d}-th join of {len(dfs)} of {file_suffix}-th collection of files.") 
             # os.rename(temp_save_path, save_path)
-        # df_query.sink_parquet(save_path, statistics=False)
+        with open(save_path, 'wb') as f:
+            # lock the file
+            fcntl.flock(f, fcntl.LOCK_EX)
+
+            # perform write operation
+            df_query.sink_parquet(save_path, statistics=False)
+
+            # unlock the file
+            fcntl.flock(f, fcntl.LOCK_UN)
             # df_query.sink_parquet(self.save_path) #, statistics=False)
         
         logging.info(f"🔗 Finished joins for {file_suffix}-th collection of files.")
         # return pl.scan_parquet(save_path)
-        return df_query
+        # return df_query
 
     def postprocess_multi_files(self, df_query) -> pl.LazyFrame | None:
         
@@ -176,9 +185,9 @@ class DataLoader:
                                             for ts in unique_file_timestamps]
                     dfs_to_concat = [fut.result() for fut in futures]
 
-                    for ts, df in zip(unique_file_timestamps, dfs_to_concat):
-                        logging.info(f"Sinking {ts} collection of LazyFrames to join.")
-                        df.sink_parquet(self.save_path.replace(".parquet", f"_{ts}.parquet"), statistics=False)
+                    # for ts, df in zip(unique_file_timestamps, dfs_to_concat):
+                    #     logging.info(f"Sinking {ts} collection of LazyFrames to join.")
+                    #     df.sink_parquet(self.save_path.replace(".parquet", f"_{ts}.parquet"), statistics=False)
                     # dfs_to_concat = [fut.result() for fut in futures]
 
                     logging.info(f"🔗 Finished join. Time elapsed: {time.time() - join_start:.2f} s")
