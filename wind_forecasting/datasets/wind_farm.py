@@ -10,6 +10,8 @@ from sklearn.preprocessing import MinMaxScaler
 
 
 # TODO make a base class to enforce implementing certain methods...
+# TODO move trainging/validation to data_module, convert into slicing into context/target then splitting
+
 class KPWindFarm(Dataset):
 	def __init__(self, *, data_path, context_len, target_len, normalize, normalization_consts, test_split, val_split, **kwargs):
 		# TODO input validation etc
