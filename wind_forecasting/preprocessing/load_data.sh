@@ -4,9 +4,9 @@
 #SBATCH --ntasks=104
 ##SBATCH --mem=0
 #SBATCH --account=ssc
-#SBATCH --time=01:00:00
+#SBATCH --time=48:00:00
 ##SBATCH --partition=bigmem
-#SBATCH --partition=debug
+#SBATCH --partition=standard
 #SBATCH --output=data_loader_scratch.out
 #SBATCH --tmp=1T
 
