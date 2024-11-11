@@ -693,7 +693,7 @@ if __name__ == "__main__":
         # FILE_SIGNATURE = "kp.turbine.z02.b0.*.*.*.nc"
         PL_SAVE_PATH = "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/kp.turbine.zo2.b0.raw.parquet"
         FILE_SIGNATURE = "kp.turbine.z02.b0.202203*1.*.*.nc"
-        MULTIPROCESSOR = "mpi"
+        MULTIPROCESSOR = "cf"
         TURBINE_INPUT_FILEPATH = "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/inputs/ge_282_127.yaml"
         FARM_INPUT_FILEPATH = "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/inputs/gch_KP_v4.yaml"
         FEATURES = ["time", "turbine_id", "turbine_status", "wind_direction", "wind_speed", "power_output", "nacelle_direction"]
@@ -714,7 +714,7 @@ if __name__ == "__main__":
         PL_SAVE_PATH = os.path.join("/tmp/scratch", os.environ["SLURM_JOB_ID"], "kp.turbine.zo2.b0.parquet")
         # print(f"PL_SAVE_PATH = {PL_SAVE_PATH}")
         FILE_SIGNATURE = "kp.turbine.z02.b0.202203*1.*.*.nc"
-        MULTIPROCESSOR = "cf"
+        MULTIPROCESSOR = "mpi"
         # TURBINE_INPUT_FILEPATH = "/projects/aohe7145/toolboxes/wind-forecasting/examples/inputs/ge_282_127.yaml"
         TURBINE_INPUT_FILEPATH = "/home/ahenry/toolboxes/wind_forecasting_env/wind-forecasting/examples/inputs/ge_282_127.yaml"
         # FARM_INPUT_FILEPATH = "/projects/aohe7145/toolboxes/wind-forecasting/examples/inputs/gch_KP_v4.yaml"
