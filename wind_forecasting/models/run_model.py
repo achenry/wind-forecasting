@@ -127,7 +127,11 @@ if __name__ == "__main__":
             'num_layers': 3, # Number of transformer blocks stacked
             'heads': 4, # Number of heads for spatio-temporal attention
             'forward_expansion': 4, # Multiplier for feedforward network size
-            'output_size': 1 # Number of output variables
+            'output_size': 1, # Number of output variables,
+            "d_model": 5,
+            "d_queries_keys": 5, 
+            "d_values": 5, 
+            "d_ff": 5
         },
         "callbacks": {
 
@@ -195,8 +199,8 @@ if __name__ == "__main__":
         max_epochs=config["training"].get('max_epochs', None),
         accelerator='auto',
         # accelerator="cpu",
-        # devices='auto',
-        devices=1,
+        devices='auto',
+        # devices=1,
         # strategy='ddp_find_unused_parameters_true',
         logger=wandb_logger if local_rank == 0 else False,
         callbacks=callbacks,
