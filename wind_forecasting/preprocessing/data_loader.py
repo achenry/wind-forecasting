@@ -93,7 +93,7 @@ class DataLoader:
             return df_query
     
     def _join_dfs(self, file_suffix, dfs):
-        
+        logging.info(f"✅ Started joins for {file_suffix}-th collection of files.") 
         all_cols = set()
         first_df = True
         # temp_save_path = self.save_path.replace(".parquet", f"_{file_suffix}_tmp.parquet")
@@ -124,12 +124,14 @@ class DataLoader:
 
             all_cols.update(new_cols)
             df_query = df_query.collect(streaming=True).lazy()
+            logging.info(f"🔗 Finished {d}-th join of {len(dfs)} of {file_suffix}-th collection of files.") 
             # os.rename(temp_save_path, save_path)
-        df_query.sink_parquet(save_path, statistics=False)
+        # df_query.sink_parquet(save_path, statistics=False)
             # df_query.sink_parquet(self.save_path) #, statistics=False)
         
-        logging.info(f"🔗 Finished {d}-th join of {len(dfs)} of {file_suffix}-th collection of files.")
+        logging.info(f"🔗 Finished joins for {file_suffix}-th collection of files.")
         # return pl.scan_parquet(save_path)
+        return df_query
 
     def postprocess_multi_files(self, df_query) -> pl.LazyFrame | None:
         
@@ -169,18 +171,18 @@ class DataLoader:
                 join_start = time.time()
                 logging.info(f"✅ Started join of {len(self.file_paths)} files.")
                 unique_file_timestamps = set(re.findall(r"\.(\d{8})\.", fp)[0] for fp in self.file_paths)
-                dfs_to_concat = []
 
                 futures = [ex.submit(self._join_dfs, ts, 
                                         [df for d, df in enumerate(df_query) if ts in self.file_paths[d]]) 
                                         for ts in unique_file_timestamps]
-                _ = [fut.result() for fut in futures]
+                # _ = [fut.result() for fut in futures]
+                dfs_to_concat = [fut.result() for fut in futures]
 
                 logging.info(f"🔗 Finished join. Time elapsed: {time.time() - join_start:.2f} s")
                 
                 concat_start = time.time()
-                dfs_to_concat = [pl.scan_parquet(self.save_path.replace(".parquet", f"_{ts}.parquet")) 
-                                    for ts in unique_file_timestamps]
+                # dfs_to_concat = [pl.scan_parquet(self.save_path.replace(".parquet", f"_{ts}.parquet")) 
+                #                     for ts in unique_file_timestamps]
                 pl.concat(dfs_to_concat, how="vertical").collect().write_parquet(self.save_path, statistics=False)
                 logging.info(f"🔗 Finished concat. Time elapsed: {time.time() - concat_start:.2f} s")
 
