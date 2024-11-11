@@ -124,7 +124,7 @@ class DataLoader:
             # df_query.sink_parquet(self.save_path) #, statistics=False)
         
         logging.info(f"🔗 Finished {d}-th join of {len(dfs)} of {file_suffix}-th collection of files.")
-        return pl.scan_parquet(save_path)
+        # return pl.scan_parquet(save_path)
 
     def postprocess_multi_files(self, df_query) -> pl.LazyFrame | None:
         
@@ -170,13 +170,13 @@ class DataLoader:
                     futures = [ex.submit(self._join_dfs, ts, 
                                          [df for d, df in enumerate(df_query) if ts in self.file_paths[d]]) 
                                          for ts in unique_file_timestamps]
-                    dfs_to_concat = [fut.result() for fut in futures]
-                    # dfs_to_concat = [df_query.scan_parquet(self.save_path.replace(".parquet", f"_{ts}.parquet")) 
-                    #                  for ts in unique_file_timestamps]
+                    _ = [fut.result() for fut in futures]
 
                     logging.info(f"🔗 Finished join. Time elapsed: {time.time() - join_start:.2f} s")
                     
                     concat_start = time.time()
+                    dfs_to_concat = [pl.scan_parquet(self.save_path.replace(".parquet", f"_{ts}.parquet")) 
+                                     for ts in unique_file_timestamps]
                     pl.concat(dfs_to_concat, how="vertical").collect().write_parquet(self.save_path, statistics=False)
                     logging.info(f"🔗 Finished concat. Time elapsed: {time.time() - concat_start:.2f} s")
 
@@ -708,7 +708,7 @@ if __name__ == "__main__":
         PL_SAVE_PATH = os.path.join("/tmp/scratch", os.environ["SLURM_JOB_ID"], "kp.turbine.zo2.b0.parquet")
         # print(f"PL_SAVE_PATH = {PL_SAVE_PATH}")
         FILE_SIGNATURE = "kp.turbine.z02.b0.*.*.*.nc"
-        MULTIPROCESSOR = "mpi"
+        MULTIPROCESSOR = "cf"
         # TURBINE_INPUT_FILEPATH = "/projects/aohe7145/toolboxes/wind-forecasting/examples/inputs/ge_282_127.yaml"
         TURBINE_INPUT_FILEPATH = "/home/ahenry/toolboxes/wind_forecasting_env/wind-forecasting/examples/inputs/ge_282_127.yaml"
         # FARM_INPUT_FILEPATH = "/projects/aohe7145/toolboxes/wind-forecasting/examples/inputs/gch_KP_v4.yaml"
