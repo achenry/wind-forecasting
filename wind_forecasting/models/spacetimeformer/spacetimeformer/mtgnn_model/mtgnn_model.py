@@ -1,9 +1,6 @@
 from typing import List
 
 import torch
-from torch import nn
-import torch.nn.functional as F
-import pytorch_lightning as pl
 
 import spacetimeformer as stf
 
