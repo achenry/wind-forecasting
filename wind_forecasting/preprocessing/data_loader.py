@@ -79,12 +79,11 @@ class DataLoader:
             else:  # "cf" case
                 executor = ProcessPoolExecutor()
             with executor as ex:
-                start_time = time.time() # INFO: @Juan 10/16/24 Debbuging time measurements
-                logging.info(f"✅ Starting read_multi_files with {len(data_loader.file_paths)} files")
-                futures = [ex.submit(self._read_single_file, f, file_path) for f, file_path in enumerate(self.file_paths)]
-                df_query = [fut.result() for fut in futures]
-                df_query = [df for df in df_query if df is not None]
-                logging.info(f"✅ Finished reading individual files. Time elapsed: {time.time() - start_time:.2f} s")
+                if ex is not None:
+                    futures = [ex.submit(self._read_single_file, f, file_path) for f, file_path in enumerate(self.file_paths)]
+                    df_query = [fut.result() for fut in futures]
+                    df_query = [df for df in df_query if df is not None]
+                
                 return df_query
         else:
             logging.info(f"🔧 Using single process executor.")
@@ -166,30 +165,30 @@ class DataLoader:
                 executor = ProcessPoolExecutor()
             with executor as ex:
                 # join dfs of different turbine types and same timestamps, then concat remaining
-                
-                # logging.info("🔄 Starting concatenation of DataFrames")
-                join_start = time.time()
-                logging.info(f"✅ Started join of {len(self.file_paths)} files.")
-                unique_file_timestamps = set(re.findall(r"\.(\d{8})\.", fp)[0] for fp in self.file_paths)
+                if ex is not None:
+                    # logging.info("🔄 Starting concatenation of DataFrames")
+                    join_start = time.time()
+                    logging.info(f"✅ Started join of {len(self.file_paths)} files.")
+                    unique_file_timestamps = set(re.findall(r"\.(\d{8})\.", fp)[0] for fp in self.file_paths)
 
-                futures = [ex.submit(self._join_dfs, ts, 
-                                        [df for d, df in enumerate(df_query) if ts in self.file_paths[d]]) 
+                    futures = [ex.submit(self._join_dfs, ts, 
+                                            [df for d, df in enumerate(df_query) if ts in self.file_paths[d]]) 
+                                            for ts in unique_file_timestamps]
+                    _ = [fut.result() for fut in futures]
+                    # dfs_to_concat = [fut.result() for fut in futures]
+
+                    logging.info(f"🔗 Finished join. Time elapsed: {time.time() - join_start:.2f} s")
+                    
+                    concat_start = time.time()
+                    dfs_to_concat = [pl.scan_parquet(self.save_path.replace(".parquet", f"_{ts}.parquet")) 
                                         for ts in unique_file_timestamps]
-                _ = [fut.result() for fut in futures]
-                # dfs_to_concat = [fut.result() for fut in futures]
+                    pl.concat(dfs_to_concat, how="vertical").collect().write_parquet(self.save_path, statistics=False)
+                    logging.info(f"🔗 Finished concat. Time elapsed: {time.time() - concat_start:.2f} s")
 
-                logging.info(f"🔗 Finished join. Time elapsed: {time.time() - join_start:.2f} s")
-                
-                concat_start = time.time()
-                dfs_to_concat = [pl.scan_parquet(self.save_path.replace(".parquet", f"_{ts}.parquet")) 
-                                    for ts in unique_file_timestamps]
-                pl.concat(dfs_to_concat, how="vertical").collect().write_parquet(self.save_path, statistics=False)
-                logging.info(f"🔗 Finished concat. Time elapsed: {time.time() - concat_start:.2f} s")
+                    for ts in unique_file_timestamps:
+                        os.remove(self.save_path.replace(".parquet", f"_{ts}.parquet"))
 
-                for ts in unique_file_timestamps:
-                    os.remove(self.save_path.replace(".parquet", f"_{ts}.parquet"))
-
-                return pl.scan_parquet(self.save_path)
+                    return pl.scan_parquet(self.save_path)
                 
         else:
             # join dfs of different turbine types and same timestamps, then concat remaining
@@ -796,7 +795,12 @@ if __name__ == "__main__":
             max_workers = multiprocessing.cpu_count()
             logging.info(f"🖥️  Using ProcessPoolExecutor with {max_workers} workers.")
     
+    if RUN_ONCE:
+        start_time = time.time()
+        logging.info(f"✅ Starting read_multi_files with {len(data_loader.file_paths)} files")
     df_query = data_loader.read_multi_files()
+    if RUN_ONCE:
+        logging.info(f"✅ Finished reading individual files. Time elapsed: {time.time() - start_time:.2f} s")
 
     if df_query:
         df_query = data_loader.postprocess_multi_files(df_query)
