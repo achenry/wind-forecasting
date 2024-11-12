@@ -183,12 +183,24 @@ if __name__ == "__main__":
             dataset_class=config["dataset"]["dataset_class"],
             config=config
     )
-    for res in data_module.train_dataloader():
-        print(res)
-    for res in data_module.val_dataloader():
-        print(res)
-    for res in data_module.test_dataloader():
-        print(res)
+    # while True:
+        # try:
+        #     res = next(data_module.val_dataloader())
+        #     res.shape
+        # except StopIteration as e:
+        #     break
+
+    # while True:
+    #     try:
+    #         res = next(data_module.test_dataloader())
+    #     except StopIteration as e:
+    #         break
+
+    # while True:
+    #     try:
+    #         res = next(data_module.train_dataloader())
+    #     except StopIteration as e:
+    #         break
 
     ## CREATE MODEL
     model = Forecaster(data_module=data_module, config=config)
@@ -220,6 +232,8 @@ if __name__ == "__main__":
         benchmark=True,
         deterministic=False,
         sync_batchnorm=True,
+        # multiple_trainloader_mode="max_size_cycle",
+        # reload_dataloaders_every_n_epochs=True,
         limit_val_batches=config["training"]["limit_val_batches"],
         **val_control,
     )
