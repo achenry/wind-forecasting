@@ -102,9 +102,12 @@ class DataLoader:
                         # print(99)
                         # df_query = [fut.result() for fut in futures]
                         print(101)
-                        futures = [ex.submit(self.sink_parquet, df, self.save_path.replace(".parquet", f"_{ts}.parquet")) 
-                                   for ts, df in zip(unique_file_timestamps, df_query)]
-                        _ = [fut.result() for fut in futures]
+                        # futures = [ex.submit(self.sink_parquet, df, self.save_path.replace(".parquet", f"_{ts}.parquet")) 
+                        #            for ts, df in zip(unique_file_timestamps, df_query)]
+                        # _ = [fut.result() for fut in futures]
+                        for ts, df in zip(unique_file_timestamps, df_query):
+                            self.sink_parquet(df, self.save_path.replace(".parquet", f"_{ts}.parquet"))
+                            
                         print(104)
                         # for ts, df in zip(unique_file_timestamps, dfs_to_concat):
                         #     logging.info(f"Sinking {ts} collection of LazyFrames to join.")
