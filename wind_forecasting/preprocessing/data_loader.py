@@ -99,14 +99,16 @@ class DataLoader:
 
                         df_query = [self._join_dfs(ts, [df for filepath, df in df_query if ts in filepath]) for ts in unique_file_timestamps]
 
-                        # print(99)
-                        # df_query = [fut.result() for fut in futures]
-                        print(101)
-                        # futures = [ex.submit(self.sink_parquet, df, self.save_path.replace(".parquet", f"_{ts}.parquet")) 
-                        #            for ts, df in zip(unique_file_timestamps, df_query)]
-                        # _ = [fut.result() for fut in futures]
+                        print(99)
                         for ts, df in zip(unique_file_timestamps, df_query):
-                            self.sink_parquet(df, self.save_path.replace(".parquet", f"_{ts}.parquet"))
+                            print(ts, df.head(10).collect(), sep="\n")
+                        print(101)
+                        
+                        futures = [ex.submit(self.sink_parquet, df, self.save_path.replace(".parquet", f"_{ts}.parquet")) 
+                                   for ts, df in zip(unique_file_timestamps, df_query)]
+                        _ = [fut.result() for fut in futures]
+                        # for ts, df in zip(unique_file_timestamps, df_query):
+                        #     self.sink_parquet(df, self.save_path.replace(".parquet", f"_{ts}.parquet"))
 
                         print(104)
                         # for ts, df in zip(unique_file_timestamps, dfs_to_concat):
@@ -137,11 +139,12 @@ class DataLoader:
             return df_query
     
     def sink_parquet(self, df, filepath):
-        logging.info(f"Sinking parquet {filepath}")
         try:
             df.sink_parquet(filepath, statistics=False)
         except Exception as e:
-            logging.info(f"Failed to sink LazyFrame {filepath}") 
+            logging.info(f"Failed to sink LazyFrame {filepath}")
+
+        logging.info(f"Finished sinking parquet {filepath}") 
 
     def _join_dfs(self, file_suffix, dfs):
         # logging.info(f"✅ Started joins for {file_suffix}-th collection of files.") 
