@@ -9,7 +9,7 @@ git clone --recurse-submodules https://github.com/achenry/wind-forecasting.git
 
 mamba install mpi4py impi_rt polars windrose statsmodels h5pyd opencv pyarrow scikit-learn floris jupyterlab nb_conda_kernels pyyaml matplotlib numpy seaborn netcdf4 scipy -c conda-forge -y # opt_einsum cython notebook
 mamba install conda-forge::cuda-version=12.4 nvidia/label/cuda-12.4.0::cuda-toolkit pytorch torchvision torchaudio torchmetrics pytorch-cuda=12.4 lightning -c pytorch -c nvidia
-pip install mpi4py wandb
+pip install mpi4py wandb einops
 # pytorch-forecasting
 
 #python -m pip install -r ./spacetimeformer/requirements.txt
