@@ -93,11 +93,15 @@ class DataLoader:
                         print(93)
                         unique_file_timestamps = set(re.findall(r"\.(\d{8})\.", fp)[0] for fp in self.file_paths)
                         print(95)
-                        futures = [ex.submit(self._join_dfs, ts, 
-                                                [df for d, df in enumerate(df_query) if ts in self.file_paths[d]]) 
-                                                for ts in unique_file_timestamps]
-                        print(99)
-                        df_query = [fut.result() for fut in futures]
+                        # futures = [ex.submit(self._join_dfs, ts, 
+                        #                         [df for d, df in enumerate(df_query) if ts in self.file_paths[d]]) 
+                        #                         for ts in unique_file_timestamps]
+
+                        for ts in unique_file_timestamps:
+                            self._join_dfs(ts, [df for d, df in enumerate(df_query) if ts in self.file_paths[d]])
+
+                        # print(99)
+                        # df_query = [fut.result() for fut in futures]
                         print(101)
                         futures = [ex.submit(self.sink_parquet, df, self.save_path.replace(".parquet", f"_{ts}.parquet")) 
                                    for ts, df in zip(unique_file_timestamps, df_query)]
@@ -115,7 +119,7 @@ class DataLoader:
                         df_query = [pl.scan_parquet(self.save_path.replace(".parquet", f"_{ts}.parquet")) 
                                             for ts in unique_file_timestamps]
                         print(116)
-                        df_query = pl.concat(df_query, how="vertical")
+                        df_query = pl.concat(df_query, how="diagonal")
                         df_query.collect().write_parquet(self.save_path, statistics=False)
                         logging.info(f"🔗 Finished concat. Time elapsed: {time.time() - concat_start:.2f} s")
                         print(119)
