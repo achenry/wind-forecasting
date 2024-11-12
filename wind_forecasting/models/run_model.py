@@ -1,4 +1,3 @@
-# TODO MAKE CONFIG, METHOD INPUTS, DATASET VS DATAMODULE UNIFORM ACROSS JUAN AND AOIFE
 # pip install wandb torch torchvision torchaudio
 # ssh ahenry@kestrel-gpu.hpc.nrel.gov
 import os
@@ -13,16 +12,14 @@ import pandas as pd
 
 from wind_forecasting.models.forecaster import Forecaster
 from wind_forecasting.utils.colors import Colors
-from wind_forecasting.utils.config import Config
 from wind_forecasting.datasets.data_module import DataModule
 
 class Callbacks:
     def __init__(self, *, config, local_rank):
-        # TODO there are other callbacks in train_spacetimeformer.py if we need
         self.callbacks = []
 
         # Only add RichProgressBar for rank 0
-        if local_rank == 0:
+        if "progress_bar" in config["callbacks"] and local_rank == 0:
             self.callbacks.append(
                 RichProgressBar(
                     theme=RichProgressBarTheme(
@@ -40,32 +37,35 @@ class Callbacks:
             )
         
         # Add other callbacks for all ranks
-        early_stopping = EarlyStopping(
-            monitor='val/loss',
-            patience=config["callbacks"].get("patience", 20),
-            mode='min',
-            min_delta=0.001,
-            check_finite=True,
-            check_on_train_epoch_end=False,
-            verbose=True  # Add verbose output
-        )
+        if "early_stopping" in config["callbacks"]:
+            early_stopping = EarlyStopping(
+                monitor='val/loss',
+                patience=config["callbacks"].get("patience", 2),
+                # mode='min',
+                # min_delta=0.001,
+                # check_finite=True,
+                # check_on_train_epoch_end=False,
+                # verbose=True  # Add verbose output
+            )
 
-        filename = f"{config['experiment']['run_name']}_" + str(uuid.uuid1()).split("-")[0]
-        model_ckpt_dir = os.path.join(config["experiment"]["log_dir"], filename)
-        config["experiment"]["model_ckpt_dir"] = model_ckpt_dir
-        checkpoint_callback = ModelCheckpoint(
-            dirpath=model_ckpt_dir,
-            monitor="val/loss",
-            mode="min",
-            filename=f"{config['experiment']['run_name']}" + "{epoch:02d}",
-            save_top_k=1,
-            auto_insert_metric_name=True,
-        )
+        if "model_checkpoint" in config["callbacks"]:
+            filename = f"{config['experiment']['run_name']}_" + str(uuid.uuid1()).split("-")[0]
+            model_ckpt_dir = os.path.join(config["experiment"]["log_dir"], filename)
+            config["experiment"]["model_ckpt_dir"] = model_ckpt_dir
+            checkpoint_callback = ModelCheckpoint(
+                dirpath=model_ckpt_dir,
+                monitor="val/loss",
+                mode="min",
+                filename=f"{config['experiment']['run_name']}" + "{epoch:02d}",
+                save_top_k=1,
+                auto_insert_metric_name=True,
+            )
 
-        lr_monitor = LearningRateMonitor()
+        if "lr_monitor" in config["callbacks"]:
+            lr_monitor = LearningRateMonitor()
 
         self.callbacks.extend([checkpoint_callback, early_stopping, lr_monitor])
-    
+
     def append(self, obj):
         self.callbacks.append(obj)
 
@@ -134,12 +134,15 @@ if __name__ == "__main__":
             "d_ff": 5
         },
         "callbacks": {
-
+            "progress_bar": {}, 
+            "early_stopping": {}, 
+            "model_checkpoint": {}, 
+            "lr_monitor": {True}
         },
         "training": {
             "grad_clip_norm": 0.0, # Prevents gradient explosion if > 0 
             "limit_val_batches": 1.0, 
-            "val_check_interval": 1.0, 
+            "val_check_interval": 1,
             "debug": False, 
             "accumulate": 1.0,
             "max_epochs": 100, # Maximum number of epochs to train
@@ -207,35 +210,26 @@ if __name__ == "__main__":
 
     ## CREATE CALLBACKS and TRAINER
     callbacks = Callbacks(config=config, local_rank=local_rank)
-    # if config["training"]["val_check_interval"] <= 1.0:
-    #     val_control = {"val_check_interval": config["training"]["val_check_interval"]}
-    # else:
-    #     val_control = {"check_val_every_n_epoch": int(config["training"]["val_check_interval"])}
 
     trainer = L.Trainer(
-        # gpus=args.gpus,
         max_epochs=config["training"].get('max_epochs', None),
         accelerator='auto',
-        # accelerator="cpu",
         devices='auto',
-        # devices=1,
-        # strategy='ddp_find_unused_parameters_true',
         logger=wandb_logger if local_rank == 0 else False,
         callbacks=callbacks,
         gradient_clip_algorithm="norm",
         precision=config["training"].get('precision', None),
         overfit_batches=20 if config["training"]["debug"] else 0,
-        accumulate_grad_batches=config["training"]["accumulate"],
+        accumulate_grad_batches=config["training"].get("accumulate", None),
         log_every_n_steps=1,
         enable_progress_bar=(local_rank == 0),
         detect_anomaly=False,
         benchmark=True,
         deterministic=False,
         sync_batchnorm=True,
-        # multiple_trainloader_mode="max_size_cycle",
-        # reload_dataloaders_every_n_epochs=True,
-        limit_val_batches=config["training"]["limit_val_batches"],
-        # **val_control,
+        limit_val_batches=config["training"].get("limit_val_batches", None),
+        val_check_interval=config["training"].get("val_check_interval", None),
+        check_val_every_n_epoch=config["training"].get("check_val_every_n_epoch", None)
     )
 
     if local_rank == 0:
