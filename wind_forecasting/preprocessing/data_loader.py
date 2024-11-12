@@ -135,7 +135,10 @@ class DataLoader:
     
     def sink_parquet(self, df, filepath):
         logging.info(f"Sinking parquet {filepath}")
-        df.sink_parquet(filepath, statistics=False)
+        try:
+            df.sink_parquet(filepath, statistics=False)
+        except Exception as e:
+            logging.info(f"Failed to sink LazyFrame {filepath}") 
 
     def _join_dfs(self, file_suffix, dfs):
         # logging.info(f"✅ Started joins for {file_suffix}-th collection of files.") 
