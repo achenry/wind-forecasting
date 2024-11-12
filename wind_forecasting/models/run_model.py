@@ -207,10 +207,10 @@ if __name__ == "__main__":
 
     ## CREATE CALLBACKS and TRAINER
     callbacks = Callbacks(config=config, local_rank=local_rank)
-    if config["training"]["val_check_interval"] <= 1.0:
-        val_control = {"val_check_interval": config["training"]["val_check_interval"]}
-    else:
-        val_control = {"check_val_every_n_epoch": int(config["training"]["val_check_interval"])}
+    # if config["training"]["val_check_interval"] <= 1.0:
+    #     val_control = {"val_check_interval": config["training"]["val_check_interval"]}
+    # else:
+    #     val_control = {"check_val_every_n_epoch": int(config["training"]["val_check_interval"])}
 
     trainer = L.Trainer(
         # gpus=args.gpus,
@@ -235,7 +235,7 @@ if __name__ == "__main__":
         # multiple_trainloader_mode="max_size_cycle",
         # reload_dataloaders_every_n_epochs=True,
         limit_val_batches=config["training"]["limit_val_batches"],
-        **val_control,
+        # **val_control,
     )
 
     if local_rank == 0:
