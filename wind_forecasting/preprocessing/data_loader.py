@@ -21,6 +21,8 @@ from sklearn.preprocessing import MinMaxScaler
 from mpi4py import MPI
 from mpi4py.futures import MPICommExecutor
 from concurrent.futures import ProcessPoolExecutor
+
+import paramiko
 # from pandas import to_datetime as pd_to_datetime # INFO: @Juan 10/16/24 Added pd_to_datetime to avoid conflict with polars to_datetime
 
 SECONDS_PER_MINUTE = np.float64(60)
@@ -84,20 +86,58 @@ class DataLoader:
                     futures = [ex.submit(self._read_single_file, f, file_path) for f, file_path in enumerate(self.file_paths)]
                     df_query = [fut.result() for fut in futures]
                     df_query = [df for df in df_query if df is not None]
-                
-                return df_query
+
+                    if df_query:
+                        join_start = time.time()
+                        logging.info(f"✅ Started join of {len(self.file_paths)} files.")
+                        print(93)
+                        unique_file_timestamps = set(re.findall(r"\.(\d{8})\.", fp)[0] for fp in self.file_paths)
+                        print(95)
+                        futures = [ex.submit(self._join_dfs, ts, 
+                                                [df for d, df in enumerate(df_query) if ts in self.file_paths[d]]) 
+                                                for ts in unique_file_timestamps]
+                        print(99)
+                        df_query = [fut.result() for fut in futures]
+                        print(101)
+                        futures = [ex.submit(self.sink_parquet, df, self.save_path.replace(".parquet", f"_{ts}.parquet")) 
+                                   for ts, df in zip(unique_file_timestamps, df_query)]
+                        print(104)
+                        # for ts, df in zip(unique_file_timestamps, dfs_to_concat):
+                        #     logging.info(f"Sinking {ts} collection of LazyFrames to join.")
+                        #     df.sink_parquet(self.save_path.replace(".parquet", f"_{ts}.parquet"), statistics=False)
+                        # dfs_to_concat = [fut.result() for fut in futures]
+
+                        logging.info(f"🔗 Finished join. Time elapsed: {time.time() - join_start:.2f} s")
+
+                        concat_start = time.time()
+                        print(113)
+                        df_query = [pl.scan_parquet(self.save_path.replace(".parquet", f"_{ts}.parquet")) 
+                                            for ts in unique_file_timestamps]
+                        print(116)
+                        df_query = pl.concat(df_query, how="vertical")
+                        df_query.collect().write_parquet(self.save_path, statistics=False)
+                        logging.info(f"🔗 Finished concat. Time elapsed: {time.time() - concat_start:.2f} s")
+                        print(119)
+                        for ts in unique_file_timestamps:
+                            os.remove(self.save_path.replace(".parquet", f"_{ts}.parquet"))
+                        print(122)
+                    
+                    return df_query
         else:
             logging.info(f"🔧 Using single process executor.")
             df_query = [self._read_single_file(f, file_path) for f, file_path in enumerate(self.file_paths)]
             df_query = [df for df in df_query if df is not None]
             return df_query
     
+    def sink_parquet(self, df, filepath):
+        df.sink_parquet(filepath, statistics=False)
+
     def _join_dfs(self, file_suffix, dfs):
         logging.info(f"✅ Started joins for {file_suffix}-th collection of files.") 
         all_cols = set()
         first_df = True
         # temp_save_path = self.save_path.replace(".parquet", f"_{file_suffix}_tmp.parquet")
-        save_path = self.save_path.replace(".parquet", f"_{file_suffix}.parquet")
+        # save_path = self.save_path.replace(".parquet", f"_{file_suffix}.parquet")
         # df_query = None
         for d, df in enumerate(dfs):
             # df = df.collect()
@@ -126,20 +166,20 @@ class DataLoader:
             # df_query = df_query.collect(streaming=True).lazy()
             # logging.info(f"🔗 Finished {d}-th join of {len(dfs)} of {file_suffix}-th collection of files.") 
             # os.rename(temp_save_path, save_path)
-        with open(save_path, 'wb') as f:
-            # lock the file
-            fcntl.flock(f, fcntl.LOCK_EX)
+        # with open(save_path, 'wb') as f:
+        #     # lock the file
+        #     fcntl.flock(f, fcntl.LOCK_EX)
 
-            # perform write operation
-            df_query.sink_parquet(save_path, statistics=False)
+        # perform write operation
+        # df_query.sink_parquet(save_path, statistics=False)
 
-            # unlock the file
-            fcntl.flock(f, fcntl.LOCK_UN)
-            # df_query.sink_parquet(self.save_path) #, statistics=False)
+            # # unlock the file
+            # fcntl.flock(f, fcntl.LOCK_UN)
+            # # df_query.sink_parquet(self.save_path) #, statistics=False)
         
         logging.info(f"🔗 Finished joins for {file_suffix}-th collection of files.")
         # return pl.scan_parquet(save_path)
-        # return df_query
+        return df_query
 
     def postprocess_multi_files(self, df_query) -> pl.LazyFrame | None:
         
@@ -175,7 +215,7 @@ class DataLoader:
             with executor as ex:
                 # join dfs of different turbine types and same timestamps, then concat remaining
                 if ex is not None:
-                    # logging.info("🔄 Starting concatenation of DataFrames")
+                    logging.info("🔄 Starting concatenation of DataFrames")
                     join_start = time.time()
                     logging.info(f"✅ Started join of {len(self.file_paths)} files.")
                     unique_file_timestamps = set(re.findall(r"\.(\d{8})\.", fp)[0] for fp in self.file_paths)
@@ -190,7 +230,7 @@ class DataLoader:
                     #     df.sink_parquet(self.save_path.replace(".parquet", f"_{ts}.parquet"), statistics=False)
                     # dfs_to_concat = [fut.result() for fut in futures]
 
-                    logging.info(f"🔗 Finished join. Time elapsed: {time.time() - join_start:.2f} s")
+                    # logging.info(f"🔗 Finished join. Time elapsed: {time.time() - join_start:.2f} s")
                     
                     concat_start = time.time()
                     dfs_to_concat = [pl.scan_parquet(self.save_path.replace(".parquet", f"_{ts}.parquet")) 
@@ -815,10 +855,10 @@ if __name__ == "__main__":
     if RUN_ONCE:
         logging.info(f"✅ Finished reading individual files. Time elapsed: {time.time() - start_time:.2f} s")
 
-    if df_query:
-        df_query = data_loader.postprocess_multi_files(df_query)
-    elif RUN_ONCE:
-        logging.warning("⚠️ No data frames were created.")
+    # if df_query:
+    #     df_query = data_loader.postprocess_multi_files(df_query)
+    # elif RUN_ONCE:
+    #     logging.warning("⚠️ No data frames were created.")
 
     if RUN_ONCE:
         
