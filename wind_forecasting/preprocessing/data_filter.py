@@ -35,10 +35,7 @@ class DataFilter:
         self.turbine_status_col = turbine_status_col
         self.data_format = data_format
         self.multiprocessor = multiprocessor
-    def __init__(self, turbine_availability_col=None, turbine_status_col=None, multiprocessor=None):
-        self.turbine_availability_col = turbine_availability_col
-        self.turbine_status_col = turbine_status_col
-        self.multiprocessor = multiprocessor
+        self.data_format = data_format
 
     def filter_inoperational(self, df, status_codes=None, availability_codes=None, include_nan=True) -> pl.LazyFrame:
         """
