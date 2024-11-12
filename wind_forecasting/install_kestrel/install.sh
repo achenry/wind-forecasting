@@ -2,14 +2,14 @@ ssh ahenry@kestrel-gpu.hpc.nrel.gov
 # https://docs.github.com/en/authentication/connecting-to-github-with-ssh/generating-a-new-ssh-key-and-adding-it-to-the-ssh-agent?platform=linux
 
 ml mamba
-mamba create -n wind_forecasting_env -y
-mamba activate wind_forecasting_env
+mamba create --prefix=/projects/ssc/ahenry/conda/envs/wind_forecasting --y
+mamba activate wind_forecasting
 
 git clone --recurse-submodules https://github.com/achenry/wind-forecasting.git
 
-conda install notebook jupyterlab nb_conda_kernels cython pyyaml matplotlib numpy seaborn netcdf4 opt_einsum scipy -c conda-forge -y
-conda install pytorch torchvision torchaudio torchmetrics lightning cudatoolkit -c pytorch -c nvidia -y
-pip install wandb
+mamba install impi_rt polars windrose statsmodels h5pyd pyarrow scikit-learn floris wandb jupyterlab nb_conda_kernels pyyaml matplotlib numpy seaborn netcdf4 scipy -c conda-forge -y # opt_einsum cython notebook
+mamba install conda-forge::cuda-version=12.4 nvidia/label/cuda-12.4.0::cuda-toolkit pytorch torchvision torchaudio torchmetrics pytorch-cuda=12.4 lightning -c pytorch -c nvidia
+pip install mpi4py
 # pytorch-forecasting
 
 #python -m pip install -r ./spacetimeformer/requirements.txt
@@ -26,7 +26,7 @@ pip install wind_forecasting/preprocessing/OpenOA
 
 
 # python -m pip install --no-binary datatable datatable
-python -m pip install opencv-python performer-pytorch mpi4py polars floris
+# python -m pip install opencv-python performer-pytorch mpi4py polars floris
 # conda install pytorch::pytorch torchvision torchaudio -c pytorch
 
 

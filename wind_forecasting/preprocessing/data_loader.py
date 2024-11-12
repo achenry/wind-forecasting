@@ -107,7 +107,7 @@ class DataLoader:
                         # _ = [fut.result() for fut in futures]
                         for ts, df in zip(unique_file_timestamps, df_query):
                             self.sink_parquet(df, self.save_path.replace(".parquet", f"_{ts}.parquet"))
-                            
+
                         print(104)
                         # for ts, df in zip(unique_file_timestamps, dfs_to_concat):
                         #     logging.info(f"Sinking {ts} collection of LazyFrames to join.")
@@ -773,7 +773,7 @@ if __name__ == "__main__":
         # PL_SAVE_PATH = "/projects/ssc/ahenry/wind_forecasting/awaken_data/kp.turbine.zo2.b0.raw.parquet"
         PL_SAVE_PATH = os.path.join("/tmp/scratch", os.environ["SLURM_JOB_ID"], "loaded_data.parquet")
         # print(f"PL_SAVE_PATH = {PL_SAVE_PATH}")
-        FILE_SIGNATURE = "kp.turbine.z02.b0.*.*.*.nc"
+        FILE_SIGNATURE = "kp.turbine.z02.b0.202203*.*.*.nc"
         MULTIPROCESSOR = "mpi"
         # TURBINE_INPUT_FILEPATH = "/projects/aohe7145/toolboxes/wind-forecasting/examples/inputs/ge_282_127.yaml"
         TURBINE_INPUT_FILEPATH = "/home/ahenry/toolboxes/wind_forecasting_env/wind-forecasting/examples/inputs/ge_282_127.yaml"
