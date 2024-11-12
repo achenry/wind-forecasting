@@ -101,7 +101,7 @@ class DataLoader:
 
                         print(99)
                         for ts, df in zip(unique_file_timestamps, df_query):
-                            print(ts, df.head(10).collect(), sep="\n")
+                            print(ts, df.collect(), sep="\n")
                         print(101)
 
                         futures = [ex.submit(self.sink_parquet, df, self.save_path.replace(".parquet", f"_{ts}.parquet")) 
