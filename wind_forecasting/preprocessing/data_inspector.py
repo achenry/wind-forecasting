@@ -11,9 +11,9 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 from windrose import WindroseAxes
 import numpy as np
-# from floris import FlorisModel
-# from floris.flow_visualization import visualize_cut_plane
-# import floris.layout_visualization as layoutviz
+from floris import FlorisModel
+from floris.flow_visualization import visualize_cut_plane
+import floris.layout_visualization as layoutviz
 import scipy.stats as stats
 import polars as pl
 import polars.selectors as cs
@@ -464,31 +464,30 @@ class DataInspector:
             #   qa.describe(DataInspector.collect_data(df=df_query, feature_types=feature_type, turbine_ids=[turbine_id], mask=out_of_window[:, t_idx]))
         return out
 
-    @staticmethod
-    def get_features(df, feature_types, turbine_ids="all"):
-        data_format = DataInspector.detect_data_format(df)
+    def get_features(self, df, feature_types, turbine_ids="all"):
+        data_format = self.detect_data_format(df)
         if feature_types is not None and not isinstance(feature_types, list):
             feature_types = [feature_types]
-
+        
+        cols = df.collect_schema().names()
         if data_format == 'wide':
             if turbine_ids == "all":
-                return sorted([col for col in df.columns if any(feat in col for feat in feature_types)])
+                return sorted([col for col in cols if any(feat in col for feat in feature_types)])
             elif isinstance(turbine_ids, str):
-                return sorted([col for col in df.columns if any((feat in col and turbine_ids in col) or (feat == col) for feat in feature_types)])
+                return sorted([col for col in cols if any((feat in col and turbine_ids in col) or (feat == col) for feat in feature_types)])
             else:
-                return sorted([col for col in df.columns if any((feat in col and tid in col) or (feat == col) for feat in feature_types for tid in turbine_ids)])
+                return sorted([col for col in cols if any((feat in col and tid in col) or (feat == col) for feat in feature_types for tid in turbine_ids)])
         else:  # long format
-            return sorted([col for col in df.columns if col in feature_types])
+            return sorted([col for col in cols if col in feature_types])
 
-    @staticmethod
-    def collect_data(df, feature_types=None, turbine_ids="all", mask=None, to_pandas=True):
-        data_format = DataInspector.detect_data_format(df)
+    def collect_data(self, df, feature_types=None, turbine_ids="all", mask=None, to_pandas=True):
+        data_format = self.detect_data_format(df)
         if feature_types is not None and not isinstance(feature_types, list):
             feature_types = [feature_types]
 
         if data_format == 'wide':
             if feature_types is not None:
-                df = df.select([pl.col(feat) for feat in DataInspector.get_features(df, feature_types, turbine_ids)])
+                df = df.select([pl.col(feat) for feat in self.get_features(df, feature_types, turbine_ids)])
         else:  # long format
             if feature_types is not None:
                 df = df.filter(pl.col('feature_name').is_in(feature_types))
@@ -503,9 +502,8 @@ class DataInspector:
         else:
             return df.collect(streaming=True)
 
-    @staticmethod
-    def unpivot_dataframe(df, feature_types):
-        data_format = DataInspector.detect_data_format(df)
+    def unpivot_dataframe(self, df, feature_types):
+        data_format = self.detect_data_format(df)
         if data_format == 'wide':
             # Unpivot wide format to long format
             if "continuity_group" in df.collect_schema().names():
@@ -526,9 +524,8 @@ class DataInspector:
             # Data is already in long format
             return df
 
-    @staticmethod
-    def pivot_dataframe(df):
-        data_format = DataInspector.detect_data_format(df)
+    def pivot_dataframe(self, df):
+        data_format = self.detect_data_format(df)
         if data_format == 'long':
             # Pivot long format to wide format
             if "continuity_group" in df.collect_schema().names():

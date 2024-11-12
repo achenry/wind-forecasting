@@ -98,7 +98,7 @@ if __name__ == "__main__":
         LOG_DIR = "/projects/ssc/ahenry/wind_forecasting/logging/"
         DATA_PATH = "/projects/ssc/ahenry/wind_forecasting/awaken_data/normalized_data.parquet"
         NORM_CONSTS = pd.read_csv("/projects/ssc/ahenry/wind_forecasting/awaken_data/normalization_consts.csv", index_col=None)
-        n_workers = os.environ["SLURM_NTASKS"]
+        n_workers = int(os.environ["SLURM_NTASKS"])
 
     ## DEFINE CONFIGURATION
     config = {

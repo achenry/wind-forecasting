@@ -127,12 +127,32 @@ class DataLoader:
                                             for ts in unique_file_timestamps]
                         print(116)
                         df_query = pl.concat(df_query, how="diagonal")
-                        df_query.collect().write_parquet(self.save_path, statistics=False)
+                        # df_query.collect().write_parquet(self.save_path, statistics=False)
                         logging.info(f"🔗 Finished concat. Time elapsed: {time.time() - concat_start:.2f} s")
                         print(119)
                         for ts in unique_file_timestamps:
                             os.remove(self.save_path.replace(".parquet", f"_{ts}.parquet"))
                         print(122)
+
+                        logging.info(f"Started sorting.")
+                        df_query = df_query.sort("time")
+                        logging.info(f"Finished sorting.")
+
+                        logging.info(f"Started resampling.") 
+                        full_datetime_range = df_query.select(pl.datetime_range(
+                            start=df_query.select("time").min().collect().item(),
+                            end=df_query.select("time").max().collect().item(),
+                            interval=f"{data_loader.dt}s", time_unit=df_query.collect_schema()["time"].time_unit).alias("time"))\
+                                .collect(streaming=True).lazy()
+                            
+                        df_query = full_datetime_range.join(df_query, on="time", how="left") # NOTE: @Aoife 10/18 make sure all time stamps are included, to interpolate continuously later
+                        logging.info(f"Finished resampling.") 
+
+                        logging.info(f"Started forward/backward fill.") 
+                        df_query = df_query.fill_null(strategy="forward").fill_null(strategy="backward") # NOTE: @Aoife for KP data, need to fill forward null gaps, don't know about Juan's data
+                        logging.info(f"Finished forward/backward fill.")
+
+                        df_query.collect().write_parquet(self.save_path, statistics=False)
                     
                     return pl.scan_parquet(self.save_path)
         else:
