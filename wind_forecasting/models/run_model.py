@@ -93,10 +93,12 @@ if __name__ == "__main__":
         LOG_DIR = "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/logging/"
         DATA_PATH = "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/normalized_data.parquet"
         NORM_CONSTS = pd.read_csv("/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/normalization_consts.csv", index_col=None)
+        n_workers = mp.cpu_count()
     elif platform == "linux":
         LOG_DIR = "/projects/ssc/ahenry/wind_forecasting/logging/"
         DATA_PATH = "/projects/ssc/ahenry/wind_forecasting/awaken_data/normalized_data.parquet"
         NORM_CONSTS = pd.read_csv("/projects/ssc/ahenry/wind_forecasting/awaken_data/normalization_consts.csv", index_col=None)
+        n_workers = os.environ["SLURM_NTASKS"]
 
     ## DEFINE CONFIGURATION
     config = {
@@ -113,7 +115,7 @@ if __name__ == "__main__":
             "target_turbine_ids": ["wt029", "wt034", "wt074"],
             "normalize": False, 
             "batch_size": 128,
-            "workers": mp.cpu_count(),
+            "workers": n_workers,
             "overfit": False,
             "test_split": 0.15,
             "val_split": 0.15,
