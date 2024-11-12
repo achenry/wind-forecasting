@@ -256,7 +256,7 @@ class Forecaster(L.LightningModule, ABC):
     def validation_step(self, batch, batch_idx, dataloader_idx=0):
         stats = self.step(batch, train=False)
         # self.current_val_stats = stats
-        
+        self._log_stats("val", stats)
         return stats
 
     def test_step(self, batch, batch_idx, dataloader_idx=0):
