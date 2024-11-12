@@ -85,20 +85,19 @@ class DataLoader:
                 if ex is not None:
                     futures = [ex.submit(self._read_single_file, f, file_path) for f, file_path in enumerate(self.file_paths)]
                     df_query = [fut.result() for fut in futures]
-                    df_query = [df for df in df_query if df is not None]
+                    df_query = [(self.file_paths[d], df) for d, df in enumerate(df_query) if df is not None]
 
                     if df_query:
                         join_start = time.time()
                         logging.info(f"✅ Started join of {len(self.file_paths)} files.")
                         print(93)
-                        unique_file_timestamps = set(re.findall(r"\.(\d{8})\.", fp)[0] for fp in self.file_paths)
-                        print(95)
+                        unique_file_timestamps = sorted(set(re.findall(r"\.(\d{8})\.", fp)[0] for fp,_ in df_query))
+                        logging.info(f"Unique timestamps found in files = {unique_file_timestamps}")
                         # futures = [ex.submit(self._join_dfs, ts, 
                         #                         [df for d, df in enumerate(df_query) if ts in self.file_paths[d]]) 
                         #                         for ts in unique_file_timestamps]
 
-                        for ts in unique_file_timestamps:
-                            self._join_dfs(ts, [df for d, df in enumerate(df_query) if ts in self.file_paths[d]])
+                        df_query = [self._join_dfs(ts, [df for filepath, df in df_query if ts in filepath]) for ts in unique_file_timestamps]
 
                         # print(99)
                         # df_query = [fut.result() for fut in futures]
@@ -127,7 +126,7 @@ class DataLoader:
                             os.remove(self.save_path.replace(".parquet", f"_{ts}.parquet"))
                         print(122)
                     
-                    return df_query
+                    return pl.scan_parquet(self.save_path)
         else:
             logging.info(f"🔧 Using single process executor.")
             df_query = [self._read_single_file(f, file_path) for f, file_path in enumerate(self.file_paths)]
@@ -139,7 +138,7 @@ class DataLoader:
         df.sink_parquet(filepath, statistics=False)
 
     def _join_dfs(self, file_suffix, dfs):
-        logging.info(f"✅ Started joins for {file_suffix}-th collection of files.") 
+        # logging.info(f"✅ Started joins for {file_suffix}-th collection of files.") 
         all_cols = set()
         first_df = True
         # temp_save_path = self.save_path.replace(".parquet", f"_{file_suffix}_tmp.parquet")
@@ -746,8 +745,8 @@ if __name__ == "__main__":
         DATA_DIR = "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data"
         # PL_SAVE_PATH = "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/kp.turbine.zo2.b0.raw.parquet"
         # FILE_SIGNATURE = "kp.turbine.z02.b0.*.*.*.nc"
-        PL_SAVE_PATH = "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/kp.turbine.zo2.b0.raw.parquet"
-        FILE_SIGNATURE = "kp.turbine.z02.b0.202203*1.*.*.nc"
+        PL_SAVE_PATH = "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/loaded_data.parquet"
+        FILE_SIGNATURE = "kp.turbine.z02.b0.*.*.*.nc"
         MULTIPROCESSOR = "cf"
         TURBINE_INPUT_FILEPATH = "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/inputs/ge_282_127.yaml"
         FARM_INPUT_FILEPATH = "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/inputs/gch_KP_v4.yaml"
@@ -766,7 +765,7 @@ if __name__ == "__main__":
         DATA_DIR = "/projects/ssc/ahenry/wind_forecasting/awaken_data/kp.turbine.z02.b0/"
         # PL_SAVE_PATH = "/scratch/alpine/aohe7145/awaken_data/kp.turbine.zo2.b0.raw.parquet"
         # PL_SAVE_PATH = "/projects/ssc/ahenry/wind_forecasting/awaken_data/kp.turbine.zo2.b0.raw.parquet"
-        PL_SAVE_PATH = os.path.join("/tmp/scratch", os.environ["SLURM_JOB_ID"], "kp.turbine.zo2.b0.parquet")
+        PL_SAVE_PATH = os.path.join("/tmp/scratch", os.environ["SLURM_JOB_ID"], "loaded_data.parquet")
         # print(f"PL_SAVE_PATH = {PL_SAVE_PATH}")
         FILE_SIGNATURE = "kp.turbine.z02.b0.*.*.*.nc"
         MULTIPROCESSOR = "mpi"

@@ -158,41 +158,35 @@ class DataInspector:
 
     # DEBUG: @Juan 10/18/24 Added method to plot wind rose for both wide and long formats [CHECK]
     def plot_wind_rose(self, df, turbine_ids: list[str] | str) -> None:
-      """_summary_
-
-        Args:
-            wind_direction (float): _description_
-            wind_speed (float): _description_
-        """
         data_format = self.detect_data_format(df)
         if data_format == 'wide':
-          if turbine_ids == "all":
-            plt.figure(figsize=(10, 10))
-            ax = WindroseAxes.from_ax()
-            ax.bar(df.select(cs.contains("wind_direction")).collect(streaming=True).to_numpy().flatten(), 
-                   df.select(cs.contains("wind_speed")).collect(streaming=True).to_numpy().flatten(), 
-                   normed=True, opening=0.8, edgecolor='white')
-            ax.set_legend()
-            plt.title('Wind Rose for all Turbines')
-            plt.show()
-          else:
-              valid_turbines = self._get_valid_turbine_ids(df, turbine_ids=turbine_ids)
+            if turbine_ids == "all":
+                plt.figure(figsize=(10, 10))
+                ax = WindroseAxes.from_ax()
+                ax.bar(df.select(cs.contains("wind_direction")).collect(streaming=True).to_numpy().flatten(), 
+                    df.select(cs.contains("wind_speed")).collect(streaming=True).to_numpy().flatten(), 
+                    normed=True, opening=0.8, edgecolor='white')
+                ax.set_legend()
+                plt.title('Wind Rose for all Turbines')
+                plt.show()
+            else:
+                valid_turbines = self._get_valid_turbine_ids(df, turbine_ids=turbine_ids)
 
-              if len(valid_turbines) == 0:
-                  return
+                if len(valid_turbines) == 0:
+                    return
 
-              for turbine_id in valid_turbines:
-                  turbine_data = df.select([pl.col(f"wind_speed_{turbine_id}"), pl.col(f"wind_direction_{turbine_id}")])\
-                      .filter(pl.all_horizontal(pl.col(f"wind_speed_{turbine_id}").is_not_null(), pl.col(f"wind_direction_{turbine_id}").is_not_null()))
+                for turbine_id in valid_turbines:
+                    turbine_data = df.select([pl.col(f"wind_speed_{turbine_id}"), pl.col(f"wind_direction_{turbine_id}")])\
+                        .filter(pl.all_horizontal(pl.col(f"wind_speed_{turbine_id}").is_not_null(), pl.col(f"wind_direction_{turbine_id}").is_not_null()))
 
-                  plt.figure(figsize=(10, 10))
-                  ax = WindroseAxes.from_ax()
-                  ax.bar(df.select(pl.col("wind_direction*")).collect(streaming=True).to_numpy()[:, 0], 
-                         df.select(pl.col("wind_speed*")).collect(streaming=True).to_numpy()[:, 0], 
-                         normed=True, opening=0.8, edgecolor='white')
-                  ax.set_legend()
-                  plt.title(f'Wind Rose for Turbine {turbine_id}')
-                  plt.show()
+                    plt.figure(figsize=(10, 10))
+                    ax = WindroseAxes.from_ax()
+                    ax.bar(df.select(pl.col("wind_direction*")).collect(streaming=True).to_numpy()[:, 0], 
+                            df.select(pl.col("wind_speed*")).collect(streaming=True).to_numpy()[:, 0], 
+                            normed=True, opening=0.8, edgecolor='white')
+                    ax.set_legend()
+                    plt.title(f'Wind Rose for Turbine {turbine_id}')
+                    plt.show()
         else:  # long format
             if turbine_ids == "all":
                 plt.figure(figsize=(10, 10))
