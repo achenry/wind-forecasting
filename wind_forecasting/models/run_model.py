@@ -8,6 +8,7 @@ from lightning.pytorch.loggers import WandbLogger
 from lightning.pytorch.callbacks import EarlyStopping, RichProgressBar, ModelCheckpoint, LearningRateMonitor
 from lightning.pytorch.callbacks.progress.rich_progress import RichProgressBarTheme
 
+import multiprocessing as mp
 import pandas as pd
 
 from wind_forecasting.models.forecaster import Forecaster
@@ -112,7 +113,7 @@ if __name__ == "__main__":
             "target_turbine_ids": ["wt029", "wt034", "wt074"],
             "normalize": False, 
             "batch_size": 128,
-            "workers": 6,
+            "workers": mp.cpu_count(),
             "overfit": False,
             "test_split": 0.15,
             "val_split": 0.15,
