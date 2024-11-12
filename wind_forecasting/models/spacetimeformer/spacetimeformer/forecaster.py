@@ -248,18 +248,18 @@ class Forecaster(L.LightningModule, ABC):
         stats["loss"] = loss
         return stats
 
-    def training_step(self, batch, batch_idx, dataloader_idx):
+    def training_step(self, batch, batch_idx, dataloader_idx=0):
         stats = self.step(batch, train=True)
         
         return stats
     
-    def validation_step(self, batch, batch_idx, dataloader_idx):
+    def validation_step(self, batch, batch_idx, dataloader_idx=0):
         stats = self.step(batch, train=False)
         self.current_val_stats = stats
         
         return stats
 
-    def test_step(self, batch, batch_idx, dataloader_idx):
+    def test_step(self, batch, batch_idx, dataloader_idx=0):
         stats = self.step(batch, train=False)
         self.current_test_stats = stats
         return stats

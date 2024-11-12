@@ -218,14 +218,14 @@ class ContinuousDataset(Dataset):
         self.context_len = dataset.context_len
         self.target_len = dataset.target_len
 
-        dataset_slice_start_points = namedtuple('dataset_slice_start_points', ['dataset_idx', 'start_point'])
+        # dataset_slice_start_points = namedtuple('dataset_slice_start_points', ['dataset_idx', 'start_point'])
 
         n_datasets = len(getattr(self.full_dataset, f"{split}_data"))
-        self._slice_start_points = [dataset_slice_start_points(dataset_idx, sp) 
+        self._slice_start_points = [(dataset_idx, sp) 
                                     for dataset_idx in range(n_datasets) 
                                     for sp in range(0, 
                                                     self.full_dataset.length(self.split, dataset_idx) 
-                                                    - (self.target_len + self.context_len)+ 1,
+                                                    - (self.target_len + self.context_len) + 1,
         )]
 
     def __len__(self):
@@ -246,19 +246,19 @@ class ContinuousDataset(Dataset):
             skip=1,
         )
 
-        series_slice = series_slice.drop(columns=[self.series.time_col_name])
+        series_slice = series_slice.drop(columns=[self.full_dataset.time_col_name])
         ctxt_slice, trgt_slice = (
             series_slice.iloc[: self.context_len],
             series_slice.iloc[self.context_len :],
         )
 
-        ctxt_x = ctxt_slice[self.series.time_cols]
-        trgt_x = trgt_slice[self.series.time_cols]
+        ctxt_x = ctxt_slice[self.full_dataset.time_cols]
+        trgt_x = trgt_slice[self.full_dataset.time_cols]
         
-        ctxt_y = ctxt_slice[self.series.target_cols + self.series.exo_cols]
+        ctxt_y = ctxt_slice[self.full_dataset.target_cols + self.full_dataset.exo_cols]
         # ctxt_y = ctxt_y.drop(columns=self.series.remove_target_from_context_cols)
 
-        trgt_y = trgt_slice[self.series.target_cols]
+        trgt_y = trgt_slice[self.full_dataset.target_cols]
 
         return self._torch(ctxt_x, ctxt_y, trgt_x, trgt_y)
      
