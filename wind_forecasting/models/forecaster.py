@@ -8,8 +8,11 @@ class Forecaster:
         super().__init__()
 
         self.model = config["model"]["model_class"](
-            d_x=data_module.dataset.x_dim, d_yc=data_module.dataset.yc_dim, d_yt=data_module.dataset.yt_dim, 
-            context_len=data_module.dataset.context_len, target_len=data_module.dataset.target_len, 
+            d_x=data_module.dataset.x_dim, 
+            d_yc=data_module.dataset.yc_dim, 
+            d_yt=data_module.dataset.yt_dim, 
+            context_len=data_module.dataset.context_len, 
+            target_len=data_module.dataset.target_len, 
             **config["model"])
         # if torch.cuda.device_count() > 1:
         #     self.model = self.model.DataParallel(net)
