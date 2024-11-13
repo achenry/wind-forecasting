@@ -248,44 +248,21 @@ class Forecaster(L.LightningModule, ABC):
         stats["loss"] = loss
         return stats
 
-    def training_step(self, batch, batch_idx):
-        # run for all datasets
-        if type(batch) is list:
-            stats = defaultdict(int) # defaults to zero
-            for dataset_batch in batch:
-                dataset_stats = self.step(dataset_batch, train=True)
-                for k, v in dataset_stats.items():
-                    stats[k] += v
-        else:
-            stats = self.step(batch, train=True)
+    def training_step(self, batch, batch_idx, dataloader_idx=0):
+        stats = self.step(batch, train=True)
         
         return stats
     
-    def validation_step(self, batch, batch_idx):
-        # run for all datasets
-        if type(batch) is list:
-            stats = defaultdict(int) # defaults to zero
-            for dataset_batch in batch:
-                dataset_stats = self.step(dataset_batch, train=False)
-                for k, v in dataset_stats.items():
-                    stats[k] += v
-            self.current_val_stats = stats
-        else:
-            stats = self.step(batch, train=False)
-            self.current_val_stats = stats
-        
+    def validation_step(self, batch, batch_idx, dataloader_idx=0):
+        stats = self.step(batch, train=False)
+        # self.current_val_stats = stats
+        self._log_stats("val", stats)
         return stats
 
-    def test_step(self, batch, batch_idx):
-        # run for all datasets
-        if type(batch) is list:
-            stats = defaultdict(int) # defaults to zero
-            for dataset_batch in batch:
-                dataset_stats = self.step(dataset_batch, train=False)
-                for k, v in dataset_stats.items():
-                    stats[k] += v
-        else:
-            stats = self.step(batch, train=False)
+    def test_step(self, batch, batch_idx, dataloader_idx=0):
+        stats = self.step(batch, train=False)
+        # self.current_test_stats = stats
+        return stats
 
     def _log_stats(self, section, outs):
         for key in outs.keys():
@@ -306,7 +283,7 @@ class Forecaster(L.LightningModule, ABC):
         self._log_stats("test", outs)
         return {"loss": outs["loss"].mean()}
 
-    def predict_step(self, batch, batch_idx):
+    def predict_step(self, batch, batch_idx, dataloader_idx=0):
         return self(*batch, **self.eval_step_forward_kwargs)
 
     def configure_optimizers(self):

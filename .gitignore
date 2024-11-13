@@ -43,6 +43,7 @@ wind_forecasting.code-workspace
 *.nc
 *.pyc
 *.dbf
+*.wandb
 *.egg-info
 *.zip
 *.parquet
