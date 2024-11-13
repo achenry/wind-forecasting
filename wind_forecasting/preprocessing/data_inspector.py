@@ -502,30 +502,31 @@ class DataInspector:
         else:
             return df.collect(streaming=True)
 
-    def unpivot_dataframe(self, df, feature_types):
-        data_format = self.detect_data_format(df)
+    @staticmethod
+    def unpivot_dataframe(df, feature_types, data_format="wide"):
         if data_format == 'wide':
             # Unpivot wide format to long format
             if "continuity_group" in df.collect_schema().names():
                 return pl.concat([
                   df.select(pl.col("time"), pl.col("continuity_group"), cs.starts_with(feature_type))\
-                  .unpivot(index=["time", "continuity_group"], value_name=feature_type)\
+                  .unpivot(index=["time", "continuity_group"], variable_name="feature", value_name=feature_type)\
                   .with_columns(pl.col("feature").str.extract(r"_(\d+)$").alias("turbine_id"))\
                   .drop("feature") for feature_type in ["wind_speed", "wind_direction", "turbine_status", "power_output", "nacelle_direction"]], how="align")\
-                      .group_by("turbine_id", "time").agg(cs.numeric().drop_nulls().first()).sort("turbine_id", "time")
+                  .group_by("turbine_id", "time").agg(cs.numeric().drop_nulls().first()).sort("turbine_id", "time")
             else:
                 return pl.concat([
                     df.select(pl.col("time"), cs.starts_with(feature_type))\
                     .melt(id_vars=["time"], variable_name="feature", value_name=feature_type)\
                     .with_columns(pl.col("feature").str.extract(r"_(\d+)$").alias("turbine_id"))\
                     .drop("feature") for feature_type in feature_types], how="align")\
-                        .group_by("turbine_id", "time").agg(cs.numeric().drop_nulls().first()).sort("turbine_id", "time")
+                    .group_by("turbine_id", "time").agg(cs.numeric().drop_nulls().first()).sort("turbine_id", "time")
         else:
             # Data is already in long format
             return df
 
-    def pivot_dataframe(self, df):
-        data_format = self.detect_data_format(df)
+    @staticmethod
+    def pivot_dataframe(df, data_format="long"):
+        # data_format = self.detect_data_format(df)
         if data_format == 'long':
             # Pivot long format to wide format
             if "continuity_group" in df.collect_schema().names():
