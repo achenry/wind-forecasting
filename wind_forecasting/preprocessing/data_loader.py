@@ -4,6 +4,7 @@
 ### - convert circular measurements to sinusoidal measurements
 ### - normalize data
 
+import fcntl
 import glob
 import os
 import logging
@@ -20,6 +21,8 @@ from sklearn.preprocessing import MinMaxScaler
 from mpi4py import MPI
 from mpi4py.futures import MPICommExecutor
 from concurrent.futures import ProcessPoolExecutor
+
+import paramiko
 # from pandas import to_datetime as pd_to_datetime # INFO: @Juan 10/16/24 Added pd_to_datetime to avoid conflict with polars to_datetime
 
 SECONDS_PER_MINUTE = np.float64(60)
@@ -79,21 +82,76 @@ class DataLoader:
             else:  # "cf" case
                 executor = ProcessPoolExecutor()
             with executor as ex:
-                futures = [ex.submit(self._read_single_file, f, file_path) for f, file_path in enumerate(self.file_paths)]
-                df_query = [fut.result() for fut in futures]
-                df_query = [df for df in df_query if df is not None]
-                return df_query
+                if ex is not None:
+                    futures = [ex.submit(self._read_single_file, f, file_path) for f, file_path in enumerate(self.file_paths)]
+                    df_query = [fut.result() for fut in futures]
+                    df_query = [(self.file_paths[d], df) for d, df in enumerate(df_query) if df is not None]
+
+                    if df_query:
+                        join_start = time.time()
+                        logging.info(f"✅ Started join of {len(self.file_paths)} files.")
+                        print(93)
+                        unique_file_timestamps = sorted(set(re.findall(r"\.(\d{8})\.", fp)[0] for fp,_ in df_query))
+                        logging.info(f"Unique timestamps found in files = {unique_file_timestamps}")
+
+                        df_query = [self._join_dfs(ts, [df for filepath, df in df_query if ts in filepath]) for ts in unique_file_timestamps]
+
+                        for ts, df in zip(unique_file_timestamps, df_query):
+                            # print(ts, df.collect(), sep="\n")
+                            df.collect().write_parquet(self.save_path.replace(".parquet", f"_{ts}.parquet"), statistics=False)
+                            logging.info(f"Finished writing parquet {ts}")
+
+                        logging.info(f"🔗 Finished join. Time elapsed: {time.time() - join_start:.2f} s")
+
+                        concat_start = time.time()
+                        df_query = [pl.scan_parquet(self.save_path.replace(".parquet", f"_{ts}.parquet")) 
+                                            for ts in unique_file_timestamps]
+                        df_query = pl.concat(df_query, how="diagonal")
+                        logging.info(f"🔗 Finished concat. Time elapsed: {time.time() - concat_start:.2f} s")
+
+                        logging.info(f"Started sorting.")
+                        df_query = df_query.sort("time")
+                        logging.info(f"Finished sorting.")
+
+                        logging.info(f"Started resampling.") 
+                        full_datetime_range = df_query.select(pl.datetime_range(
+                            start=df_query.select("time").min().collect().item(),
+                            end=df_query.select("time").max().collect().item(),
+                            interval=f"{self.dt}s", time_unit=df_query.collect_schema()["time"].time_unit).alias("time"))
+                            
+                        df_query = full_datetime_range.join(df_query, on="time", how="left").collect(streaming=True).lazy() # NOTE: @Aoife 10/18 make sure all time stamps are included, to interpolate continuously later
+                        logging.info(f"Finished resampling.") 
+
+                        logging.info(f"Started forward/backward fill.") 
+                        df_query = df_query.fill_null(strategy="forward").fill_null(strategy="backward") # NOTE: @Aoife for KP data, need to fill forward null gaps, don't know about Juan's data
+                        logging.info(f"Finished forward/backward fill.")
+
+                        df_query.collect().write_parquet(self.save_path, statistics=False)
+
+                        for ts in unique_file_timestamps:
+                            os.remove(self.save_path.replace(".parquet", f"_{ts}.parquet"))
+                    
+                    return pl.scan_parquet(self.save_path)
         else:
             logging.info(f"🔧 Using single process executor.")
-            df_query = [self._read_single_file(f, file_path) for f, file_path in enumerate(self.file_paths) if self._read_single_file(file_path) is not None]
+            df_query = [self._read_single_file(f, file_path) for f, file_path in enumerate(self.file_paths)]
+            df_query = [df for df in df_query if df is not None]
             return df_query
     
+    def sink_parquet(self, df, filepath):
+        try:
+            df.sink_parquet(filepath, statistics=False)
+        except Exception as e:
+            logging.info(f"Failed to sink LazyFrame {filepath}")
+
+        logging.info(f"Finished sinking parquet {filepath}") 
+
     def _join_dfs(self, file_suffix, dfs):
-        
+        # logging.info(f"✅ Started joins for {file_suffix}-th collection of files.") 
         all_cols = set()
         first_df = True
         # temp_save_path = self.save_path.replace(".parquet", f"_{file_suffix}_tmp.parquet")
-        save_path = self.save_path.replace(".parquet", f"_{file_suffix}.parquet")
+        # save_path = self.save_path.replace(".parquet", f"_{file_suffix}.parquet")
         # df_query = None
         for d, df in enumerate(dfs):
             # df = df.collect()
@@ -119,12 +177,23 @@ class DataLoader:
                     # df_query.filter((pl.col("time") >= df.select("time").min().collect().item()) & (pl.col("time") <= df.select("time").max().collect().item())).sort("time").select(pl.col("time"), cs.contains(df.columns[1].split("_")[-1])).collect()
 
             all_cols.update(new_cols)
+            # df_query = df_query.collect(streaming=True).lazy()
+            # logging.info(f"🔗 Finished {d}-th join of {len(dfs)} of {file_suffix}-th collection of files.") 
             # os.rename(temp_save_path, save_path)
-        df_query.sink_parquet(save_path, statistics=False)
-            # df_query.sink_parquet(self.save_path) #, statistics=False)
+        # with open(save_path, 'wb') as f:
+        #     # lock the file
+        #     fcntl.flock(f, fcntl.LOCK_EX)
+
+        # perform write operation
+        # df_query.sink_parquet(save_path, statistics=False)
+
+            # # unlock the file
+            # fcntl.flock(f, fcntl.LOCK_UN)
+            # # df_query.sink_parquet(self.save_path) #, statistics=False)
         
-        logging.info(f"🔗 Finished {d}-th join of {len(dfs)} of {file_suffix}-th collection of files.")
-        return pl.scan_parquet(save_path)
+        logging.info(f"🔗 Finished joins for {file_suffix}-th collection of files.")
+        # return pl.scan_parquet(save_path)
+        return df_query
 
     def postprocess_multi_files(self, df_query) -> pl.LazyFrame | None:
         
@@ -158,56 +227,56 @@ class DataLoader:
             else:  # "cf" case
                 executor = ProcessPoolExecutor()
             with executor as ex:
-                if df_query:
-                    # join dfs of different turbine types and same timestamps, then concat remaining
-                    logging.info(f"✅ Finished reading individual files. Time elapsed: {time.time() - start_time:.2f} s")
-                    # logging.info("🔄 Starting concatenation of DataFrames")
+                # join dfs of different turbine types and same timestamps, then concat remaining
+                if ex is not None:
+                    logging.info("🔄 Starting concatenation of DataFrames")
                     join_start = time.time()
                     logging.info(f"✅ Started join of {len(self.file_paths)} files.")
                     unique_file_timestamps = set(re.findall(r"\.(\d{8})\.", fp)[0] for fp in self.file_paths)
-                    dfs_to_concat = []
 
                     futures = [ex.submit(self._join_dfs, ts, 
-                                         [df for d, df in enumerate(df_query) if ts in self.file_paths[d]]) 
-                                         for ts in unique_file_timestamps]
+                                            [df for d, df in enumerate(df_query) if ts in self.file_paths[d]]) 
+                                            for ts in unique_file_timestamps]
                     dfs_to_concat = [fut.result() for fut in futures]
-                    # dfs_to_concat = [df_query.scan_parquet(self.save_path.replace(".parquet", f"_{ts}.parquet")) 
-                    #                  for ts in unique_file_timestamps]
 
-                    logging.info(f"🔗 Finished join. Time elapsed: {time.time() - join_start:.2f} s")
+                    # for ts, df in zip(unique_file_timestamps, dfs_to_concat):
+                    #     logging.info(f"Sinking {ts} collection of LazyFrames to join.")
+                    #     df.sink_parquet(self.save_path.replace(".parquet", f"_{ts}.parquet"), statistics=False)
+                    # dfs_to_concat = [fut.result() for fut in futures]
+
+                    # logging.info(f"🔗 Finished join. Time elapsed: {time.time() - join_start:.2f} s")
                     
                     concat_start = time.time()
+                    dfs_to_concat = [pl.scan_parquet(self.save_path.replace(".parquet", f"_{ts}.parquet")) 
+                                        for ts in unique_file_timestamps]
                     pl.concat(dfs_to_concat, how="vertical").collect().write_parquet(self.save_path, statistics=False)
                     logging.info(f"🔗 Finished concat. Time elapsed: {time.time() - concat_start:.2f} s")
 
+                    for ts in unique_file_timestamps:
+                        os.remove(self.save_path.replace(".parquet", f"_{ts}.parquet"))
+
                     return pl.scan_parquet(self.save_path)
-                else:
-                    logging.warning("⚠️ No data frames were created.")
-                    return None
-        else:
-            if df_query:
-                # join dfs of different turbine types and same timestamps, then concat remaining
-                logging.info(f"✅ Finished reading individual files. Time elapsed: {time.time() - start_time:.2f} s")
-                # logging.info("🔄 Starting concatenation of DataFrames")
-                join_start = time.time()
-                logging.info(f"✅ Started join of {len(self.file_paths)} files.")
-                unique_file_timestamps = set(re.findall(r"\.(\d{8})\.", fp)[0] for fp in self.file_paths)
-                dfs_to_concat = []
-
-                for ts in unique_file_timestamps:
-                    dfs_to_join = [df for d, df in enumerate(df_query) if ts in self.file_paths[d]]
-                    dfs_to_concat.append(self._join_dfs(ts,dfs_to_join))
-
-                logging.info(f"🔗 Finished join. Time elapsed: {time.time() - join_start:.2f} s")
                 
-                concat_start = time.time()
-                pl.concat(dfs_to_concat, how="vertical").collect().write_parquet(self.save_path, statistics=False)
-                logging.info(f"🔗 Finished concat. Time elapsed: {time.time() - concat_start:.2f} s")
+        else:
+            # join dfs of different turbine types and same timestamps, then concat remaining
+            logging.info(f"✅ Finished reading individual files. Time elapsed: {time.time() - start_time:.2f} s")
+            # logging.info("🔄 Starting concatenation of DataFrames")
+            join_start = time.time()
+            logging.info(f"✅ Started join of {len(self.file_paths)} files.")
+            unique_file_timestamps = set(re.findall(r"\.(\d{8})\.", fp)[0] for fp in self.file_paths)
+            dfs_to_concat = []
 
-                return pl.scan_parquet(self.save_path)
-            else:
-                logging.warning("⚠️ No data frames were created.")
-                return None
+            for ts in unique_file_timestamps:
+                dfs_to_join = [df for d, df in enumerate(df_query) if ts in self.file_paths[d]]
+                dfs_to_concat.append(self._join_dfs(ts,dfs_to_join))
+
+            logging.info(f"🔗 Finished join. Time elapsed: {time.time() - join_start:.2f} s")
+            
+            concat_start = time.time()
+            pl.concat(dfs_to_concat, how="diagonal").collect().write_parquet(self.save_path, statistics=False)
+            logging.info(f"🔗 Finished concat. Time elapsed: {time.time() - concat_start:.2f} s")
+
+            return pl.scan_parquet(self.save_path)
                     
         #             # df_query = pl.concat([df for df in df_query if df is not None]).lazy()
         #             num_processes = executor._max_workers
@@ -685,8 +754,8 @@ if __name__ == "__main__":
         DATA_DIR = "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data"
         # PL_SAVE_PATH = "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/kp.turbine.zo2.b0.raw.parquet"
         # FILE_SIGNATURE = "kp.turbine.z02.b0.*.*.*.nc"
-        PL_SAVE_PATH = "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/kp.turbine.zo2.b0.raw.parquet"
-        FILE_SIGNATURE = "kp.turbine.z02.b0.202203*1.*.*.nc"
+        PL_SAVE_PATH = "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/loaded_data.parquet"
+        FILE_SIGNATURE = "kp.turbine.z02.b0.*.*.*.nc"
         MULTIPROCESSOR = "cf"
         TURBINE_INPUT_FILEPATH = "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/inputs/ge_282_127.yaml"
         FARM_INPUT_FILEPATH = "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/inputs/gch_KP_v4.yaml"
@@ -704,8 +773,8 @@ if __name__ == "__main__":
         # DATA_DIR = "/pl/active/paolab/awaken_data/kp.turbine.z02.b0/"
         DATA_DIR = "/projects/ssc/ahenry/wind_forecasting/awaken_data/kp.turbine.z02.b0/"
         # PL_SAVE_PATH = "/scratch/alpine/aohe7145/awaken_data/kp.turbine.zo2.b0.raw.parquet"
-        # PL_SAVE_PATH = "/projects/ssc/ahenry/wind_forecasting/awaken_data/kp.turbine.zo2.b0.raw.parquet"
-        PL_SAVE_PATH = os.path.join("/tmp/scratch", os.environ["SLURM_JOB_ID"], "kp.turbine.zo2.b0.parquet")
+        # PL_SAVE_PATH = "/projects/ssc/ahenry/wind_forecasting/awaken_data/loaded_data.parquet"
+        PL_SAVE_PATH = os.path.join("/tmp/scratch", os.environ["SLURM_JOB_ID"], "loaded_data.parquet")
         # print(f"PL_SAVE_PATH = {PL_SAVE_PATH}")
         FILE_SIGNATURE = "kp.turbine.z02.b0.*.*.*.nc"
         MULTIPROCESSOR = "mpi"
@@ -785,8 +854,6 @@ if __name__ == "__main__":
             logging.info("✅ Loaded existing Parquet file successfully")
         
         logging.info("🔄 Processing new data files")
-        start_time = time.time() # INFO: @Juan 10/16/24 Debbuging time measurements
-        logging.info(f"✅ Starting read_multi_files with {len(data_loader.file_paths)} files")
        
         if MULTIPROCESSOR == "mpi":
             comm_size = MPI.COMM_WORLD.Get_size()
@@ -795,12 +862,21 @@ if __name__ == "__main__":
             max_workers = multiprocessing.cpu_count()
             logging.info(f"🖥️  Using ProcessPoolExecutor with {max_workers} workers.")
     
+    if RUN_ONCE:
+        start_time = time.time()
+        logging.info(f"✅ Starting read_multi_files with {len(data_loader.file_paths)} files")
     df_query = data_loader.read_multi_files()
-    df_query = data_loader.postprocess_multi_files(df_query)
+    if RUN_ONCE:
+        logging.info(f"✅ Finished reading individual files. Time elapsed: {time.time() - start_time:.2f} s")
+
+    # if df_query:
+    #     df_query = data_loader.postprocess_multi_files(df_query)
+    # elif RUN_ONCE:
+    #     logging.warning("⚠️ No data frames were created.")
 
     if RUN_ONCE:
         
-        logging.info(f"⏱️ Total time elapsed: {time.time() - start_time:.2f} s")
+        # logging.info(f"⏱️ Total time elapsed: {time.time() - start_time:.2f} s")
     
         if df_query is not None:
             # Perform any additional operations on df_query if needed

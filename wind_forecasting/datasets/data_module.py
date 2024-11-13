@@ -1,10 +1,9 @@
-## TODO MERGE
 
 import os
-
+from collections import namedtuple
 import numpy as np
 import lightning as L
-from lightning.pytorch.utilities import CombinedLoader
+# from lightning.pytorch.utilities import CombinedLoader
 import torch
 from torch.utils.data import Dataset, DataLoader
 from wind_forecasting.utils.colors import Colors
@@ -172,25 +171,35 @@ class DataModule(L.LightningDataModule):
             split = "train"
             shuffle = True
         # datasets = getattr(self.dataset, f"{split}_data")
-        n_datasets = len(getattr(self.dataset, f"{split}_data"))
-        combined_loader = []
-        for d in range(n_datasets):
-            combined_loader.append(DataLoader(
-                ContinuousDataset(dataset=self.dataset,
-                dataset_index=d, split=split),
+        # n_datasets = len(getattr(self.dataset, f"{split}_data"))
+        # combined_loader = []
+        # for d in range(n_datasets):
+        #     combined_loader.append(DataLoader(
+        #         ContinuousDataset(dataset=self.dataset,
+        #         dataset_index=d, split=split),
+        #         shuffle=shuffle,
+        #         batch_size=self.batch_size,
+        #         num_workers=self.workers,
+        #         collate_fn=self.collate_fn,
+        #         persistent_workers=True
+        #     ))
+        # # return CombinedLoader(combined_loader, mode="sequential")
+        # return combined_loader
+        # TODO 
+        return DataLoader(
+            ContinuousDataset(dataset=self.dataset, split=split),
                 shuffle=shuffle,
                 batch_size=self.batch_size,
                 num_workers=self.workers,
                 collate_fn=self.collate_fn,
                 persistent_workers=True
-            ))
-        return CombinedLoader(combined_loader, mode="max_size")
+            )
 
 class ContinuousDataset(Dataset):
     def __init__(
         self,
         dataset: Dataset,
-        dataset_index: int = 0,
+        # dataset_index: int = 0,
         split: str = "train"
     ):
         """_summary_
@@ -203,17 +212,21 @@ class ContinuousDataset(Dataset):
             context_len (int, optional): _description_. Defaults to None.
             target_len (int, optional): _description_. Defaults to None.
         """
-        self.series = dataset
-        self.dataset_index = dataset_index
+        self.full_dataset = dataset
+        # self.dataset_index = dataset_index
         self.split = split
         self.context_len = dataset.context_len
         self.target_len = dataset.target_len
-        self._slice_start_points = list(range(
-                0,
-                self.series.length(self.split, self.dataset_index)
-                - (self.target_len + self.context_len)
-                + 1,
-            ))
+
+        # dataset_slice_start_points = namedtuple('dataset_slice_start_points', ['dataset_idx', 'start_point'])
+
+        n_datasets = len(getattr(self.full_dataset, f"{split}_data"))
+        self._slice_start_points = [(dataset_idx, sp) 
+                                    for dataset_idx in range(n_datasets) 
+                                    for sp in range(0, 
+                                                    self.full_dataset.length(self.split, dataset_idx) 
+                                                    - (self.target_len + self.context_len) + 1,
+        )]
 
     def __len__(self):
         return len(self._slice_start_points)
@@ -222,30 +235,30 @@ class ContinuousDataset(Dataset):
         return tuple(torch.from_numpy(x.values).float() for x in dfs)
 
     def __getitem__(self, i):
-        start = self._slice_start_points[i]
+        dataset_idx, start = self._slice_start_points[i]
         stop = start + (self.context_len + self.target_len)
         # series_slice = self.series.iloc[start:stop]
-        series_slice = self.series.get_slice(
+        series_slice = self.full_dataset.get_slice(
             self.split,
-            self.dataset_index,
+            dataset_idx,
             start=start,
             stop=stop,
             skip=1,
         )
 
-        series_slice = series_slice.drop(columns=[self.series.time_col_name])
+        series_slice = series_slice.drop(columns=[self.full_dataset.time_col_name])
         ctxt_slice, trgt_slice = (
             series_slice.iloc[: self.context_len],
             series_slice.iloc[self.context_len :],
         )
 
-        ctxt_x = ctxt_slice[self.series.time_cols]
-        trgt_x = trgt_slice[self.series.time_cols]
+        ctxt_x = ctxt_slice[self.full_dataset.time_cols]
+        trgt_x = trgt_slice[self.full_dataset.time_cols]
         
-        ctxt_y = ctxt_slice[self.series.target_cols + self.series.exo_cols]
+        ctxt_y = ctxt_slice[self.full_dataset.target_cols + self.full_dataset.exo_cols]
         # ctxt_y = ctxt_y.drop(columns=self.series.remove_target_from_context_cols)
 
-        trgt_y = trgt_slice[self.series.target_cols]
+        trgt_y = trgt_slice[self.full_dataset.target_cols]
 
         return self._torch(ctxt_x, ctxt_y, trgt_x, trgt_y)
      

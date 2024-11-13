@@ -77,7 +77,8 @@ class Spacetimeformer_Forecaster(stf.Forecaster):
     ):
         if max_seq_len is None:
             max_seq_len = context_len + target_len
-        
+        start_token_len = min(start_token_len, context_len)
+
         super().__init__(
             d_x=d_x,
             d_yc=d_yc,
