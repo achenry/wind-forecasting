@@ -422,7 +422,8 @@ class DataInspector:
         
         return fmodel
 
-    def plot_filtered_vs_unfiltered(self, df, mask, features, feature_types, feature_labels):
+    @staticmethod
+    def plot_filtered_vs_unfiltered(df, mask, features, feature_types, feature_labels):
         # feature_types = np.unique(["_".join(feat.split("_")[:-1]) for feat in features])
         _, ax = plt.subplots(len(feature_types), 1, sharex=True)
         if not hasattr(ax, "__len__"):

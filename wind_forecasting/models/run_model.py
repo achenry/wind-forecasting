@@ -94,11 +94,18 @@ if __name__ == "__main__":
         DATA_PATH = "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/normalized_data.parquet"
         NORM_CONSTS = pd.read_csv("/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/normalization_consts.csv", index_col=None)
         n_workers = mp.cpu_count()
+        devices = "auto"
+        num_nodes = "auto"
+        strategy = "auto"
     elif platform == "linux":
         LOG_DIR = "/projects/ssc/ahenry/wind_forecasting/logging/"
         DATA_PATH = "/projects/ssc/ahenry/wind_forecasting/awaken_data/normalized_data.parquet"
         NORM_CONSTS = pd.read_csv("/projects/ssc/ahenry/wind_forecasting/awaken_data/normalization_consts.csv", index_col=None)
         n_workers = int(os.environ["SLURM_NTASKS"])
+        accelerator = "gpu"
+        devices = 2
+        num_nodes = 1
+        strategy = "ddp"
 
     ## DEFINE CONFIGURATION
     config = {
@@ -216,8 +223,9 @@ if __name__ == "__main__":
 
     trainer = L.Trainer(
         max_epochs=config["training"].get('max_epochs', None),
-        accelerator='auto',
-        devices='auto',
+        accelerator=accelerator,
+        devices=devices,
+        strategy=strategy,
         logger=wandb_logger if local_rank == 0 else False,
         callbacks=callbacks,
         gradient_clip_algorithm="norm",

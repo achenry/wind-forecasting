@@ -193,7 +193,7 @@ class DataFilter:
         # logging.info(f"Successfully interpolated {n_nulls_before - n_nulls_after} cells in DataFrame {df_idx}.")
 
         if df.filter(pl.any_horizontal(pl.all().is_null())).select(pl.len()).collect().item():
-            print(f"Error, there are still nulls in dataframe {df_idx}!")
+            raise Exception(f"Error, there are still nulls in dataframe {df_idx}!")
 
         # for feature in interpolate_missing_features:       
         #     # if not imputed:
