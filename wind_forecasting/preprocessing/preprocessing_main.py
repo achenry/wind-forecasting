@@ -359,7 +359,7 @@ if __name__ == "__main__":
 
     if PLOT:
         DataInspector.print_pc_unfiltered_vals(df_query, features, mask)
-        data_inspector.plot_filtered_vs_unfiltered(df_query, mask, ws_cols + wd_cols, ["wind_speed", "wind_direction"], ["Wind Speed [m/s]", "Wind Direction [deg]"])
+        DataInspector.plot_filtered_vs_unfiltered(df_query, mask, ws_cols + wd_cols, ["wind_speed", "wind_direction"], ["Wind Speed [m/s]", "Wind Direction [deg]"])
 
     # loop through each turbine's wind speed and wind direction columns, and compare the distribution of data with and without the inoperational turbines
     # fill out_of_range measurements with Null st they are marked for interpolation via impute or linear/forward fill interpolation later
@@ -385,7 +385,7 @@ if __name__ == "__main__":
 
     if PLOT:
         DataInspector.print_pc_unfiltered_vals(df_query, features, mask)
-        data_inspector.plot_filtered_vs_unfiltered(df_query, mask, ws_cols, ["wind_speed"], ["Wind Speed [m/s]"])
+        DataInspector.plot_filtered_vs_unfiltered(df_query, mask, ws_cols, ["wind_speed"], ["Wind Speed [m/s]"])
 
     # loop through each turbine's wind speed and wind direction columns, and compare the distribution of data with and without the inoperational turbines
     # fill out_of_range measurements with Null st they are marked for interpolation via impute or linear/forward fill interpolation later
@@ -423,7 +423,7 @@ if __name__ == "__main__":
 
     if PLOT:
         DataInspector.print_pc_unfiltered_vals(df_query, features, mask)
-        data_inspector.plot_filtered_vs_unfiltered(df_query, mask, features, ["wind_speed"], ["Wind Speed [m/s]"])
+        DataInspector.plot_filtered_vs_unfiltered(df_query, mask, features, ["wind_speed"], ["Wind Speed [m/s]"])
 
         # plot values that are outside of power-wind speed range
         plot.plot_power_curve(
@@ -472,7 +472,7 @@ if __name__ == "__main__":
 
     if PLOT:
         DataInspector.print_pc_unfiltered_vals(df_query, features, mask)
-        data_inspector.plot_filtered_vs_unfiltered(df_query, mask, features, ["wind_speed"], ["Wind Speed [m/s]"])
+        DataInspector.plot_filtered_vs_unfiltered(df_query, mask, features, ["wind_speed"], ["Wind Speed [m/s]"])
 
         # plot values outside the power-wind speed bin filter
         plot.plot_power_curve(
@@ -498,17 +498,17 @@ if __name__ == "__main__":
         # Fit the power curves
         iec_curve = power_curve.IEC(
             windspeed_col="wind_speed", power_col="power_output",
-            data=DataInspector.unpivot_dataframe(df_query).select("wind_speed", "power_output").filter(pl.all_horizontal(pl.all().is_not_null())).collect(streaming=True).to_pandas(),
+            data=DataInspector.unpivot_dataframe(df_query, feature_types=["wind_speed", "power_output"]).select("wind_speed", "power_output").filter(pl.all_horizontal(pl.all().is_not_null())).collect(streaming=True).to_pandas(),
             )
 
         l5p_curve = power_curve.logistic_5_parametric(
             windspeed_col="wind_speed", power_col="power_output",
-            data=DataInspector.unpivot_dataframe(df_query).select("wind_speed", "power_output").filter(pl.all_horizontal(pl.all().is_not_null())).collect(streaming=True).to_pandas(),
+            data=DataInspector.unpivot_dataframe(df_query, feature_types=["wind_speed", "power_output"]).select("wind_speed", "power_output").filter(pl.all_horizontal(pl.all().is_not_null())).collect(streaming=True).to_pandas(),
             )
 
         spline_curve = power_curve.gam(
             windspeed_col="wind_speed", power_col="power_output",
-            data=DataInspector.unpivot_dataframe(df_query).select("wind_speed", "power_output").filter(pl.all_horizontal(pl.all().is_not_null())).collect(streaming=True).to_pandas(), 
+            data=DataInspector.unpivot_dataframe(df_query, feature_types=["wind_speed", "power_output"]).select("wind_speed", "power_output").filter(pl.all_horizontal(pl.all().is_not_null())).collect(streaming=True).to_pandas(), 
             n_splines=20)
 
         fig, ax = plot.plot_power_curve(
@@ -638,7 +638,7 @@ if __name__ == "__main__":
         del frozen_sensor
 
     # %%
-    logging.info("Impute/interpolate turbine missing dta from correlated measurements OR split dataset during time steps for which many turbines have missing data.")
+    logging.info("Split dataset during time steps for which many turbines have missing data.")
     
     # if there is a short or long gap for some turbines, impute them using the imputing.impute_all_assets_by_correlation function
     #       else if there is a short or long gap for many turbines, split the dataset
@@ -726,13 +726,14 @@ if __name__ == "__main__":
     df_query = df_query.with_columns(get_continuity_group_index(df_query_not_missing).alias("continuity_group"))\
                             .filter(pl.col("continuity_group") != -1)\
                             .drop(cs.contains("is_missing") | cs.contains("num_missing"))\
-                            .sort("time")
+                            .sort("time").collect().lazy()
     # check that each split dataframe a) is continuous in time AND b) has <= than the threshold number of missing columns OR for less than the threshold time span
     # for df in df_query:
     #     assert df.select((pl.col("time").diff(null_behavior="drop") == np.timedelta64(data_loader.dt, "s")).all()).collect(streaming=True).item()
     #     assert (df.select((pl.sum_horizontal([(cs.numeric() & cs.contains(col)).is_null() for col in missing_data_cols]) <= missing_col_thr)).collect(streaming=True)
     #             |  ((df.select("time").max().collect(streaming=True).item() - df.select("time").min().collect(streaming=True).item()) < missing_duration_thr))
-
+    # %%  
+    logging.info("Impute/interpolate turbine missing dta from correlated measurements.")
     # else, for each of those split datasets, impute the values using the imputing.impute_all_assets_by_correlation function
     # fill data on single concatenated dataset
     df_query2 = data_filter._fill_single_missing_dataset(df_idx=0, df=df_query, impute_missing_features=["wind_speed", "wind_direction"], 

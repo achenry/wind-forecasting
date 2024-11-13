@@ -93,41 +93,20 @@ class DataLoader:
                         print(93)
                         unique_file_timestamps = sorted(set(re.findall(r"\.(\d{8})\.", fp)[0] for fp,_ in df_query))
                         logging.info(f"Unique timestamps found in files = {unique_file_timestamps}")
-                        # futures = [ex.submit(self._join_dfs, ts, 
-                        #                         [df for d, df in enumerate(df_query) if ts in self.file_paths[d]]) 
-                        #                         for ts in unique_file_timestamps]
 
                         df_query = [self._join_dfs(ts, [df for filepath, df in df_query if ts in filepath]) for ts in unique_file_timestamps]
 
-                        print(99)
                         for ts, df in zip(unique_file_timestamps, df_query):
                             # print(ts, df.collect(), sep="\n")
                             df.collect().write_parquet(self.save_path.replace(".parquet", f"_{ts}.parquet"), statistics=False)
                             logging.info(f"Finished writing parquet {ts}")
 
-                        print(101)
-
-                        # futures = [ex.submit(self.sink_parquet, df, self.save_path.replace(".parquet", f"_{ts}.parquet")) 
-                        #            for ts, df in zip(unique_file_timestamps, df_query)]
-                        # _ = [fut.result() for fut in futures]
-                        # for ts, df in zip(unique_file_timestamps, df_query):
-                        #     self.sink_parquet(df, self.save_path.replace(".parquet", f"_{ts}.parquet"))
-
-                        print(104)
-                        # for ts, df in zip(unique_file_timestamps, dfs_to_concat):
-                        #     logging.info(f"Sinking {ts} collection of LazyFrames to join.")
-                        #     df.sink_parquet(self.save_path.replace(".parquet", f"_{ts}.parquet"), statistics=False)
-                        # dfs_to_concat = [fut.result() for fut in futures]
-
                         logging.info(f"🔗 Finished join. Time elapsed: {time.time() - join_start:.2f} s")
 
                         concat_start = time.time()
-                        print(113)
                         df_query = [pl.scan_parquet(self.save_path.replace(".parquet", f"_{ts}.parquet")) 
                                             for ts in unique_file_timestamps]
-                        print(116)
                         df_query = pl.concat(df_query, how="diagonal")
-                        # df_query.collect().write_parquet(self.save_path, statistics=False)
                         logging.info(f"🔗 Finished concat. Time elapsed: {time.time() - concat_start:.2f} s")
 
                         logging.info(f"Started sorting.")
@@ -149,10 +128,8 @@ class DataLoader:
 
                         df_query.collect().write_parquet(self.save_path, statistics=False)
 
-                        print(119)
                         for ts in unique_file_timestamps:
                             os.remove(self.save_path.replace(".parquet", f"_{ts}.parquet"))
-                        print(122)
                     
                     return pl.scan_parquet(self.save_path)
         else:
