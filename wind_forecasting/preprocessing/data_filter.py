@@ -139,7 +139,7 @@ class DataFilter:
                                      asset_id_col="turbine_id", method="linear") for feature in impute_missing_features}
 
                 unpivot_df = unpivot_df.with_columns({k: v.result() for k, v in futures.items()}).fill_nan(None)
-        else:
+        elif parallel == "turbine_id":
             for feature in impute_missing_features:
                 # n_nulls_before = unpivot_df.select(cs.contains(feature)).select(pl.sum_horizontal(pl.all().is_null()).sum()).collect().item()
                 # print(f"# Missing values before imputation = {n_nulls_before}")
@@ -157,6 +157,23 @@ class DataFilter:
                 # print(f"# Missing values after imputation = {n_nulls_after}")
                 logging.info(f"Imputed feature {feature} in DataFrame {df_idx}.")
                 # logging.info(f"Successfully imputed {n_nulls_before - n_nulls_after} cells for feature {feature} in DataFrame {df_idx}.")
+        else:
+            for feature in impute_missing_features:
+                # n_nulls_before = unpivot_df.select(cs.contains(feature)).select(pl.sum_horizontal(pl.all().is_null()).sum()).collect().item()
+                # print(f"# Missing values before imputation = {n_nulls_before}")
+                
+                other_feature = feature
+                features = set(["time", "turbine_id", feature, other_feature])
+
+                imputed_vals = imputing.impute_all_assets_by_correlation(
+                    data=unpivot_df.select(features).collect().to_pandas().set_index(["time", "turbine_id"]),
+                                                            impute_col=feature, reference_col=other_feature,
+                                                            asset_id_col="turbine_id", method="linear", multiprocessor=None).to_numpy()
+                
+                unpivot_df = unpivot_df.with_columns({feature: imputed_vals}).fill_nan(None)
+                # n_nulls_after = unpivot_df.select(cs.contains(feature)).select(pl.sum_horizontal(pl.all().is_null()).sum()).collect().item()
+                # print(f"# Missing values after imputation = {n_nulls_after}")
+                logging.info(f"Imputed feature {feature} in DataFrame {df_idx}.") 
         return DataInspector.pivot_dataframe(unpivot_df)
 
     def _fill_single_missing_dataset(self, df_idx, df, impute_missing_features, interpolate_missing_features, available_features, parallel=None):
