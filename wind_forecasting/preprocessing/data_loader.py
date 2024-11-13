@@ -129,10 +129,6 @@ class DataLoader:
                         df_query = pl.concat(df_query, how="diagonal")
                         # df_query.collect().write_parquet(self.save_path, statistics=False)
                         logging.info(f"🔗 Finished concat. Time elapsed: {time.time() - concat_start:.2f} s")
-                        print(119)
-                        for ts in unique_file_timestamps:
-                            os.remove(self.save_path.replace(".parquet", f"_{ts}.parquet"))
-                        print(122)
 
                         logging.info(f"Started sorting.")
                         df_query = df_query.sort("time")
@@ -142,10 +138,9 @@ class DataLoader:
                         full_datetime_range = df_query.select(pl.datetime_range(
                             start=df_query.select("time").min().collect().item(),
                             end=df_query.select("time").max().collect().item(),
-                            interval=f"{data_loader.dt}s", time_unit=df_query.collect_schema()["time"].time_unit).alias("time"))\
-                                .collect(streaming=True).lazy()
+                            interval=f"{self.dt}s", time_unit=df_query.collect_schema()["time"].time_unit).alias("time"))
                             
-                        df_query = full_datetime_range.join(df_query, on="time", how="left") # NOTE: @Aoife 10/18 make sure all time stamps are included, to interpolate continuously later
+                        df_query = full_datetime_range.join(df_query, on="time", how="left").collect(streaming=True).lazy() # NOTE: @Aoife 10/18 make sure all time stamps are included, to interpolate continuously later
                         logging.info(f"Finished resampling.") 
 
                         logging.info(f"Started forward/backward fill.") 
@@ -153,6 +148,11 @@ class DataLoader:
                         logging.info(f"Finished forward/backward fill.")
 
                         df_query.collect().write_parquet(self.save_path, statistics=False)
+
+                        print(119)
+                        for ts in unique_file_timestamps:
+                            os.remove(self.save_path.replace(".parquet", f"_{ts}.parquet"))
+                        print(122)
                     
                     return pl.scan_parquet(self.save_path)
         else:
