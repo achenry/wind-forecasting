@@ -102,7 +102,7 @@ if __name__ == "__main__":
         DATA_PATH = "/projects/ssc/ahenry/wind_forecasting/awaken_data/normalized_data.parquet"
         NORM_CONSTS = pd.read_csv("/projects/ssc/ahenry/wind_forecasting/awaken_data/normalization_consts.csv", index_col=None)
         n_workers = int(os.environ["SLURM_NTASKS"])
-        accelerator = "gpu"
+        accelerator = "auto"
         devices = 2
         num_nodes = 1
         strategy = "ddp"

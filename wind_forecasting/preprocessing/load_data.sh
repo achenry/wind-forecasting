@@ -14,7 +14,7 @@ module purge
 module load mamba
 mamba activate wind_forecasting_env
 echo $SLURM_NTASKS
-export RUST_BACKTRACE=1
+export RUST_BACKTRACE=full
 
 #export MPICH_SHARED_MEM_COLL_OPT=mpi_bcast,mpi_barrier 
 #export MPICH_COLL_OPT_OFF=mpi_allreduce 
