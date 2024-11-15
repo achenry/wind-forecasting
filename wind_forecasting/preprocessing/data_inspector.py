@@ -45,7 +45,7 @@ class DataInspector:
     def detect_data_format(self, df):
         if self.data_format == 'auto':
             # Check if 'turbine_id' is a column (long format) or not (wide format)
-            return 'long' if 'turbine_id' in df.columns else 'wide'
+            return 'long' if 'turbine_id' in df.collect_schema().names() else 'wide'
         return self.data_format
 
     def _get_valid_turbine_ids(self, df, turbine_ids: list[str]) -> list[str]:
@@ -511,14 +511,14 @@ class DataInspector:
                 return pl.concat([
                   df.select(pl.col("time"), pl.col("continuity_group"), cs.starts_with(feature_type))\
                   .unpivot(index=["time", "continuity_group"], variable_name="feature", value_name=feature_type)\
-                  .with_columns(pl.col("feature").str.extract(r"_(\d+)$").alias("turbine_id"))\
+                  .with_columns(pl.col("feature").str.extract(r"(wt\d+)").alias("turbine_id"))\
                   .drop("feature") for feature_type in ["wind_speed", "wind_direction", "turbine_status", "power_output", "nacelle_direction"]], how="align")\
                   .group_by("turbine_id", "time").agg(cs.numeric().drop_nulls().first()).sort("turbine_id", "time")
             else:
                 return pl.concat([
                     df.select(pl.col("time"), cs.starts_with(feature_type))\
                     .melt(id_vars=["time"], variable_name="feature", value_name=feature_type)\
-                    .with_columns(pl.col("feature").str.extract(r"_(\d+)$").alias("turbine_id"))\
+                    .with_columns(pl.col("feature").str.extract(r"(wt\d+)").alias("turbine_id"))\
                     .drop("feature") for feature_type in feature_types], how="align")\
                     .group_by("turbine_id", "time").agg(cs.numeric().drop_nulls().first()).sort("turbine_id", "time")
         else:
