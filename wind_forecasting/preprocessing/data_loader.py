@@ -505,20 +505,26 @@ class DataLoader:
                     relevant_columns.extend([col for col in df.columns 
                                           if col.startswith(feature) and col.endswith("_avg")])
             
-            df = df.select(relevant_columns)
-            logging.info(f"Selected columns before mapping: {df.columns}")
+            # Select only relevant columns and handle missing values
+            df = df.select(relevant_columns)\
+                .with_columns([
+                    # Convert time column to datetime
+                    pl.when(pl.col("time").is_not_null())
+                    .then(pl.col("time").str.to_datetime())
+                    .alias("time"),
+                    # Replace infinite values with null for numeric columns
+                    *[pl.col(col).map_elements(lambda x: None if np.isinf(x) else x)
+                      for col in relevant_columns if col != "time"]
+                ])\
+                .filter(
+                    # Remove rows where time is null
+                    pl.col("time").is_not_null()
+                )
             
             # Apply column mapping after selecting relevant columns
             if self.column_mapping:
                 df = df.rename(self.column_mapping)
                 logging.info(f"Columns after mapping: {df.columns}")
-            
-            logging.info(f"Shape after selecting relevant features: {df.shape}")
-            
-            if "time" in df.columns:
-                df = df.with_columns(pl.col("time").str.to_datetime())
-            else:
-                logging.warning("⚠️ 'time' column not found in CSV file.")
             
             # Check if data is already in wide format
             is_already_wide = all(any(feature in col for col in df.columns) 
@@ -526,11 +532,20 @@ class DataLoader:
             
             if is_already_wide:
                 # Extract features based on the provided list
-                feature_cols = [col for col in df.columns 
-                    if any(feature in col for feature in self.features)]
-                if "time" not in feature_cols:
-                    feature_cols = ["time"] + feature_cols
-                df = df.select(feature_cols)
+                feature_cols = ["time"] + [col for col in df.columns 
+                    if any(feature in col for feature in self.features if feature != "time")]
+                
+                df = df.select(feature_cols)\
+                    .with_columns([
+                        # Handle numeric columns: replace nulls with forward/backward fill
+                        *[pl.col(col).fill_null(strategy="forward", limit=self.ffill_limit)
+                          .fill_null(strategy="backward", limit=self.ffill_limit)
+                          for col in feature_cols if col != "time"]
+                    ])\
+                    .filter(
+                        # Remove rows where all numeric columns are null
+                        pl.any_horizontal(pl.exclude("time").is_not_null())
+                    )
                 
                 # Convert to long format if needed
                 if not self.wide_format:
@@ -540,6 +555,7 @@ class DataLoader:
                 if self.wide_format:
                     df = self.convert_to_wide_format(df)
             
+            # Apply feature reduction and resampling
             df = self.reduce_features(df)
             logging.info(f"Shape after reduce_features: {df.shape}")
             
@@ -548,6 +564,7 @@ class DataLoader:
             
             logging.info(f"📁 Processed {file_path}")
             return df.lazy()
+        
         except Exception as e:
             logging.error(f"❌ Error processing CSV file {file_path}: {str(e)}")
             return None

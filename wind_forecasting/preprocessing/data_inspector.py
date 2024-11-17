@@ -35,18 +35,24 @@ class DataInspector:
     -   yaw angle distribution 
     """
     
-    def __init__(self, turbine_input_filepath: str, farm_input_filepath: str, data_format='auto'):
+    # INFO: @Juan 11/17/24 Added feature_mapping to allow for custom feature mapping, which is required for different data sources
+    def __init__(self, turbine_input_filepath: str, farm_input_filepath: str, data_format='auto', feature_mapping=None):
         self._validate_input_data(turbine_input_filepath=turbine_input_filepath, farm_input_filepath=farm_input_filepath)
         self.turbine_input_filepath = turbine_input_filepath
         self.farm_input_filepath = farm_input_filepath
         self.data_format = data_format
+        # Default feature mapping
+        self.feature_mapping = feature_mapping or {
+            "power_output": ["power_output"],
+            "wind_speed": ["wind_speed"],
+            "wind_direction": ["wind_direction"],
+            "nacelle_direction": ["nacelle_direction"]
+        }
         
     # INFO: @Juan 10/18/24 Added method to detect data format automatically (wide or long)
-    def detect_data_format(self, df):
-        if self.data_format == 'auto':
-            # Check if 'turbine_id' is a column (long format) or not (wide format)
-            return 'long' if 'turbine_id' in df.columns else 'wide'
-        return self.data_format
+    def detect_data_format(self, df: pl.LazyFrame) -> str:
+        columns = df.collect_schema().names()
+        return 'long' if 'turbine_id' in columns else 'wide'
 
     def _get_valid_turbine_ids(self, df, turbine_ids: list[str]) -> list[str]:
         if isinstance(turbine_ids, str):
@@ -131,30 +137,69 @@ class DataInspector:
         plt.tight_layout()
         plt.show()
 
-    def plot_wind_speed_power(self, df, turbine_ids: list[str]) -> None:
-        """_summary_
-
+    def plot_wind_speed_power(self, df: pl.LazyFrame, turbine_ids: list[str]) -> None:
+        """Plot wind speed vs power output scatter plot for specified turbines.
+        
+        Args:
+            df: Input dataframe
+            turbine_ids: List of turbine IDs to plot
         """
+        # Convert turbine_ids to list if it's a single string
+        if isinstance(turbine_ids, str):
+            turbine_ids = [turbine_ids]
+        
         valid_turbines = self._get_valid_turbine_ids(df, turbine_ids=turbine_ids)
         
         if len(valid_turbines) == 0:
             return
         
+        _, ax = plt.subplots(1, 1, figsize=(12, 6))
+        
+        # Collect all required data at once for better performance
+        required_cols = []
         for turbine_id in valid_turbines:
-            _, ax = plt.subplots(1, 1, figsize=(12, 6))
-            turbine_data = df.select(pl.col(f"wind_speed_{turbine_id}"), pl.col(f"power_output_{turbine_id}"))\
-                .filter(pl.all_horizontal(pl.col(f"wind_speed_{turbine_id}", f"power_output_{turbine_id}").is_not_null()))\
-                            .collect(streaming=True).to_pandas()
-            sns.scatterplot(data=turbine_data, ax=ax, x=f"wind_speed_{turbine_id}", y=f"power_output_{turbine_id}", label=turbine_id, alpha=0.5)
-
-            plt.xlabel('Wind Speed [m/s]')
-            plt.ylabel('Power Output [kW]')
-            plt.title('Scatter Plot of Wind Speed vs Power Output')
-            plt.legend(title='Turbine ID', loc='upper left', bbox_to_anchor=(1, 1))
-            plt.grid(True, alpha=0.3)
-            sns.despine()
-            plt.tight_layout()
-            plt.show()
+            # Get the actual column names using the mapping
+            ws_cols = self.get_features(df, "wind_speed", turbine_id)
+            power_cols = self.get_features(df, "power_output", turbine_id)
+            if ws_cols and power_cols:
+                required_cols.extend([ws_cols[0], power_cols[0]])
+            else:
+                print(f"Could not find required columns for turbine {turbine_id}")
+                print(f"Wind speed columns found: {ws_cols}")
+                print(f"Power output columns found: {power_cols}")
+        
+        if not required_cols:
+            print("No valid columns found for plotting")
+            return
+        
+        # Collect all data at once
+        all_data = df.select(required_cols)\
+            .filter(pl.all_horizontal(pl.col(required_cols).is_not_null()))\
+            .collect()\
+            .to_pandas()
+        
+        # Plot for each turbine using the collected data
+        for turbine_id in valid_turbines:
+            ws_cols = self.get_features(df, "wind_speed", turbine_id)
+            power_cols = self.get_features(df, "power_output", turbine_id)
+            
+            if not ws_cols or not power_cols:
+                continue
+            
+            ws_col = ws_cols[0]
+            power_col = power_cols[0]
+            
+            sns.scatterplot(data=all_data, ax=ax, x=ws_col, y=power_col,
+                           label=turbine_id, alpha=0.5)
+        
+        plt.xlabel('Wind Speed [m/s]')
+        plt.ylabel('Power Output [kW]')
+        plt.title('Wind Speed vs Power Output')
+        plt.legend(title='Turbine ID', loc='upper left', bbox_to_anchor=(1, 1))
+        plt.grid(True, alpha=0.3)
+        sns.despine()
+        plt.tight_layout()
+        plt.show()
 
     # DEBUG: @Juan 10/18/24 Added method to plot wind rose for both wide and long formats [CHECK]
     def plot_wind_rose(self, df, turbine_ids: list[str] | str) -> None:
@@ -296,6 +341,11 @@ class DataInspector:
             # Extract wind speed data
             wind_speeds = df.select(cs.contains("wind_speed"))\
                         .collect(streaming=True).to_numpy().flatten()
+            wind_speeds = wind_speeds[np.isfinite(wind_speeds)]  # Remove non-finite values
+            
+            if len(wind_speeds) == 0:
+                print("No valid wind speed data found after filtering")
+                return
 
             # Fit Weibull distribution
             shape, loc, scale = stats.weibull_min.fit(wind_speeds, floc=0)
@@ -330,7 +380,12 @@ class DataInspector:
                 # Extract wind speed data
                 wind_speeds = df.select(f"wind_speed_{turbine_id}")\
                     .filter(pl.col(f"wind_speed_{turbine_id}").is_not_null())\
-                    .collect(streaming=True).to_pandas()
+                    .collect(streaming=True).to_numpy().flatten()
+                wind_speeds = wind_speeds[np.isfinite(wind_speeds)]  # Remove non-finite values
+                
+                if len(wind_speeds) == 0:
+                    print(f"No valid wind speed data found for turbine {turbine_id}")
+                    continue
 
                 # Fit Weibull distribution
                 shape, loc, scale = stats.weibull_min.fit(wind_speeds, floc=0)
@@ -344,7 +399,7 @@ class DataInspector:
                 sns.histplot(wind_speeds, stat='density', kde=True, color='skyblue', label='Observed')
                 plt.plot(x, y, 'r-', lw=2, label=f'Weibull (k={shape:.2f}, λ={scale:.2f})')
                 
-                plt.title('Wind Speed Distribution with Fitted Weibull', fontsize=16)
+                plt.title(f'Wind Speed Distribution with Fitted Weibull - Turbine {turbine_id}', fontsize=16)
                 plt.xlabel('Wind Speed (m/s)', fontsize=12)
                 plt.ylabel('Density', fontsize=12)
                 plt.legend(fontsize=10)
@@ -362,7 +417,7 @@ class DataInspector:
             _type_: _description_
         """
         if wind_directions is None:
-            wind_directions = [90.0]
+            wind_directions = [190.0]
             
         if wind_speeds is None:
             wind_speeds = [10.0]
@@ -372,7 +427,7 @@ class DataInspector:
 
         # Ensure the paths are absolute
         
-        # Initialize the FLORIS model
+        # Initialize the FLORIS modelw
         try:
             fmodel = FlorisModel(self.farm_input_filepath)
         except FileNotFoundError:
@@ -402,7 +457,7 @@ class DataInspector:
         )
         
         # Calculate and visualize the flow field
-        horizontal_plane = fmodel.calculate_horizontal_plane(height=90.0) # TODO get hubheight from turbine type
+        horizontal_plane = fmodel.calculate_horizontal_plane(height=80.0) # TODO get hubheight from turbine type
         visualize_cut_plane(horizontal_plane, ax=ax, min_speed=4, max_speed=10, color_bar=True)
         
         # Plot turbine rotors
@@ -466,18 +521,29 @@ class DataInspector:
         return out
 
     def get_features(self, df, feature_types, turbine_ids="all"):
+        """Get feature columns based on mapping and turbine ID."""
         data_format = self.detect_data_format(df)
         if feature_types is not None and not isinstance(feature_types, list):
             feature_types = [feature_types]
         
         cols = df.collect_schema().names()
         if data_format == 'wide':
-            if turbine_ids == "all":
-                return sorted([col for col in cols if any(feat in col for feat in feature_types)])
-            elif isinstance(turbine_ids, str):
-                return sorted([col for col in cols if any((feat in col and turbine_ids in col) or (feat == col) for feat in feature_types)])
-            else:
-                return sorted([col for col in cols if any((feat in col and tid in col) or (feat == col) for feat in feature_types for tid in turbine_ids)])
+            matching_cols = []
+            for feature_type in feature_types:
+                # Get the possible feature names from mapping
+                mapped_features = self.feature_mapping.get(feature_type, [feature_type])
+                
+                if turbine_ids == "all":
+                    new_cols = [col for col in cols if any(feat in col for feat in mapped_features)]
+                elif isinstance(turbine_ids, str):
+                    new_cols = [col for col in cols if any((feat in col and turbine_ids in col) or (feat == col) 
+                                                         for feat in mapped_features)]
+                else:
+                    new_cols = [col for col in cols if any((feat in col and tid in col) or (feat == col) 
+                                                         for feat in mapped_features for tid in turbine_ids)]
+                matching_cols.extend(new_cols)
+            
+            return sorted(matching_cols)
         else:  # long format
             return sorted([col for col in cols if col in feature_types])
 
