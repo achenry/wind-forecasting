@@ -12,9 +12,9 @@
 # ./run_jupyter_preprocessing.sh && http://localhost:7878/lab
 
 #%load_ext memory_profiler
-from wind_forecasting.preprocessing.data_loader import DataLoader
-from wind_forecasting.preprocessing.data_filter import DataFilter
-from wind_forecasting.preprocessing.data_inspector import DataInspector
+from data_loader import DataLoader
+from data_filter import DataFilter
+from data_inspector import DataInspector
 from openoa.utils import plot, filters, power_curve
 import polars.selectors as cs
 import polars as pl
@@ -203,15 +203,16 @@ def compute_offsets(df, turbine_pairs:list[tuple[int, int]]=None):
         print("No available turbine pairs!")
 
 
+#DEBUG: ############################################# MAIN #############################################
 # %%
 if __name__ == "__main__":
-    PLOT = False 
+    PLOT = True 
     RELOAD_DATA = False
 
     if platform == "darwin":
         DATA_DIR = "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data"
-        # PL_SAVE_PATH = "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/kp.turbine.zo2.b0.raw.parquet"
-        # FILE_SIGNATURE = "kp.turbine.z02.b0.*.*.*.nc"
+        PL_SAVE_PATH = "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/kp.turbine.zo2.b0.raw.parquet"
+        FILE_SIGNATURE = "kp.turbine.z02.b0.*.*.*.nc"
         PL_SAVE_PATH = "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/filled_data.parquet"
         FILE_SIGNATURE = "kp.turbine.z02.b0.202203*.*.*.nc"
         MULTIPROCESSOR = "cf"
@@ -228,32 +229,25 @@ if __name__ == "__main__":
                                 "nacelle_direction": "WNAC.Dir"
                                 }
     elif platform == "linux":
-        DATA_DIR = "/pl/active/paolab/awaken_data/kp.turbine.z02.b0/"
-        PL_SAVE_PATH = "/scratch/alpine/aohe7145/awaken_data/kp.turbine.zo2.b0.raw.parquet"
-        FILE_SIGNATURE = "kp.turbine.z02.b0.*.*.*.nc"
-        MULTIPROCESSOR = "mpi"
-        TURBINE_INPUT_FILEPATH = "/projects/aohe7145/toolboxes/wind-forecasting/examples/inputs/ge_282_127.yaml"
-        FARM_INPUT_FILEPATH = "/projects/aohe7145/toolboxes/wind-forecasting/examples/inputs/gch_KP_v4.yaml"
-        FEATURES = ["time", "turbine_id", "turbine_status", "wind_direction", "wind_speed", "power_output", "nacelle_direction"]
-        WIDE_FORMAT = False
-        COLUMN_MAPPING = {"time": "date",
-                                "turbine_id": "turbine_id",
-                                "turbine_status": "WTUR.TurSt",
-                                "wind_direction": "WMET.HorWdDir",
-                                "wind_speed": "WMET.HorWdSpd",
-                                "power_output": "WTUR.W",
-                                "nacelle_direction": "WNAC.Dir"
-                                }
+        DATA_DIR = "examples/inputs/SMARTEOLE-WFC-open-dataset"
+        PL_SAVE_PATH = "examples/inputs/SMARTEOLE-WFC-open-dataset/processed/SMARTEOLE_WakeSteering_SCADA_1minData.parquet"
+        FILE_SIGNATURE = "SMARTEOLE_WakeSteering_SCADA_1minData.csv"
+        MULTIPROCESSOR = "cf" # mpi for HPC or "cf" for local computing
+        TURBINE_INPUT_FILEPATH = os.path.expanduser("~/wind-forecasting/examples/inputs/turbine_library/mm82.yaml")
+        FARM_INPUT_FILEPATH = os.path.expanduser("~/wind-forecasting/examples/inputs/smarteole_farm.yaml")
+        FEATURES = ["time", "active_power", "wind_speed", "nacelle_position", "wind_direction", "derate"]
+        WIDE_FORMAT = True
+        COLUMN_MAPPING = {
+            "time": "time",
+            **{f"active_power_{i}_avg": f"active_power_{i:03d}" for i in range(1, 8)},
+            **{f"wind_speed_{i}_avg": f"wind_speed_{i:03d}" for i in range(1, 8)},
+            **{f"nacelle_position_{i}_avg": f"nacelle_position_{i:03d}" for i in range(1, 8)},
+            **{f"wind_direction_{i}_avg": f"wind_direction_{i:03d}" for i in range(1, 8)},
+            **{f"derate_{i}": f"derate_{i:03d}" for i in range(1, 8)}
+        }
 
-    DT = 5
-    CHUNK_SIZE = 100000
-    FEATURES = ["time", "turbine_id", "turbine_status", "wind_direction", "wind_speed", "power_output", "nacelle_direction"]
-    WIDE_FORMAT = True
-    DATA_FORMAT = "netcdf"
-    FFILL_LIMIT = int(60 * 60 * 10 // DT)
-
-    turbine_ids =  ["wt028", "wt033", "wt073"]
-    COLUMN_MAPPING = None  # Define this if you're using CSV and need column mapping
+    # turbine_ids =  ["wt028", "wt033", "wt073"]
+    turbine_ids = None
     #
     if FILE_SIGNATURE.endswith(".nc"):
         DATA_FORMAT = "netcdf"
@@ -261,6 +255,12 @@ if __name__ == "__main__":
         DATA_FORMAT = "csv"
     else:
         raise ValueError("Invalid file signature. Please specify either '*.nc' or '*.csv'.")
+    
+    DT = 5
+    CHUNK_SIZE = 100000
+    DATA_FORMAT = "csv"
+    FFILL_LIMIT = int(60 * 60 * 10 // DT)
+    
     data_loader = DataLoader(
         data_dir=DATA_DIR,
         file_signature=FILE_SIGNATURE,
@@ -277,7 +277,9 @@ if __name__ == "__main__":
     )
 
     # %%
-    data_loader.print_netcdf_structure(data_loader.file_paths[0])
+    # INFO: Print netcdf structure
+    if DATA_FORMAT == "netcdf":
+        data_loader.print_netcdf_structure(data_loader.file_paths[0])
 
     # %%
     if not RELOAD_DATA and os.path.exists(data_loader.save_path):
@@ -296,7 +298,8 @@ if __name__ == "__main__":
     else:
         logging.info("🔄 Processing new data files")
         df_query = data_loader.read_multi_files()
-        df_query = data_loader.postprocess_multi_files(df_query) 
+        df_query = data_loader.postprocess_multi_files(df_query)
+        logging.info(f"Parquet file saved into {data_loader.save_path}")
         if df_query is not None:
             # Perform any additional operations on df_query if needed
             logging.info("✅ Data processing completed successfully")
@@ -313,17 +316,28 @@ if __name__ == "__main__":
     # ## Plot Wind Farm, Data Distributions
 
     # %%
+    # INFO: @Juan 11/17/24 Added feature mapping to allow for custom feature mapping, which is required for different data sources
+    # TODO: Modify this according to the data source
+    feature_mapping = {
+        "power_output": ["active_power"],
+        "wind_speed": ["wind_speed"],
+        "wind_direction": ["wind_direction"],
+        "nacelle_direction": ["nacelle_position"]
+    }
+
     data_inspector = DataInspector(
         turbine_input_filepath=TURBINE_INPUT_FILEPATH,
         farm_input_filepath=FARM_INPUT_FILEPATH,
-        data_format='auto'  # This will automatically detect the data format (wide or long)
+        data_format='auto',
+        feature_mapping=feature_mapping
     )
 
     # %%
     if PLOT:
         logging.info("🔄 Generating plots.")
         data_inspector.plot_wind_farm()
-        data_inspector.plot_wind_speed_power(df_query, turbine_ids=["wt073"])
+        # print("[DEBUG] Available columns:", df_query.collect_schema().names()) # DEBUG
+        data_inspector.plot_wind_speed_power(df_query, turbine_ids=["007","006","005","004","003","002","001"])
         data_inspector.plot_wind_speed_weibull(df_query, turbine_ids="all")
         data_inspector.plot_wind_rose(df_query, turbine_ids="all")
         data_inspector.plot_correlation(df_query, 
