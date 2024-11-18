@@ -6,10 +6,10 @@ pandas>=1.0.4
 matplotlib>=2.0.0
 convertdate>=2.1.2
 python-dateutil>=2.8.0
-performer-pytorch
+# performer-pytorch
 tqdm>=4.36.1
 nystrom-attention
-pytorch-lightning>=1.6
+# pytorch-lightning>=1.6
 netCDF4
 scikit-learn
 omegaconf
@@ -19,4 +19,4 @@ wandb
 einops
 chardet
 opt_einsum
-torchmetrics>=0.5.1
+# torchmetrics>=0.5.1

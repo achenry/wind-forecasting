@@ -101,11 +101,11 @@ if __name__ == "__main__":
         LOG_DIR = "/projects/ssc/ahenry/wind_forecasting/logging/"
         DATA_PATH = "/projects/ssc/ahenry/wind_forecasting/awaken_data/normalized_data.parquet"
         NORM_CONSTS = pd.read_csv("/projects/ssc/ahenry/wind_forecasting/awaken_data/normalization_consts.csv", index_col=None)
-        n_workers = int(os.environ["SLURM_NTASKS"])
+        n_workers = int(os.environ["SLURM_GPUS_ON_NODE"])
         accelerator = "auto"
         devices = 2
         num_nodes = 1
-        strategy = "ddp"
+        strategy = "ddp_find_unused_parameters_true"
 
     ## DEFINE CONFIGURATION
     config = {
@@ -196,25 +196,7 @@ if __name__ == "__main__":
             dataset_class=config["dataset"]["dataset_class"],
             config=config
     )
-    # while True:
-        # try:
-        #     res = next(data_module.val_dataloader())
-        #     res.shape
-        # except StopIteration as e:
-        #     break
-
-    # while True:
-    #     try:
-    #         res = next(data_module.test_dataloader())
-    #     except StopIteration as e:
-    #         break
-
-    # while True:
-    #     try:
-    #         res = next(data_module.train_dataloader())
-    #     except StopIteration as e:
-    #         break
-
+    
     ## CREATE MODEL
     model = Forecaster(data_module=data_module, config=config)
 
@@ -224,6 +206,7 @@ if __name__ == "__main__":
     trainer = L.Trainer(
         max_epochs=config["training"].get('max_epochs', None),
         accelerator=accelerator,
+        num_nodes=num_nodes,
         devices=devices,
         strategy=strategy,
         logger=wandb_logger if local_rank == 0 else False,

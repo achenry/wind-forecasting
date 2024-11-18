@@ -191,7 +191,7 @@ def pad_m4_collate(samples):
 
 
 if __name__ == "__main__":
-    from spacetimeformer.data import DataModule
+    from .datamodule import DataModule
 
     path = "TODO"
     dm = DataModule(
