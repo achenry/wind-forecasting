@@ -64,7 +64,7 @@ class DataLoader:
         self.data_format = data_format.lower()
         self.column_mapping = column_mapping or {}
         self.chunk_size = chunk_size
-        self.features = desired_feature_types or ["time", "turbine_id", "turbine_status", "wind_direction", "wind_speed", "power_output", "nacelle_direction"]
+        self.desired_feature_types = desired_feature_types or ["time", "turbine_id", "turbine_status", "wind_direction", "wind_speed", "power_output", "nacelle_direction"]
         self.wide_format = wide_format
         self.turbine_ids = turbine_ids
         self.ffill_limit = ffill_limit
@@ -459,7 +459,7 @@ class DataLoader:
             # forward fill missing values
             df_query = pl.LazyFrame(data).fill_nan(None)\
                                             .with_columns(pl.col("time").dt.round(f"{self.dt}s").alias("time"))\
-                                            .select([cs.contains(feat) for feat in self.features])\
+                                            .select([cs.contains(feat) for feat in self.desired_feature_types])\
                                             .filter(pl.any_horizontal(cs.numeric().is_not_null()))
                                             # .group_by("turbine_id", "time")\
                                             # .agg(cs.numeric().drop_nulls().first())
@@ -495,7 +495,7 @@ class DataLoader:
             
             # Select only the average values and derate columns for each feature type
             relevant_columns = ["time"]
-            for feature in self.features:
+            for feature in self.desired_feature_types:
                 if feature == "time":
                     continue
                 elif feature == "derate":
@@ -528,12 +528,12 @@ class DataLoader:
             
             # Check if data is already in wide format
             is_already_wide = all(any(feature in col for col in df.columns) 
-                for feature in self.features if feature != "time")
+                for feature in self.desired_feature_types if feature != "time")
             
             if is_already_wide:
                 # Extract features based on the provided list
                 feature_cols = ["time"] + [col for col in df.columns 
-                    if any(feature in col for feature in self.features if feature != "time")]
+                    if any(feature in col for feature in self.desired_feature_types if feature != "time")]
                 
                 df = df.select(feature_cols)\
                     .with_columns([
@@ -551,7 +551,7 @@ class DataLoader:
                 if not self.wide_format:
                     df = self._convert_to_long_format(df)
             else:
-                df = df.select(self.features)
+                df = df.select(self.desired_feature_types)
                 if self.wide_format:
                     df = self.convert_to_wide_format(df)
             
@@ -700,7 +700,7 @@ class DataLoader:
         """
         Reduce the DataFrame to include only the specified features that exist in the DataFrame.
         """
-        existing_features = [f for f in self.features if any(f in col for col in df.columns)]
+        existing_features = [f for f in self.desired_feature_types if any(f in col for col in df.columns)]
         df = df.select([pl.col(col) for col in df.columns if any(feature in col for feature in existing_features)])
         
         # Only filter rows if there are numeric columns
