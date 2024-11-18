@@ -208,7 +208,8 @@ def compute_offsets(df, turbine_pairs:list[tuple[int, int]]=None):
 if __name__ == "__main__":
     PLOT = 1 
     RELOAD_DATA = 0
-
+    REGENERATE_FILTERS = 1
+    
     if platform == "darwin":
         DATA_DIR = "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data"
         PL_SAVE_PATH = "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/kp.turbine.zo2.b0.raw.parquet"
@@ -382,14 +383,20 @@ if __name__ == "__main__":
 
     # %%
     logging.info("Nullifying wind speed out-of-range cells.")
+    
+    ws_cols = [col for col in df_query.columns if col.startswith("wind_speed_")]
+    turbine_ids = sorted([col.split("_")[-1] for col in ws_cols])
+    logging.info(f"Extracted turbine IDs from columns: {turbine_ids}")
 
     # check for wind speed values that are outside of the acceptable range
-    if RELOAD_DATA or not os.path.exists(os.path.join(DATA_DIR, "out_of_range.npy")):
+    if RELOAD_DATA or REGENERATE_FILTERS or not os.path.exists(os.path.join(DATA_DIR, "out_of_range.npy")):
+        logging.info("Processing new out-of-range data.")
         ws = data_inspector.collect_data(df=df_query, feature_types="wind_speed")
         out_of_range = (filters.range_flag(ws, lower=0, upper=70) & ~ws.isna()).values # range flag includes formerly null values as nan
         del ws
         np.save(os.path.join(DATA_DIR, "out_of_range.npy"), out_of_range)
     else:
+        logging.info("Loading existing out-of-range data.")
         out_of_range = np.load(os.path.join(DATA_DIR, "out_of_range.npy"))
         # qa.describe(DataInspector.collect_data(df=df_query, feature_types="wind_speed", mask=np.any(out_of_range, axis=1)))
 
