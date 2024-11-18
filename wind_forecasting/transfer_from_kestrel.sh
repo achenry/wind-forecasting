@@ -11,7 +11,7 @@ scp -r 'ahenry@kestrel.hpc.nrel.gov:/projects/ssc/ahenry/wind_forecasting/awaken
 
 scp -r 'ahenry@kestrel.hpc.nrel.gov:/projects/ssc/ahenry/wind_forecasting/awaken_data/kp.turbine.zo2.b0.parquet' /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/
 
-scp -r 'ahenry@kestrel.hpc.nrel.gov:/home/ahenry/toolboxes/wind_forecasting_env/wind-forecasting/environment.yml' /Users/ahenry/Documents/toolboxes/wind_forecasting/
+scp -r 'ahenry@kestrel.hpc.nrel.gov:/home/ahenry/toolboxes/wind_forecasting_env/wind-forecasting/wind_forecasting/run_scripts/environment.yaml' /Users/ahenry/Documents/toolboxes/wind_forecasting/
 
 
 scp -r 'ahenry@kestrel.hpc.nrel.gov:/projects/ssc/ahenry/wind_forecasting/awaken_data/loaded_data.parquet' /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data
