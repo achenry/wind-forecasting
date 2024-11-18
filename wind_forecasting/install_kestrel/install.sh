@@ -1,16 +1,18 @@
 ssh ahenry@kestrel-gpu.hpc.nrel.gov
 # https://docs.github.com/en/authentication/connecting-to-github-with-ssh/generating-a-new-ssh-key-and-adding-it-to-the-ssh-agent?platform=linux
 
+# rm -rf /projects/ssc/ahenry/conda/envs/wind_forecasting
+# rm -rf /home/ahenry/.conda-pkgs/cache
 ml PrgEnv-intel
 ml mamba
 mamba create --prefix=/projects/ssc/ahenry/conda/envs/wind_forecasting --y
 mamba activate wind_forecasting
-conda install conda-forge::cuda-version=12.4 nvidia/label/cuda-12.4.0::cuda-toolkit performer-pytorch pytorch torchvision torchaudio torchmetrics pytorch-cuda=12.4 lightning -c pytorch -c nvidia --y
-conda install polars windrose statsmodels scikit-learn jupyterlab nb_conda_kernels pyyaml matplotlib numpy seaborn opt_einsum netcdf4 scipy h5pyd pyarrow wandb einops rich --y 
-pip3 install mpi4py impi_rt opencv-python floris
+mamba install conda-forge::cuda-version=12.4 nvidia/label/cuda-12.4.0::cuda-toolkit performer-pytorch pytorch torchvision torchaudio torchmetrics pytorch-cuda=12.4 lightning -c pytorch -c nvidia --y
+mamba install polars windrose statsmodels scikit-learn jupyterlab nb_conda_kernels pyyaml matplotlib numpy seaborn opt_einsum netcdf4 scipy h5pyd pyarrow wandb einops rich --y 
+pip install mpi4py impi_rt opencv-python floris
 
 git clone --recurse-submodules https://github.com/achenry/wind-forecasting.git
-salloc --account=ssc --time=01:00:00 --mem-per-cpu=64G --gpus=2 --ntasks-per-node=2 --partition=debug
+# salloc --account=ssc --time=01:00:00 --mem-per-cpu=64G --gpus=2 --ntasks-per-node=2 --partition=debug
 
 # vim /projects/ssc/ahenry/conda/envs/wind_forecasting/conda-meta/pinned
 # performer-pytorch==1.1.4=pyhd8ed1ab_0  # conda-forge
