@@ -39,12 +39,35 @@ class DataFilter:
 
     def filter_inoperational(self, df, status_codes=None, availability_codes=None, include_nan=True) -> pl.LazyFrame:
         """
-        status_codes (list): List of status codes to include (e.g., [1, 3])
-        availability_codes (list): List of availability codes to include (e.g., [100, 50])
-        include_nan (bool): Whether to include NaN values in the filter
+        Filter inoperational turbines based on status and availability codes.
+        If the status or availability columns don't exist, skip that part of the filtering.
+
+        Args:
+            status_codes (list): List of status codes to include (e.g., [1, 3])
+            availability_codes (list): List of availability codes to include (e.g., [100, 50])
+            include_nan (bool): Whether to include NaN values in the filter
+
+        Returns:
+            pl.LazyFrame: Filtered dataframe
         """
+        # Check if the columns actually exist in the dataframe
+        cols = df.collect_schema().names()
         
-        # Create masks for filtering
+        # Update status and availability flags based on column existence
+        if self.turbine_status_col and not any(self.turbine_status_col in col for col in cols):
+            logging.info(f"Status column '{self.turbine_status_col}' not found in data, skipping status filtering")
+            status_codes = None
+            
+        if self.turbine_availability_col and not any(self.turbine_availability_col in col for col in cols):
+            logging.info(f"Availability column '{self.turbine_availability_col}' not found in data, skipping availability filtering")
+            availability_codes = None
+        
+        # If neither column exists, return the original dataframe
+        if status_codes is None and availability_codes is None:
+            logging.info("No status or availability columns found, skipping inoperational filtering")
+            return df
+        
+        # Create masks for filtering based on data format
         if self.data_format == 'wide':
             return self._filter_inoperational_wide(df, status_codes, availability_codes, include_nan)
         else:

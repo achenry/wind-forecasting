@@ -206,8 +206,8 @@ def compute_offsets(df, turbine_pairs:list[tuple[int, int]]=None):
 #DEBUG: ############################################# MAIN #############################################
 # %%
 if __name__ == "__main__":
-    PLOT = True 
-    RELOAD_DATA = False
+    PLOT = 1 
+    RELOAD_DATA = 0
 
     if platform == "darwin":
         DATA_DIR = "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data"
@@ -341,9 +341,9 @@ if __name__ == "__main__":
         data_inspector.plot_wind_speed_weibull(df_query, turbine_ids="all")
         data_inspector.plot_wind_rose(df_query, turbine_ids="all")
         data_inspector.plot_correlation(df_query, 
-        DataInspector.get_features(df_query, feature_types=["wind_speed", "wind_direction", "nacelle_direction"], turbine_ids=["wt073"]))
-        data_inspector.plot_boxplot_wind_speed_direction(df_query, turbine_ids=["wt073"])
-        data_inspector.plot_time_series(df_query, turbine_ids=["wt073"])
+        data_inspector.get_features(df_query, feature_types=["wind_speed", "wind_direction", "nacelle_direction"], turbine_ids=["007"]))
+        data_inspector.plot_boxplot_wind_speed_direction(df_query, turbine_ids=["007"])
+        data_inspector.plot_time_series(df_query, turbine_ids=["007"], feature_mapping=feature_mapping)
         plot.column_histograms(data_inspector.collect_data(df=df_query, 
         feature_types=data_inspector.get_features(df_query, ["wind_speed", "wind_direction", "power_output", "nacelle_direction"])))
         logging.info("✅ Generated plots.")
@@ -368,7 +368,7 @@ if __name__ == "__main__":
     logging.info("Nullifying inoperational turbine cells.")
     # check if wind speed/dir measurements from inoperational turbines differ from fully operational
     status_codes = [1]
-    mask = lambda tid: pl.col(f"turbine_status_{tid}").is_in(status_codes) | pl.col(f"turbine_status_{tid}").is_null()
+    mask = (lambda tid: pl.col(f"turbine_status_{tid}").is_in(status_codes) | pl.col(f"turbine_status_{tid}").is_null()) if any("turbine_status" in col for col in df_query.collect_schema().names()) else (lambda tid: pl.lit(True))
     features = ws_cols
 
     if PLOT:
@@ -394,7 +394,8 @@ if __name__ == "__main__":
         # qa.describe(DataInspector.collect_data(df=df_query, feature_types="wind_speed", mask=np.any(out_of_range, axis=1)))
 
     # check if wind speed/dir measurements from inoperational turbines differ from fully operational 
-    mask = lambda tid: ~out_of_range[:, data_loader.turbine_ids.index(tid)]
+    turbine_id_mapping = {f"{int(tid):03d}": tid for tid in data_loader.turbine_ids}
+    mask = lambda tid: ~out_of_range[:, data_loader.turbine_ids.index(turbine_id_mapping.get(tid, tid))]
     features = ws_cols
 
     if PLOT:
@@ -432,7 +433,8 @@ if __name__ == "__main__":
         out_of_window = np.load(os.path.join(DATA_DIR, "out_of_window.npy"))
 
         # check if wind speed/dir measurements from inoperational turbines differ from fully operational 
-        mask = lambda tid: ~out_of_window[:, data_loader.turbine_ids.index(tid)]
+        turbine_id_mapping = {f"{int(tid):03d}": tid for tid in data_loader.turbine_ids}
+        mask = lambda tid: ~out_of_window[:, data_loader.turbine_ids.index(turbine_id_mapping.get(tid, tid))]
         features = ws_cols 
 
     if PLOT:
@@ -481,7 +483,8 @@ if __name__ == "__main__":
         bin_outliers = np.load(os.path.join(DATA_DIR, "bin_outliers.npy"))
 
     # check if wind speed/dir measurements from inoperational turbines differ from fully operational 
-    mask = lambda tid: ~bin_outliers[:, data_loader.turbine_ids.index(tid)]
+    turbine_id_mapping = {f"{int(tid):03d}": tid for tid in data_loader.turbine_ids}
+    mask = lambda tid: ~bin_outliers[:, data_loader.turbine_ids.index(turbine_id_mapping.get(tid, tid))]
     features = ws_cols
 
     if PLOT:
