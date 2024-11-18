@@ -1,13 +1,10 @@
 import io
 import math
-import os
-import warnings
 
 import lightning as L
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
-import torch.distributions as pyd
 import pandas as pd
 import cv2
 import random
@@ -15,7 +12,7 @@ import torch
 import wandb
 from einops import rearrange
 
-from spacetimeformer.eval_stats import mape
+from .eval_stats import mape
 
 
 def _assert_squeeze(x):

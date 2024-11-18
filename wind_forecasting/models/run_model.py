@@ -206,6 +206,7 @@ if __name__ == "__main__":
     trainer = L.Trainer(
         max_epochs=config["training"].get('max_epochs', None),
         accelerator=accelerator,
+        num_nodes=num_nodes,
         devices=devices,
         strategy=strategy,
         logger=wandb_logger if local_rank == 0 else False,
