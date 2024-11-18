@@ -1,8 +1,5 @@
-import os
-import pandas as pd
-import numpy as np
 
-from spacetimeformer.data import CSVTimeSeries
+from ..csv_dataset import CSVTimeSeries
 
 
 class SyntheticData(CSVTimeSeries):
