@@ -105,7 +105,7 @@ if __name__ == "__main__":
         accelerator = "auto"
         devices = 2
         num_nodes = 1
-        strategy = "ddp"
+        strategy = "ddp_find_unused_parameters_true"
 
     ## DEFINE CONFIGURATION
     config = {
