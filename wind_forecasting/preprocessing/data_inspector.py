@@ -553,56 +553,63 @@ class DataInspector:
         return fmodel
 
     @staticmethod
-    def plot_filtered_vs_unfiltered(df, mask, features, feature_types, feature_labels):
-        # feature_types = np.unique(["_".join(feat.split("_")[:-1]) for feat in features])
+    def plot_filtered_vs_unfiltered(df, mask_func, features, feature_types, feature_labels):
+        import matplotlib.pyplot as plt
+        import seaborn as sns
+        sns.set(style="whitegrid")
+
         _, ax = plt.subplots(len(feature_types), 1, sharex=True)
-        if not hasattr(ax, "__len__"):
+        if not isinstance(ax, np.ndarray):
             ax = [ax]
 
         for feature in features:
+            tid = feature.split("_")[-1]
+            mask_array = mask_func(tid)
+            if mask_array is None:
+                continue
+
             for ft, feature_type in enumerate(feature_types):
                 if feature_type in feature:
                     ax_idx = ft
                     ax[ax_idx].set_title(feature_labels[ft])
                     break
 
-            tid = feature.split("_")[-1]
-            y = df.select(feature).collect(streaming=True).to_numpy().flatten()
-            # ax[0].scatter(x=["inoperational"] * y.shape[0], y=y, color="blue", label="inoperational measurements")
-            ax[ax_idx].scatter(x=[tid] * y.shape[0], y=y, color="blue", label="all measurements")
-            
-            y = df.filter(mask(tid)).select(feature).collect(streaming=True).to_numpy().flatten()
-            # ax[0].scatter(x=["operational"] * y.shape[0], y=y, color="red")
-            ax[ax_idx].scatter(x=[tid] * y.shape[0], y=y, color="red", label="operational and null measurements")
-            
-        
+            # Plot all measurements
+            y_all = df.select(feature).collect(streaming=True).to_numpy().flatten()
+            ax[ax_idx].scatter(x=[tid] * len(y_all), y=y_all, color="blue", label="All Measurements")
+
+            # Plot filtered measurements
+            y_filtered = df.filter(mask_array).select(feature).collect(streaming=True).to_numpy().flatten()
+            ax[ax_idx].scatter(x=[tid] * len(y_filtered), y=y_filtered, color="red", label="Filtered Measurements")
+
         ax[-1].set_xlabel("Turbine ID")
-        h, l = ax[-1].get_legend_handles_labels()
-        ax[-1].legend(h[:2], l[:2])
-        del y
+        # Avoid duplicate labels
+        handles, labels = ax[-1].get_legend_handles_labels()
+        by_label = dict(zip(labels, handles))
+        ax[-1].legend(by_label.values(), by_label.keys())
+        plt.show()
 
     @staticmethod
-    def print_pc_unfiltered_vals(df, features, mask):
-        
+    def print_pc_unfiltered_vals(df, features, mask_func):
         out = []
         for feature in features:
-            turbine_id = feature.split("_")[-1]
+            tid = feature.split("_")[-1]
+            mask_array = mask_func(tid)
+            if mask_array is None:
+                logging.info(f"Mask error for turbine {tid}: mask is None")
+                continue
             try:
                 pc_unfiltered_vals = 100 * (
-                    df.filter(mask(turbine_id))
+                    df.filter(mask_array)
                     .select(pl.len())
                     .collect(streaming=True)
-                    .item() 
+                    .item()
                     / df.select(pl.len()).collect(streaming=True).item()
                 )
-                
                 print(f"Feature {feature} has {pc_unfiltered_vals:.2f}% unfiltered values.")
                 out.append((feature, pc_unfiltered_vals))
-                
             except Exception as e:
                 logging.error(f"Error processing feature {feature}: {str(e)}")
-                continue
-        
         return out
 
     def get_features(self, df, feature_types, turbine_ids="all"):
