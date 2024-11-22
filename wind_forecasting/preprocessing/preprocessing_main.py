@@ -206,9 +206,10 @@ def compute_offsets(df, turbine_pairs:list[tuple[int, int]]=None):
 #DEBUG: ############################################# MAIN #############################################
 # %%
 if __name__ == "__main__":
-    PLOT = 1 
-    RELOAD_DATA = 0
-    REGENERATE_FILTERS = 1
+    PLOT = True 
+    RELOAD_DATA = False
+    REGENERATE_FILTERS = True
+    plot_unfiltered = False
     
     if platform == "darwin":
         DATA_DIR = "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data"
@@ -372,7 +373,7 @@ if __name__ == "__main__":
     mask = (lambda tid: pl.col(f"turbine_status_{tid}").is_in(status_codes) | pl.col(f"turbine_status_{tid}").is_null()) if any("turbine_status" in col for col in df_query.collect_schema().names()) else (lambda tid: pl.lit(True))
     features = ws_cols
 
-    if PLOT:
+    if PLOT and plot_unfiltered:
         DataInspector.print_pc_unfiltered_vals(df_query, features, mask)
         DataInspector.plot_filtered_vs_unfiltered(df_query, mask, ws_cols + wd_cols, ["wind_speed", "wind_direction"], ["Wind Speed [m/s]", "Wind Direction [deg]"])
 
@@ -388,24 +389,47 @@ if __name__ == "__main__":
     turbine_ids = sorted([col.split("_")[-1] for col in ws_cols])
     logging.info(f"Extracted turbine IDs from columns: {turbine_ids}")
 
-    # check for wind speed values that are outside of the acceptable range
+    # Check for wind speed values that are outside of the acceptable range
     if RELOAD_DATA or REGENERATE_FILTERS or not os.path.exists(os.path.join(DATA_DIR, "out_of_range.npy")):
         logging.info("Processing new out-of-range data.")
         ws = data_inspector.collect_data(df=df_query, feature_types="wind_speed")
-        out_of_range = (filters.range_flag(ws, lower=0, upper=70) & ~ws.isna()).values # range flag includes formerly null values as nan
+        logging.info(f"Wind speed columns: {ws.columns.tolist()}")
+        logging.info(f"Range flag input shape: {ws.shape}")
+
+        # Generate out_of_range array
+        # Note: OpenOA's range_flag returns True for out-of-range values
+        out_of_range_flags = filters.range_flag(ws, lower=0, upper=70)
+        out_of_range = out_of_range_flags.values
+        logging.info(f"out_of_range shape: {out_of_range.shape}")
+        logging.info(f"Out of range count per turbine: {np.sum(out_of_range, axis=0)}")
         del ws
         np.save(os.path.join(DATA_DIR, "out_of_range.npy"), out_of_range)
     else:
         logging.info("Loading existing out-of-range data.")
         out_of_range = np.load(os.path.join(DATA_DIR, "out_of_range.npy"))
-        # qa.describe(DataInspector.collect_data(df=df_query, feature_types="wind_speed", mask=np.any(out_of_range, axis=1)))
+        logging.info(f"Loaded out_of_range shape: {out_of_range.shape}")
 
-    # check if wind speed/dir measurements from inoperational turbines differ from fully operational 
-    turbine_id_mapping = {f"{int(tid):03d}": tid for tid in data_loader.turbine_ids}
-    mask = lambda tid: ~out_of_range[:, data_loader.turbine_ids.index(turbine_id_mapping.get(tid, tid))]
+    # Create a mapping from turbine ID to its index in the out_of_range array
+    turbine_id_to_index = {tid: idx for idx, tid in enumerate(turbine_ids)}
+    logging.info(f"Turbine ID to index mapping: {turbine_id_to_index}")
+
+    # Define the mask function using the new mapping
+    def safe_mask(tid):
+        try:
+            idx = turbine_id_to_index[tid]
+            mask_array = ~out_of_range[:, idx]
+            logging.info(f"Mask for turbine {tid} excludes {np.sum(~mask_array)} out of {len(mask_array)} data points")
+            return mask_array
+        except KeyError:
+            logging.error(f"Mask error for turbine {tid}: turbine ID not found in mapping")
+            return None
+
+    mask = safe_mask
+
+    # Proceed to use the mask in plotting and analysis
     features = ws_cols
 
-    if PLOT:
+    if PLOT and plot_unfiltered:
         DataInspector.print_pc_unfiltered_vals(df_query, features, mask)
         DataInspector.plot_filtered_vs_unfiltered(df_query, mask, ws_cols, ["wind_speed"], ["Wind Speed [m/s]"])
 
@@ -417,6 +441,7 @@ if __name__ == "__main__":
     del out_of_range 
 
     # %%
+    # DEBUG: Checkpoint
     logging.info("Nullifying wind speed-power curve out-of-window cells.")
     # apply a window range filter to remove data with power values outside of the window from 20 to 3000 kW for wind speeds between 5 and 40 m/s.
     # identifies when turbine is shut down, filtering for normal turbine operation
