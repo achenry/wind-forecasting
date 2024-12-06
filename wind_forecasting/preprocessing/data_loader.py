@@ -71,8 +71,7 @@ class DataLoader:
         
         # Get all the wts in the folder @Juan 10/16/24 used os.path.join for OS compatibility
         self.file_paths = sorted(glob.glob(os.path.join(data_dir, file_signature)))
-        if not self.file_paths:
-            raise FileExistsError(f"⚠️ File with signature {file_signature} in directory {data_dir} doesn't exist.")
+        
 
     # INFO: @Juan 10/14/24 Added method to read multiple files based on the file signature. 
     def read_multi_files(self) -> pl.LazyFrame | None:
@@ -83,6 +82,9 @@ class DataLoader:
                 executor = ProcessPoolExecutor()
             with executor as ex:
                 if ex is not None:
+                    if not self.file_paths:
+                        raise FileExistsError(f"⚠️ File with signature {self.file_signature} in directory {self.data_dir} doesn't exist.")
+                    
                     futures = [ex.submit(self._read_single_file, f, file_path) for f, file_path in enumerate(self.file_paths)]
                     df_query = [fut.result() for fut in futures]
                     df_query = [(self.file_paths[d], df) for d, df in enumerate(df_query) if df is not None]
@@ -134,6 +136,8 @@ class DataLoader:
                     return pl.scan_parquet(self.save_path)
         else:
             logging.info(f"🔧 Using single process executor.")
+            if not self.file_paths:
+                raise FileExistsError(f"⚠️ File with signature {self.file_signature} in directory {self.data_dir} doesn't exist.")
             df_query = [self._read_single_file(f, file_path) for f, file_path in enumerate(self.file_paths)]
             df_query = [df for df in df_query if df is not None]
             return df_query
