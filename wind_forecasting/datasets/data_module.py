@@ -7,9 +7,9 @@ import lightning as L
 import torch
 from torch.utils.data import Dataset, DataLoader
 from wind_forecasting.utils.colors import Colors
-
-from torch.utils.data import Dataset, DataLoader
 import warnings
+from typing import List, Tuple
+import random
 
 # INFO: Data module for STTRE using PyTorch Lightning TODO JUAN make this general to all modules
 class STTREDataModule(L.LightningDataModule):
@@ -133,9 +133,8 @@ class DataModule(L.LightningDataModule):
                                       target_len=config["dataset"]["target_len"], 
                                       normalize=config["dataset"]["normalize"],
                                       normalization_consts=config["dataset"]["normalization_consts"], 
-                                      test_split=config["dataset"]["test_split"], 
-                                      val_split=config["dataset"]["val_split"],
                                       **config["dataset"]["dataset_kwargs"])
+
         self.batch_size = config["dataset"]["batch_size"]
         self.workers = config["dataset"]["workers"]
         self.collate_fn = config["dataset"]["collate_fn"]
@@ -144,6 +143,25 @@ class DataModule(L.LightningDataModule):
         if config["dataset"]["overfit"]:
             warnings.warn("Overriding val and test dataloaders to use train set!")
         self.overfit = config["dataset"]["overfit"]
+
+        n_datasets = len(self.dataset.all_continuous_dfs)
+        self.slice_start_points = [(dataset_idx, sp) 
+                                    for dataset_idx in range(n_datasets) 
+                                    for sp in range(0, 
+                                                    len(self.dataset.all_continuous_dfs[dataset_idx])
+                                                    - (self.target_len + self.context_len) + 1)]
+        
+        # returns number of context_len + target_len record start points
+        test_split = config["dataset"]["test_split"]
+        val_split = config["dataset"]["val_split"]
+        total_rows = len(self.slice_start_points)
+        n_test_rows = round(total_rows * test_split)
+        n_val_rows = round(total_rows * val_split)
+        random.shuffle(self.slice_start_points)
+        self.slice_start_points = {
+            "train": self.slice_start_points[n_test_rows + n_val_rows:], 
+            "test": self.slice_start_points[:n_test_rows], 
+            "val": self.slice_start_points[n_test_rows:n_test_rows + n_val_rows]}
 
     def train_dataloader(self, shuffle=True):
         return self._make_dloader("train", shuffle=shuffle)
@@ -170,24 +188,10 @@ class DataModule(L.LightningDataModule):
         if self.overfit:
             split = "train"
             shuffle = True
-        # datasets = getattr(self.dataset, f"{split}_data")
-        # n_datasets = len(getattr(self.dataset, f"{split}_data"))
-        # combined_loader = []
-        # for d in range(n_datasets):
-        #     combined_loader.append(DataLoader(
-        #         ContinuousDataset(dataset=self.dataset,
-        #         dataset_index=d, split=split),
-        #         shuffle=shuffle,
-        #         batch_size=self.batch_size,
-        #         num_workers=self.workers,
-        #         collate_fn=self.collate_fn,
-        #         persistent_workers=True
-        #     ))
-        # # return CombinedLoader(combined_loader, mode="sequential")
-        # return combined_loader
-        # TODO 
+        
         return DataLoader(
-            ContinuousDataset(dataset=self.dataset, split=split),
+            # splits the dataset into multiple continuous context_len + target_len length records
+            ContinuousDataset(dataset=self.dataset, slice_start_points=self.slice_start_points[split]),
                 shuffle=shuffle,
                 batch_size=self.batch_size,
                 num_workers=self.workers,
@@ -199,8 +203,7 @@ class ContinuousDataset(Dataset):
     def __init__(
         self,
         dataset: Dataset,
-        # dataset_index: int = 0,
-        split: str = "train"
+        slice_start_points: List[Tuple[int, int]]
     ):
         """_summary_
         this class represents a particular split from a particular individual continuous dataset to feed to the combined DataLoader.
@@ -212,34 +215,25 @@ class ContinuousDataset(Dataset):
             context_len (int, optional): _description_. Defaults to None.
             target_len (int, optional): _description_. Defaults to None.
         """
-        self.full_dataset = dataset
-        # self.dataset_index = dataset_index
-        self.split = split
-        self.context_len = dataset.context_len
-        self.target_len = dataset.target_len
+        self.dataset = dataset
+        self.slice_start_points = slice_start_points
+        self.context_len = self.dataset.context_len
+        self.target_len = self.dataset.target_len
 
-        # dataset_slice_start_points = namedtuple('dataset_slice_start_points', ['dataset_idx', 'start_point'])
-
-        n_datasets = len(getattr(self.full_dataset, f"{split}_data"))
-        self._slice_start_points = [(dataset_idx, sp) 
-                                    for dataset_idx in range(n_datasets) 
-                                    for sp in range(0, 
-                                                    self.full_dataset.length(self.split, dataset_idx) 
-                                                    - (self.target_len + self.context_len) + 1,
-        )]
+    def get_slice(self, dataset_index, start, stop, skip):
+        return self.dataset.all_continuous_dfs[dataset_index].iloc[start:stop:skip]
 
     def __len__(self):
-        return len(self._slice_start_points)
+        return len(self.slice_start_points)
 
     def _torch(self, *dfs):
         return tuple(torch.from_numpy(x.values).float() for x in dfs)
 
     def __getitem__(self, i):
-        dataset_idx, start = self._slice_start_points[i]
+        dataset_idx, start = self.slice_start_points[i]
         stop = start + (self.context_len + self.target_len)
         # series_slice = self.series.iloc[start:stop]
-        series_slice = self.full_dataset.get_slice(
-            self.split,
+        series_slice = self.get_slice(
             dataset_idx,
             start=start,
             stop=stop,

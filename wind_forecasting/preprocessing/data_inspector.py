@@ -4,6 +4,7 @@
 import os
 import time
 import logging
+from typing import Callable
 
 from itertools import cycle
 
@@ -285,6 +286,40 @@ class DataInspector:
             fig.tight_layout()
             plt.show()
 
+    def plot_data_distribution(self, df, feature_types, turbine_ids: list[str], distribution: Callable[[np.ndarray], np.ndarray]=stats.weibull_min) -> None:
+        """_summary_
+
+        Args:
+            df (_type_): _description_
+            turbine_ids (list[str]): _description_
+        """
+        fig, ax = plt.subplots(1, len(feature_types))
+        for ax_idx, feature_type in enumerate(feature_types):
+            x = np.linspace(df.select(cs.starts_with(feature_type)).collect().to_numpy().min(), 
+                            df.select(cs.starts_with(feature_type)).collect().to_numpy().max(), 1000)
+            for turbine_id in turbine_ids:
+                # Extract data
+                values = df.select(f"{feature_type}_{turbine_id}").collect().to_numpy().flatten()
+
+                # Fit Weibull distribution
+                dist_params = distribution.fit(values)
+
+                # Create a range of wind speeds for the fitted distribution
+                # x = np.linspace(distribution.ppf(0.01), distribution.ppf(0.99), 100)
+                y = distribution.pdf(x, *dist_params)
+
+                # Plot
+                ax[ax_idx].plot(x, y, '--', lw=2)
+                ax[ax_idx].hist(values, density=True, bins="auto", color=ax[ax_idx].lines[-1]._color, label=turbine_id)
+                
+            ax[ax_idx].set_title(f'{feature_type} Distribution with Fitted {distribution.__class__.__name__}', fontsize=16)
+        plt.axis("tight")
+        fig.legend(fontsize=10)
+        plt.grid(True, alpha=0.3)
+        fig.tight_layout()
+        # sns.despine()
+        fig.show()
+
     def plot_wind_speed_weibull(self, df, turbine_ids: list[str]) -> None:
         """_summary_
 
@@ -512,7 +547,7 @@ class DataInspector:
                   df.select(pl.col("time"), pl.col("continuity_group"), cs.starts_with(feature_type))\
                   .unpivot(index=["time", "continuity_group"], variable_name="feature", value_name=feature_type)\
                   .with_columns(pl.col("feature").str.extract(r"(wt\d+)").alias("turbine_id"))\
-                  .drop("feature") for feature_type in ["wind_speed", "wind_direction", "turbine_status", "power_output", "nacelle_direction"]], how="align")\
+                  .drop("feature") for feature_type in feature_types], how="align")\
                   .group_by("turbine_id", "time").agg(cs.numeric().drop_nulls().first()).sort("turbine_id", "time")
             else:
                 return pl.concat([
