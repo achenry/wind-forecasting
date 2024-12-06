@@ -13,3 +13,6 @@
 [submodule "wind_forecasting/wind_forecasting/models/pytorch-transformer-ts"]
 	path = wind_forecasting/wind_forecasting/models/pytorch-transformer-ts
 	url = https://github.com/boujuan/pytorch-transformer-ts
+[submodule "wind_forecasting/models/pytorch-transformer-ts"]
+	path = wind_forecasting/models/pytorch-transformer-ts
+	url = https://github.com/boujuan/pytorch-transformer-ts
