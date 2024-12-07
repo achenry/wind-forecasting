@@ -51,8 +51,12 @@ class DataInspector:
         
     # INFO: @Juan 10/18/24 Added method to detect data format automatically (wide or long)
     def detect_data_format(self, df: pl.LazyFrame) -> str:
-        columns = df.collect_schema().names()
-        return 'long' if 'turbine_id' in columns else 'wide'
+        if self.data_format == 'auto':
+            # Get schema without materializing the data
+            schema = df.schema
+            column_names = schema.keys()
+            return 'long' if 'turbine_id' in column_names else 'wide'
+        return self.data_format
 
     def _get_valid_turbine_ids(self, df, turbine_ids: list[str]) -> list[str]:
         if isinstance(turbine_ids, str):
@@ -669,14 +673,14 @@ class DataInspector:
                 return pl.concat([
                   df.select(pl.col("time"), pl.col("continuity_group"), cs.starts_with(feature_type))\
                   .unpivot(index=["time", "continuity_group"], variable_name="feature", value_name=feature_type)\
-                  .with_columns(pl.col("feature").str.extract(r"_(\d+)$").alias("turbine_id"))\
+                  .with_columns(pl.col("feature").str.extract(r"(wt\d+)").alias("turbine_id"))\
                   .drop("feature") for feature_type in ["wind_speed", "wind_direction", "turbine_status", "power_output", "nacelle_direction"]], how="align")\
                   .group_by("turbine_id", "time").agg(cs.numeric().drop_nulls().first()).sort("turbine_id", "time")
             else:
                 return pl.concat([
                     df.select(pl.col("time"), cs.starts_with(feature_type))\
                     .melt(id_vars=["time"], variable_name="feature", value_name=feature_type)\
-                    .with_columns(pl.col("feature").str.extract(r"_(\d+)$").alias("turbine_id"))\
+                    .with_columns(pl.col("feature").str.extract(r"(wt\d+)").alias("turbine_id"))\
                     .drop("feature") for feature_type in feature_types], how="align")\
                     .group_by("turbine_id", "time").agg(cs.numeric().drop_nulls().first()).sort("turbine_id", "time")
         else:
