@@ -129,7 +129,7 @@ def pad_wiki_collate(samples):
 
 
 if __name__ == "__main__":
-    from spacetimeformer.data import DataModule
+    from .datamodule import DataModule
 
     DATA_PATH = "TODO"
     dm = DataModule(
