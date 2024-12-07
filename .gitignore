@@ -26,6 +26,8 @@ examples/postprocessed
 examples/other
 examples/inputs/awaken_data
 examples/logging/
+examples/logging/*
+examples/logging/wandb/*
 wandb/
 wind-forecasting.code-workspace
 wind_forecasting/preprocessing/.ipynb_checkpoints
@@ -50,6 +52,7 @@ wind_forecasting.code-workspace
 
 examples/data/*
 .vscode/
+
 
 wind_forecasting/preprocessing/.ipynb_checkpoints/
 *.sh.vscode/launch.json

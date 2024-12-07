@@ -88,13 +88,30 @@ class DataLoader:
                     df_query = [(self.file_paths[d], df) for d, df in enumerate(df_query) if df is not None]
 
                     if df_query:
+                        # INFO: @Juan 11/13/24 Added check for data patterns in the names and also added a check for single files
                         join_start = time.time()
                         logging.info(f"✅ Started join of {len(self.file_paths)} files.")
-                        print(93)
-                        unique_file_timestamps = sorted(set(re.findall(r"\.(\d{8})\.", fp)[0] for fp,_ in df_query))
-                        logging.info(f"Unique timestamps found in files = {unique_file_timestamps}")
-
-                        df_query = [self._join_dfs(ts, [df for filepath, df in df_query if ts in filepath]) for ts in unique_file_timestamps]
+                        
+                        # Check if files have date patterns in their names
+                        date_pattern = r"\.(\d{8})\."
+                        has_date_pattern = any(re.search(date_pattern, fp) for fp, _ in df_query)
+                        
+                        if has_date_pattern:
+                            unique_file_timestamps = sorted(set(re.findall(date_pattern, fp)[0] for fp,_ in df_query 
+                                                             if re.search(date_pattern, fp)))
+                            df_query = [self._join_dfs(ts, [df for filepath, df in df_query if ts in filepath]) 
+                                      for ts in unique_file_timestamps]
+                        else:
+                            # For single file or files without timestamps, just get the dataframes
+                            df_query = [df for _, df in df_query]
+                            if len(df_query) == 1:
+                                df_query = df_query[0]  # If single file, no need to join
+                            else:
+                                df_query = pl.concat(df_query, how="diagonal")
+                            
+                            # Write directly to final parquet
+                            df_query.collect().write_parquet(self.save_path, statistics=False)
+                            return pl.scan_parquet(self.save_path)
 
                         for ts, df in zip(unique_file_timestamps, df_query):
                             # print(ts, df.collect(), sep="\n")
@@ -476,41 +493,69 @@ class DataLoader:
             logging.info(f"Initial CSV columns: {df.columns}")
             logging.info(f"Initial CSV shape: {df.shape}")
             
+            # Select only the average values and derate columns for each feature type
+            relevant_columns = ["time"]
+            for feature in self.desired_feature_types:
+                if feature == "time":
+                    continue
+                elif feature == "derate":
+                    relevant_columns.extend([col for col in df.columns if col.startswith(feature)])
+                else:
+                    # select only the _avg columns
+                    relevant_columns.extend([col for col in df.columns 
+                                          if col.startswith(feature) and col.endswith("_avg")])
+            
+            # Select only relevant columns and handle missing values
+            df = df.select(relevant_columns)\
+                .with_columns([
+                    # Convert time column to datetime
+                    pl.when(pl.col("time").is_not_null())
+                    .then(pl.col("time").str.to_datetime())
+                    .alias("time"),
+                    # Replace infinite values with null for numeric columns
+                    *[pl.col(col).map_elements(lambda x: None if np.isinf(x) else x)
+                      for col in relevant_columns if col != "time"]
+                ])\
+                .filter(
+                    # Remove rows where time is null
+                    pl.col("time").is_not_null()
+                )
+            
+            # Apply column mapping after selecting relevant columns
             if self.column_mapping:
                 df = df.rename(self.column_mapping)
                 logging.info(f"Columns after mapping: {df.columns}")
             
-            # INFO: @Juan 10/16/24 Select only the relevant columns based on self.features
-            relevant_columns = ["time"] + [col for col in df.columns if any(feature in col for feature in self.features if feature != "time")]
-            df = df.select(relevant_columns)
-            logging.info(f"Columns after selecting relevant features: {df.columns}")
-            logging.info(f"Shape after selecting relevant features: {df.shape}")
-            
-            if "time" in df.columns:
-                df = df.with_columns(pl.col("time").str.to_datetime())
-            else:
-                logging.warning("⚠️ 'time' column not found in CSV file.")
-            
             # Check if data is already in wide format
-            is_already_wide = all(any(feature in col for col in df.columns) for feature in self.features if feature != "time")
+            is_already_wide = all(any(feature in col for col in df.columns) 
+                for feature in self.desired_feature_types if feature != "time")
             
-            # INFO: @Juan 10/16/24 Added explicit check for wide_format to ensure consistent behavior
-            # DEBUG: Make sure that this works with SMARTEOLE data.
             if is_already_wide:
                 # Extract features based on the provided list
-                feature_cols = [col for col in df.columns if any(feature in col for feature in self.features)]
-                if "time" not in feature_cols:
-                    feature_cols = ["time"] + feature_cols
-                df = df.select(feature_cols)
+                feature_cols = ["time"] + [col for col in df.columns 
+                    if any(feature in col for feature in self.desired_feature_types if feature != "time")]
+                
+                df = df.select(feature_cols)\
+                    .with_columns([
+                        # Handle numeric columns: replace nulls with forward/backward fill
+                        *[pl.col(col).fill_null(strategy="forward", limit=self.ffill_limit)
+                          .fill_null(strategy="backward", limit=self.ffill_limit)
+                          for col in feature_cols if col != "time"]
+                    ])\
+                    .filter(
+                        # Remove rows where all numeric columns are null
+                        pl.any_horizontal(pl.exclude("time").is_not_null())
+                    )
                 
                 # Convert to long format if needed
                 if not self.wide_format:
                     df = self._convert_to_long_format(df)
             else:
-                df = df.select(self.features)
+                df = df.select(self.desired_feature_types)
                 if self.wide_format:
                     df = self.convert_to_wide_format(df)
             
+            # Apply feature reduction and resampling
             df = self.reduce_features(df)
             logging.info(f"Shape after reduce_features: {df.shape}")
             
@@ -519,6 +564,7 @@ class DataLoader:
             
             logging.info(f"📁 Processed {file_path}")
             return df.lazy()
+        
         except Exception as e:
             logging.error(f"❌ Error processing CSV file {file_path}: {str(e)}")
             return None
@@ -654,7 +700,7 @@ class DataLoader:
         """
         Reduce the DataFrame to include only the specified features that exist in the DataFrame.
         """
-        existing_features = [f for f in self.features if any(f in col for col in df.columns)]
+        existing_features = [f for f in self.desired_feature_types if any(f in col for col in df.columns)]
         df = df.select([pl.col(col) for col in df.columns if any(feature in col for feature in existing_features)])
         
         # Only filter rows if there are numeric columns
@@ -748,7 +794,7 @@ if __name__ == "__main__":
     PLOT = False
 
     DT = 5
-    DATA_FORMAT = "netcdf"
+    DATA_FORMAT = "csv"
 
     if platform == "darwin" and DATA_FORMAT == "netcdf":
         DATA_DIR = "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data"
@@ -792,26 +838,25 @@ if __name__ == "__main__":
                           "WTUR.W": "power_output",
                           "WNAC.Dir": "nacelle_direction"
                           }
+        
     elif platform == "linux" and DATA_FORMAT == "csv":
         # DATA_DIR = "/pl/active/paolab/awaken_data/kp.turbine.z02.b0/"
         # DATA_DIR = "examples/inputs/awaken_data"
         DATA_DIR = "examples/inputs/SMARTEOLE-WFC-open-dataset"
         # PL_SAVE_PATH = "/scratch/alpine/aohe7145/awaken_data/kp.turbine.zo2.b0.raw.parquet"
         PL_SAVE_PATH = "examples/inputs/SMARTEOLE-WFC-open-dataset/processed/SMARTEOLE_WakeSteering_SCADA_1minData.parquet"
-        # FILE_SIGNATURE = "kp.turbine.z02.b0.20220301.*.*.nc"
-        # FILE_SIGNATURE = "kp.turbine.z02.b0.*.*.*.nc"
-        # FILE_SIGNATURE = "kp.turbine.z02.b0.20220101.000000.wt001.nc"
         FILE_SIGNATURE = "SMARTEOLE_WakeSteering_SCADA_1minData.csv"
         MULTIPROCESSOR = "cf" # mpi for HPC or "cf" for local computing
         # TURBINE_INPUT_FILEPATH = "/projects/$USER/toolboxes/wind-forecasting/examples/inputs/ge_282_127.yaml"
         # FARM_INPUT_FILEPATH = "/projects/$USER/toolboxes/wind-forecasting/examples/inputs/gch_KP_v4.yaml"
         TURBINE_INPUT_FILEPATH = "examples/inputs/ge_282_127.yaml"
         FARM_INPUT_FILEPATH = "examples/inputs/gch_KP_v4.yaml"
+        
         FEATURES = ["time", "active_power", "wind_speed", "nacelle_position", "wind_direction", "derate"]
         WIDE_FORMAT = True
         
         COLUMN_MAPPING = {
-            **{"time": "time"},
+            "time": "time",
             **{f"active_power_{i}_avg": f"active_power_{i:03d}" for i in range(1, 8)},
             **{f"wind_speed_{i}_avg": f"wind_speed_{i:03d}" for i in range(1, 8)},
             **{f"nacelle_position_{i}_avg": f"nacelle_position_{i:03d}" for i in range(1, 8)},
