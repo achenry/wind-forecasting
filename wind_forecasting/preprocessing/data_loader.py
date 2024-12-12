@@ -46,7 +46,6 @@ class DataLoader:
                  data_dir: str = r"/Users/$USER/Documents/toolboxes/wind_forecasting/examples/data",
                  file_signature: str = "kp.turbine.z02.b0.*.*.*.nc",
                  save_path: str = r"/Users/$USER/Documents/toolboxes/wind_forecasting/examples/data/kp.turbine.zo2.b0.raw.parquet",
-                 turbine_ids: list[str] = None,
                  multiprocessor: str | None = None,
                  chunk_size: int = 100000, # INFO: @Juan 10/16/24 Added arg for chunk size. 
                  desired_feature_types: list[str] = None,
@@ -66,7 +65,6 @@ class DataLoader:
         self.chunk_size = chunk_size
         self.desired_feature_types = desired_feature_types or ["time", "turbine_id", "turbine_status", "wind_direction", "wind_speed", "power_output", "nacelle_direction"]
         self.wide_format = wide_format
-        self.turbine_ids = turbine_ids
         self.ffill_limit = ffill_limit
         
         # Get all the wts in the folder @Juan 10/16/24 used os.path.join for OS compatibility
@@ -200,29 +198,6 @@ class DataLoader:
         return df_query
 
     def postprocess_multi_files(self, df_query) -> pl.LazyFrame | None:
-        
-        # if df_query:
-        #     # join dfs of different turbine types and same timestamps, then concat remaining
-        #     logging.info(f"✅ Finished reading individual files. Time elapsed: {time.time() - start_time:.2f} s")
-        #     # logging.info("🔄 Starting concatenation of DataFrames")
-        #     join_start = time.time()
-        #     logging.info(f"✅ Started concatenation of {len(self.file_paths)} files.")
-        #     unique_file_timestamps = set(re.findall(r"\.(\d{8})\.", fp)[0] for fp in self.file_paths)
-        #     dfs_to_concat = []
-        #     for ts in unique_file_timestamps:
-        #         dfs_to_join = [df for d, df in enumerate(df_query) if ts in self.file_paths[d]]
-        #         dfs_to_concat.append(self._join_dfs(ts,dfs_to_join))
-
-        #     logging.info(f"🔗 Finished join. Time elapsed: {time.time() - join_start:.2f} s")
-            
-        #     concat_start = time.time()
-        #     pl.concat(dfs_to_concat, how="vertical").collect().write_parquet(self.save_path, statistics=False)
-        #     logging.info(f"🔗 Finished concat. Time elapsed: {time.time() - concat_start:.2f} s")
-
-        #     return pl.scan_parquet(self.save_path)
-        # else:
-        #     logging.warning("⚠️ No data frames were created.")
-        #     return None
          
         if self.multiprocessor is not None:
             if self.multiprocessor == "mpi":
@@ -242,13 +217,6 @@ class DataLoader:
                                             [df for d, df in enumerate(df_query) if ts in self.file_paths[d]]) 
                                             for ts in unique_file_timestamps]
                     dfs_to_concat = [fut.result() for fut in futures]
-
-                    # for ts, df in zip(unique_file_timestamps, dfs_to_concat):
-                    #     logging.info(f"Sinking {ts} collection of LazyFrames to join.")
-                    #     df.sink_parquet(self.save_path.replace(".parquet", f"_{ts}.parquet"), statistics=False)
-                    # dfs_to_concat = [fut.result() for fut in futures]
-
-                    # logging.info(f"🔗 Finished join. Time elapsed: {time.time() - join_start:.2f} s")
                     
                     concat_start = time.time()
                     dfs_to_concat = [pl.scan_parquet(self.save_path.replace(".parquet", f"_{ts}.parquet")) 
@@ -281,74 +249,7 @@ class DataLoader:
             logging.info(f"🔗 Finished concat. Time elapsed: {time.time() - concat_start:.2f} s")
 
             return pl.scan_parquet(self.save_path)
-                    
-        #             # df_query = pl.concat([df for df in df_query if df is not None]).lazy()
-        #             num_processes = executor._max_workers
-        #             df_query_list = df_query
-        #             n_dfs = len(df_query_list)
-        #             join_chunk = math.ceil(n_dfs / num_processes)
-        #             df_slices = [slice(i * join_chunk, (i + 1) * join_chunk, 1) for i in range(math.ceil(n_dfs / join_chunk))]
-        #             n_df_slices = len(df_slices)
-
-        #             logging.info(f"✅ Started first concatenation of {len(df_query)} files in {n_df_slices} groups of {join_chunk}.")
-
-        #             futures = [ex.submit(self._join_dfs, i, df_query_list[indices]) for i, indices in enumerate(df_slices)]
-        #             _ = [fut.result() for fut in futures]
-                    
-        #             del df_query_list
-        #             logging.info(f"🔗 Finished first concatenation of {len(self.file_paths)} files. Time elapsed: {time.time() - concat_start:.2f} s")
-
-        #             concat_start = time.time()
-        #             logging.info(f"✅ Started second concatenation of {n_df_slices} files.")
-        #             df_query = self._join_dfs("", 
-        #                         [pl.scan_parquet(self.save_path.replace(".parquet", f"_{i}.parquet")) for i in range(n_df_slices)])
-
-        #             logging.info(f"🔗 Finished second concatenation of {n_df_slices} files. Time elapsed: {time.time() - concat_start:.2f} s")
-
-        #             # with open(os.path.join(os.path.dirname(self.save_path), "all_df_query_explan.txt"), "w") as f:
-        #             #     f.write(df_query.explain(streaming=True))
-
-        #             # self._write_parquet(df_query)
-                    
-        #             return df_query #INFO: @Juan 10/16/24 Added .lazy() to the return statement to match the expected return type. Is this necessary?
-        #         else:
-        #             logging.warning("⚠️ No data frames were created.")
-        #             return None
-        # else:
-        #     if df_query:
-        #         # logging.info(f"✅ Finished reading individual files. Time elapsed: {time.time() - start_time:.2f} s")
-        #         # # logging.info("🔄 Starting concatenation of DataFrames")
-        #         # concat_start = time.time()
-        #         # logging.info(f"✅ Started concatenation of {len(self.file_paths)} files.")
-        #         # df_query = self._join_dfs("",df_query)
-
-        #         # logging.info(f"🔗 Finished concatenation of {len(self.file_paths)} files. Time elapsed: {time.time() - concat_start:.2f} s")
-        #         num_processes = 12 
-        #         df_query_list = df_query
-        #         n_dfs = len(df_query_list)
-        #         join_chunk = math.ceil(n_dfs / num_processes)
-        #         df_slices = [slice(i * join_chunk, (i + 1) * join_chunk, 1) for i in range(math.ceil(n_dfs / join_chunk))]
-        #         n_df_slices = len(df_slices)
-
-        #         logging.info(f"✅ Started first concatenation of {len(df_query)} files in {n_df_slices} groups of {join_chunk}.")
-
-        #         dfs = []
-        #         for i, indices in enumerate(df_slices):
-        #             dfs.append(self._join_dfs(i, df_query_list[indices]))
-                
-        #         del df_query_list
-        #         logging.info(f"🔗 Finished first concatenation of {len(self.file_paths)} files. Time elapsed: {time.time() - concat_start:.2f} s")
-
-        #         concat_start = time.time()
-        #         logging.info(f"✅ Started second concatenation of {n_df_slices} files.")
-        #         df_query = self._join_dfs("", 
-        #                     [pl.scan_parquet(self.save_path.replace(".parquet", f"_{i}.parquet")) for i in range(n_df_slices)])
-
-        #         return df_query
-        #     else:
-        #         logging.warning("⚠️ No data frames were created.")
-        #         return None
-            
+             
     def _write_parquet(self, df_query: pl.LazyFrame):
         
         write_start = time.time()
@@ -847,12 +748,12 @@ if __name__ == "__main__":
         
         if not RELOAD_DATA and os.path.exists(data_loader.save_path):
             # Note that the order of the columns in the provided schema must match the order of the columns in the CSV being read.
-            schema = pl.Schema(dict(sorted(({**{"time": pl.Datetime(time_unit="ms")},
-                        **{
-                            f"{feat}_{tid}": pl.Float64
-                            for feat in FEATURES if feat != "time"
-                            for tid in [f"wt{d+1:03d}" for d in range(88)]}
-                        }).items())))
+            # schema = pl.Schema(dict(sorted(({**{"time": pl.Datetime(time_unit="ms")},
+            #             **{
+            #                 f"{feat}_{tid}": pl.Float64
+            #                 for feat in FEATURES if feat != "time"
+            #                 for tid in [f"wt{d+1:03d}" for d in range(88)]}
+            #             }).items())))
             logging.info("🔄 Loading existing Parquet file")
             df_query = pl.scan_parquet(source=data_loader.save_path)
             logging.info("✅ Loaded existing Parquet file successfully")
@@ -873,14 +774,7 @@ if __name__ == "__main__":
     if RUN_ONCE:
         logging.info(f"✅ Finished reading individual files. Time elapsed: {time.time() - start_time:.2f} s")
 
-    # if df_query:
-    #     df_query = data_loader.postprocess_multi_files(df_query)
-    # elif RUN_ONCE:
-    #     logging.warning("⚠️ No data frames were created.")
-
     if RUN_ONCE:
-        
-        # logging.info(f"⏱️ Total time elapsed: {time.time() - start_time:.2f} s")
     
         if df_query is not None:
             # Perform any additional operations on df_query if needed

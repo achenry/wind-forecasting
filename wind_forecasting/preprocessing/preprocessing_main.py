@@ -206,6 +206,7 @@ def compute_offsets(df, fi, turbine_pairs:list[tuple[int, int]]=None):
 if __name__ == "__main__":
     PLOT = False 
     RELOAD_DATA = False
+    REPROCESS_DATA = True 
 
     if platform == "darwin":
         DATA_DIR = "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/raw_data"
@@ -252,7 +253,6 @@ if __name__ == "__main__":
     DATA_FORMAT = "netcdf"
     FFILL_LIMIT = int(60 * 60 * 10 // DT)
 
-    turbine_ids =  ["wt028", "wt033", "wt073"]
     COLUMN_MAPPING = None  # Define this if you're using CSV and need column mapping
     #
     if FILE_SIGNATURE.endswith(".nc"):
@@ -265,7 +265,6 @@ if __name__ == "__main__":
         data_dir=DATA_DIR,
         file_signature=FILE_SIGNATURE,
         save_path=PL_SAVE_PATH,
-        turbine_ids=turbine_ids,
         multiprocessor=MULTIPROCESSOR,
         chunk_size=CHUNK_SIZE,
         desired_feature_types=FEATURES,
@@ -296,13 +295,14 @@ if __name__ == "__main__":
     else:
         logging.info("🔄 Processing new data files")
         df_query = data_loader.read_multi_files()
-        df_query = data_loader.postprocess_multi_files(df_query) 
         if df_query is not None:
             # Perform any additional operations on df_query if needed
             logging.info("✅ Data processing completed successfully")
         else:
             logging.warning("⚠️ No data was processed")
-
+    
+    # x = df_query.head(20).collect().to_pandas().sample(frac=1).set_index(df_query.head(20).collect().to_pandas()["time"].sort_values()).drop(columns="time").reset_index()
+    # x.to_csv("/Users/ahenry/Desktop/sample.csv") 
     # %% [markdown]
     # ## Resampling & Forward/Backward Fill
 
@@ -335,7 +335,7 @@ if __name__ == "__main__":
         logging.info("✅ Generated plots.")
 
     # %%
-    if RELOAD_DATA or not os.path.exists(PL_SAVE_PATH.replace(".parquet", "_calibrated.parquet")): 
+    if REPROCESS_DATA or (RELOAD_DATA or not os.path.exists(PL_SAVE_PATH.replace(".parquet", "_calibrated.parquet"))): 
         # Nacelle Calibration 
         # Find and correct wind direction offsets from median wind plant wind direction for each turbine
         logging.info("Subtracting median wind direction from wind direction and nacelle direction measurements.")
@@ -468,7 +468,7 @@ if __name__ == "__main__":
     # %%
     data_filter = DataFilter(turbine_availability_col=None, turbine_status_col="turbine_status", multiprocessor=MULTIPROCESSOR, data_format='wide')
 
-    if RELOAD_DATA or not os.path.exists(PL_SAVE_PATH.replace(".parquet", "_calibrated_filtered.parquet")):
+    if REPROCESS_DATA or (RELOAD_DATA or not os.path.exists(PL_SAVE_PATH.replace(".parquet", "_calibrated_filtered.parquet"))):
         # %%
         logging.info("Nullifying inoperational turbine cells.")
         # check if wind speed/dir measurements from inoperational turbines differ from fully operational
@@ -489,7 +489,7 @@ if __name__ == "__main__":
         logging.info("Nullifying wind speed out-of-range cells.")
 
         # check for wind speed values that are outside of the acceptable range
-        if RELOAD_DATA or not os.path.exists(PL_SAVE_PATH.replace(".parquet", "_out_of_range.npy")):
+        if REPROCESS_DATA or (RELOAD_DATA or not os.path.exists(PL_SAVE_PATH.replace(".parquet", "_out_of_range.npy"))):
             ws = data_inspector.collect_data(df=df_query, feature_types="wind_speed")
             out_of_range = (filters.range_flag(ws, lower=0, upper=70) & ~ws.isna()).values # range flag includes formerly null values as nan
             del ws
@@ -517,7 +517,7 @@ if __name__ == "__main__":
         logging.info("Nullifying wind speed-power curve out-of-window cells.")
         # apply a window range filter to remove data with power values outside of the window from 20 to 3000 kW for wind speeds between 5 and 40 m/s.
         # identifies when turbine is shut down, filtering for normal turbine operation
-        if RELOAD_DATA or not os.path.exists(PL_SAVE_PATH.replace(".parquet", "_out_of_window.npy")):
+        if REPROCESS_DATA or (RELOAD_DATA or not os.path.exists(PL_SAVE_PATH.replace(".parquet", "_out_of_window.npy"))):
             out_of_window = np.stack([(filters.window_range_flag(window_col=data_inspector.collect_data(df=df_query, 
                                                                                                 feature_types=["wind_speed"], 
                                                                                                 turbine_ids=[tid])[f"wind_speed_{tid}"],
@@ -566,7 +566,7 @@ if __name__ == "__main__":
         # %%
         logging.info("Nullifying wind speed-power curve bin-outlier cells.")
         # apply a bin filter to remove data with power values outside of an envelope around median power curve at each wind speed
-        if RELOAD_DATA or not os.path.exists(PL_SAVE_PATH.replace(".parquet", "_bin_outliers.npy")):
+        if REPROCESS_DATA or (RELOAD_DATA or not os.path.exists(PL_SAVE_PATH.replace(".parquet", "_bin_outliers.npy"))):
             bin_outliers = np.stack([(filters.bin_filter(
                                                 bin_col=f"power_output_{tid}", 
                                                 value_col=f"wind_speed_{tid}", 
@@ -761,13 +761,13 @@ if __name__ == "__main__":
         df_query = pl.scan_parquet(PL_SAVE_PATH.replace(".parquet", "_calibrated_filtered.parquet"))
 
     # %%
-    if RELOAD_DATA or not os.path.exists(PL_SAVE_PATH.replace(".parquet", "_calibrated_filtered_split.parquet")):
+    if REPROCESS_DATA or (RELOAD_DATA or not os.path.exists(PL_SAVE_PATH.replace(".parquet", "_calibrated_filtered_split.parquet"))):
         logging.info("Split dataset during time steps for which many turbines have missing data.")
         
         # if there is a short or long gap for some turbines, impute them using the imputing.impute_all_assets_by_correlation function
         #       else if there is a short or long gap for many turbines, split the dataset
-        missing_col_thr = max(1, int(len(data_loader.turbine_ids) * 0.05))
-        missing_duration_thr = np.timedelta64(5, "m")
+        missing_col_thr = max(1, int(len(data_loader.turbine_ids) * 0.1))
+        missing_duration_thr = np.timedelta64(10, "m")
         minimum_not_missing_duration = np.timedelta64(20, "m")
         missing_data_cols = ["wind_speed", "wind_direction", "nacelle_direction"]
 
@@ -861,7 +861,7 @@ if __name__ == "__main__":
         df_query = pl.scan_parquet(PL_SAVE_PATH.replace(".parquet", "_calibrated_filtered_split.parquet"))
 
     # %% 
-    if RELOAD_DATA or not os.path.exists(PL_SAVE_PATH.replace(".parquet", "_calibrated_filtered_split_imputed.parquet")): 
+    if REPROCESS_DATA or (RELOAD_DATA or not os.path.exists(PL_SAVE_PATH.replace(".parquet", "_calibrated_filtered_split_imputed.parquet"))): 
         logging.info("Impute/interpolate turbine missing dta from correlated measurements.")
         # else, for each of those split datasets, impute the values using the imputing.impute_all_assets_by_correlation function
         # fill data on single concatenated dataset
@@ -875,7 +875,7 @@ if __name__ == "__main__":
         df_query = pl.scan_parquet(PL_SAVE_PATH.replace(".parquet", "_calibrated_filtered_split_imputed.parquet"))
 
     # %%
-    if RELOAD_DATA or not os.path.exists(PL_SAVE_PATH.replace(".parquet", "_calibrated_filtered_split_imputed_normalized.parquet")): 
+    if REPROCESS_DATA or (RELOAD_DATA or not os.path.exists(PL_SAVE_PATH.replace(".parquet", "_calibrated_filtered_split_imputed_normalized.parquet"))): 
         # Normalization & Feature Selection
         logging.info("Normalizing and selecting features.")
         df_query = df_query\
@@ -889,7 +889,7 @@ if __name__ == "__main__":
 
         # store min/max of each column to rescale later
         # is_numeric = (cs.contains("ws") | cs.contains("nd"))
-        feature_types=["nd_cos", "nd_sin", "ws_vert", "ws_horz"]
+        feature_types = ["nd_cos", "nd_sin", "ws_horz" "ws_vert"]
 
         # long_df_query = DataInspector.unpivot_dataframe(df_query, feature_types=["nd_cos", "nd_sin", "ws_vert", "ws_horz"]).collect().lazy()
         # norm_vals = long_df_query.select(is_numeric.min().round(2).name.suffix("_min"),
@@ -914,6 +914,18 @@ if __name__ == "__main__":
         df_query.collect().write_parquet(PL_SAVE_PATH.replace(".parquet", "_calibrated_filtered_split_imputed_normalized.parquet"), statistics=False)
     else:
         df_query = pl.scan_parquet(PL_SAVE_PATH.replace(".parquet", "_calibrated_filtered_split_imputed_normalized.parquet"))
+
+    # %%
+    logging.info("Plotting time series.")
+    continuity_groups = df_query.unique(subset=["continuity_group"])
+    feature_types = ["nd_cos", "nd_sin", "ws_horz" "ws_vert"]
+    # if len(continuity_groups) == 1:
+    #     ax = np.atleast_2d(ax).T
+    for c, cg in enumerate(continuity_groups):
+        fig, ax = plt.subplots(len(feature_types), 1)
+        for f, feat in enumerate(base_target_cols + base_feat_dynamic_real_cols): 
+            ax[f].plot(sub_df.loc[sub_df["continuity_group"]==cg, [col for col in sub_df.columns if feat in col]])
+            ax[f].set_title(f"{feat}")
 
     # %%
     logging.info("Plotting and fitting target value distribution.")
