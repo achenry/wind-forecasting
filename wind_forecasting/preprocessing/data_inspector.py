@@ -4,7 +4,7 @@
 import os
 import time
 import logging
-from typing import Callable
+from typing import Callable, Optional
 
 from itertools import cycle
 
@@ -86,11 +86,11 @@ class DataInspector:
         if farm_input_filepath is not None and not os.path.exists(farm_input_filepath):
             raise FileNotFoundError(f"Farm input file not found: {farm_input_filepath}")
 
-    def plot_time_series(self, df, turbine_ids: list[str]) -> None:
+    def plot_time_series(self, df_query, feature_types, turbine_ids: list[str], continuity_groups: Optional[list]=None) -> None:
         if isinstance(turbine_ids, str):
             turbine_ids = [turbine_ids]  # Convert single ID to list
         
-        valid_turbines = self._get_valid_turbine_ids(df, turbine_ids=turbine_ids)
+        valid_turbines = self._get_valid_turbine_ids(df_query, turbine_ids=turbine_ids)
         
         if len(valid_turbines) == 0:
             return
@@ -98,39 +98,60 @@ class DataInspector:
         sns.set_style("whitegrid")
         sns.set_palette("deep")
 
-        fig, (ax1, ax2, ax3, ax4) = plt.subplots(4, 1, figsize=(12, 10), sharex=True)
+        if continuity_groups is not None:
+            for c, cg in enumerate(continuity_groups):
+                fig, ax = plt.subplots(len(feature_types), 1, sharex=True)
+                if not hasattr(ax, "__len__"):
+                    ax = [ax]
+                for f, feat in enumerate(feature_types):
+                    df = df_query.filter(pl.col("continuity_group") == cg)\
+                                 .select(pl.col("time"), cs.starts_with(feat))\
+                                 .select([pl.col("time")] + [cs.ends_with(tid) for tid in valid_turbines]).collect().to_pandas()
+                    # ax[f].plot(df.select("time"), df.select(cs.starts_with(feat)))
+                    for tid in valid_turbines:
+                        sns.lineplot(data=df, x='time', y=f'{feat}_{tid}', ax=ax[f], label=f'{tid}')
+                    ax[f].set_title(f"{feat}_{int(cg)}")
+                    ax[f].set_xlabel("Time [s]")
+                    ax[f].legend([], [], frameon=False)
+        else:
+            fig, ax = plt.subplots(len(feature_types), 1, figsize=(12, 10), sharex=True)
+            if not hasattr(ax, "__len__"):
+                ax = [ax]
+            for f, feat in enumerate(feature_types):
+                df = df_query.select(pl.col("time"), cs.starts_with(feat))\
+                             .select([pl.col("time")] + [cs.ends_with(tid) for tid in valid_turbines]).collect().to_pandas()
+                # df = df_query.select(pl.col("time"), cs.starts_with(feat) & cs.ends_with(np.str_('wt088'))).collect().to_pandas()
+                for tid in valid_turbines:
+                    sns.lineplot(data=df, x='time', y=f'{feat}_{tid}', ax=ax[f], label=f'{tid}')
+                
+                ax[f].set_title(f"{feat}")
+                ax[f].set_xlabel("Time [s]")
+                ax[f].legend([], [], frameon=False)
+            # sns.lineplot(data=turbine_data.collect().to_pandas(),
+            #              x='time', y=f'wind_direction_{turbine_id}', ax=ax2, label=f'{turbine_id} Wind Direction')
+            # sns.lineplot(data=turbine_data.collect().to_pandas(),
+            #              x='time', y=f'nacelle_direction_{turbine_id}', ax=ax3, label=f'{turbine_id} Nacelle Direction')
+            # sns.lineplot(data=turbine_data.collect().to_pandas(),
+            #              x='time', y=f'power_output_{turbine_id}', ax=ax4, label=f'{turbine_id} Power Output')
         
-        for turbine_id in valid_turbines:
-            turbine_data = df.select([pl.col("time"), cs.ends_with(f"{turbine_id}")]).drop_nulls()
-            # plt.plot(turbine_data["time"], turbine_data["wind_speed"])
-            sns.lineplot(data=turbine_data.collect(streaming=True).to_pandas(),
-                         x='time', y=f'wind_speed_{turbine_id}', ax=ax1, label=f'{turbine_id} Wind Speed')
-            sns.lineplot(data=turbine_data.collect(streaming=True).to_pandas(),
-                         x='time', y=f'wind_direction_{turbine_id}', ax=ax2, label=f'{turbine_id} Wind Direction')
-            sns.lineplot(data=turbine_data.collect(streaming=True).to_pandas(),
-                         x='time', y=f'nacelle_direction_{turbine_id}', ax=ax3, label=f'{turbine_id} Nacelle Direction')
-            sns.lineplot(data=turbine_data.collect(streaming=True).to_pandas(),
-                         x='time', y=f'power_output_{turbine_id}', ax=ax4, label=f'{turbine_id} Power Output')
+        # ax1.set_ylabel('Wind Speed (m/s)')
+        # ax2.set_ylabel('Wind Direction (deg)')
+        # ax4.set_ylabel('Nacelle Direction (deg)')
+        # ax4.set_ylabel('Power Output (kW)')
+        # ax2.set_xlabel('Time')
         
-        ax1.set_ylabel('Wind Speed (m/s)')
-        ax2.set_ylabel('Wind Direction (deg)')
-        ax4.set_ylabel('Nacelle Direction (deg)')
-        ax4.set_ylabel('Power Output (kW)')
-        ax2.set_xlabel('Time')
+        # ax1.set_title('Wind Speed vs. Time', fontsize=14)
+        # ax2.set_title('Wind Direction vs. Time', fontsize=14)
+        # ax3.set_title('Nacelle Direction vs. Time', fontsize=14)
+        # ax4.set_title('Power Output vs. Time', fontsize=14)
         
-        ax1.set_title('Wind Speed vs. Time', fontsize=14)
-        ax2.set_title('Wind Direction vs. Time', fontsize=14)
-        ax3.set_title('Nacelle Direction vs. Time', fontsize=14)
-        ax4.set_title('Power Output vs. Time', fontsize=14)
-        
-        fig.suptitle(f'Wind Speed, Wind Direction, Nacelle Direction, and Power Output for Turbines: {", ".join(valid_turbines)}', fontsize=16)
+        # fig.suptitle(f'Wind Speed, Wind Direction, Nacelle Direction, and Power Output for Turbines: {", ".join(valid_turbines)}', fontsize=16)
         
         # ax1.legend(loc='upper left', bbox_to_anchor=(1, 1))
         # ax2.legend(loc='upper left', bbox_to_anchor=(1, 1))
-        ax1.legend(loc='upper left', bbox_to_anchor=(1, 1))
+        ax[0].legend(loc='upper left', bbox_to_anchor=(1, 1))
         
         plt.tight_layout()
-        plt.show()
 
     def plot_wind_speed_power(self, df, turbine_ids: list[str]) -> None:
         """_summary_

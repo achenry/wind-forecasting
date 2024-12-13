@@ -20,6 +20,8 @@ import polars.selectors as cs
 import polars as pl
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib
+matplotlib.use('TkAgg') 
 from sys import platform
 import os
 import logging
@@ -51,7 +53,7 @@ def add_df_agg_continuity_columns(df):
     # if the continuous flag is True, but the value in the row before it False
     df = df.filter(pl.col("continuous") | (pl.col("continuous") & ~pl.col("continuous_shifted")) |  (~pl.col("continuous") & pl.col("continuous_shifted")))
     start_time_cond = ((pl.col("continuous") & ~pl.col("continuous_shifted"))).shift() | (pl.int_range(0, pl.len()) == 0)
-    end_time_cond = (~pl.col("continuous") & pl.col("continuous_shifted"))
+    end_time_cond = (~pl.col("continuous") & pl.col("continuous_shifted")) | (pl.int_range(0, pl.len()) == pl.len() - 1) 
     return pl.concat([df.filter(start_time_cond).select(start_time=pl.col("time")), 
                         df.with_columns(end_time=pl.col("time").shift(1)).filter(end_time_cond).select("end_time")], how="horizontal")\
                 .with_columns(duration=(pl.col("end_time") - pl.col("start_time")))\
@@ -73,10 +75,14 @@ def get_continuity_group_index(df):
 
     # If no group is matched, assign a default value (e.g., -1) 
     # group_number = group_number.when(pl.col("time") > end).then(pl.lit(i + 1))
-    group_number = group_number.otherwise(pl.lit(-1))
+    if group_number is None:
+        group_number = pl.when(pl.col("time")).then(pl.lit(-1))
+    else:
+        group_number = group_number.otherwise(pl.lit(-1))
     return group_number
 
 def group_df_by_continuity(df, agg_df):
+    
     group_number = get_continuity_group_index(agg_df)
 
     return pl.concat([agg_df, df.with_columns(group_number.alias("continuity_group"))\
@@ -128,7 +134,7 @@ def gauss_corr(gauss_params, power_ratio):
     gauss = -1 * gauss_params[2] * np.exp(-0.5 * ((xs - gauss_params[0]) / gauss_params[1])**2) + 1.
     return -1 * np.corrcoef(gauss, power_ratio)[0, 1]
 
-def compute_offsets(df, fi, turbine_pairs:list[tuple[int, int]]=None):
+def compute_offsets(df, fi, turbine_pairs:list[tuple[int, int]]=None, plot=False):
     p_min = 100
     p_max = 2500
     prat_hfwdth = 30
@@ -160,10 +166,11 @@ def compute_offsets(df, fi, turbine_pairs:list[tuple[int, int]]=None):
 
         p_ratio = df_sub.select(pl.col(f"wd_round"), (pl.col(f"power_output_{tid_down}") / pl.col(f"power_output_{tid_up}")).alias("p_ratio"))
 
-        fig, ax = plt.subplots(1,1)
-        ax.plot(p_ratio.select("wd_round").to_numpy().flatten(), p_ratio.select("p_ratio").to_numpy().flatten(), label="_nolegend_")
-        ax.plot(dir_align * np.ones(2),[0, 1.25], 'k--', label="Direction of Alignment")
-        ax.grid()
+        if plot:
+            fig, ax = plt.subplots(1,1)
+            ax.plot(p_ratio.select("wd_round").to_numpy().flatten(), p_ratio.select("p_ratio").to_numpy().flatten(), label="_nolegend_")
+            ax.plot(dir_align * np.ones(2),[0, 1.25], 'k--', label="Direction of Alignment")
+            ax.grid()
 
         wd_idx = np.arange(int(np.round(dir_align)) - prat_hfwdth,int(np.round(dir_align)) + prat_hfwdth + 1) % 360
         if len(set(wd_idx) & set(p_ratio.select(f"wd_round").to_numpy().flatten())) != len(wd_idx):
@@ -180,12 +187,13 @@ def compute_offsets(df, fi, turbine_pairs:list[tuple[int, int]]=None):
         xs = np.arange(-int((60 - 1) / 2),int((60 + 1) / 2),1)
         gauss = -1 * opt_gauss_params.x[2] * np.exp(-0.5 * ((xs - opt_gauss_params.x[0]) / opt_gauss_params.x[1])**2) + 1.
 
-        ax.plot(xs + nadir, gauss,'k',label="_nolegend_")
-        ax.plot(2 * [nadir + opt_gauss_params.x[0]], [0, 1.25], 'r--',label="Direction of Measured Wake Center")
-        ax.set_title(f"Turbine Pair: ({i_up + 1}, {i_down + 1})")
-        ax.legend()
-        ax.set_xlabel("Rounded Wind Direction [deg]")
-        ax.set_ylabel("Power Ratio [-]")
+        if plot:
+            ax.plot(xs + nadir, gauss,'k',label="_nolegend_")
+            ax.plot(2 * [nadir + opt_gauss_params.x[0]], [0, 1.25], 'r--',label="Direction of Measured Wake Center")
+            ax.set_title(f"Turbine Pair: ({i_up + 1}, {i_down + 1})")
+            ax.legend()
+            ax.set_xlabel("Rounded Wind Direction [deg]")
+            ax.set_ylabel("Power Ratio [-]")
         
         dir_offset = DataFilter.wrap_180(nadir + opt_gauss_params.x[0] - dir_align)
         print(f"Direction offset for turbine pair ({tid_up}, {tid_down}) = {dir_offset}")
@@ -206,7 +214,7 @@ def compute_offsets(df, fi, turbine_pairs:list[tuple[int, int]]=None):
 if __name__ == "__main__":
     PLOT = False 
     RELOAD_DATA = False
-    REPROCESS_DATA = True 
+    REPROCESS_DATA = False 
 
     if platform == "darwin":
         DATA_DIR = "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/raw_data"
@@ -253,8 +261,6 @@ if __name__ == "__main__":
     DATA_FORMAT = "netcdf"
     FFILL_LIMIT = int(60 * 60 * 10 // DT)
 
-    COLUMN_MAPPING = None  # Define this if you're using CSV and need column mapping
-    #
     if FILE_SIGNATURE.endswith(".nc"):
         DATA_FORMAT = "netcdf"
     elif FILE_SIGNATURE.endswith(".csv"):
@@ -328,14 +334,33 @@ if __name__ == "__main__":
         data_inspector.plot_wind_rose(df_query, turbine_ids="all")
         data_inspector.plot_correlation(df_query, 
         DataInspector.get_features(df_query, feature_types=["wind_speed", "wind_direction", "nacelle_direction"], turbine_ids=["wt073"]))
-        data_inspector.plot_boxplot_wind_speed_direction(df_query, turbine_ids=["wt073"])
+        data_inspector.plot_boxplot_wind_speed_direction(df_query, turbine_ids=["wt073"], feature_types=["wind_speed", "wind_direction", "nacelle_direction"])
         data_inspector.plot_time_series(df_query, turbine_ids=["wt073"])
         plot.column_histograms(data_inspector.collect_data(df=df_query, 
         feature_types=data_inspector.get_features(df_query, ["wind_speed", "wind_direction", "power_output", "nacelle_direction"])))
         logging.info("✅ Generated plots.")
 
+    # %% check time series
+    def print_df_state(df_query, feature_types=None):
+        if feature_types is None:
+            feature_types = ["wind_speed", "wind_direction"]
+        print("n unique values", pl.concat([df_query.select(cs.starts_with(feat_type))\
+                                                            .select(pl.min_horizontal(pl.all().drop_nulls().n_unique()).alias(f"{feat_type}_min_n_unique"), 
+                                                                    pl.max_horizontal(pl.all().drop_nulls().n_unique()).alias(f"{feat_type}_max_n_unique"))\
+                                                            .collect() for feat_type in feature_types], how="horizontal"), sep="\n")
+        print("n non-null values", pl.concat([df_query.select(cs.starts_with(feat_type))\
+                                                            .select(pl.min_horizontal(pl.all().count()).alias(f"{feat_type}_min_non_null"), 
+                                                                    pl.max_horizontal(pl.all().count()).alias(f"{feat_type}_max_non_null"))\
+                                                            .collect() for feat_type in feature_types], how="horizontal"), sep="\n")
+    
+    print_df_state(df_query, ["wind_speed", "wind_direction"])
+    data_inspector.plot_time_series(df_query, feature_types=["wind_speed", "wind_direction"], turbine_ids=["wt001"], continuity_groups=None)
+    # plt.show()
+    # print("n unique values", df_query.select([cs.starts_with(feat_type) for feat_type in ["wind_speed", "wind_direction"]]).select(pl.all().n_unique()).collect().to_numpy().flatten(), sep="\n")
+    # print("n non-null values", df_query.select([cs.starts_with(feat_type) for feat_type in ["wind_speed", "wind_direction"]]).select(pl.all().is_not_null().count()).collect().to_numpy().flatten(), sep="\n")
+    
     # %%
-    if REPROCESS_DATA or (RELOAD_DATA or not os.path.exists(PL_SAVE_PATH.replace(".parquet", "_calibrated.parquet"))): 
+    if False and REPROCESS_DATA or (RELOAD_DATA or not os.path.exists(PL_SAVE_PATH.replace(".parquet", "_calibrated.parquet"))): 
         # Nacelle Calibration 
         # Find and correct wind direction offsets from median wind plant wind direction for each turbine
         logging.info("Subtracting median wind direction from wind direction and nacelle direction measurements.")
@@ -363,7 +388,8 @@ if __name__ == "__main__":
 
         df_query_10min = df_query_10min.with_columns(wd_median=wd_median, yaw_median=yaw_median).collect().lazy()
 
-        plot_wind_offset(df_query_10min, "Original", data_loader.turbine_ids)
+        if PLOT:
+            plot_wind_offset(df_query_10min, "Original", data_loader.turbine_ids)
 
         # remove biases from median direction
 
@@ -393,7 +419,9 @@ if __name__ == "__main__":
 
         df_offsets = pl.DataFrame(df_offsets)
 
-        plot_wind_offset(df_query_10min, "Corrected", data_loader.turbine_ids)
+        if PLOT:
+            plot_wind_offset(df_query_10min, "Corrected", data_loader.turbine_ids)
+            
         # make sure we have corrected the bias between wind direction and yaw position by adding 3 deg. to the wind direction
         bias = 0
         for turbine_id in data_loader.turbine_ids:
@@ -421,7 +449,8 @@ if __name__ == "__main__":
         fi = FlorisModel(data_inspector.farm_input_filepath)
         
         dir_offsets = compute_offsets(df_query_10min, fi,
-                                      turbine_pairs=[(51,50),(43,42),(41,40),(18,19),(34,33),(22,21),(87,86),(62,63),(33,32),(59,60),(43,42)] 
+                                      turbine_pairs=[(51,50),(43,42),(41,40),(18,19),(34,33),(22,21),(87,86),(62,63),(33,32),(59,60),(43,42)],
+                                      plot=PLOT
                                     #   turbine_pairs=[(61,60),(51,50),(43,42),(41,40),(18,19),(34,33),(17,16),(21,22),(87,86),(62,63),(32,33),(59,60),(42,43)]
                                       )
         
@@ -444,7 +473,8 @@ if __name__ == "__main__":
             
             # verify that Northing calibration worked properly
             new_dir_offsets = compute_offsets(df_query_10min, fi,
-                                            turbine_pairs=[(51,50),(43,42),(41,40),(18,19),(34,33),(22,21),(87,86),(62,63),(33,32),(59,60),(43,42)]
+                                            turbine_pairs=[(51,50),(43,42),(41,40),(18,19),(34,33),(22,21),(87,86),(62,63),(33,32),(59,60),(43,42)],
+                                            plot=PLOT
             ) 
 
         df_query = df_query2
@@ -464,154 +494,307 @@ if __name__ == "__main__":
     print(f"Features of interest = {data_loader.desired_feature_types}")
     print(f"Available features = {data_loader.available_features}")
     # qa.describe(DataInspector.collect_data(df=df_query))
+    
+    # %% check time series
+    print_df_state(df_query, ["wind_speed", "wind_direction"])
+    data_inspector.plot_time_series(df_query, feature_types=["wind_speed", "wind_direction"], turbine_ids=["wt001"], continuity_groups=None)
 
     # %%
     data_filter = DataFilter(turbine_availability_col=None, turbine_status_col="turbine_status", multiprocessor=MULTIPROCESSOR, data_format='wide')
 
     if REPROCESS_DATA or (RELOAD_DATA or not os.path.exists(PL_SAVE_PATH.replace(".parquet", "_calibrated_filtered.parquet"))):
         # %%
-        logging.info("Nullifying inoperational turbine cells.")
-        # check if wind speed/dir measurements from inoperational turbines differ from fully operational
-        status_codes = [1]
-        mask = lambda tid: pl.col(f"turbine_status_{tid}").is_in(status_codes) | pl.col(f"turbine_status_{tid}").is_null()
-        features = ws_cols
+        if True:
+            logging.info("Nullifying unresponsive sensor cells.")
+            # find stuck sensor measurements for each turbine and set them to null
+            if False:
+                frozen_thresholds = [(data_loader.ffill_limit * i) + 1 for i in range(1, 19)]
+                print(frozen_thresholds)
+                ws_pcs = []
+                wd_pcs = []
+                pwr_pcs = []
+                for thr in frozen_thresholds:
+                    ws_frozen_sensor = filters.unresponsive_flag(data=DataInspector.collect_data(df=df_query, feature_types="wind_speed"), threshold=thr).values
+                    wd_frozen_sensor = filters.unresponsive_flag(data=DataInspector.collect_data(df=df_query, feature_types="wind_direction"), threshold=thr).values
+                    pwr_frozen_sensor = filters.unresponsive_flag(data=DataInspector.collect_data(df=df_query, feature_types="power_output"), threshold=thr).values
 
-        if PLOT:
-            DataInspector.print_pc_unfiltered_vals(df_query, features, mask)
-            DataInspector.plot_filtered_vs_unfiltered(df_query, mask, ws_cols + wd_cols, ["wind_speed", "wind_direction"], ["Wind Speed [m/s]", "Wind Direction [deg]"])
+                    # check if wind speed/dir measurements from inoperational turbines differ from fully operational
+                    print(f"For a threshold of {thr} for the frozen sensor filters:")
+                    ws_pcs.append(DataInspector.print_pc_unfiltered_vals(df_query, ws_cols, lambda tid: ws_frozen_sensor[:, data_loader.turbine_ids.index(tid)]))
+                    wd_pcs.append(DataInspector.print_pc_unfiltered_vals(df_query, wd_cols, lambda tid: wd_frozen_sensor[:, data_loader.turbine_ids.index(tid)]))
+                    pwr_pcs.append(DataInspector.print_pc_unfiltered_vals(df_query, pwr_cols, lambda tid: pwr_frozen_sensor[:, data_loader.turbine_ids.index(tid)]))
 
-        # loop through each turbine's wind speed and wind direction columns, and compare the distribution of data with and without the inoperational turbines
-        # fill out_of_range measurements with Null st they are marked for interpolation via impute or linear/forward fill interpolation later
-        threshold = 0.01
-        df_query = data_filter.conditional_filter(df_query, threshold, mask, ws_cols + wd_cols)
+                if PLOT:
+                    fig, ax = plt.subplots(3, 1, sharex=True)
+                    for t_idx in range(len(data_loader.turbine_ids)):
+                        ax[0].scatter(x=frozen_thresholds, y=[x[1][t_idx] for x in ws_pcs], label=data_loader.turbine_ids[t_idx])
+                        ax[1].scatter(x=frozen_thresholds, y=[x[1][t_idx] for x in wd_pcs], label=data_loader.turbine_ids[t_idx])
+                        ax[2].scatter(x=frozen_thresholds, y=[x[1][t_idx] for x in pwr_pcs],label=data_loader.turbine_ids[t_idx])
 
-        # %%
-        logging.info("Nullifying wind speed out-of-range cells.")
+                    h, l = ax[0].get_legend_handles_labels()
+                    ax[0].legend(h[:len(data_loader.turbine_ids)], l[:len(data_loader.turbine_ids)])
+                    ax[0].set_title("Percentage of Unfrozen Wind Speed Measurements")
+                    ax[1].set_title("Percentage of Unfrozen Wind Direction Measurements")
+                    ax[2].set_title("Percentage of Unfrozen Power Output Measurements")
 
-        # check for wind speed values that are outside of the acceptable range
-        if REPROCESS_DATA or (RELOAD_DATA or not os.path.exists(PL_SAVE_PATH.replace(".parquet", "_out_of_range.npy"))):
-            ws = data_inspector.collect_data(df=df_query, feature_types="wind_speed")
-            out_of_range = (filters.range_flag(ws, lower=0, upper=70) & ~ws.isna()).values # range flag includes formerly null values as nan
-            del ws
-            np.save(PL_SAVE_PATH.replace(".parquet", "_out_of_range.npy"), out_of_range)
-        else:
-            out_of_range = np.load(PL_SAVE_PATH.replace(".parquet", "_out_of_range.npy"))
-            # qa.describe(DataInspector.collect_data(df=df_query, feature_types="wind_speed", mask=np.any(out_of_range, axis=1)))
+            # find values of wind speed/direction, where there are duplicate values with nulls inbetween
+            thr = int(np.timedelta64(60, 'm') / np.timedelta64(data_loader.dt, 's'))
+            if REPROCESS_DATA or (RELOAD_DATA or not os.path.exists(PL_SAVE_PATH.replace(".parquet", "_out_of_range.npy"))):
+                frozen_sensors = data_filter.nullify_frozen_values( df_query, ["wind_speed", "wind_direction"], data_loader.turbine_ids, thr)
+                np.save(PL_SAVE_PATH.replace(".parquet", "_frozen_sensors.npy"), frozen_sensors)
+            else:
+                frozen_sensors = np.load(PL_SAVE_PATH.replace(".parquet", "_frozen_sensors.npy"))
+            
+            ws_mask = lambda tid: ~frozen_sensors["wind_speed"][:, data_loader.turbine_ids.index(tid)]
+            wd_mask = lambda tid: ~frozen_sensors["wind_direction"][:, data_loader.turbine_ids.index(tid)]
+            # pwr_mask = lambda tid: ~pwr_frozen_sensor[:, data_loader.turbine_ids.index(tid)]
 
-        # check if wind speed/dir measurements from inoperational turbines differ from fully operational 
-        mask = lambda tid: ~out_of_range[:, data_loader.turbine_ids.index(tid)]
-        features = ws_cols
+            if PLOT:
+                plot.plot_power_curve(
+                    data_inspector.collect_data(df=df_query, feature_types="wind_speed"),
+                    data_inspector.collect_data(df=df_query, feature_types="power_output"),
+                    flag=frozen_sensors["wind_speed"],
+                    flag_labels=(f"Wind Speed Unresponsive Sensors (n={frozen_sensors["wind_speed"].sum():,.0f})", "Normal Turbine Operations"),
+                    xlim=(-1, 15),  # optional input for refining plots
+                    ylim=(-100, 3000),  # optional input for refining plots
+                    legend=True,  # optional flag for adding a legend
+                    scatter_kwargs=dict(alpha=0.4, s=10)  # optional input for refining plots
+                )
 
-        if PLOT:
-            DataInspector.print_pc_unfiltered_vals(df_query, features, mask)
-            DataInspector.plot_filtered_vs_unfiltered(df_query, mask, ws_cols, ["wind_speed"], ["Wind Speed [m/s]"])
+                plot.plot_power_curve(
+                    data_inspector.collect_data(df=df_query, feature_types="wind_speed"),
+                    data_inspector.collect_data(df=df_query, feature_types="power_output"),
+                    flag=frozen_sensors["wind_direction"],
+                    flag_labels=(f"Wind Direction Unresponsive Sensors (n={frozen_sensors["wind_direction"].sum():,.0f})", "Normal Turbine Operations"),
+                    xlim=(-1, 15),  # optional input for refining plots
+                    ylim=(-100, 3000),  # optional input for refining plots
+                    legend=True,  # optional flag for adding a legend
+                    scatter_kwargs=dict(alpha=0.4, s=10)  # optional input for refining plots
+                )
 
-        # loop through each turbine's wind speed and wind direction columns, and compare the distribution of data with and without the inoperational turbines
-        # fill out_of_range measurements with Null st they are marked for interpolation via impute or linear/forward fill interpolation later
-        threshold = 0.01
-        df_query = data_filter.conditional_filter(df_query, threshold, mask, ws_cols)
+                # plot.plot_power_curve(
+                #     data_inspector.collect_data(df=df_query, feature_types="wind_speed"),
+                #     data_inspector.collect_data(df=df_query, feature_types="power_output"),
+                #     flag=pwr_frozen_sensor,
+                #     flag_labels=(f"Power Output Unresponsive Sensors (n={pwr_frozen_sensor.sum():,.0f})", "Normal Turbine Operations"),
+                #     xlim=(-1, 15),  # optional input for refining plots
+                #     ylim=(-100, 3000),  # optional input for refining plots
+                #     legend=True,  # optional flag for adding a legend
+                #     scatter_kwargs=dict(alpha=0.4, s=10)  # optional input for refining plots
+                # )
 
-        del out_of_range 
+            # change the values corresponding to frozen sensor measurements to null or interpolate (instead of dropping full row, since other sensors could be functioning properly)
+            # fill stuck sensor measurements with Null st they are marked for interpolation later,
+            threshold = 0.01
+            df_query = data_filter.conditional_filter(df_query, threshold, ws_mask, ws_cols)
+            df_query = data_filter.conditional_filter(df_query, threshold, wd_mask, wd_cols)
 
-        # %%
-        logging.info("Nullifying wind speed-power curve out-of-window cells.")
-        # apply a window range filter to remove data with power values outside of the window from 20 to 3000 kW for wind speeds between 5 and 40 m/s.
-        # identifies when turbine is shut down, filtering for normal turbine operation
-        if REPROCESS_DATA or (RELOAD_DATA or not os.path.exists(PL_SAVE_PATH.replace(".parquet", "_out_of_window.npy"))):
-            out_of_window = np.stack([(filters.window_range_flag(window_col=data_inspector.collect_data(df=df_query, 
-                                                                                                feature_types=["wind_speed"], 
-                                                                                                turbine_ids=[tid])[f"wind_speed_{tid}"],
-                                                                window_start=5., window_end=40., 
-                                                                value_col=data_inspector.collect_data(df=df_query, 
-                                                                                                feature_types=["power_output"], 
-                                                                                                turbine_ids=[tid])[f"power_output_{tid}"],
-                                                                value_min=20., value_max=3000.)
-                                    & df_query.select(no_nulls=pl.all_horizontal(pl.col(f"wind_speed_{tid}").is_not_null(), pl.col(f"power_output_{tid}").is_not_null()))\
-                                            .collect(streaming=True).to_pandas()["no_nulls"]
-                                            #   & ~DataInspector.collect_data(df=df_query, feature_types="wind_speed", turbine_ids=tid).isna()
-                                            #   & ~DataInspector.collect_data(df=df_query, feature_types="power_output", turbine_ids=tid).isna()
-                                            ).values for tid in data_loader.turbine_ids], axis=1)
-
-            np.save(PL_SAVE_PATH.replace(".parquet", "_out_of_window.npy"), out_of_window)
-        else:
-            out_of_window = np.load(PL_SAVE_PATH.replace(".parquet", "_out_of_window.npy"))
-
-        # check if wind speed/dir measurements from inoperational turbines differ from fully operational 
-        mask = lambda tid: ~out_of_window[:, data_loader.turbine_ids.index(tid)]
-        features = ws_cols 
-
-        if PLOT:
-            DataInspector.print_pc_unfiltered_vals(df_query, features, mask)
-            DataInspector.plot_filtered_vs_unfiltered(df_query, mask, features, ["wind_speed"], ["Wind Speed [m/s]"])
-
-            # plot values that are outside of power-wind speed range
-            plot.plot_power_curve(
-                data_inspector.collect_data(df=df_query, feature_types="wind_speed").to_numpy().flatten(),
-                data_inspector.collect_data(df=df_query, feature_types="power_output").to_numpy().flatten(),
-                flag=out_of_window.flatten(),
-                flag_labels=("Outside Acceptable Window", "Acceptable Power Curve Points"),
-                xlim=(-1, 15),
-                ylim=(-100, 3000),
-                legend=True,
-                scatter_kwargs=dict(alpha=0.4, s=10)
-            )
-
-        # fill cells corresponding to values that are outside of power-wind speed window range with Null st they are marked for interpolation via impute or linear/forward fill interpolation later
-        # loop through each turbine's wind speed and wind direction columns, and compare the distribution of data with and without the inoperational turbines
-        threshold = 0.01
-        df_query = data_filter.conditional_filter(df_query, threshold, mask, features)
-
-        del out_of_window
-
-        # %%
-        logging.info("Nullifying wind speed-power curve bin-outlier cells.")
-        # apply a bin filter to remove data with power values outside of an envelope around median power curve at each wind speed
-        if REPROCESS_DATA or (RELOAD_DATA or not os.path.exists(PL_SAVE_PATH.replace(".parquet", "_bin_outliers.npy"))):
-            bin_outliers = np.stack([(filters.bin_filter(
-                                                bin_col=f"power_output_{tid}", 
-                                                value_col=f"wind_speed_{tid}", 
-                                                bin_width=50, threshold=3,
-                                                center_type="median", 
-                                                bin_min=20., bin_max=0.90*(df_query.select(f"power_output_{tid}").max().collect().item() or 3000.),
-                                                threshold_type="scalar", direction="below",
-                                                data=data_inspector.collect_data(df=df_query, 
-                                                                                feature_types=["wind_speed", "power_output"], 
-                                                                                turbine_ids=[tid])
-                                                )
-                                            & df_query.select(no_nulls=pl.all_horizontal(pl.col(f"wind_speed_{tid}").is_not_null(), pl.col(f"power_output_{tid}").is_not_null()))\
-                                                .collect().to_pandas()["no_nulls"]
-                                                ).values for tid in data_loader.turbine_ids], axis=1)
-            np.save(PL_SAVE_PATH.replace(".parquet", "_bin_outliers.npy"), bin_outliers)
-        else:
-            bin_outliers = np.load(PL_SAVE_PATH.replace(".parquet", "_bin_outliers.npy"))
-
-        # check if wind speed/dir measurements from inoperational turbines differ from fully operational 
-        mask = lambda tid: ~bin_outliers[:, data_loader.turbine_ids.index(tid)]
-        features = ws_cols
-
-        if PLOT:
-            DataInspector.print_pc_unfiltered_vals(df_query, features, mask)
-            DataInspector.plot_filtered_vs_unfiltered(df_query, mask, features, ["wind_speed"], ["Wind Speed [m/s]"])
-
-            # plot values outside the power-wind speed bin filter
-            plot.plot_power_curve(
-                data_inspector.collect_data(df=df_query, feature_types="wind_speed").to_numpy().flatten(),
-                data_inspector.collect_data(df=df_query, feature_types="power_output").to_numpy().flatten(),
-                flag=bin_outliers.flatten(),
-                flag_labels=("Anomylous Data", "Normal Wind Speed Sensor Operation"),
-                xlim=(-1, 15),
-                ylim=(-100, 3000),
-                legend=True,
-                scatter_kwargs=dict(alpha=0.4, s=10)
-            )
-
-        # fill cells corresponding to values that are outside of power-wind speed bins with Null st they are marked for interpolation via impute or linear/forward fill interpolation later
-        # loop through each turbine's wind speed and wind direction columns, and compare the distribution of data with and without the inoperational turbines
-        threshold = 0.01
-        df_query = data_filter.conditional_filter(df_query, threshold, mask, features)
-        del bin_outliers
-        # %%
+            del frozen_sensors
+            
+            # %% check time series
+            print_df_state(df_query, ["wind_speed", "wind_direction"])
+            data_inspector.plot_time_series(df_query, feature_types=["wind_speed", "wind_direction"], turbine_ids=["wt001"], continuity_groups=None) 
         
+        # %%
+        if False:
+            logging.info("Nullifying inoperational turbine cells.")
+            # check if wind speed/dir measurements from inoperational turbines differ from fully operational
+            status_codes = [1]
+            mask = lambda tid: pl.col(f"turbine_status_{tid}").is_in(status_codes) | pl.col(f"turbine_status_{tid}").is_null()
+            features = ws_cols
+
+            if PLOT:
+                DataInspector.print_pc_unfiltered_vals(df_query, features, mask)
+                DataInspector.plot_filtered_vs_unfiltered(df_query, mask, ws_cols + wd_cols, ["wind_speed", "wind_direction"], ["Wind Speed [m/s]", "Wind Direction [deg]"])
+
+            # loop through each turbine's wind speed and wind direction columns, and compare the distribution of data with and without the inoperational turbines
+            # fill out_of_range measurements with Null st they are marked for interpolation via impute or linear/forward fill interpolation later
+            threshold = 0.01
+            df_query = data_filter.conditional_filter(df_query, threshold, mask, ws_cols + wd_cols)
+
+            # %% check time series
+            print_df_state(df_query, ["wind_speed", "wind_direction"])
+            data_inspector.plot_time_series(df_query, feature_types=["wind_speed", "wind_direction"], turbine_ids=["wt001"], continuity_groups=None)
+
+        # %%
+        if True:
+            logging.info("Nullifying wind speed out-of-range cells.")
+
+            # check for wind speed values that are outside of the acceptable range
+            if REPROCESS_DATA or (RELOAD_DATA or not os.path.exists(PL_SAVE_PATH.replace(".parquet", "_out_of_range.npy"))):
+                ws = data_inspector.collect_data(df=df_query, feature_types="wind_speed")
+                out_of_range = (filters.range_flag(ws, lower=0, upper=70) & ~ws.isna()).values # range flag includes formerly null values as nan
+                del ws
+                np.save(PL_SAVE_PATH.replace(".parquet", "_out_of_range.npy"), out_of_range)
+            else:
+                out_of_range = np.load(PL_SAVE_PATH.replace(".parquet", "_out_of_range.npy"))
+                # qa.describe(DataInspector.collect_data(df=df_query, feature_types="wind_speed", mask=np.any(out_of_range, axis=1)))
+
+            # check if wind speed/dir measurements from inoperational turbines differ from fully operational 
+            mask = lambda tid: ~out_of_range[:, data_loader.turbine_ids.index(tid)]
+            features = ws_cols
+
+            if PLOT:
+                DataInspector.print_pc_unfiltered_vals(df_query, features, mask)
+                DataInspector.plot_filtered_vs_unfiltered(df_query, mask, ws_cols, ["wind_speed"], ["Wind Speed [m/s]"])
+
+            # loop through each turbine's wind speed and wind direction columns, and compare the distribution of data with and without the inoperational turbines
+            # fill out_of_range measurements with Null st they are marked for interpolation via impute or linear/forward fill interpolation later
+            threshold = 0.01
+            df_query = data_filter.conditional_filter(df_query, threshold, mask, ws_cols)
+
+            del out_of_range 
+
+            # %% check time series
+            print_df_state(df_query, ["wind_speed", "wind_direction"])
+            data_inspector.plot_time_series(df_query, feature_types=["wind_speed", "wind_direction"], turbine_ids=["wt001"], continuity_groups=None)
+        
+        # %%
+        if True:
+            logging.info("Nullifying wind speed-power curve out-of-window cells.")
+            # apply a window range filter to remove data with power values outside of the window from 20 to 3000 kW for wind speeds between 5 and 40 m/s.
+            # identifies when turbine is shut down, filtering for normal turbine operation
+            if REPROCESS_DATA or (RELOAD_DATA or not os.path.exists(PL_SAVE_PATH.replace(".parquet", "_out_of_window.npy"))):
+                out_of_window = np.stack([(filters.window_range_flag(window_col=data_inspector.collect_data(df=df_query, 
+                                                                                                    feature_types=["wind_speed"], 
+                                                                                                    turbine_ids=[tid])[f"wind_speed_{tid}"],
+                                                                    window_start=5., window_end=40., 
+                                                                    value_col=data_inspector.collect_data(df=df_query, 
+                                                                                                    feature_types=["power_output"], 
+                                                                                                    turbine_ids=[tid])[f"power_output_{tid}"],
+                                                                    value_min=20., value_max=3000.)
+                                        & df_query.select(no_nulls=pl.all_horizontal(pl.col(f"wind_speed_{tid}").is_not_null(), pl.col(f"power_output_{tid}").is_not_null()))\
+                                                .collect(streaming=True).to_pandas()["no_nulls"]
+                                                #   & ~DataInspector.collect_data(df=df_query, feature_types="wind_speed", turbine_ids=tid).isna()
+                                                #   & ~DataInspector.collect_data(df=df_query, feature_types="power_output", turbine_ids=tid).isna()
+                                                ).values for tid in data_loader.turbine_ids], axis=1)
+
+                np.save(PL_SAVE_PATH.replace(".parquet", "_out_of_window.npy"), out_of_window)
+            else:
+                out_of_window = np.load(PL_SAVE_PATH.replace(".parquet", "_out_of_window.npy"))
+
+            # check if wind speed/dir measurements from inoperational turbines differ from fully operational 
+            mask = lambda tid: ~out_of_window[:, data_loader.turbine_ids.index(tid)]
+            features = ws_cols 
+
+            if PLOT:
+                DataInspector.print_pc_unfiltered_vals(df_query, features, mask)
+                DataInspector.plot_filtered_vs_unfiltered(df_query, mask, features, ["wind_speed"], ["Wind Speed [m/s]"])
+
+                # plot values that are outside of power-wind speed range
+                plot.plot_power_curve(
+                    data_inspector.collect_data(df=df_query, feature_types="wind_speed").to_numpy().flatten(),
+                    data_inspector.collect_data(df=df_query, feature_types="power_output").to_numpy().flatten(),
+                    flag=out_of_window.flatten(),
+                    flag_labels=("Outside Acceptable Window", "Acceptable Power Curve Points"),
+                    xlim=(-1, 15),
+                    ylim=(-100, 3000),
+                    legend=True,
+                    scatter_kwargs=dict(alpha=0.4, s=10)
+                )
+
+            # fill cells corresponding to values that are outside of power-wind speed window range with Null st they are marked for interpolation via impute or linear/forward fill interpolation later
+            # loop through each turbine's wind speed and wind direction columns, and compare the distribution of data with and without the inoperational turbines
+            threshold = 0.01
+            df_query = data_filter.conditional_filter(df_query, threshold, mask, features)
+
+            del out_of_window
+        
+            # %% check time series
+            print_df_state(df_query, ["wind_speed", "wind_direction"])
+            data_inspector.plot_time_series(df_query, feature_types=["wind_speed", "wind_direction"], turbine_ids=["wt001"], continuity_groups=None)
+         
+        # %%
+        if True:
+            logging.info("Nullifying wind speed-power curve bin-outlier cells.")
+            # apply a bin filter to remove data with power values outside of an envelope around median power curve at each wind speed
+            if REPROCESS_DATA or (RELOAD_DATA or not os.path.exists(PL_SAVE_PATH.replace(".parquet", "_bin_outliers.npy"))):
+                bin_outliers = np.stack([(filters.bin_filter(
+                                                    bin_col=f"power_output_{tid}", 
+                                                    value_col=f"wind_speed_{tid}", 
+                                                    bin_width=50, threshold=3,
+                                                    center_type="median", 
+                                                    bin_min=20., bin_max=0.90*(df_query.select(f"power_output_{tid}").max().collect().item() or 3000.),
+                                                    threshold_type="scalar", direction="below",
+                                                    data=data_inspector.collect_data(df=df_query, 
+                                                                                    feature_types=["wind_speed", "power_output"], 
+                                                                                    turbine_ids=[tid])
+                                                    )
+                                                & df_query.select(no_nulls=pl.all_horizontal(pl.col(f"wind_speed_{tid}").is_not_null(), pl.col(f"power_output_{tid}").is_not_null()))\
+                                                    .collect().to_pandas()["no_nulls"]
+                                                    ).values for tid in data_loader.turbine_ids], axis=1)
+                np.save(PL_SAVE_PATH.replace(".parquet", "_bin_outliers.npy"), bin_outliers)
+            else:
+                bin_outliers = np.load(PL_SAVE_PATH.replace(".parquet", "_bin_outliers.npy"))
+
+            # check if wind speed/dir measurements from inoperational turbines differ from fully operational 
+            mask = lambda tid: ~bin_outliers[:, data_loader.turbine_ids.index(tid)]
+            features = ws_cols
+
+            if PLOT:
+                DataInspector.print_pc_unfiltered_vals(df_query, features, mask)
+                DataInspector.plot_filtered_vs_unfiltered(df_query, mask, features, ["wind_speed"], ["Wind Speed [m/s]"])
+
+                # plot values outside the power-wind speed bin filter
+                plot.plot_power_curve(
+                    data_inspector.collect_data(df=df_query, feature_types="wind_speed").to_numpy().flatten(),
+                    data_inspector.collect_data(df=df_query, feature_types="power_output").to_numpy().flatten(),
+                    flag=bin_outliers.flatten(),
+                    flag_labels=("Anomylous Data", "Normal Wind Speed Sensor Operation"),
+                    xlim=(-1, 15),
+                    ylim=(-100, 3000),
+                    legend=True,
+                    scatter_kwargs=dict(alpha=0.4, s=10)
+                )
+
+            # fill cells corresponding to values that are outside of power-wind speed bins with Null st they are marked for interpolation via impute or linear/forward fill interpolation later
+            # loop through each turbine's wind speed and wind direction columns, and compare the distribution of data with and without the inoperational turbines
+            threshold = 0.01
+            df_query = data_filter.conditional_filter(df_query, threshold, mask, features)
+            del bin_outliers
+        
+    
+        
+            # %% check time series
+            print_df_state(df_query, ["wind_speed", "wind_direction"])
+            data_inspector.plot_time_series(df_query, feature_types=["wind_speed", "wind_direction"], turbine_ids=["wt001"], continuity_groups=None)
+        
+        # %%
+        if True:
+            logging.info("Nullifying standard deviation outliers.")
+            # apply a bin filter to remove data with power values outside of an envelope around median power curve at each wind speed
+            if REPROCESS_DATA or (RELOAD_DATA or not os.path.exists(PL_SAVE_PATH.replace(".parquet", "_bin_outliers.npy"))):
+                std_dev_outliers = np.stack([(filters.std_range_flag(
+                                                    data=data_inspector.collect_data(df=df_query, 
+                                                                                    feature_types=["wind_speed", "wind_direction"], 
+                                                                                    turbine_ids=[tid])
+                                                    )
+                                                & df_query.select(no_nulls=pl.all_horizontal(pl.col(f"wind_speed_{tid}").is_not_null(), pl.col(f"wind_direction_{tid}").is_not_null()))\
+                                                    .collect().to_pandas()["no_nulls"]
+                                                    ).values for tid in data_loader.turbine_ids], axis=1)
+                np.save(PL_SAVE_PATH.replace(".parquet", "_std_dev_outliers.npy"), std_dev_outliers)
+            else:
+                std_dev_outliers = np.load(PL_SAVE_PATH.replace(".parquet", "_std_dev_outliers.npy"))
+
+            # check if wind speed/dir measurements from inoperational turbines differ from fully operational 
+            mask = lambda tid: ~std_dev_outliers[:, data_loader.turbine_ids.index(tid)]
+            features = ws_cols
+
+            if PLOT:
+                DataInspector.print_pc_unfiltered_vals(df_query, features, mask)
+                DataInspector.plot_filtered_vs_unfiltered(df_query, mask, features, ["wind_speed", "wind_direction"], ["Wind Speed [m/s], Wind Direction [deg]"])
+            
+            # fill cells corresponding to values that are outside of power-wind speed bins with Null st they are marked for interpolation via impute or linear/forward fill interpolation later
+            # loop through each turbine's wind speed and wind direction columns, and compare the distribution of data with and without the inoperational turbines
+            threshold = 0.01
+            df_query = data_filter.conditional_filter(df_query, threshold, mask, features)
+            del std_dev_outliers
+        
+            # %% check time series
+            print_df_state(df_query, ["wind_speed", "wind_direction"])
+            data_inspector.plot_time_series(df_query, feature_types=["wind_speed", "wind_direction"], turbine_ids=["wt001"], continuity_groups=None)
+         
+        # %%
         if PLOT:
             logging.info("Power curve fitting.")
             # Fit the power curves
@@ -652,114 +835,15 @@ if __name__ == "__main__":
             fig.tight_layout()
             plt.show()
 
-        # %%
-        if False:
-            logging.info("Nullifying unresponsive sensor cells.")
-            # find stuck sensor measurements for each turbine and set them to null
-            frozen_thresholds = [(data_loader.ffill_limit * i) + 1 for i in range(1, 19)]
-            print(frozen_thresholds)
-            ws_pcs = []
-            wd_pcs = []
-            pwr_pcs = []
-            for thr in frozen_thresholds:
-                ws_frozen_sensor = filters.unresponsive_flag(data=DataInspector.collect_data(df=df_query, feature_types="wind_speed"), threshold=thr).values
-                wd_frozen_sensor = filters.unresponsive_flag(data=DataInspector.collect_data(df=df_query, feature_types="wind_direction"), threshold=thr).values
-                pwr_frozen_sensor = filters.unresponsive_flag(data=DataInspector.collect_data(df=df_query, feature_types="power_output"), threshold=thr).values
-
-                # check if wind speed/dir measurements from inoperational turbines differ from fully operational
-                print(f"For a threshold of {thr} for the frozen sensor filters:")
-                ws_pcs.append(DataInspector.print_pc_unfiltered_vals(df_query, ws_cols, lambda tid: ws_frozen_sensor[:, data_loader.turbine_ids.index(tid)]))
-                wd_pcs.append(DataInspector.print_pc_unfiltered_vals(df_query, wd_cols, lambda tid: wd_frozen_sensor[:, data_loader.turbine_ids.index(tid)]))
-                pwr_pcs.append(DataInspector.print_pc_unfiltered_vals(df_query, pwr_cols, lambda tid: pwr_frozen_sensor[:, data_loader.turbine_ids.index(tid)]))
-
-            if PLOT:
-                fig, ax = plt.subplots(3, 1, sharex=True)
-                for t_idx in range(len(data_loader.turbine_ids)):
-                    ax[0].scatter(x=frozen_thresholds, y=[x[1][t_idx] for x in ws_pcs], label=data_loader.turbine_ids[t_idx])
-                    ax[1].scatter(x=frozen_thresholds, y=[x[1][t_idx] for x in wd_pcs], label=data_loader.turbine_ids[t_idx])
-                    ax[2].scatter(x=frozen_thresholds, y=[x[1][t_idx] for x in pwr_pcs],label=data_loader.turbine_ids[t_idx])
-
-                h, l = ax[0].get_legend_handles_labels()
-                ax[0].legend(h[:len(data_loader.turbine_ids)], l[:len(data_loader.turbine_ids)])
-                ax[0].set_title("Percentage of Unfrozen Wind Speed Measurements")
-                ax[1].set_title("Percentage of Unfrozen Wind Direction Measurements")
-                ax[2].set_title("Percentage of Unfrozen Power Output Measurements")
-
-            thr = data_loader.ffill_limit + 1
-            features = ws_cols + wd_cols
-            # find values of wind speed/direction, where there are duplicate values with nulls inbetween
-            mask = lambda tid: ~frozen_sensor[:, data_loader.turbine_ids.index(tid)]
-
-            df_query.select([pl.col(feat).is_not_null().name.suffix("_not_null") for feat in ws_cols])\
-                                            .collect(streaming=True).to_pandas()
-            
-            ws_frozen_sensor = (filters.unresponsive_flag(data=DataInspector.collect_data(df=df_query, feature_types="wind_speed"), threshold=thr)
-                                            & df_query.select([pl.col(feat).is_not_null().name.suffix("_not_null") for feat in ws_cols])\
-                                            .collect(streaming=True).to_pandas()
-                                            ).values
-            ws_frozen_sensor
-            wd_frozen_sensor = np.stack([(filters.unresponsive_flag(data=DataInspector.collect_data(df=df_query, feature_types="wind_direction"), threshold=thr)
-                                            & df_query.select(no_nulls=pl.col(f"wind_speed_{tid}").is_not_null())\
-                                            .collect(streaming=True).to_pandas()["no_nulls"]
-                                            ).values for tid in data_loader.turbine_ids], axis=1)
-            pwr_frozen_sensor = np.stack([(filters.unresponsive_flag(data=DataInspector.collect_data(df=df_query, feature_types="power_output"), threshold=thr)
-                                            & df_query.select(no_nulls=pl.col(f"wind_speed_{tid}").is_not_null())\
-                                            .collect(streaming=True).to_pandas()["no_nulls"]
-                                            ).values for tid in data_loader.turbine_ids], axis=1)
-
-            wd_frozen_sensor = filters.unresponsive_flag(data=DataInspector.collect_data(df=df_query, feature_types="wind_direction"), threshold=thr).values
-            pwr_frozen_sensor = filters.unresponsive_flag(data=DataInspector.collect_data(df=df_query, feature_types="power_output"), threshold=thr).values
-
-            ws_mask = lambda tid: ~ws_frozen_sensor[:, data_loader.turbine_ids.index(tid)]
-            wd_mask = lambda tid: ~wd_frozen_sensor[:, data_loader.turbine_ids.index(tid)]
-            pwr_mask = lambda tid: ~pwr_frozen_sensor[:, data_loader.turbine_ids.index(tid)]
-
-
-            if PLOT:
-                plot.plot_power_curve(
-                    data_inspector.collect_data(df=df_query, feature_types="wind_speed"),
-                    data_inspector.collect_data(df=df_query, feature_types="power_output"),
-                    flag=ws_frozen_sensor,
-                    flag_labels=(f"Wind Speed Unresponsive Sensors (n={ws_frozen_sensor.sum():,.0f})", "Normal Turbine Operations"),
-                    xlim=(-1, 15),  # optional input for refining plots
-                    ylim=(-100, 3000),  # optional input for refining plots
-                    legend=True,  # optional flag for adding a legend
-                    scatter_kwargs=dict(alpha=0.4, s=10)  # optional input for refining plots
-                )
-
-                plot.plot_power_curve(
-                    data_inspector.collect_data(df=df_query, feature_types="wind_speed"),
-                    data_inspector.collect_data(df=df_query, feature_types="power_output"),
-                    flag=wd_frozen_sensor,
-                    flag_labels=(f"Wind Direction Unresponsive Sensors (n={wd_frozen_sensor.sum():,.0f})", "Normal Turbine Operations"),
-                    xlim=(-1, 15),  # optional input for refining plots
-                    ylim=(-100, 3000),  # optional input for refining plots
-                    legend=True,  # optional flag for adding a legend
-                    scatter_kwargs=dict(alpha=0.4, s=10)  # optional input for refining plots
-                )
-
-                plot.plot_power_curve(
-                    data_inspector.collect_data(df=df_query, feature_types="wind_speed"),
-                    data_inspector.collect_data(df=df_query, feature_types="power_output"),
-                    flag=pwr_frozen_sensor,
-                    flag_labels=(f"Power Output Unresponsive Sensors (n={pwr_frozen_sensor.sum():,.0f})", "Normal Turbine Operations"),
-                    xlim=(-1, 15),  # optional input for refining plots
-                    ylim=(-100, 3000),  # optional input for refining plots
-                    legend=True,  # optional flag for adding a legend
-                    scatter_kwargs=dict(alpha=0.4, s=10)  # optional input for refining plots
-                )
-
-            # change the values corresponding to frozen sensor measurements to null or interpolate (instead of dropping full row, since other sensors could be functioning properly)
-            # fill stuck sensor measurements with Null st they are marked for interpolation later,
-            threshold = 0.01
-            df_query = data_filter.conditional_filter(df_query, threshold, mask, features)
-
-            del frozen_sensor
 
         df_query.collect().write_parquet(PL_SAVE_PATH.replace(".parquet", "_calibrated_filtered.parquet"), statistics=False)
     else:
         df_query = pl.scan_parquet(PL_SAVE_PATH.replace(".parquet", "_calibrated_filtered.parquet"))
 
+    # %% check time series
+    print_df_state(df_query, ["wind_speed", "wind_direction"])
+    data_inspector.plot_time_series(df_query, feature_types=["wind_speed", "wind_direction"], turbine_ids=["wt001"], continuity_groups=None)
+     
     # %%
     if REPROCESS_DATA or (RELOAD_DATA or not os.path.exists(PL_SAVE_PATH.replace(".parquet", "_calibrated_filtered_split.parquet"))):
         logging.info("Split dataset during time steps for which many turbines have missing data.")
@@ -860,6 +944,11 @@ if __name__ == "__main__":
     else:
         df_query = pl.scan_parquet(PL_SAVE_PATH.replace(".parquet", "_calibrated_filtered_split.parquet"))
 
+    # %% check time series
+    print_df_state(df_query, ["wind_speed", "wind_direction"])
+    continuity_groups = df_query.select("continuity_group").unique().collect().to_numpy().flatten()
+    data_inspector.plot_time_series(df_query, feature_types=["wind_speed", "wind_direction"], turbine_ids=["wt001"], continuity_groups=continuity_groups)
+    
     # %% 
     if REPROCESS_DATA or (RELOAD_DATA or not os.path.exists(PL_SAVE_PATH.replace(".parquet", "_calibrated_filtered_split_imputed.parquet"))): 
         logging.info("Impute/interpolate turbine missing dta from correlated measurements.")
@@ -873,9 +962,13 @@ if __name__ == "__main__":
         df_query.collect().write_parquet(PL_SAVE_PATH.replace(".parquet", "_calibrated_filtered_split_imputed.parquet"), statistics=False)
     else:
         df_query = pl.scan_parquet(PL_SAVE_PATH.replace(".parquet", "_calibrated_filtered_split_imputed.parquet"))
-
+    
+    # %% check time series
+    print_df_state(df_query, ["wind_speed", "wind_direction"])
+    data_inspector.plot_time_series(df_query, feature_types=["wind_speed", "wind_direction"], turbine_ids=data_loader.turbine_ids, continuity_groups=continuity_groups) 
+    
     # %%
-    if REPROCESS_DATA or (RELOAD_DATA or not os.path.exists(PL_SAVE_PATH.replace(".parquet", "_calibrated_filtered_split_imputed_normalized.parquet"))): 
+    if True or REPROCESS_DATA or (RELOAD_DATA or not os.path.exists(PL_SAVE_PATH.replace(".parquet", "_calibrated_filtered_split_imputed_normalized.parquet"))): 
         # Normalization & Feature Selection
         logging.info("Normalizing and selecting features.")
         df_query = df_query\
@@ -889,15 +982,15 @@ if __name__ == "__main__":
 
         # store min/max of each column to rescale later
         # is_numeric = (cs.contains("ws") | cs.contains("nd"))
-        feature_types = ["nd_cos", "nd_sin", "ws_horz" "ws_vert"]
+        feature_types = ["nd_cos", "nd_sin", "ws_horz", "ws_vert"]
 
         # long_df_query = DataInspector.unpivot_dataframe(df_query, feature_types=["nd_cos", "nd_sin", "ws_vert", "ws_horz"]).collect().lazy()
         # norm_vals = long_df_query.select(is_numeric.min().round(2).name.suffix("_min"),
         #                                  is_numeric.max().round(2).name.suffix("_max"))
         norm_vals = {}
         for feature_type in feature_types:
-            norm_vals[f"{feature_type}_max"] = df_query.select(pl.max_horizontal(cs.starts_with(feature_type).max())).collect()
-            norm_vals[f"{feature_type}_min"] = df_query.select(pl.min_horizontal(cs.starts_with(feature_type).min())).collect()
+            norm_vals[f"{feature_type}_max"] = df_query.select(pl.max_horizontal(cs.starts_with(feature_type).max())).collect().item()
+            norm_vals[f"{feature_type}_min"] = df_query.select(pl.min_horizontal(cs.starts_with(feature_type).min())).collect().item()
 
         norm_vals = pl.DataFrame(norm_vals).select(pl.all().round(2))
         norm_vals.write_csv(os.path.join(os.path.dirname(PL_SAVE_PATH), "normalization_consts.csv"))
@@ -911,22 +1004,21 @@ if __name__ == "__main__":
                                   / (norm_vals.select(f"{feature_type}_max").item() - norm_vals.select(f"{feature_type}_min").item()))) - 1.0).name.keep()
                                   for feature_type in feature_types])
         
+        # cg = 6
+        # df = df_query.filter(pl.col("continuity_group") == cg).select(pl.col("time"), cs.starts_with("ws_vert")).min().collect()
+        # df = df_query.filter((pl.col("continuity_group") == 6) & (pl.col("time") > np.datetime64("2022-02-01"))).select(pl.col("time"), cs.starts_with("nd_cos")).collect()
+        # plt.plot(df.select(pl.col("time")), df.select(cs.starts_with("nd_cos")))
+         
         df_query.collect().write_parquet(PL_SAVE_PATH.replace(".parquet", "_calibrated_filtered_split_imputed_normalized.parquet"), statistics=False)
     else:
         df_query = pl.scan_parquet(PL_SAVE_PATH.replace(".parquet", "_calibrated_filtered_split_imputed_normalized.parquet"))
 
     # %%
     logging.info("Plotting time series.")
-    continuity_groups = df_query.unique(subset=["continuity_group"])
-    feature_types = ["nd_cos", "nd_sin", "ws_horz" "ws_vert"]
-    # if len(continuity_groups) == 1:
-    #     ax = np.atleast_2d(ax).T
-    for c, cg in enumerate(continuity_groups):
-        fig, ax = plt.subplots(len(feature_types), 1)
-        for f, feat in enumerate(base_target_cols + base_feat_dynamic_real_cols): 
-            ax[f].plot(sub_df.loc[sub_df["continuity_group"]==cg, [col for col in sub_df.columns if feat in col]])
-            ax[f].set_title(f"{feat}")
-
+    continuity_groups = df_query.select(pl.col("continuity_group")).unique().collect().to_numpy().flatten()
+    feature_types = ["nd_cos", "nd_sin", "ws_horz", "ws_vert"]
+    data_inspector.plot_time_series(df_query, feature_types=["ws_horz", "ws_vert"], turbine_ids=data_loader.turbine_ids, continuity_groups=continuity_groups)
+    plt.show()
     # %%
     logging.info("Plotting and fitting target value distribution.")
     from scipy.stats import norm

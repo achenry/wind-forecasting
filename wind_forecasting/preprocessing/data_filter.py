@@ -13,7 +13,7 @@ from scipy.interpolate import CubicSpline
 from scipy.stats import entropy
 from scipy.spatial.distance import jensenshannon
 from scipy.special import kl_div
-from openoa.utils import imputing
+from openoa.utils import imputing, filters
 
 from data_inspector import DataInspector
 
@@ -97,6 +97,42 @@ class DataFilter:
                 | (pl.col(self.turbine_availability_col).is_null() if include_nan else False)
             )
         return df
+    
+    def _nullify_single_frozen_values(self, df_query, threshold):
+        non_null_frozen_sensor_mask = filters.unresponsive_flag(data=df_query.drop_nulls().collect().to_pandas(), threshold=threshold).values.flatten()
+        full_frozen_sensor_mask = np.zeros((df_query.select(pl.len()).collect().item(),), dtype=bool)
+        full_frozen_sensor_mask[df_query.select(pl.all().is_not_null()).collect().to_numpy().flatten()] = non_null_frozen_sensor_mask
+        logging.info(f"Finished nullifying frozen values for {df_query.collect_schema()}")
+        return full_frozen_sensor_mask 
+    
+    def nullify_frozen_values(self, df_query, feature_types, turbine_ids, threshold):
+        if self.multiprocessor:
+            if self.multiprocessor == "mpi":
+                executor = MPICommExecutor(MPI.COMM_WORLD, root=0)
+                logging.info(f"🚀 Using MPI executor with {MPI.COMM_WORLD.Get_size()} processes")
+            else:  # "cf" case
+                max_workers = multiprocessing.cpu_count()
+                executor = ProcessPoolExecutor(max_workers=max_workers)
+                logging.info(f"🖥️  Using ProcessPoolExecutor with {max_workers} workers")
+            
+            with executor as ex:
+                futures = [(feat_type, ex.submit(self._nullify_single_frozen_values, df_query=df_query.select(f"{feat_type}_{tid}"), threshold=threshold)) 
+                                                                                        for feat_type in feature_types for tid in turbine_ids]
+                full_frozen_sensor_masks = [(feat_type, fut.result()) for feat_type, fut in futures]
+                
+                return {feat_type: np.stack([full_frozen_sensor_masks[f][1] for f in range(len(full_frozen_sensor_masks)) 
+                                                                            if full_frozen_sensor_masks[f][0] == feat_type], axis=1) 
+                        for feat_type in feature_types}
+        else:
+            logging.info("🔧 Using single process executor")
+            res = {}
+            for feat_type in feature_types:
+                res[feat_type] = []
+                for tid in turbine_ids:
+                    full_frozen_sensor_mask = self._nullify_single_frozen_values(df_query=df_query.select(f"{feat_type}_{tid}"), threshold=threshold)
+                    res[feat_type].append(full_frozen_sensor_mask)
+                    
+            return {feat_type: np.stack(res[feat_type], axis=1) for feat_type in feature_types}
 
     def fill_multi_missing_datasets(self, dfs, impute_missing_features, interpolate_missing_features, available_features):
         if self.multiprocessor:
@@ -141,15 +177,8 @@ class DataFilter:
                 
                 for k, v in futures.items():
                     df = df.update(v, on="time")
-                # unpivot_df = unpivot_df.with_columns({k: v.result() for k, v in futures.items()}).fill_nan(None)
         elif parallel == "turbine_id":
             for feature in impute_missing_features:
-                # n_nulls_before = unpivot_df.select(cs.contains(feature)).select(pl.sum_horizontal(pl.all().is_null()).sum()).collect().item()
-                # print(f"# Missing values before imputation = {n_nulls_before}")
-                
-                # other_feature = feature
-                # features_pd = set(["time", "turbine_id", feature, other_feature])
-                # features_pl = ["time"] + [cs.starts_with(feat) for feat in set([feature, other_feature])]
                 features_pl = ["time", cs.starts_with(feature)]
 
                 imputed_vals = imputing.impute_all_assets_by_correlation(
@@ -160,17 +189,9 @@ class DataFilter:
                                                             multiprocessor=self.multiprocessor)
                 
                 df = df.update(imputed_vals, on="time")
-                # n_nulls_after = unpivot_df.select(cs.contains(feature)).select(pl.sum_horizontal(pl.all().is_null()).sum()).collect().item()
-                # print(f"# Missing values after imputation = {n_nulls_after}")
                 logging.info(f"Imputed feature {feature} in DataFrame {df_idx}.")
-                # logging.info(f"Successfully imputed {n_nulls_before - n_nulls_after} cells for feature {feature} in DataFrame {df_idx}.")
         else:
             for feature in impute_missing_features:
-                # n_nulls_before = unpivot_df.select(cs.contains(feature)).select(pl.sum_horizontal(pl.all().is_null()).sum()).collect().item()
-                # print(f"# Missing values before imputation = {n_nulls_before}")
-                
-                # other_feature = feature
-                # features = set(["time", "turbine_id", feature, other_feature])
                 features_pl = ["time", cs.starts_with(feature)]
 
                 imputed_vals = imputing.impute_all_assets_by_correlation(
@@ -179,8 +200,6 @@ class DataFilter:
                                                             asset_id_col="turbine_id", method="linear", multiprocessor=None)
                 
                 df = df.update(imputed_vals, on="time")
-                # n_nulls_after = unpivot_df.select(cs.contains(feature)).select(pl.sum_horizontal(pl.all().is_null()).sum()).collect().item()
-                # print(f"# Missing values after imputation = {n_nulls_after}")
                 logging.info(f"Imputed feature {feature} in DataFrame {df_idx}.") 
         return df 
 
@@ -195,40 +214,6 @@ class DataFilter:
             raise Exception(f"Error, there are still nulls in dataframe {df_idx}!")
 
         return df
-
-    def resolve_missing_data(self, df, how="linear_interp", features=None) -> pl.LazyFrame:
-        """_summary_
-        option 1) interpolate via linear, or forward
-        """
-        if how == "forward_fill":
-            return df.fill_null(strategy="forward")
-        elif how == "linear_interp":
-            return df.with_columns(pl.col(features).interpolate())
-        # return df.with_columns(pl.col(features).map_batches(partial(self._interpolate_series, df=df, how=how)))\
-        #          .fill_nan(None)
-            
-    def _interpolate_series(self, ser, df, how):
-        """_summary_
-
-        Args:
-            ser (_type_): _description_
-            how (_type_): _description_
-
-        Returns:
-            _type_: _description_
-        """
-        xp = df["time"].filter(ser.is_not_null())
-        fp = ser.filter(ser.is_not_null())
-        x = df["time"]
-
-        if how == "forward_fill":
-            return ser.fill_null(strategy="forward")
-
-        if how == "linear_interp":
-            return np.interp(x, xp, fp, left=None, right=None)
-        
-        if how == "cubic_interp":
-            return CubicSpline(xp, fp, extrapolate=False)(x)
     
     @staticmethod
     def _compute_probs(data, n=10): 
