@@ -90,7 +90,7 @@ class DataLoader:
                     if df_query:
                         join_start = time.time()
                         logging.info(f"✅ Started join of {len(self.file_paths)} files.")
-                        print(93)
+                        
                         unique_file_timestamps = sorted(set(re.findall(r"\.(\d{8})\.", fp)[0] for fp,_ in df_query))
                         logging.info(f"Unique timestamps found in files = {unique_file_timestamps}")
 
@@ -319,8 +319,8 @@ class DataLoader:
     def _read_single_netcdf(self, file_path: str) -> pl.LazyFrame:
         with nc.Dataset(file_path, 'r') as dataset:
             # @Juan 10/14/24 Check if this is correct and if pandas can be substituted for polars
-            col_mapping = dict((v, k) for k, v in self.column_mapping.items())
-            time_var = dataset.variables[col_mapping["time"]]
+            # col_mapping = dict((v, k) for k, v in self.column_mapping.items())
+            time_var = dataset.variables[self.column_mapping["time"]]
             # time = pd_to_datetime(nc.num2date(times=time_var[:], 
             #                                   units=time_var.units, 
             #                                   calendar=time_var.calendar, 
@@ -335,11 +335,11 @@ class DataLoader:
             data = {
                 'turbine_id': [os.path.basename(file_path).split('.')[-2]] * len(time),
                 'time': time.tolist(),  # Convert to Polars datetime
-                'turbine_status': dataset.variables[col_mapping["turbine_status"]][:],
-                'wind_direction': dataset.variables[col_mapping["wind_direction"]][:],
-                'wind_speed': dataset.variables[col_mapping["wind_speed"]][:],
-                'power_output': dataset.variables[col_mapping["power_output"]][:],
-                'nacelle_direction': dataset.variables[col_mapping["nacelle_direction"]][:]
+                'turbine_status': dataset.variables[self.column_mapping["turbine_status"]][:],
+                'wind_direction': dataset.variables[self.column_mapping["wind_direction"]][:],
+                'wind_speed': dataset.variables[self.column_mapping["wind_speed"]][:],
+                'power_output': dataset.variables[self.column_mapping["power_output"]][:],
+                'nacelle_direction': dataset.variables[self.column_mapping["nacelle_direction"]][:]
             }
 
             # remove the rows with all nans (corresponding to rows where excluded columns would have had a value)
@@ -348,12 +348,7 @@ class DataLoader:
             df_query = pl.LazyFrame(data).fill_nan(None)\
                                             .with_columns(pl.col("time").dt.round(f"{self.dt}s").alias("time"))\
                                             .select([cs.contains(feat) for feat in self.desired_feature_types])\
-                                            .filter(pl.any_horizontal(cs.numeric().is_not_null()))
-                                            # .group_by("turbine_id", "time")\
-                                            # .agg(cs.numeric().drop_nulls().first())
-                                                # .sort("turbine_id", "time")
-            # with open(os.path.join(os.path.dirname(file_path), "ind_df_query_explan.txt"), "w") as f:
-                # f.write(df_query.explain(streaming=True))
+                                            .filter(pl.any_horizontal(cs.numeric().is_not_null())) 
             
             # pivot table to have columns for each turbine and measurement if not originally in wide format
             if not self.wide_format:
