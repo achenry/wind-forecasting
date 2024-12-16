@@ -18,8 +18,9 @@ from mpi4py import MPI
 from mpi4py.futures import MPICommExecutor
 from concurrent.futures import ProcessPoolExecutor
 import multiprocessing
-# from datetime import timedelta
 from scipy.optimize import minimize
+
+import matplotlib.pyplot as plt
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -35,12 +36,35 @@ class DataFilter:
 
     def filter_inoperational(self, df, status_codes=None, availability_codes=None, include_nan=True) -> pl.LazyFrame:
         """
-        status_codes (list): List of status codes to include (e.g., [1, 3])
-        availability_codes (list): List of availability codes to include (e.g., [100, 50])
-        include_nan (bool): Whether to include NaN values in the filter
+        Filter inoperational turbines based on status and availability codes.
+        If the status or availability columns don't exist, skip that part of the filtering.
+
+        Args:
+            status_codes (list): List of status codes to include (e.g., [1, 3])
+            availability_codes (list): List of availability codes to include (e.g., [100, 50])
+            include_nan (bool): Whether to include NaN values in the filter
+
+        Returns:
+            pl.LazyFrame: Filtered dataframe
         """
+        # Check if the columns actually exist in the dataframe
+        cols = df.collect_schema().names()
         
-        # Create masks for filtering
+        # Update status and availability flags based on column existence
+        if self.turbine_status_col and not any(self.turbine_status_col in col for col in cols):
+            logging.info(f"Status column '{self.turbine_status_col}' not found in data, skipping status filtering")
+            status_codes = None
+            
+        if self.turbine_availability_col and not any(self.turbine_availability_col in col for col in cols):
+            logging.info(f"Availability column '{self.turbine_availability_col}' not found in data, skipping availability filtering")
+            availability_codes = None
+        
+        # If neither column exists, return the original dataframe
+        if status_codes is None and availability_codes is None:
+            logging.info("No status or availability columns found, skipping inoperational filtering")
+            return df
+        
+        # Create masks for filtering based on data format
         if self.data_format == 'wide':
             return self._filter_inoperational_wide(df, status_codes, availability_codes, include_nan)
         else:
@@ -100,7 +124,7 @@ class DataFilter:
                                          **kwargs).values
         mask &= df_query.select(pl.all_horizontal(pl.all().is_not_null())).collect().to_numpy().flatten()
                                                 
-        logging.info(f"Finished nullifying out of window values for {df_query.collect_schema()}")
+        logging.info(f"Finished generating out of window filter for {df_query.collect_schema().names()}")
         return mask
 
     def _single_generate_bin_filter(self, df_query, tid, **kwargs):
@@ -109,14 +133,14 @@ class DataFilter:
                                   **kwargs).values
         mask &= df_query.select(pl.all_horizontal(pl.all().is_not_null())).collect().to_numpy().flatten()
                                                 
-        logging.info(f"Finished nullifying wind speed-power curve bin-outlier values for {df_query.collect_schema()}")
+        logging.info(f"Finished generating wind speed-power curve bin-outlier filter for {df_query.collect_schema().names()}")
         return mask
     
     def _single_generate_std_range_filter(self, df_query, tid, **kwargs):
         mask = filters.std_range_flag(data=df_query.collect().to_pandas(), **kwargs).values
         mask &= df_query.select(pl.all().is_not_null()).collect().to_numpy()
                                                 
-        logging.info(f"Finished nullifying std out of range values for {df_query.collect_schema()}")
+        logging.info(f"Finished generating std out of range filter for {df_query.collect_schema().names()}")
         return mask 
     
     def multi_generate_filter(self, df_query, filter_func, feature_types, turbine_ids, **kwargs):
@@ -409,7 +433,7 @@ def get_continuity_group_index(df):
     # If no group is matched, assign a default value (e.g., -1) 
     # group_number = group_number.when(pl.col("time") > end).then(pl.lit(i + 1))
     if group_number is None:
-        group_number = pl.when(pl.col("time")).then(pl.lit(-1))
+        group_number = pl.when(True).then(pl.lit(-1))
     else:
         group_number = group_number.otherwise(pl.lit(-1))
     return group_number
@@ -441,7 +465,8 @@ def merge_adjacent_periods(agg_df, dt):
 
         start_time_idx = end_time_idx + 1
 
-    return pl.LazyFrame(data).with_columns((pl.col("end_time") - pl.col("start_time")).alias("duration"))
+    return pl.LazyFrame(data, schema={"start_time": pl.Datetime(time_unit="us"), "end_time": pl.Datetime(time_unit="us")})\
+             .with_columns((pl.col("end_time") - pl.col("start_time")).alias("duration"))
 
 # Optimization function for finding waked direction
 def gauss_corr(gauss_params, power_ratio):
@@ -524,3 +549,14 @@ def compute_offsets(df, fi, turbine_pairs:list[tuple[int, int]]=None, plot=False
     else:
         print("No available turbine pairs!")
     return dir_offsets
+
+# Define the mask function using the new mapping
+def safe_mask(tid, outlier_flag, turbine_id_to_index):
+    try:
+        idx = turbine_id_to_index[tid]
+        mask_array = ~outlier_flag[:, idx]
+        # logging.info(f"Mask for turbine {tid} includes {np.sum(~mask_array)} out of {len(mask_array)} data points")
+        return mask_array
+    except KeyError:
+        logging.error(f"Mask error for turbine {tid}: turbine ID not found in mapping")
+        return None
