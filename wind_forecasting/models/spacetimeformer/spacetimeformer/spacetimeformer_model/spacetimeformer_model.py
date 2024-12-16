@@ -1,20 +1,24 @@
-from typing import Tuple
+from typing import Tuple, Callable
 
 import torch
-
 import torch.nn.functional as F
-
 import torchmetrics
 
+import numpy as np
+
 import spacetimeformer as stf
+from wind_forecasting.models.forecaster import Forecaster
+from wind_forecasting.models.spacetimeformer.spacetimeformer.spacetimeformer_model.nn import Spacetimeformer
 
 
-class Spacetimeformer_Forecaster(stf.Forecaster):
+class Spacetimeformer_Forecaster(Forecaster):
     def __init__(
         self,
         d_yc: int = 1,
         d_yt: int = 1,
         d_x: int = 4,
+        scaler_func: Callable[[np.ndarray], np.ndarray] = lambda x: x,
+        inv_scaler_func: Callable[[np.ndarray], np.ndarray] = lambda x: x,
         max_seq_len: int = None,
         context_len: int = None,
         target_len: int = None,
@@ -80,6 +84,8 @@ class Spacetimeformer_Forecaster(stf.Forecaster):
         start_token_len = min(start_token_len, context_len)
 
         super().__init__(
+            scaler_func=scaler_func,
+            inv_scaler_func=inv_scaler_func,
             d_x=d_x,
             d_yc=d_yc,
             d_yt=d_yt,
@@ -90,8 +96,9 @@ class Spacetimeformer_Forecaster(stf.Forecaster):
             use_seasonal_decomp=use_seasonal_decomp,
             linear_shared_weights=linear_shared_weights,
         )
+        
         self.losses = []
-        self.spacetimeformer = stf.spacetimeformer_model.nn.Spacetimeformer(
+        self.spacetimeformer = Spacetimeformer(
             d_yc=d_yc,
             d_yt=d_yt,
             d_x=d_x,
