@@ -94,42 +94,6 @@ class DataFilter:
             )
         return df
     
-    def _single_generate_frozen_sensor_filter(self, df_query, threshold):
-        non_null_frozen_sensor_mask = filters.unresponsive_flag(data=df_query.drop_nulls().collect().to_pandas(), threshold=threshold).values.flatten()
-        full_frozen_sensor_mask = np.zeros((df_query.select(pl.len()).collect().item(),), dtype=bool)
-        full_frozen_sensor_mask[df_query.select(pl.all().is_not_null()).collect().to_numpy().flatten()] = non_null_frozen_sensor_mask
-        logging.info(f"Finished nullifying frozen values for {df_query.collect_schema()}")
-        return full_frozen_sensor_mask 
-    
-    def multi_generate_frozen_sensor_filter(self, df_query, feature_types, turbine_ids, threshold):
-        if self.multiprocessor:
-            if self.multiprocessor == "mpi":
-                executor = MPICommExecutor(MPI.COMM_WORLD, root=0)
-                logging.info(f"🚀 Using MPI executor with {MPI.COMM_WORLD.Get_size()} processes")
-            else:  # "cf" case
-                max_workers = multiprocessing.cpu_count()
-                executor = ProcessPoolExecutor(max_workers=max_workers)
-                logging.info(f"🖥️  Using ProcessPoolExecutor with {max_workers} workers")
-            
-            with executor as ex:
-                futures = [(feat_type, ex.submit(self._single_generate_frozen_sensor_filter, df_query=df_query.select(f"{feat_type}_{tid}"), threshold=threshold)) 
-                                                                                        for feat_type in feature_types for tid in turbine_ids]
-                full_frozen_sensor_masks = [(feat_type, fut.result()) for feat_type, fut in futures]
-                
-                return {feat_type: np.stack([full_frozen_sensor_masks[f][1] for f in range(len(full_frozen_sensor_masks)) 
-                                                                            if full_frozen_sensor_masks[f][0] == feat_type], axis=1) 
-                        for feat_type in feature_types}
-        else:
-            logging.info("🔧 Using single process executor")
-            res = {}
-            for feat_type in feature_types:
-                res[feat_type] = []
-                for tid in turbine_ids:
-                    full_frozen_sensor_mask = self._single_generate_frozen_sensor_filter(df_query=df_query.select(f"{feat_type}_{tid}"), threshold=threshold)
-                    res[feat_type].append(full_frozen_sensor_mask)
-                    
-            return {feat_type: np.stack(res[feat_type], axis=1) for feat_type in feature_types}
-
     def _single_generate_window_range_filter(self, df_query, tid, **kwargs):
         mask = filters.window_range_flag(window_col=df_query.select(f"wind_speed_{tid}").collect().to_pandas()[f"wind_speed_{tid}"],
                                          value_col=df_query.select(f"power_output_{tid}").collect().to_pandas()[f"power_output_{tid}"],

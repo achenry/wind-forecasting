@@ -40,7 +40,6 @@ if __name__ == "__main__":
     PLOT = False 
     RELOAD_DATA = False
     FILTERS = ["unresponsive_sensor", "range_flag", "bin_filter", "std_range_flag", "impute_missing_data", "normalize"]
-    # FILTERS = ["std_range_flag", "split", "impute_missing_data", "normalize"]
     assert all(filt in ["nacelle_calibration", "unresponsive_sensor", "inoperational", "range_flag", "window_range_flag", "bin_filter", "std_range_flag", "split", "impute_missing_data", "normalize"] for filt in FILTERS)
     
     if platform == "darwin":
@@ -513,23 +512,24 @@ if __name__ == "__main__":
             logging.info("Nullifying standard deviation outliers.")
             # apply a bin filter to remove data with power values outside of an envelope around median power curve at each wind speed
             if not os.path.exists(PL_SAVE_PATH.replace(".parquet", "_std_dev_outliers.npy")):
-                data_filter.multiprocessor = None
-                std_dev_outliers = data_filter.multi_generate_filter(df_query=df_query, filter_func=data_filter._single_generate_std_range_filter,
-                                                                  feature_types=["wind_speed", "wind_direction"], turbine_ids=data_loader.turbine_ids)
-                data_filter.multiprocessor = MULTIPROCESSOR
+                
+                std_dev_outliers = filters.std_range_flag(
+                    data_pl=df_query.select(cs.starts_with("wind_speed"), cs.starts_with("wind_direction"))
+                )
                 np.save(PL_SAVE_PATH.replace(".parquet", "_std_dev_outliers.npy"), std_dev_outliers)
             else:
                 std_dev_outliers = np.load(PL_SAVE_PATH.replace(".parquet", "_std_dev_outliers.npy"))
 
             # check if wind speed/dir measurements from inoperational turbines differ from fully operational 
-            ws_mask = lambda tid: ~std_dev_outliers[:, data_loader.turbine_ids.index(tid), 0]
-            wd_mask = lambda tid: ~std_dev_outliers[:, data_loader.turbine_ids.index(tid), 1]
+            ws_mask = lambda tid: ~std_dev_outliers[:, [i for i, c in enumerate(sorted(ws_cols + wd_cols)) if "wind_speed" in c]][:, data_loader.turbine_ids.index(tid)]
+            wd_mask = lambda tid: ~std_dev_outliers[:, [i for i, c in enumerate(sorted(ws_cols + wd_cols)) if "wind_direction" in c]][:, data_loader.turbine_ids.index(tid)]
 
             # fill cells corresponding to values that are outside of power-wind speed bins with Null st they are marked for interpolation via impute or linear/forward fill interpolation later
             # loop through each turbine's wind speed and wind direction columns, and compare the distribution of data with and without the inoperational turbines
             threshold = 0.01
-            logging.info("Nullifying wind speed/direction standard deviation measurements in dataframe.")
+            logging.info("Nullifying wind speed standard deviation measurements in dataframe.")
             df_query = data_filter.conditional_filter(df_query, threshold, ws_mask, features=ws_cols, check_js=False)
+            logging.info("Nullifying wind direction standard deviation measurements in dataframe.")
             df_query = data_filter.conditional_filter(df_query, threshold, wd_mask, features=wd_cols, check_js=False)
             
             # check time series
@@ -542,7 +542,7 @@ if __name__ == "__main__":
                 print_df_state(df_query, ["wind_speed", "wind_direction"])
                 data_inspector.plot_time_series(df_query, feature_types=["wind_speed", "wind_direction"], turbine_ids=["wt001"], continuity_groups=None)
 
-            del std_dev_outliers, mask
+            del std_dev_outliers, ws_mask, wd_mask
         # %%
         if PLOT:
             logging.info("Power curve fitting.")
@@ -619,8 +619,8 @@ if __name__ == "__main__":
         
         # if there is a short or long gap for some turbines, impute them using the imputing.impute_all_assets_by_correlation function
         #       else if there is a short or long gap for many turbines, split the dataset
-        missing_col_thr = max(1, int(len(data_loader.turbine_ids) * 0.1))
-        missing_duration_thr = np.timedelta64(10, "m")
+        missing_col_thr = max(1, int(len(data_loader.turbine_ids) * 0.3))
+        missing_duration_thr = np.timedelta64(20, "m")
         minimum_not_missing_duration = np.timedelta64(20, "m")
         missing_data_cols = ["wind_speed", "wind_direction", "nacelle_direction"]
 
@@ -733,7 +733,6 @@ if __name__ == "__main__":
                 .select(pl.col("time"), pl.col("continuity_group"), cs.contains("nd_sin"), cs.contains("nd_cos"), cs.contains("ws_horz"), cs.contains("ws_vert"))
 
         # store min/max of each column to rescale later
-        # is_numeric = (cs.contains("ws") | cs.contains("nd"))
         feature_types = ["nd_cos", "nd_sin", "ws_horz", "ws_vert"]
         
         norm_vals = {}
@@ -749,11 +748,6 @@ if __name__ == "__main__":
                                   / (norm_vals.select(f"{feature_type}_max").item() - norm_vals.select(f"{feature_type}_min").item()))) - 1.0).name.keep()
                                   for feature_type in feature_types])
         
-        # cg = 6
-        # df = df_query.filter(pl.col("continuity_group") == cg).select(pl.col("time"), cs.starts_with("ws_vert")).min().collect()
-        # df = df_query.filter((pl.col("continuity_group") == 6) & (pl.col("time") > np.datetime64("2022-02-01"))).select(pl.col("time"), cs.starts_with("nd_cos")).collect()
-        # plt.plot(df.select(pl.col("time")), df.select(cs.starts_with("nd_cos")))
-         
         df_query.collect().write_parquet(PL_SAVE_PATH.replace(".parquet", "_normalized.parquet"), statistics=False)
     else:
         df_query = pl.scan_parquet(PL_SAVE_PATH.replace(".parquet", "_normalized.parquet"))
@@ -765,7 +759,6 @@ if __name__ == "__main__":
         feature_types = ["nd_cos", "nd_sin", "ws_horz", "ws_vert"]
         data_inspector.plot_time_series(df_query, feature_types=["ws_horz", "ws_vert"], turbine_ids=data_loader.turbine_ids, continuity_groups=continuity_groups)
         plt.show()
-        # df_query.filter(pl.col("continuity_group") == 5).select(cs.ends_with("wt080") | cs.ends_with("wt081")).select(cs.starts_with("ws_")).collect()
 
         logging.info("Plotting and fitting target value distribution.")
         data_inspector.plot_data_distribution(df_query, feature_types=["ws_horz", "ws_vert"], turbine_ids=data_loader.turbine_ids, distribution=norm)
