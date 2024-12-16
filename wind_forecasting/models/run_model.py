@@ -11,9 +11,9 @@ from lightning.pytorch.callbacks.progress.rich_progress import RichProgressBarTh
 import multiprocessing as mp
 import pandas as pd
 
-from wind_forecasting.models.forecaster import Forecaster
 from wind_forecasting.utils.colors import Colors
 from wind_forecasting.datasets.data_module import DataModule
+from wind_forecasting.utils.cleanup import cleanup_memory, cleanup_old_checkpoints
 
 class Callbacks:
     def __init__(self, *, config, local_rank):
@@ -91,21 +91,26 @@ if __name__ == "__main__":
 
     if platform == "darwin":
         LOG_DIR = "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/logging/"
-        DATA_PATH = "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/normalized_data.parquet"
+        DATA_PATH = "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/short_loaded_data_calibrated_filtered_split_imputed_normalized.parquet"
         NORM_CONSTS = pd.read_csv("/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/normalization_consts.csv", index_col=None)
         n_workers = mp.cpu_count()
+        accelerator = "auto"
         devices = "auto"
-        num_nodes = "auto"
+        num_nodes = 1
         strategy = "auto"
+        dataset_class = "KPWindFarm"
+        model_class = "Spacetimeformer_Forecaster"
     elif platform == "linux":
         LOG_DIR = "/projects/ssc/ahenry/wind_forecasting/logging/"
-        DATA_PATH = "/projects/ssc/ahenry/wind_forecasting/awaken_data/normalized_data.parquet"
+        DATA_PATH = "/projects/ssc/ahenry/wind_forecasting/awaken_data/filled_data_calibrated_filtered_split_imputed_normalized.parquet"
         NORM_CONSTS = pd.read_csv("/projects/ssc/ahenry/wind_forecasting/awaken_data/normalization_consts.csv", index_col=None)
         n_workers = int(os.environ["SLURM_GPUS_ON_NODE"])
         accelerator = "auto"
         devices = 2
         num_nodes = 1
         strategy = "ddp_find_unused_parameters_true"
+        dataset_class = "KPWindFarm"
+        model_class = "Spacetimeformer_Forecaster"
 
     ## DEFINE CONFIGURATION
     config = {
@@ -114,12 +119,12 @@ if __name__ == "__main__":
             "log_dir": LOG_DIR
         },
         "dataset": {
-            "dataset_class": KPWindFarm,
+            "dataset_class": dataset_class,
             "data_path": DATA_PATH,
             "normalization_consts": NORM_CONSTS,
             "context_len": 4, # 120=10 minutes for 5 sec sample size,
             "target_len":  3, # 120=10 minutes for 5 sec sample size,
-            "target_turbine_ids": ["wt029", "wt034", "wt074"],
+            # "target_turbine_ids": ["wt029", "wt034", "wt074"],
             "normalize": False, 
             "batch_size": 128,
             "workers": n_workers,
@@ -132,7 +137,7 @@ if __name__ == "__main__":
             }
         },
         "model": {
-            "model_class": Spacetimeformer_Forecaster,
+            "model_class": model_class,
             'embed_size': 32, # Determines dimension of the embedding space
             'num_layers': 3, # Number of transformer blocks stacked
             'heads': 4, # Number of heads for spatio-temporal attention
@@ -149,7 +154,7 @@ if __name__ == "__main__":
             "model_checkpoint": {}, 
             "lr_monitor": {True}
         },
-        "training": {
+        "trainer": {
             "grad_clip_norm": 0.0, # Prevents gradient explosion if > 0 
             "limit_val_batches": 1.0, 
             "val_check_interval": 1,
@@ -166,7 +171,7 @@ if __name__ == "__main__":
     }
     
     ## SETUP LOGGING
-
+    # TODO JUAN are the rank conditinals necessary for WandbLogger, progress bar?
     # Initialize wandb only on rank 0
     os.environ["WANDB_INIT_TIMEOUT"] = "600"
     os.environ["WANDB_INIT_TIMEOUT"] = "300"
@@ -186,87 +191,76 @@ if __name__ == "__main__":
             save_dir=config["experiment"]["log_dir"],
             config=config
         )
-        
-    # Change to checkpoint path to test and validate for pre-trained model
-    # checkpoint_path = os.path.join(Config.MODEL_DIR, 'sttre-uber-epoch=519-val_loss=6.46.ckpt')
-
 
     ## CREATE DATASET
     data_module = DataModule(
-            dataset_class=config["dataset"]["dataset_class"],
+            dataset_class=globals()[config["dataset"]["dataset_class"]],
             config=config
     )
     
-    ## CREATE MODEL
-    model = Forecaster(data_module=data_module, config=config)
+    ## CREATE MODEL/LightningModule
+    model = globals()[config["model"]["model_class"]](
+        d_yc=data_module.dataset.yc_dim,
+        d_yt=data_module.dataset.yt_dim,
+        d_x=data_module.dataset.x_dim,
+        context_len=config["dataset"]["context_len"],
+        target_len=config["dataset"]["target_len"],
+        scaler_func=data_module.dataset.apply_scaling,
+        inv_scaler_func=data_module.dataset.reverse_scaling,
+        **config["model"]
+    )
 
     ## CREATE CALLBACKS and TRAINER
     callbacks = Callbacks(config=config, local_rank=local_rank)
 
     trainer = L.Trainer(
-        max_epochs=config["training"].get('max_epochs', None),
         accelerator=accelerator,
         num_nodes=num_nodes,
         devices=devices,
         strategy=strategy,
         logger=wandb_logger if local_rank == 0 else False,
         callbacks=callbacks,
-        gradient_clip_algorithm="norm",
-        precision=config["training"].get('precision', None),
-        overfit_batches=20 if config["training"]["debug"] else 0,
-        accumulate_grad_batches=config["training"].get("accumulate", None),
-        log_every_n_steps=1,
-        enable_progress_bar=(local_rank == 0),
-        detect_anomaly=False,
-        benchmark=True,
-        deterministic=False,
-        sync_batchnorm=True,
-        limit_val_batches=config["training"].get("limit_val_batches", None),
-        val_check_interval=config["training"].get("val_check_interval", None),
-        check_val_every_n_epoch=config["training"].get("check_val_every_n_epoch", None)
+        limit_train_batches=100, # uncomment to debug
+        max_epochs=1, # uncomment to debug
+        # max_epochs=config["trainer"].get('max_epochs', None),
+        # gradient_clip_algorithm="norm",
+        # precision=config["trainer"].get('precision', None),
+        # overfit_batches=20 if config["trainer"]["debug"] else 0,
+        # accumulate_grad_batches=config["trainer"].get("accumulate", None),
+        # log_every_n_steps=1,
+        # enable_progress_bar=(local_rank == 0),
+        # detect_anomaly=False,
+        # benchmark=True,
+        # deterministic=False,
+        # sync_batchnorm=True,
+        # limit_val_batches=config["trainer"].get("limit_val_batches", None),
+        # val_check_interval=config["trainer"].get("val_check_interval", None),
+        # check_val_every_n_epoch=config["trainer"].get("check_val_every_n_epoch", None)
     )
 
     if local_rank == 0:
         print(f"\n{Colors.BOLD_BLUE}Processing {data_module.dataset.__class__.__name__} dataset...{Colors.ENDC}")
     
     ## TRAIN
-    train_results = model.train(trainer=trainer, data_module=data_module) # TODO JUAN WHY TEST IN RANK 0?
+    trainer.fit(model=model, datamodule=data_module)
 
     ## TEST
-    test_results = model.test(trainer=trainer, data_module=data_module)
+    # trainer.test(datamodule=data_module, ckpt_path="best")
 
-    print(f"\n{Colors.BOLD_GREEN}Completed {data_module.dataset.__class__.__name__} dataset{Colors.CHECK}{Colors.ENDC}")
-    if test_results:
-        print(f"Test results: {test_results}")
-
-    model.cleanup_memory()
+    test_samples = next(iter(data_module.test_dataloader()))
+    model.to("cuda")
+    xc, yc, xt, _ = test_samples
+    yt_pred = model.predict(xc, yc, xt)
     
-    # try:
+    # Change to checkpoint path to test and validate for pre-trained model
+    # checkpoint_path = os.path.join(Config.MODEL_DIR, 'sttre-uber-epoch=519-val_loss=6.46.ckpt')
+    # model = model.load_from_checkpoint(checkpoint_path)
+    # model.eval()
 
-        
-    #     if local_rank == 0:
+    if local_rank == 0:
+        print(f"\n{Colors.BOLD_GREEN}Completed {data_module.dataset.__class__.__name__} dataset{Colors.CHECK}{Colors.ENDC}")
 
-            
-            
-            # model, test_results = test_sttre(
-            #     dataset_class, 
-            #     data_path, 
-            #     model_params, 
-            #     train_params,
-            #     checkpoint_path
-            # )
-            # print(f"{Colors.BOLD_GREEN}Completed testing {dataset_name} dataset {Colors.CHECK}{Colors.ENDC}")
-        
-            
-        
-        # Cleanup after training
-        # del model, trainer
-        
-        
-    # except Exception as e:
-    #     if local_rank == 0:
-    #         print(f"{Colors.RED}Error processing {data_module.dataset.__class__.__name__}: {str(e)} {Colors.CROSS}{Colors.ENDC}")
-    #     model.cleanup_memory()
+    cleanup_memory()
 
     if local_rank == 0:
         print(f"\n{Colors.BOLD_GREEN}All experiments completed! {Colors.CHECK}{Colors.ENDC}")
