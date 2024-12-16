@@ -90,10 +90,10 @@ class DataInspector:
         if isinstance(turbine_ids, str):
             turbine_ids = [turbine_ids]  # Convert single ID to list
         
-        valid_turbines = self._get_valid_turbine_ids(df_query, turbine_ids=turbine_ids)
+        # valid_turbines = self._get_valid_turbine_ids(df_query, turbine_ids=turbine_ids)
         
-        if len(valid_turbines) == 0:
-            return
+        # if len(valid_turbines) == 0:
+        #     return
         
         sns.set_style("whitegrid")
         sns.set_palette("deep")
@@ -106,9 +106,9 @@ class DataInspector:
                 for f, feat in enumerate(feature_types):
                     df = df_query.filter(pl.col("continuity_group") == cg)\
                                  .select(pl.col("time"), cs.starts_with(feat))\
-                                 .select([pl.col("time")] + [cs.ends_with(tid) for tid in valid_turbines]).collect().to_pandas()
+                                 .select([pl.col("time")] + [cs.ends_with(tid) for tid in turbine_ids]).collect().to_pandas()
                     # ax[f].plot(df.select("time"), df.select(cs.starts_with(feat)))
-                    for tid in valid_turbines:
+                    for tid in turbine_ids:
                         sns.lineplot(data=df, x='time', y=f'{feat}_{tid}', ax=ax[f], label=f'{tid}')
                     ax[f].set_title(f"{feat}_{int(cg)}")
                     ax[f].set_xlabel("Time [s]")
@@ -119,9 +119,9 @@ class DataInspector:
                 ax = [ax]
             for f, feat in enumerate(feature_types):
                 df = df_query.select(pl.col("time"), cs.starts_with(feat))\
-                             .select([pl.col("time")] + [cs.ends_with(tid) for tid in valid_turbines]).collect().to_pandas()
+                             .select([pl.col("time")] + [cs.ends_with(tid) for tid in turbine_ids]).collect().to_pandas()
                 # df = df_query.select(pl.col("time"), cs.starts_with(feat) & cs.ends_with(np.str_('wt088'))).collect().to_pandas()
-                for tid in valid_turbines:
+                for tid in turbine_ids:
                     sns.lineplot(data=df, x='time', y=f'{feat}_{tid}', ax=ax[f], label=f'{tid}')
                 
                 ax[f].set_title(f"{feat}")
@@ -656,6 +656,24 @@ class DataInspector:
 
         return fig, ax
 
+    def plot_wind_offset(self, df, title, turbine_ids):
+        _, ax = plt.subplots(1, 1)
+        for turbine_id in turbine_ids:
+            # df = full_df.filter(pl.col(f"power_output_{turbine_id}") >= 0).select("time", f"wind_direction_{turbine_id}").collect()
+            df = df.filter(pl.col(f"power_output_{turbine_id}") >= 0)\
+                        .select("time", cs.starts_with("wind_direction"), "wd_median")
+                        
+            ax.plot(df.select("time").collect().to_numpy().flatten(),
+                    df.select(pl.col(f"wind_direction_{turbine_id}") - pl.col("wd_median"))\
+                    .select(pl.when(pl.all() > 180.0).then(pl.all() - 360.0).otherwise(pl.all())).collect().to_numpy().flatten(),
+                                label=f"{turbine_id}")
+
+        # ax.legend(ncol=8)
+        ax.set_xlabel("Time (s)")
+        ax.set_ylabel("Wind Direction - Median Wind Direction (deg)")
+
+        ax.set_title(title)
+    
     #INFO: @Juan 10/02/24 Added method to calculate wind direction
     @staticmethod
     def calculate_wind_direction(u: np.ndarray, v: np.ndarray) -> np.ndarray:
