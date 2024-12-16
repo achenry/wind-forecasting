@@ -689,17 +689,21 @@ if PLOT:
                             windspeed_col="wind_speed", 
                             power_col="power_output",
                             data=df_pandas,
-                            n_splines=20
-                        )
-                    except AttributeError:
-                        # If sparse matrix error occurs, try with fewer splines
-                        logging.warning("Sparse matrix error occurred, trying with fewer splines")
-                        spline_curve = power_curve.gam(
-                            windspeed_col="wind_speed", 
-                            power_col="power_output",
-                            data=df_pandas,
                             n_splines=10
                         )
+                    except AttributeError as e:
+                        from scipy.sparse import issparse
+                        if 'spline_curve' in locals() and issparse(spline_curve):
+                            spline_curve = spline_curve.toarray()
+                        else:
+                            logging.error(f"GAM fitting failed: {str(e)}")
+                            spline_curve = None
+                        # spline_curve = power_curve.gam(
+                        #     windspeed_col="wind_speed", 
+                        #     power_col="power_output",
+                        #     data=df_pandas,
+                        #     n_splines=10
+                        # )
 
                     # Plot the results
                     fig, ax = plt.subplots(figsize=(12, 8))
@@ -904,7 +908,8 @@ else:
         mask=pl.sum_horizontal([
             pl.col(col) for col in df_query2.collect_schema().names() 
             if col.startswith("is_missing_")
-        ]) <= missing_col_thr
+        ]) <= missing_col_thr,
+        dt=data_loader.dt
     )
 
     # subset of data, indexed by time, which has > the threshold number of missing columns
@@ -913,7 +918,8 @@ else:
         mask=pl.sum_horizontal([
             pl.col(col) for col in df_query2.collect_schema().names() 
             if col.startswith("is_missing_")
-        ]) > missing_col_thr
+        ]) > missing_col_thr,
+        dt=data_loader.dt
     )
 
     # start times, end times, and durations of each of the continuous subsets
@@ -934,8 +940,12 @@ df_query2 = data_filter._fill_single_missing_dataset(
     impute_missing_features=["wind_speed", "wind_direction"], 
     interpolate_missing_features=["wind_speed", "wind_direction", "nacelle_direction"], 
     available_features=data_loader.available_features, 
-    parallel="turbine_id"
+    parallel="turbine_id"  # Changed from False to "turbine_id"
 )
+
+if df_query2 is None:
+    logging.error("Failed to impute missing data")
+    raise Exception("Imputation failed")
 
 df_query = df_query.drop(cs.starts_with("wind_speed"), cs.starts_with("wind_direction")).join(df_query2, on="time", how="left")
 
@@ -945,276 +955,286 @@ df_query.collect().write_parquet(filtered_path, statistics=False)
 logging.info(f"Saved filtered data to {filtered_path}")
 
     # %%
-    if RELOAD_DATA or not os.path.exists(PL_SAVE_PATH.replace(".parquet", "_filtered_split.parquet")):
-        logging.info("Split dataset during time steps for which many turbines have missing data.")
-        
-        # if there is a short or long gap for some turbines, impute them using the imputing.impute_all_assets_by_correlation function
-        #       else if there is a short or long gap for many turbines, split the dataset
-        missing_col_thr = max(1, int(len(data_loader.turbine_ids) * 0.05))
-        missing_duration_thr = np.timedelta64(5, "m")
-        minimum_not_missing_duration = np.timedelta64(20, "m")
-        missing_data_cols = ["wind_speed", "wind_direction", "nacelle_direction"]
+if RELOAD_DATA or not os.path.exists(PL_SAVE_PATH.replace(".parquet", "_filtered_split.parquet")):
+    logging.info("Split dataset during time steps for which many turbines have missing data.")
+    
+    # if there is a short or long gap for some turbines, impute them using the imputing.impute_all_assets_by_correlation function
+    #       else if there is a short or long gap for many turbines, split the dataset
+    missing_col_thr = max(1, int(len(data_loader.turbine_ids) * 0.05))
+    missing_duration_thr = np.timedelta64(5, "m")
+    minimum_not_missing_duration = np.timedelta64(20, "m")
+    missing_data_cols = ["wind_speed", "wind_direction", "nacelle_direction"]
 
-        # check for any periods of time for which more than 'missing_col_thr' features have missing data
-        df_query2 = df_query\
-                .with_columns([cs.contains(col).is_null().name.prefix("is_missing_") for col in missing_data_cols])\
-                .with_columns(**{f"num_missing_{col}": pl.sum_horizontal((cs.contains(col) & cs.starts_with("is_missing"))) for col in missing_data_cols})
+    # check for any periods of time for which more than 'missing_col_thr' features have missing data
+    df_query2 = df_query\
+            .with_columns([cs.contains(col).is_null().name.prefix("is_missing_") for col in missing_data_cols])\
+            .with_columns(**{f"num_missing_{col}": pl.sum_horizontal((cs.contains(col) & cs.starts_with("is_missing"))) for col in missing_data_cols})
 
-        # subset of data, indexed by time, which has <= the threshold number of missing columns
-        df_query_not_missing_times = add_df_continuity_columns(df_query2, mask=pl.sum_horizontal(cs.starts_with("num_missing")) <= missing_col_thr, dt=data_loader.dt)
+    # subset of data, indexed by time, which has <= the threshold number of missing columns
+    df_query_not_missing_times = add_df_continuity_columns(df_query2, mask=pl.sum_horizontal(cs.starts_with("num_missing")) <= missing_col_thr, dt=data_loader.dt)
 
-        # subset of data, indexed by time, which has > the threshold number of missing columns
-        df_query_missing_times = add_df_continuity_columns(df_query2, mask=pl.sum_horizontal(cs.starts_with("num_missing")) > missing_col_thr, dt=data_loader.dt)
+    # subset of data, indexed by time, which has > the threshold number of missing columns
+    df_query_missing_times = add_df_continuity_columns(df_query2, mask=pl.sum_horizontal(cs.starts_with("num_missing")) > missing_col_thr, dt=data_loader.dt)
 
-        # start times, end times, and durations of each of the continuous subsets of data in df_query_missing_times 
-        df_query_not_missing = add_df_agg_continuity_columns(df_query_not_missing_times) 
-        df_query_missing = add_df_agg_continuity_columns(df_query_missing_times)
+    # start times, end times, and durations of each of the continuous subsets of data in df_query_missing_times 
+    df_query_not_missing = add_df_agg_continuity_columns(df_query_not_missing_times) 
+    df_query_missing = add_df_agg_continuity_columns(df_query_missing_times)
 
-        # start times, end times, and durations of each of the continuous subsets of data in df_query_not_missing_times 
-        # AND of each of the continuous subsets of data in df_query_missing_times that are under the threshold duration time 
-        df_query_not_missing = pl.concat([df_query_not_missing, 
-                                                df_query_missing.filter(pl.col("duration") <= missing_duration_thr)])\
-                                .sort("start_time")
+    # start times, end times, and durations of each of the continuous subsets of data in df_query_not_missing_times 
+    # AND of each of the continuous subsets of data in df_query_missing_times that are under the threshold duration time 
+    df_query_not_missing = pl.concat([df_query_not_missing, 
+                                            df_query_missing.filter(pl.col("duration") <= missing_duration_thr)])\
+                            .sort("start_time")
 
-        df_query_missing = df_query_missing.filter(pl.col("duration") > missing_duration_thr)
+    df_query_missing = df_query_missing.filter(pl.col("duration") > missing_duration_thr)
 
-        if df_query_not_missing.select(pl.len()).collect().item() == 0:
-            raise Exception("Parameters 'missing_col_thr' or 'missing_duration_thr' are too stringent, can't find any eligible durations of time.")
+    if df_query_not_missing.select(pl.len()).collect().item() == 0:
+        raise Exception("Parameters 'missing_col_thr' or 'missing_duration_thr' are too stringent, can't find any eligible durations of time.")
 
-        df_query_missing = merge_adjacent_periods(agg_df=df_query_missing, dt=data_loader.dt)
-        df_query_not_missing = merge_adjacent_periods(agg_df=df_query_not_missing, dt=data_loader.dt)
+    df_query_missing = merge_adjacent_periods(agg_df=df_query_missing, dt=data_loader.dt)
+    df_query_not_missing = merge_adjacent_periods(agg_df=df_query_not_missing, dt=data_loader.dt)
 
-        df_query_missing = group_df_by_continuity(df=df_query2, agg_df=df_query_missing)
-        df_query_not_missing = group_df_by_continuity(df=df_query2, agg_df=df_query_not_missing)
-        df_query_not_missing = df_query_not_missing.filter(pl.col("duration") >= minimum_not_missing_duration)
-        
-        df_query = df_query2.select(data_loader.available_features)
+    df_query_missing = group_df_by_continuity(df=df_query2, agg_df=df_query_missing)
+    df_query_not_missing = group_df_by_continuity(df=df_query2, agg_df=df_query_not_missing)
+    df_query_not_missing = df_query_not_missing.filter(pl.col("duration") >= minimum_not_missing_duration)
+    
+    df_query = df_query2.select(data_loader.available_features)
 
-        if PLOT:
-            # Plot number of missing wind dir/wind speed data for each wind turbine (missing duration on x axis, turbine id on y axis, color for wind direction/wind speed)
-            from matplotlib import colormaps
-            from matplotlib.ticker import MaxNLocator
-            fig, ax = plt.subplots(1, 1)
-            for feature_type, marker in zip(missing_data_cols, ["o", "^"]):
-                for turbine_id, color in zip(data_loader.turbine_ids, colormaps["tab20c"](np.linspace(0, 1, len(data_loader.turbine_ids)))):
-                    df = df_query_missing.select("duration", f"is_missing_{feature_type}_{turbine_id}").collect(streaming=True).to_pandas()
-                    ax.scatter(x=df["duration"].dt.seconds / 3600,
-                                y=df[f"is_missing_{feature_type}_{turbine_id}"].astype(int),  
-                    marker=marker, label=turbine_id, s=400, color=color)
-            ax.set_title("Occurence of Missing Wind Speed (circle) and Wind Direction (triangle) Values vs. Missing Duration, for each Turbine")
-            ax.set_xlabel("Duration of Missing Values [hrs]")
-            ax.set_ylabel("Number of Missing Values over this Duration")
-            h, l = ax.get_legend_handles_labels()
-            # ax.legend(h[:len(data_loader.turbine_ids)], l[:len(data_loader.turbine_ids)], ncol=8)
-            ax.yaxis.set_major_locator(MaxNLocator(integer=True))
-
-            # Plot missing duration on x axis, number of missing turbines on y-axis, marker for wind speed vs wind direction,
-            fig, ax = plt.subplots(1, 1)
-            for feature_type, marker in zip(missing_data_cols, ["o", "^"]):
-                df = df_query_missing.select("duration", (cs.contains(feature_type) & cs.starts_with("is_missing")))\
-                                        .with_columns(pl.sum_horizontal([f"is_missing_{feature_type}_{tid}" for tid in data_loader.turbine_ids]).alias(f"is_missing_{feature_type}")).collect(streaming=True).to_pandas()
+    if PLOT:
+        # Plot number of missing wind dir/wind speed data for each wind turbine (missing duration on x axis, turbine id on y axis, color for wind direction/wind speed)
+        from matplotlib import colormaps
+        from matplotlib.ticker import MaxNLocator
+        fig, ax = plt.subplots(1, 1)
+        for feature_type, marker in zip(missing_data_cols, ["o", "^"]):
+            for turbine_id, color in zip(data_loader.turbine_ids, colormaps["tab20c"](np.linspace(0, 1, len(data_loader.turbine_ids)))):
+                df = df_query_missing.select("duration", f"is_missing_{feature_type}_{turbine_id}").collect(streaming=True).to_pandas()
                 ax.scatter(x=df["duration"].dt.seconds / 3600,
-                            y=df[f"is_missing_{feature_type}"].astype(int),  
-                marker=marker, label=feature_type, s=400)
-            ax.set_title("Occurence of Missing Wind Speed (circle) and Wind Direction (triangle) Values vs. Missing Duration, for all Turbines")
-            ax.set_xlabel("Duration of Missing Values [hrs]")
-            ax.set_ylabel("Number of Missing Values over this Duration")
-            h, l = ax.get_legend_handles_labels()
-            # ax.legend(h[:len(missing_data_cols)], l[:len(missing_data_cols)], ncol=8)
-            ax.yaxis.set_major_locator(MaxNLocator(integer=True))
+                            y=df[f"is_missing_{feature_type}_{turbine_id}"].astype(int),  
+                marker=marker, label=turbine_id, s=400, color=color)
+        ax.set_title("Occurence of Missing Wind Speed (circle) and Wind Direction (triangle) Values vs. Missing Duration, for each Turbine")
+        ax.set_xlabel("Duration of Missing Values [hrs]")
+        ax.set_ylabel("Number of Missing Values over this Duration")
+        h, l = ax.get_legend_handles_labels()
+        # ax.legend(h[:len(data_loader.turbine_ids)], l[:len(data_loader.turbine_ids)], ncol=8)
+        ax.yaxis.set_major_locator(MaxNLocator(integer=True))
 
-        # if more than 'missing_col_thr' columns are missing data for more than 'missing_timesteps_thr', split the dataset at the point of temporal discontinuity
-        # df_query = [df.lazy() for df in df_query.with_columns(get_continuity_group_index(df_query_not_missing).alias("continuity_group"))\
-        #                           .filter(pl.col("continuity_group") != -1)\
-        #                           .drop(cs.contains("is_missing") | cs.contains("num_missing"))
-        #                           .collect(streaming=True)\
-        #                           .sort("time")
-        #                           .partition_by("continuity_group")]
+        # Plot missing duration on x axis, number of missing turbines on y-axis, marker for wind speed vs wind direction,
+        fig, ax = plt.subplots(1, 1)
+        for feature_type, marker in zip(missing_data_cols, ["o", "^"]):
+            df = df_query_missing.select("duration", (cs.contains(feature_type) & cs.starts_with("is_missing")))\
+                                    .with_columns(pl.sum_horizontal([f"is_missing_{feature_type}_{tid}" for tid in data_loader.turbine_ids]).alias(f"is_missing_{feature_type}")).collect(streaming=True).to_pandas()
+            ax.scatter(x=df["duration"].dt.seconds / 3600,
+                        y=df[f"is_missing_{feature_type}"].astype(int),  
+            marker=marker, label=feature_type, s=400)
+        ax.set_title("Occurence of Missing Wind Speed (circle) and Wind Direction (triangle) Values vs. Missing Duration, for all Turbines")
+        ax.set_xlabel("Duration of Missing Values [hrs]")
+        ax.set_ylabel("Number of Missing Values over this Duration")
+        h, l = ax.get_legend_handles_labels()
+        # ax.legend(h[:len(missing_data_cols)], l[:len(missing_data_cols)], ncol=8)
+        ax.yaxis.set_major_locator(MaxNLocator(integer=True))
 
-        df_query = df_query.with_columns(get_continuity_group_index(df_query_not_missing).alias("continuity_group"))\
-                                .filter(pl.col("continuity_group") != -1)\
-                                .drop(cs.contains("is_missing") | cs.contains("num_missing"))\
-                                .sort("time").collect().lazy()
-        df_query.collect().write_parquet(PL_SAVE_PATH.replace(".parquet", "_filtered_split.parquet"), statistics=False)
-        # check that each split dataframe a) is continuous in time AND b) has <= than the threshold number of missing columns OR for less than the threshold time span
-        # for df in df_query:
-        #     assert df.select((pl.col("time").diff(null_behavior="drop") == np.timedelta64(data_loader.dt, "s")).all()).collect(streaming=True).item()
-        #     assert (df.select((pl.sum_horizontal([(cs.numeric() & cs.contains(col)).is_null() for col in missing_data_cols]) <= missing_col_thr)).collect(streaming=True)
-        #             |  ((df.select("time").max().collect(streaming=True).item() - df.select("time").min().collect(streaming=True).item()) < missing_duration_thr))
-    else:
-        df_query = pl.scan_parquet(PL_SAVE_PATH.replace(".parquet", "_filtered_split.parquet"))
+    # if more than 'missing_col_thr' columns are missing data for more than 'missing_timesteps_thr', split the dataset at the point of temporal discontinuity
+    # df_query = [df.lazy() for df in df_query.with_columns(get_continuity_group_index(df_query_not_missing).alias("continuity_group"))\
+    #                           .filter(pl.col("continuity_group") != -1)\
+    #                           .drop(cs.contains("is_missing") | cs.contains("num_missing"))
+    #                           .collect(streaming=True)\
+    #                           .sort("time")
+    #                           .partition_by("continuity_group")]
 
-    # %% 
-    if RELOAD_DATA or not os.path.exists(PL_SAVE_PATH.replace(".parquet", "_filtered_split_imputed.parquet")): 
-        logging.info("Impute/interpolate turbine missing dta from correlated measurements.")
-        # else, for each of those split datasets, impute the values using the imputing.impute_all_assets_by_correlation function
-        # fill data on single concatenated dataset
-        df_query2 = data_filter._fill_single_missing_dataset(df_idx=0, df=df_query, impute_missing_features=["wind_speed", "wind_direction"], 
-                                                interpolate_missing_features=["wind_direction", "wind_speed", "nacelle_direction"], 
-                                                available_features=data_loader.available_features, parallel="turbine_id")
+    df_query = df_query.with_columns(get_continuity_group_index(df_query_not_missing).alias("continuity_group"))\
+                            .filter(pl.col("continuity_group") != -1)\
+                            .drop(cs.contains("is_missing") | cs.contains("num_missing"))\
+                            .sort("time").collect().lazy()
+    df_query.collect().write_parquet(PL_SAVE_PATH.replace(".parquet", "_filtered_split.parquet"), statistics=False)
+    # check that each split dataframe a) is continuous in time AND b) has <= than the threshold number of missing columns OR for less than the threshold time span
+    # for df in df_query:
+    #     assert df.select((pl.col("time").diff(null_behavior="drop") == np.timedelta64(data_loader.dt, "s")).all()).collect(streaming=True).item()
+    #     assert (df.select((pl.sum_horizontal([(cs.numeric() & cs.contains(col)).is_null() for col in missing_data_cols]) <= missing_col_thr)).collect(streaming=True)
+    #             |  ((df.select("time").max().collect(streaming=True).item() - df.select("time").min().collect(streaming=True).item()) < missing_duration_thr))
+else:
+    df_query = pl.scan_parquet(PL_SAVE_PATH.replace(".parquet", "_filtered_split.parquet"))
 
-        df_query = df_query.drop([cs.starts_with(feat) for feat in ["wind_direction", "wind_speed", "nacelle_direction"]]).join(df_query2, on="time", how="left")
-        df_query.collect().write_parquet(PL_SAVE_PATH.replace(".parquet", "_filtered_split_imputed.parquet"), statistics=False)
-    else:
-        df_query = pl.scan_parquet(PL_SAVE_PATH.replace(".parquet", "_filtered_split_imputed.parquet"))
+# %% 
+if RELOAD_DATA or not os.path.exists(PL_SAVE_PATH.replace(".parquet", "_filtered_split_imputed.parquet")): 
+    logging.info("Impute/interpolate turbine missing dta from correlated measurements.")
+    # else, for each of those split datasets, impute the values using the imputing.impute_all_assets_by_correlation function
+    # fill data on single concatenated dataset
+    df_query2 = data_filter._fill_single_missing_dataset(df_idx=0, df=df_query, impute_missing_features=["wind_speed", "wind_direction"], 
+                                            interpolate_missing_features=["wind_direction", "wind_speed", "nacelle_direction"], 
+                                            available_features=data_loader.available_features, parallel="turbine_id")
+
+    df_query = df_query.drop([cs.starts_with(feat) for feat in ["wind_direction", "wind_speed", "nacelle_direction"]]).join(df_query2, on="time", how="left")
+    df_query.collect().write_parquet(PL_SAVE_PATH.replace(".parquet", "_filtered_split_imputed.parquet"), statistics=False)
+else:
+    df_query = pl.scan_parquet(PL_SAVE_PATH.replace(".parquet", "_filtered_split_imputed.parquet"))
+
+# %%
+if True or RELOAD_DATA or not os.path.exists(PL_SAVE_PATH.replace(".parquet", "_filtered_split_imputed_calibrated.parquet")): 
+    # Nacelle Calibration 
+    # Find and correct wind direction offsets from median wind plant wind direction for each turbine
+    logging.info("Subtracting median wind direction from wind direction and nacelle direction measurements.")
+
+    # add the 3 degrees back to the wind direction signal
+    offset = 0.0
+    df_query2 = df_query.with_columns((cs.starts_with("wind_direction") + offset % 360.0))
+    df_query_10min = df_query2\
+                        .with_columns(pl.col("time").dt.round(f"{10}m").alias("time"))\
+                        .group_by("time").agg(cs.numeric().mean()).sort("time")
+
+    wd_median = df_query_10min.select(cs.starts_with("wind_direction").radians().sin().name.suffix("_sin"),
+                                        cs.starts_with("wind_direction").radians().cos().name.suffix("_cos"))
+    wd_median = wd_median.select(
+                                wind_direction_sin_median=np.nanmedian(wd_median.select(cs.ends_with("_sin")).collect().to_numpy(), axis=1),
+                                wind_direction_cos_median=np.nanmedian(wd_median.select(cs.ends_with("_cos")).collect().to_numpy(), axis=1))\
+                            .select(pl.arctan2(pl.col("wind_direction_sin_median"), pl.col("wind_direction_cos_median")).degrees().alias("wind_direction_median")).collect().to_numpy().flatten()
+    
+    yaw_median = df_query_10min.select(cs.starts_with("nacelle_direction").radians().sin().name.suffix("_sin"),
+                                        cs.starts_with("nacelle_direction").radians().cos().name.suffix("_cos"))
+    yaw_median = yaw_median.select(
+                                    nacelle_direction_sin_median=np.nanmedian(yaw_median.select(cs.ends_with("_sin")).collect().to_numpy(), axis=1),
+                                    nacelle_direction_cos_median=np.nanmedian(yaw_median.select(cs.ends_with("_cos")).collect().to_numpy(), axis=1))\
+                            .select(pl.arctan2(pl.col("nacelle_direction_sin_median"), pl.col("nacelle_direction_cos_median")).degrees().alias("nacelle_direction_median")).collect().to_numpy().flatten()
+
+    df_query_10min = df_query_10min.with_columns(wd_median=wd_median, yaw_median=yaw_median) 
+
+    plot_wind_offset(df_query_10min, "Original", data_loader.turbine_ids)
+
+    
+    # TODO ERIC what if bias is time-varying...
+    # remove biases from median direction
+
+    ################## START PANDAS ###################
+    # 
+    # import pandas as pd
+    # N_turbs = 88
+    # df_offsets2 = {"turbine_id": [], "northing_bias": []}
+    # df_10min = df_query_10min.collect().to_pandas()
+    # for i in range(N_turbs):
+    #     wd_bias = DataFilter.wrap_180(DataFilter.circ_mean(df_10min.loc[df_10min['power_output_wt%03d'% (i+1)] >= 0,'wind_direction_wt%03d'% (i+1)] - wd_median[df_10min['power_output_wt%03d'% (i+1)] >= 0]))
+    #     yaw_bias = DataFilter.wrap_180(DataFilter.circ_mean(df_10min.loc[df_10min['power_output_wt%03d'% (i+1)] >= 0,'nacelle_direction_wt%03d'% (i+1)] - yaw_median[df_10min['power_output_wt%03d'% (i+1)] >= 0]))
+        
+    #     df_offsets2["turbine_id"].append("wt%03d" % (i+1))
+    #     df_offsets2["northing_bias"].append(np.round(0.5*(wd_bias+yaw_bias), 2))
+
+    #     df_10min['wind_direction_wt%03d' % (i+1)] = (df_10min['wind_direction_wt%03d' % (i+1)] - 0.5*(wd_bias+yaw_bias)) % 360  
+    #     df_10min['nacelle_direction_wt%03d' % (i+1)] = (df_10min['nacelle_direction_wt%03d' % (i+1)] - 0.5*(wd_bias+yaw_bias)) % 360
+
+    #     print("Turbine "+str(i)+" bias from median wind direction: "+str(np.round(0.5*(wd_bias+yaw_bias),2))+" deg.")
+
+    # df_offsets2 = pd.DataFrame(df_offsets2)
+    ################## END PANDAS #####################
+
+    df_offsets = {"turbine_id": [], "northing_bias": []}
+    for turbine_id in data_loader.turbine_ids:
+        
+        bias = df_query_10min\
+                    .filter(pl.col(f"power_output_{turbine_id}") >= 0)\
+                    .select("time", f"wind_direction_{turbine_id}", f"nacelle_direction_{turbine_id}", "wd_median", "yaw_median")\
+                    .select(wd_bias=(pl.col(f"wind_direction_{turbine_id}") - pl.col("wd_median")), 
+                            yaw_bias=(pl.col(f"nacelle_direction_{turbine_id}") - pl.col("yaw_median")))\
+                    .select(pl.all().radians().sin().name.suffix("_sin"), pl.all().radians().cos().name.suffix("_cos"))\
+                    .select(wd_bias=pl.arctan2("wd_bias_sin", "wd_bias_cos").degrees().mod(360).alias("wd_bias"),
+                            yaw_bias=pl.arctan2("yaw_bias_sin", "yaw_bias_cos").degrees().mod(360).alias("yaw_bias"))\
+                    .select(pl.when(pl.all() > 180.0).then(pl.all() - 360.0).otherwise(pl.all()))
+
+        df_offsets["turbine_id"].append(turbine_id)
+        bias = 0.5 * (bias.select('wd_bias').collect().item() + bias.select("yaw_bias").collect().item())
+        df_offsets["northing_bias"].append(np.round(bias, 2))
+        
+        df_query_10min = df_query_10min.with_columns((pl.col(f"wind_direction_{turbine_id}") - bias).mod(360.0).alias(f"wind_direction_{turbine_id}"), 
+                                                        (pl.col(f"nacelle_direction_{turbine_id}") - bias).mod(360.0).alias(f"nacelle_direction_{turbine_id}"))
+        df_query2 = df_query2.with_columns((pl.col(f"wind_direction_{turbine_id}") - bias).mod(360.0).alias(f"wind_direction_{turbine_id}"), 
+                                            (pl.col(f"nacelle_direction_{turbine_id}") - bias).mod(360.0).alias(f"nacelle_direction_{turbine_id}"))
+
+        print(f"Turbine {turbine_id} bias from median wind direction: {bias} deg")
+
+    df_offsets = pl.DataFrame(df_offsets)
+
+    plot_wind_offset(df_query_10min, "Corrected", data_loader.turbine_ids)
+    # make sure we have corrected the bias between wind direction and yaw position by adding 3 deg. to the wind direction
+    # bias = 0
+    # for turbine_id in data_loader.turbine_ids:
+    #     bias += df_query_10min.filter(pl.col(f"power_output_{turbine_id}") >= 0)\
+    #                     .select("time", f"wind_direction_{turbine_id}", f"nacelle_direction_{turbine_id}")\
+    #                     .select(bias=(pl.col(f"wind_direction_{turbine_id}") - pl.col(f"nacelle_direction_{turbine_id}")))\
+    #                     .select(pl.all().radians().sin().mean().alias("sin"), pl.all().radians().cos().mean().alias("cos"))\
+    #                     .select(pl.arctan2("sin", "cos").degrees().mod(360).alias("bias"))\
+    #                     .select(pl.when(pl.all() > 180.0).then(pl.all() - 360.0).otherwise(pl.all())))\
+    #                     .collect().item()
+                    
+    #     # bias += DataFilter.wrap_180(DataFilter.circ_mean(df.select(pl.col(f"wind_direction_{turbine_id}") - pl.col(f"nacelle_direction_{turbine_id}")).collect().to_numpy().flatten()))
+        
+    # print(f"Average Bias = {bias / len(data_loader.turbine_ids)} deg")
 
     # %%
-    if True or RELOAD_DATA or not os.path.exists(PL_SAVE_PATH.replace(".parquet", "_filtered_split_imputed_calibrated.parquet")): 
-        # Nacelle Calibration 
-        # Find and correct wind direction offsets from median wind plant wind direction for each turbine
-        logging.info("Subtracting median wind direction from wind direction and nacelle direction measurements.")
+    # Find offset to true North using wake loss profiles
 
-        # add the 3 degrees back to the wind direction signal
-        offset = 0.0
-        df_query2 = df_query.with_columns((cs.starts_with("wind_direction") + offset % 360.0))
-        df_query_10min = df_query2\
-                            .with_columns(pl.col("time").dt.round(f"{10}m").alias("time"))\
-                            .group_by("time").agg(cs.numeric().mean()).sort("time")
+    logging.info("Finding offset to true North using wake loss profiles.")
 
-        wd_median = df_query_10min.select(cs.starts_with("wind_direction").radians().sin().name.suffix("_sin"),
-                                           cs.starts_with("wind_direction").radians().cos().name.suffix("_cos"))
-        wd_median = wd_median.select(wind_direction_sin_median=np.nanmedian(wd_median.select(cs.ends_with("_sin")).collect().to_numpy(), axis=1), 
-                                           wind_direction_cos_median=np.nanmedian(wd_median.select(cs.ends_with("_cos")).collect().to_numpy(), axis=1))\
-                               .select(pl.arctan2(pl.col("wind_direction_sin_median"), pl.col("wind_direction_cos_median")).degrees().alias("wind_direction_median")).collect().to_numpy().flatten()
+    # Find offsets between direction of alignment between pairs of turbines 
+    # and direction of peak wake losses. Use the average offset found this way 
+    # to identify the Northing correction that should be applied to all turbines 
+    # in the wind farm.
+    fi = FlorisModel(data_inspector.farm_input_filepath)
+
+    dir_offsets = compute_offsets(df_query_10min, fi)
+
+    # Apply Northing offset to each turbine
+    for turbine_id in data_loader.turbine_ids:
+        df_query_10min = df_query_10min.with_columns((pl.col(f"wind_direction_{turbine_id}") - np.mean(dir_offsets)).mod(360).alias(f"wind_direction_{turbine_id}"),
+                                                        (pl.col(f"nacelle_direction_{turbine_id}") - np.mean(dir_offsets)).mod(360).alias(f"nacelle_direction_{turbine_id}"))
         
-        yaw_median = df_query_10min.select(cs.starts_with("nacelle_direction").radians().sin().name.suffix("_sin"),
-                                         cs.starts_with("nacelle_direction").radians().cos().name.suffix("_cos"))
-        yaw_median = yaw_median.select(nacelle_direction_sin_median=np.nanmedian(yaw_median.select(cs.ends_with("_sin")).collect().to_numpy(), axis=1), 
-                                         nacelle_direction_cos_median=np.nanmedian(yaw_median.select(cs.ends_with("_cos")).collect().to_numpy(), axis=1))\
-                               .select(pl.arctan2(pl.col("nacelle_direction_sin_median"), pl.col("nacelle_direction_cos_median")).degrees().alias("nacelle_direction_median")).collect().to_numpy().flatten()
+        df_query2 = df_query2.with_columns((pl.col(f"wind_direction_{turbine_id}") - np.mean(dir_offsets)).mod(360).alias(f"wind_direction_{turbine_id}"),
+                                            (pl.col(f"nacelle_direction_{turbine_id}") - np.mean(dir_offsets)).mod(360).alias(f"nacelle_direction_{turbine_id}"))
 
-        df_query_10min = df_query_10min.with_columns(wd_median=wd_median, yaw_median=yaw_median) 
+    # Determine final wind direction correction for each turbine
+    df_offsets = df_offsets.with_columns(
+        (pl.col("northing_bias") + np.mean(dir_offsets)).alias("northing_bias"))\
+        .with_columns(pl.when(pl.col("northing_bias") > 180.0)\
+                    .then(pl.col("northing_bias") - 360.0)\
+                    .otherwise(pl.col("northing_bias"))\
+                    .round(2).alias("northing_bias"))
+    
+    # verify that Northing calibration worked properly
+    new_dir_offsets = compute_offsets(df_query_10min, fi)
 
-        plot_wind_offset(df_query_10min, "Original", data_loader.turbine_ids)
+    df_query = df_query2
+    df_query.collect().write_parquet(PL_SAVE_PATH.replace(".parquet", "_filtered_split_imputed_calibrated.parquet"), statistics=False)
+else:
+    df_query = pl.scan_parquet(PL_SAVE_PATH.replace(".parquet", "_filtered_split_imputed_calibrated.parquet"))
 
-        
-        # TODO ERIC what if bias is time-varying...
-        # remove biases from median direction
+# %%
+if RELOAD_DATA or not os.path.exists(PL_SAVE_PATH.replace(".parquet", "_filtered_split_imputed_calibrated_normalized.parquet")): 
+    # Normalization & Feature Selection
+    logging.info("Normalizing and selecting features.")
+    df_query = df_query\
+            .with_columns(((cs.starts_with("wind_direction") - 180.).sin()).name.map(lambda c: "wd_sin_" + c.split("_")[-1]),
+                        ((cs.starts_with("wind_direction") - 180.).cos()).name.map(lambda c: "wd_cos_" + c.split("_")[-1]))\
+            .with_columns(**{f"ws_horz_{tid}": (pl.col(f"wind_speed_{tid}") * pl.col(f"wd_sin_{tid}")) for tid in data_loader.turbine_ids})\
+            .with_columns(**{f"ws_vert_{tid}": (pl.col(f"wind_speed_{tid}") * pl.col(f"wd_cos_{tid}")) for tid in data_loader.turbine_ids})\
+            .with_columns(**{f"nd_cos_{tid}": ((pl.col(f"nacelle_direction_{tid}") - 180.).cos()) for tid in data_loader.turbine_ids})\
+            .with_columns(**{f"nd_sin_{tid}": ((pl.col(f"nacelle_direction_{tid}") - 180.).sin()) for tid in data_loader.turbine_ids})\
+            .drop(cs.starts_with("wind_speed"), cs.starts_with("wind_direction"), cs.starts_with("wd_sin"), cs.starts_with("wd_cos"), cs.starts_with("nacelle_direction"))\
+            .select(pl.col("time"), pl.col("continuity_group"), cs.contains("nd"), cs.contains("ws"))
 
-        ################## START PANDAS ###################
-        # 
-        # import pandas as pd
-        # N_turbs = 88
-        # df_offsets2 = {"turbine_id": [], "northing_bias": []}
-        # df_10min = df_query_10min.collect().to_pandas()
-        # for i in range(N_turbs):
-        #     wd_bias = DataFilter.wrap_180(DataFilter.circ_mean(df_10min.loc[df_10min['power_output_wt%03d'% (i+1)] >= 0,'wind_direction_wt%03d'% (i+1)] - wd_median[df_10min['power_output_wt%03d'% (i+1)] >= 0]))
-        #     yaw_bias = DataFilter.wrap_180(DataFilter.circ_mean(df_10min.loc[df_10min['power_output_wt%03d'% (i+1)] >= 0,'nacelle_direction_wt%03d'% (i+1)] - yaw_median[df_10min['power_output_wt%03d'% (i+1)] >= 0]))
-            
-        #     df_offsets2["turbine_id"].append("wt%03d" % (i+1))
-        #     df_offsets2["northing_bias"].append(np.round(0.5*(wd_bias+yaw_bias), 2))
+    # store min/max of each column to rescale later
+    is_numeric = (cs.contains("ws") | cs.contains("nd"))
+    norm_vals = DataInspector.unpivot_dataframe(df_query, feature_types=["nd_cos", "nd_sin", "ws_vert", "ws_horz"]).select(is_numeric.min().round(2).name.suffix("_min"),
+                                                                                                                            is_numeric.max().round(2).name.suffix("_max"))
+    norm_vals.collect().write_csv(os.path.join(os.path.dirname(PL_SAVE_PATH), "normalization_consts.csv"))
 
-        #     df_10min['wind_direction_wt%03d' % (i+1)] = (df_10min['wind_direction_wt%03d' % (i+1)] - 0.5*(wd_bias+yaw_bias)) % 360  
-        #     df_10min['nacelle_direction_wt%03d' % (i+1)] = (df_10min['nacelle_direction_wt%03d' % (i+1)] - 0.5*(wd_bias+yaw_bias)) % 360
+    df_query = DataInspector.pivot_dataframe(
+        DataInspector.unpivot_dataframe(
+            df_query, 
+            feature_types=["nd_cos", "nd_sin", "ws_vert", "ws_horz"]
+        ).select(
+            pl.col("time"), 
+            pl.col("continuity_group"), 
+            pl.col("turbine_id"), 
+            (is_numeric - is_numeric.min().round(2)) / (is_numeric.max().round(2) - is_numeric.min().round(2))
+        )
+    )
 
-        #     print("Turbine "+str(i)+" bias from median wind direction: "+str(np.round(0.5*(wd_bias+yaw_bias),2))+" deg.")
-
-        # df_offsets2 = pd.DataFrame(df_offsets2)
-        ################## END PANDAS #####################
-
-        df_offsets = {"turbine_id": [], "northing_bias": []}
-        for turbine_id in data_loader.turbine_ids:
-            
-            bias = df_query_10min\
-                        .filter(pl.col(f"power_output_{turbine_id}") >= 0)\
-                        .select("time", f"wind_direction_{turbine_id}", f"nacelle_direction_{turbine_id}", "wd_median", "yaw_median")\
-                        .select(wd_bias=(pl.col(f"wind_direction_{turbine_id}") - pl.col("wd_median")), 
-                                yaw_bias=(pl.col(f"nacelle_direction_{turbine_id}") - pl.col("yaw_median")))\
-                        .select(pl.all().radians().sin().mean().name.suffix("_sin"), pl.all().radians().cos().mean().name.suffix("_cos"))\
-                        .select(wd_bias=pl.arctan2("wd_bias_sin", "wd_bias_cos").degrees().mod(360).alias("wd_bias"),
-                                yaw_bias=pl.arctan2("yaw_bias_sin", "yaw_bias_cos").degrees().mod(360).alias("yaw_bias"))\
-                        .select(pl.when(pl.all() > 180.0).then(pl.all() - 360.0).otherwise(pl.all()))
-
-            df_offsets["turbine_id"].append(turbine_id)
-            bias = 0.5 * (bias.select('wd_bias').collect().item() + bias.select("yaw_bias").collect().item())
-            df_offsets["northing_bias"].append(np.round(bias, 2))
-            
-            df_query_10min = df_query_10min.with_columns((pl.col(f"wind_direction_{turbine_id}") - bias).mod(360.0).alias(f"wind_direction_{turbine_id}"), 
-                                                         (pl.col(f"nacelle_direction_{turbine_id}") - bias).mod(360.0).alias(f"nacelle_direction_{turbine_id}"))
-            df_query2 = df_query2.with_columns((pl.col(f"wind_direction_{turbine_id}") - bias).mod(360.0).alias(f"wind_direction_{turbine_id}"), 
-                                               (pl.col(f"nacelle_direction_{turbine_id}") - bias).mod(360.0).alias(f"nacelle_direction_{turbine_id}"))
-
-            print(f"Turbine {turbine_id} bias from median wind direction: {bias} deg")
-
-        df_offsets = pl.DataFrame(df_offsets)
-
-        plot_wind_offset(df_query_10min, "Corrected", data_loader.turbine_ids)
-        # make sure we have corrected the bias between wind direction and yaw position by adding 3 deg. to the wind direction
-        # bias = 0
-        # for turbine_id in data_loader.turbine_ids:
-        #     bias += df_query_10min.filter(pl.col(f"power_output_{turbine_id}") >= 0)\
-        #                     .select("time", f"wind_direction_{turbine_id}", f"nacelle_direction_{turbine_id}")\
-        #                     .select(bias=(pl.col(f"wind_direction_{turbine_id}") - pl.col(f"nacelle_direction_{turbine_id}")))\
-        #                     .select(pl.all().radians().sin().mean().alias("sin"), pl.all().radians().cos().mean().alias("cos"))\
-        #                     .select(pl.arctan2("sin", "cos").degrees().mod(360).alias("bias"))\
-        #                     .select(pl.when(pl.all() > 180.0).then(pl.all() - 360.0).otherwise(pl.all()))\
-        #                     .collect().item()
-                        
-        #     # bias += DataFilter.wrap_180(DataFilter.circ_mean(df.select(pl.col(f"wind_direction_{turbine_id}") - pl.col(f"nacelle_direction_{turbine_id}")).collect().to_numpy().flatten()))
-            
-        # print(f"Average Bias = {bias / len(data_loader.turbine_ids)} deg")
-
-        # %%
-        # Find offset to true North using wake loss profiles
-
-        logging.info("Finding offset to true North using wake loss profiles.")
-
-        # Find offsets between direction of alignment between pairs of turbines 
-        # and direction of peak wake losses. Use the average offset found this way 
-        # to identify the Northing correction that should be applied to all turbines 
-        # in the wind farm.
-        fi = FlorisModel(data_inspector.farm_input_filepath)
-
-        dir_offsets = compute_offsets(df_query_10min, fi)
-
-        # Apply Northing offset to each turbine
-        for turbine_id in data_loader.turbine_ids:
-            df_query_10min = df_query_10min.with_columns((pl.col(f"wind_direction_{turbine_id}") - np.mean(dir_offsets)).mod(360).alias(f"wind_direction_{turbine_id}"),
-                                                         (pl.col(f"nacelle_direction_{turbine_id}") - np.mean(dir_offsets)).mod(360).alias(f"nacelle_direction_{turbine_id}"))
-            
-            df_query2 = df_query2.with_columns((pl.col(f"wind_direction_{turbine_id}") - np.mean(dir_offsets)).mod(360).alias(f"wind_direction_{turbine_id}"),
-                                               (pl.col(f"nacelle_direction_{turbine_id}") - np.mean(dir_offsets)).mod(360).alias(f"nacelle_direction_{turbine_id}"))
-
-        # Determine final wind direction correction for each turbine
-        df_offsets = df_offsets.with_columns(
-            (pl.col("northing_bias") + np.mean(dir_offsets)).alias("northing_bias"))\
-            .with_columns(pl.when(pl.col("northing_bias") > 180.0)\
-                      .then(pl.col("northing_bias") - 360.0)\
-                      .otherwise(pl.col("northing_bias"))\
-                      .round(2).alias("northing_bias"))
-        
-        # verify that Northing calibration worked properly
-        new_dir_offsets = compute_offsets(df_query_10min, fi)
-
-        df_query = df_query2
-        df_query.collect().write_parquet(PL_SAVE_PATH.replace(".parquet", "_filtered_split_imputed_calibrated.parquet"), statistics=False)
-    else:
-        df_query = pl.scan_parquet(PL_SAVE_PATH.replace(".parquet", "_filtered_split_imputed_calibrated.parquet"))
-
-    # %%
-    if RELOAD_DATA or not os.path.exists(PL_SAVE_PATH.replace(".parquet", "_filtered_split_imputed_calibrated_normalized.parquet")): 
-        # Normalization & Feature Selection
-        logging.info("Normalizing and selecting features.")
-        df_query = df_query\
-                .with_columns(((cs.starts_with("wind_direction") - 180.).sin()).name.map(lambda c: "wd_sin_" + c.split("_")[-1]),
-                            ((cs.starts_with("wind_direction") - 180.).cos()).name.map(lambda c: "wd_cos_" + c.split("_")[-1]))\
-                .with_columns(**{f"ws_horz_{tid}": (pl.col(f"wind_speed_{tid}") * pl.col(f"wd_sin_{tid}")) for tid in data_loader.turbine_ids})\
-                .with_columns(**{f"ws_vert_{tid}": (pl.col(f"wind_speed_{tid}") * pl.col(f"wd_cos_{tid}")) for tid in data_loader.turbine_ids})\
-                .with_columns(**{f"nd_cos_{tid}": ((pl.col(f"nacelle_direction_{tid}") - 180.).cos()) for tid in data_loader.turbine_ids})\
-                .with_columns(**{f"nd_sin_{tid}": ((pl.col(f"nacelle_direction_{tid}") - 180.).sin()) for tid in data_loader.turbine_ids})\
-                .drop(cs.starts_with("wind_speed"), cs.starts_with("wind_direction"), cs.starts_with("wd_sin"), cs.starts_with("wd_cos"), cs.starts_with("nacelle_direction"))\
-                .select(pl.col("time"), pl.col("continuity_group"), cs.contains("nd"), cs.contains("ws"))
-
-        # store min/max of each column to rescale later
-        is_numeric = (cs.contains("ws") | cs.contains("nd"))
-        norm_vals = DataInspector.unpivot_dataframe(df_query, feature_types=["nd_cos", "nd_sin", "ws_vert", "ws_horz"]).select(is_numeric.min().round(2).name.suffix("_min"),
-                                                                                                                                is_numeric.max().round(2).name.suffix("_max"))
-        norm_vals.collect().write_csv(os.path.join(os.path.dirname(PL_SAVE_PATH), "normalization_consts.csv"))
-
-        df_query = DataInspector.pivot_dataframe(DataInspector.unpivot_dataframe(df_query, feature_types=["nd_cos", "nd_sin", "ws_vert", "ws_horz"])\
-                    .select(pl.col("time"), pl.col("continuity_group"), pl.col("turbine_id"), (is_numeric - is_numeric.min().round(2)) / (is_numeric.max().round(2) - is_numeric.min().round(2)))
-                    )
-
-        df_query.collect().write_parquet(PL_SAVE_PATH.replace(".parquet", "_filtered_split_imputed_calibrated_normalized.parquet"), statistics=False)
-    else:
-        df_query = pl.scan_parquet(PL_SAVE_PATH.replace(".parquet", "_filtered_split_imputed_calibrated_normalized.parquet"))
+    df_query.collect().write_parquet(PL_SAVE_PATH.replace(".parquet", "_filtered_split_imputed_calibrated_normalized.parquet"), statistics=False)
+else:
+    df_query = pl.scan_parquet(PL_SAVE_PATH.replace(".parquet", "_filtered_split_imputed_calibrated_normalized.parquet"))
