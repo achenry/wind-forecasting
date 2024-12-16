@@ -19,7 +19,6 @@ from .attn import (
 from .embed import Embedding
 from .data_dropout import ReconstructionDropout
 
-
 class Spacetimeformer(nn.Module):
     def __init__(
         self,

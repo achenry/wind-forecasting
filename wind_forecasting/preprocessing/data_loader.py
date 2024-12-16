@@ -4,7 +4,6 @@
 ### - convert circular measurements to sinusoidal measurements
 ### - normalize data
 
-import fcntl
 import glob
 import os
 import logging
@@ -22,16 +21,12 @@ from mpi4py import MPI
 from mpi4py.futures import MPICommExecutor
 from concurrent.futures import ProcessPoolExecutor
 
-import paramiko
-# from pandas import to_datetime as pd_to_datetime # INFO: @Juan 10/16/24 Added pd_to_datetime to avoid conflict with polars to_datetime
-
 SECONDS_PER_MINUTE = np.float64(60)
 SECONDS_PER_HOUR = SECONDS_PER_MINUTE * 60
 SECONDS_PER_DAY = SECONDS_PER_HOUR * 24
 SECONDS_PER_YEAR = SECONDS_PER_DAY * 365  # non-leap year, 365 days
 FFILL_LIMIT = 10 * SECONDS_PER_MINUTE 
-# pl.Config.set_streaming_chunk_size(None)
-# INFO: @Juan 10/02/24 Set Logging up
+
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 JOIN_CHUNK = 100 #int(2000)
 
@@ -46,17 +41,15 @@ class DataLoader:
                  data_dir: str = r"/Users/$USER/Documents/toolboxes/wind_forecasting/examples/data",
                  file_signature: str = "kp.turbine.z02.b0.*.*.*.nc",
                  save_path: str = r"/Users/$USER/Documents/toolboxes/wind_forecasting/examples/data/kp.turbine.zo2.b0.raw.parquet",
-                 turbine_ids: list[str] = None,
                  multiprocessor: str | None = None,
-                 chunk_size: int = 100000, # INFO: @Juan 10/16/24 Added arg for chunk size. 
+                 chunk_size: int = 100000, 
                  desired_feature_types: list[str] = None,
                  dt: int | None = 5,
-                 ffill_limit: int | None = None, # INFO:@Aoife 10/18/24 an argument for how many time steps the forward will should populate
-                 data_format: str = "netcdf", # INFO:@Juan 10/14/24  Added arg for data format. Either "netcdf" or "csv" 
-                 column_mapping: dict = None, # INFO:@Juan 10/14/24 Added arg for column mapping of csv files.
-                 wide_format: bool = True): # INFO: @Juan 10/16/24 Added arg for wide format. If true, the data is loaded in wide format. If false, the data is loaded in long format.
+                 ffill_limit: int | None = None, 
+                 data_format: str = "netcdf", 
+                 column_mapping: dict = None, 
+                 wide_format: bool = True):
         
-        # INFO: @Juan 10/16/24 Added arg for data directory. 
         self.data_dir = data_dir
         self.save_path = save_path
         self.multiprocessor = multiprocessor
@@ -66,15 +59,11 @@ class DataLoader:
         self.chunk_size = chunk_size
         self.desired_feature_types = desired_feature_types or ["time", "turbine_id", "turbine_status", "wind_direction", "wind_speed", "power_output", "nacelle_direction"]
         self.wide_format = wide_format
-        self.turbine_ids = turbine_ids
         self.ffill_limit = ffill_limit
         
         # Get all the wts in the folder @Juan 10/16/24 used os.path.join for OS compatibility
         self.file_paths = sorted(glob.glob(os.path.join(data_dir, file_signature)))
-        if not self.file_paths:
-            raise FileExistsError(f"⚠️ File with signature {file_signature} in directory {data_dir} doesn't exist.")
-
-    # INFO: @Juan 10/14/24 Added method to read multiple files based on the file signature. 
+    
     def read_multi_files(self) -> pl.LazyFrame | None:
         if self.multiprocessor is not None:
             if self.multiprocessor == "mpi":
@@ -83,6 +72,9 @@ class DataLoader:
                 executor = ProcessPoolExecutor()
             with executor as ex:
                 if ex is not None:
+                    if not self.file_paths:
+                        raise FileExistsError(f"⚠️ File with signature {self.file_signature} in directory {self.data_dir} doesn't exist.")
+                    
                     futures = [ex.submit(self._read_single_file, f, file_path) for f, file_path in enumerate(self.file_paths)]
                     df_query = [fut.result() for fut in futures]
                     df_query = [(self.file_paths[d], df) for d, df in enumerate(df_query) if df is not None]
@@ -151,6 +143,8 @@ class DataLoader:
                     return pl.scan_parquet(self.save_path)
         else:
             logging.info(f"🔧 Using single process executor.")
+            if not self.file_paths:
+                raise FileExistsError(f"⚠️ File with signature {self.file_signature} in directory {self.data_dir} doesn't exist.")
             df_query = [self._read_single_file(f, file_path) for f, file_path in enumerate(self.file_paths)]
             df_query = [df for df in df_query if df is not None]
             return df_query
@@ -167,19 +161,13 @@ class DataLoader:
         # logging.info(f"✅ Started joins for {file_suffix}-th collection of files.") 
         all_cols = set()
         first_df = True
-        # temp_save_path = self.save_path.replace(".parquet", f"_{file_suffix}_tmp.parquet")
-        # save_path = self.save_path.replace(".parquet", f"_{file_suffix}.parquet")
-        # df_query = None
         for d, df in enumerate(dfs):
             # df = df.collect()
             new_cols = [col for col in df.collect_schema().names() if col != "time"]
             if first_df:
                 df_query = df
-                # df.sink_parquet(temp_save_path)
                 first_df = False
             else:
-                #df_query = pl.scan_parquet(self.save_path.replace(".parquet", f"_{file_suffix}.parquet"))
-                # df_query = pl.scan_parquet(save_path)
                 existing_cols = list(all_cols.intersection(new_cols))
                 if existing_cols:
                     # data for the turbine contained in this frame has already been added, albeit from another day
@@ -189,58 +177,17 @@ class DataLoader:
                                         # .sink_parquet(temp_save_path)
                 else:
                     df_query = df_query.join(df, on="time", how="full", coalesce=True)
-                            # .sink_parquet(temp_save_path)
-                    # df.sort("time").collect()
-                    # df_query.filter((pl.col("time") >= df.select("time").min().collect().item()) & (pl.col("time") <= df.select("time").max().collect().item())).sort("time").select(pl.col("time"), cs.contains(df.columns[1].split("_")[-1])).collect()
 
             all_cols.update(new_cols)
-            # df_query = df_query.collect(streaming=True).lazy()
-            # logging.info(f"🔗 Finished {d}-th join of {len(dfs)} of {file_suffix}-th collection of files.") 
-            # os.rename(temp_save_path, save_path)
-        # with open(save_path, 'wb') as f:
-        #     # lock the file
-        #     fcntl.flock(f, fcntl.LOCK_EX)
-
-        # perform write operation
-        # df_query.sink_parquet(save_path, statistics=False)
-
-            # # unlock the file
-            # fcntl.flock(f, fcntl.LOCK_UN)
-            # # df_query.sink_parquet(self.save_path) #, statistics=False)
         
         logging.info(f"🔗 Finished joins for {file_suffix}-th collection of files.")
-        # return pl.scan_parquet(save_path)
         return df_query
 
     def postprocess_multi_files(self, df_query) -> pl.LazyFrame | None:
-        
-        # if df_query:
-        #     # join dfs of different turbine types and same timestamps, then concat remaining
-        #     logging.info(f"✅ Finished reading individual files. Time elapsed: {time.time() - start_time:.2f} s")
-        #     # logging.info("🔄 Starting concatenation of DataFrames")
-        #     join_start = time.time()
-        #     logging.info(f"✅ Started concatenation of {len(self.file_paths)} files.")
-        #     unique_file_timestamps = set(re.findall(r"\.(\d{8})\.", fp)[0] for fp in self.file_paths)
-        #     dfs_to_concat = []
-        #     for ts in unique_file_timestamps:
-        #         dfs_to_join = [df for d, df in enumerate(df_query) if ts in self.file_paths[d]]
-        #         dfs_to_concat.append(self._join_dfs(ts,dfs_to_join))
-
-        #     logging.info(f"🔗 Finished join. Time elapsed: {time.time() - join_start:.2f} s")
-            
-        #     concat_start = time.time()
-        #     pl.concat(dfs_to_concat, how="vertical").collect().write_parquet(self.save_path, statistics=False)
-        #     logging.info(f"🔗 Finished concat. Time elapsed: {time.time() - concat_start:.2f} s")
-
-        #     return pl.scan_parquet(self.save_path)
-        # else:
-        #     logging.warning("⚠️ No data frames were created.")
-        #     return None
          
         if self.multiprocessor is not None:
             if self.multiprocessor == "mpi":
                 executor = MPICommExecutor(MPI.COMM_WORLD, root=0)
-                # size = comm.Get_size()
             else:  # "cf" case
                 executor = ProcessPoolExecutor()
             with executor as ex:
@@ -255,13 +202,6 @@ class DataLoader:
                                             [df for d, df in enumerate(df_query) if ts in self.file_paths[d]]) 
                                             for ts in unique_file_timestamps]
                     dfs_to_concat = [fut.result() for fut in futures]
-
-                    # for ts, df in zip(unique_file_timestamps, dfs_to_concat):
-                    #     logging.info(f"Sinking {ts} collection of LazyFrames to join.")
-                    #     df.sink_parquet(self.save_path.replace(".parquet", f"_{ts}.parquet"), statistics=False)
-                    # dfs_to_concat = [fut.result() for fut in futures]
-
-                    # logging.info(f"🔗 Finished join. Time elapsed: {time.time() - join_start:.2f} s")
                     
                     concat_start = time.time()
                     dfs_to_concat = [pl.scan_parquet(self.save_path.replace(".parquet", f"_{ts}.parquet")) 
@@ -294,93 +234,19 @@ class DataLoader:
             logging.info(f"🔗 Finished concat. Time elapsed: {time.time() - concat_start:.2f} s")
 
             return pl.scan_parquet(self.save_path)
-                    
-        #             # df_query = pl.concat([df for df in df_query if df is not None]).lazy()
-        #             num_processes = executor._max_workers
-        #             df_query_list = df_query
-        #             n_dfs = len(df_query_list)
-        #             join_chunk = math.ceil(n_dfs / num_processes)
-        #             df_slices = [slice(i * join_chunk, (i + 1) * join_chunk, 1) for i in range(math.ceil(n_dfs / join_chunk))]
-        #             n_df_slices = len(df_slices)
-
-        #             logging.info(f"✅ Started first concatenation of {len(df_query)} files in {n_df_slices} groups of {join_chunk}.")
-
-        #             futures = [ex.submit(self._join_dfs, i, df_query_list[indices]) for i, indices in enumerate(df_slices)]
-        #             _ = [fut.result() for fut in futures]
-                    
-        #             del df_query_list
-        #             logging.info(f"🔗 Finished first concatenation of {len(self.file_paths)} files. Time elapsed: {time.time() - concat_start:.2f} s")
-
-        #             concat_start = time.time()
-        #             logging.info(f"✅ Started second concatenation of {n_df_slices} files.")
-        #             df_query = self._join_dfs("", 
-        #                         [pl.scan_parquet(self.save_path.replace(".parquet", f"_{i}.parquet")) for i in range(n_df_slices)])
-
-        #             logging.info(f"🔗 Finished second concatenation of {n_df_slices} files. Time elapsed: {time.time() - concat_start:.2f} s")
-
-        #             # with open(os.path.join(os.path.dirname(self.save_path), "all_df_query_explan.txt"), "w") as f:
-        #             #     f.write(df_query.explain(streaming=True))
-
-        #             # self._write_parquet(df_query)
-                    
-        #             return df_query #INFO: @Juan 10/16/24 Added .lazy() to the return statement to match the expected return type. Is this necessary?
-        #         else:
-        #             logging.warning("⚠️ No data frames were created.")
-        #             return None
-        # else:
-        #     if df_query:
-        #         # logging.info(f"✅ Finished reading individual files. Time elapsed: {time.time() - start_time:.2f} s")
-        #         # # logging.info("🔄 Starting concatenation of DataFrames")
-        #         # concat_start = time.time()
-        #         # logging.info(f"✅ Started concatenation of {len(self.file_paths)} files.")
-        #         # df_query = self._join_dfs("",df_query)
-
-        #         # logging.info(f"🔗 Finished concatenation of {len(self.file_paths)} files. Time elapsed: {time.time() - concat_start:.2f} s")
-        #         num_processes = 12 
-        #         df_query_list = df_query
-        #         n_dfs = len(df_query_list)
-        #         join_chunk = math.ceil(n_dfs / num_processes)
-        #         df_slices = [slice(i * join_chunk, (i + 1) * join_chunk, 1) for i in range(math.ceil(n_dfs / join_chunk))]
-        #         n_df_slices = len(df_slices)
-
-        #         logging.info(f"✅ Started first concatenation of {len(df_query)} files in {n_df_slices} groups of {join_chunk}.")
-
-        #         dfs = []
-        #         for i, indices in enumerate(df_slices):
-        #             dfs.append(self._join_dfs(i, df_query_list[indices]))
-                
-        #         del df_query_list
-        #         logging.info(f"🔗 Finished first concatenation of {len(self.file_paths)} files. Time elapsed: {time.time() - concat_start:.2f} s")
-
-        #         concat_start = time.time()
-        #         logging.info(f"✅ Started second concatenation of {n_df_slices} files.")
-        #         df_query = self._join_dfs("", 
-        #                     [pl.scan_parquet(self.save_path.replace(".parquet", f"_{i}.parquet")) for i in range(n_df_slices)])
-
-        #         return df_query
-        #     else:
-        #         logging.warning("⚠️ No data frames were created.")
-        #         return None
-            
+             
     def _write_parquet(self, df_query: pl.LazyFrame):
         
         write_start = time.time()
         
         try:
             logging.info("📝 Starting Parquet write")
-            # Collect a small sample to check for issues
-            # sample = df_query.limit(10).collect()
-            # total_rows = df_query.select(pl.len()).collect().item()
-            # logging.info(f"📊 Total rows in df_query: {total_rows}")
-            # logging.info(f"🔢 Sample data types: {sample.dtypes}")
-            # logging.info(f"🔍 Sample data:\n{sample}")
             
             # Ensure the directory exists
             self._ensure_dir_exists(self.save_path)
 
             # df_query.sink_ipc(self.save_path)
             df_query.sink_parquet(self.save_path, statistics=False)
-            # df_query.sink_csv(self.save_path.replace(".arrow", ".csv"))
 
             # df = pl.scan_parquet(self.save_path)
             logging.info(f"✅ Finished writing Parquet. Time elapsed: {time.time() - write_start:.2f} s")
@@ -430,14 +296,7 @@ class DataLoader:
     # INFO: @Juan 10/16/24 Added method to read single netcdf file. Use pl.Series to convert the time variable to a polars series. and combined time extraction operations into a single line to remove intermediate variables. Removed try/except block as it is done in the calling method (_read_single_file())
     def _read_single_netcdf(self, file_path: str) -> pl.LazyFrame:
         with nc.Dataset(file_path, 'r') as dataset:
-            # @Juan 10/14/24 Check if this is correct and if pandas can be substituted for polars
-            col_mapping = dict((v, k) for k, v in self.column_mapping.items())
-            time_var = dataset.variables[col_mapping["time"]]
-            # time = pd_to_datetime(nc.num2date(times=time_var[:], 
-            #                                   units=time_var.units, 
-            #                                   calendar=time_var.calendar, 
-            #                                   only_use_cftime_datetimes=False, 
-            #                                   only_use_python_datetimes=True))
+            time_var = dataset.variables[self.column_mapping["time"]]
             time = nc.num2date(times=time_var[:], 
                                units=time_var.units, 
                                calendar=time_var.calendar, 
@@ -447,11 +306,11 @@ class DataLoader:
             data = {
                 'turbine_id': [os.path.basename(file_path).split('.')[-2]] * len(time),
                 'time': time.tolist(),  # Convert to Polars datetime
-                'turbine_status': dataset.variables[col_mapping["turbine_status"]][:],
-                'wind_direction': dataset.variables[col_mapping["wind_direction"]][:],
-                'wind_speed': dataset.variables[col_mapping["wind_speed"]][:],
-                'power_output': dataset.variables[col_mapping["power_output"]][:],
-                'nacelle_direction': dataset.variables[col_mapping["nacelle_direction"]][:]
+                'turbine_status': dataset.variables[self.column_mapping["turbine_status"]][:],
+                'wind_direction': dataset.variables[self.column_mapping["wind_direction"]][:],
+                'wind_speed': dataset.variables[self.column_mapping["wind_speed"]][:],
+                'power_output': dataset.variables[self.column_mapping["power_output"]][:],
+                'nacelle_direction': dataset.variables[self.column_mapping["nacelle_direction"]][:]
             }
 
             # remove the rows with all nans (corresponding to rows where excluded columns would have had a value)
@@ -460,12 +319,7 @@ class DataLoader:
             df_query = pl.LazyFrame(data).fill_nan(None)\
                                             .with_columns(pl.col("time").dt.round(f"{self.dt}s").alias("time"))\
                                             .select([cs.contains(feat) for feat in self.desired_feature_types])\
-                                            .filter(pl.any_horizontal(cs.numeric().is_not_null()))
-                                            # .group_by("turbine_id", "time")\
-                                            # .agg(cs.numeric().drop_nulls().first())
-                                                # .sort("turbine_id", "time")
-            # with open(os.path.join(os.path.dirname(file_path), "ind_df_query_explan.txt"), "w") as f:
-                # f.write(df_query.explain(streaming=True))
+                                            .filter(pl.any_horizontal(cs.numeric().is_not_null())) 
             
             # pivot table to have columns for each turbine and measurement if not originally in wide format
             if not self.wide_format:
@@ -479,12 +333,9 @@ class DataLoader:
                 ).sort("time").lazy()
             else:
                 df_query = df_query.collect(streaming=True).lazy()
-            # with open(os.path.join(os.path.dirname(file_path), "ind_df_query_explan.txt"), "w") as f:
-            #     f.write(df_query.explain(streaming=True))
 
             del data  # Free up memory
 
-            # logging.info(f"Processed {file_path}")
             return df_query
 
     def _read_single_csv(self, file_path: str) -> pl.LazyFrame:
@@ -609,21 +460,8 @@ class DataLoader:
     def convert_to_wide_format(self, df: pl.LazyFrame) -> pl.LazyFrame:
         logging.info("🔄 Converting data to wide format")
         
-        # Get unique turbine IDs
-        # turbine_ids = df.select(pl.col("turbine_id").unique()).collect().to_series().to_list()
-        
         # List of features to pivot (excluding 'time' and 'turbine_id')
         pivot_features = [col for col in df.columns if col not in ['time', 'turbine_id']]
-        
-        # Create expressions for pivot
-        # pivot_exprs = [
-        #     pl.col(feature).pivot(
-        #         index="time",
-        #         columns="turbine_id",
-        #         aggregate_function="first",
-        #         sort_columns=True
-        #     ).prefix(f"{feature}_") for feature in pivot_features
-        # ]
         
         # Pivot the data
         df_wide = df.pivot(
@@ -633,10 +471,6 @@ class DataLoader:
             # aggregate_function="first",
             sort_columns=True
         )
-        # .select([
-        #     pl.col("time"),
-        #     *pivot_exprs
-        # ])
         
         logging.info("✅ Data pivoted to wide format successfully")
         return df_wide
@@ -887,13 +721,6 @@ if __name__ == "__main__":
     if RUN_ONCE:
         
         if not RELOAD_DATA and os.path.exists(data_loader.save_path):
-            # Note that the order of the columns in the provided schema must match the order of the columns in the CSV being read.
-            schema = pl.Schema(dict(sorted(({**{"time": pl.Datetime(time_unit="ms")},
-                        **{
-                            f"{feat}_{tid}": pl.Float64
-                            for feat in FEATURES if feat != "time"
-                            for tid in [f"wt{d+1:03d}" for d in range(88)]}
-                        }).items())))
             logging.info("🔄 Loading existing Parquet file")
             df_query = pl.scan_parquet(source=data_loader.save_path)
             logging.info("✅ Loaded existing Parquet file successfully")
@@ -914,14 +741,7 @@ if __name__ == "__main__":
     if RUN_ONCE:
         logging.info(f"✅ Finished reading individual files. Time elapsed: {time.time() - start_time:.2f} s")
 
-    # if df_query:
-    #     df_query = data_loader.postprocess_multi_files(df_query)
-    # elif RUN_ONCE:
-    #     logging.warning("⚠️ No data frames were created.")
-
     if RUN_ONCE:
-        
-        # logging.info(f"⏱️ Total time elapsed: {time.time() - start_time:.2f} s")
     
         if df_query is not None:
             # Perform any additional operations on df_query if needed

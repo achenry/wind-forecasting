@@ -10,6 +10,10 @@ mamba activate wind_forecasting
 mamba install conda-forge::cuda-version=12.4 nvidia/label/cuda-12.4.0::cuda-toolkit performer-pytorch pytorch torchvision torchaudio torchmetrics pytorch-cuda=12.4 lightning -c pytorch -c nvidia --y
 mamba install polars windrose statsmodels scikit-learn jupyterlab nb_conda_kernels pyyaml matplotlib numpy seaborn opt_einsum netcdf4 scipy h5pyd pyarrow wandb einops rich --y 
 pip install mpi4py impi_rt opencv-python floris
+pip install gluonts[torch] ujson datasets xformers etsformer-pytorch reformer_pytorch pykeops apex
+pip install git+https://github.com/kashif/hopfield-layers@pytorch-2 git+https://github.com/microsoft/torchscale
+python setup.py develop
+python wind_forecasting/models/spacetimeformer/setup.py develop
 
 git clone --recurse-submodules https://github.com/achenry/wind-forecasting.git
 # salloc --account=ssc --time=01:00:00 --mem-per-cpu=64G --gpus=2 --ntasks-per-node=2 --partition=debug

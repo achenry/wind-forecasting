@@ -28,6 +28,7 @@ examples/inputs/awaken_data
 examples/logging/
 examples/logging/*
 examples/logging/wandb/*
+examples/logging/wandb/latest_run/*
 wandb/
 wind-forecasting.code-workspace
 wind_forecasting/preprocessing/.ipynb_checkpoints
