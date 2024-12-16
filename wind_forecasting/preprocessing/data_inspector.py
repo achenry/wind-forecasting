@@ -36,17 +36,26 @@ class DataInspector:
     -   yaw angle distribution 
     """
     
-    def __init__(self, turbine_input_filepath: str, farm_input_filepath: str, data_format='auto'):
+    # INFO: @Juan 11/17/24 Added feature_mapping to allow for custom feature mapping, which is required for different data sources
+    def __init__(self, turbine_input_filepath: str, farm_input_filepath: str, data_format='auto', feature_mapping=None):
         self._validate_input_data(turbine_input_filepath=turbine_input_filepath, farm_input_filepath=farm_input_filepath)
         self.turbine_input_filepath = turbine_input_filepath
         self.farm_input_filepath = farm_input_filepath
         self.data_format = data_format
+        # Default feature mapping
+        self.feature_mapping = feature_mapping or {
+            "power_output": ["power_output"],
+            "wind_speed": ["wind_speed"],
+            "wind_direction": ["wind_direction"],
+            "nacelle_direction": ["nacelle_direction"]
+        }
         
     # INFO: @Juan 10/18/24 Added method to detect data format automatically (wide or long)
-    def detect_data_format(self, df):
+    def detect_data_format(self, df: pl.LazyFrame) -> str:
         if self.data_format == 'auto':
-            # Check if 'turbine_id' is a column (long format) or not (wide format)
-            return 'long' if 'turbine_id' in df.collect_schema().names() else 'wide'
+            # Get schema without materializing the data
+            column_names = df.collect_schema().names()
+            return 'long' if 'turbine_id' in column_names else 'wide'
         return self.data_format
 
     def _get_valid_turbine_ids(self, df, turbine_ids: list[str]) -> list[str]:
@@ -86,108 +95,188 @@ class DataInspector:
         if farm_input_filepath is not None and not os.path.exists(farm_input_filepath):
             raise FileNotFoundError(f"Farm input file not found: {farm_input_filepath}")
 
-    def plot_time_series(self, df_query, feature_types, turbine_ids: list[str], continuity_groups: Optional[list]=None) -> None:
+
+    def plot_time_series(self, df_query, turbine_ids: list[str], feature_mapping: dict = None, feature_types:Optional[list]=None, feature_labels:Optional[list]=None, continuity_groups: Optional[list]=None) -> None:
+        # Use provided feature mapping or fall back to instance default
+        current_mapping = feature_mapping or self.feature_mapping
+        
+        if feature_types is None:
+            feature_types = ["wind_speed", "wind_direction", "nacelle_direction", "power_output"]
+            feature_labels = ["Wind Speed (m/s)", "Wind Direction (deg)", "Nacelle Direction (deg)", "Power Output (kW)"]
+        elif feature_labels is None:
+           feature_labels = [" ".join(feat.split("_")).title() for feat in feature_types] 
+        
         if isinstance(turbine_ids, str):
             turbine_ids = [turbine_ids]  # Convert single ID to list
         
-        # valid_turbines = self._get_valid_turbine_ids(df_query, turbine_ids=turbine_ids)
-        
-        # if len(valid_turbines) == 0:
-        #     return
-        
+        valid_turbines = self._get_valid_turbine_ids(df_query, turbine_ids=turbine_ids)
+         
         sns.set_style("whitegrid")
         sns.set_palette("deep")
-
+        
+        columns = df_query.collect_schema().names()
+        
         if continuity_groups is not None:
             for c, cg in enumerate(continuity_groups):
                 fig, ax = plt.subplots(len(feature_types), 1, sharex=True)
                 if not hasattr(ax, "__len__"):
                     ax = [ax]
                 for f, feat in enumerate(feature_types):
-                    df = df_query.filter(pl.col("continuity_group") == cg)\
-                                 .select(pl.col("time"), cs.starts_with(feat))\
-                                 .select([pl.col("time")] + [cs.ends_with(tid) for tid in turbine_ids]).collect().to_pandas()
-                    # ax[f].plot(df.select("time"), df.select(cs.starts_with(feat)))
-                    for tid in turbine_ids:
-                        sns.lineplot(data=df, x='time', y=f'{feat}_{tid}', ax=ax[f], label=f'{tid}')
-                    ax[f].set_title(f"{feat}_{int(cg)}")
+                    # map feature name
+                    feat_col =  f"{current_mapping[feat][0]}"
+                    available_cols = ["time"]
+                    if all(f"{feat_col}_{tid}" in columns for tid in valid_turbines):
+                        available_cols.append(feat_col)
+                    else:
+                        print(f"Warning: Column {feat_col} not found in data for {valid_turbines}")
+                        print(f"No valid data columns found for {valid_turbines}")
+                        continue
+                    
+                    feature_df = df_query.filter(pl.col("continuity_group") == cg)\
+                                 .select(pl.col("time"), cs.starts_with(feat))
+                    
+                    for tid in valid_turbines:
+                        turbine_df = feature_df.select([pl.col("time"), cs.ends_with(tid)]).collect().to_pandas()
+                        sns.lineplot(data=turbine_df, x='time', y=f'{feat}_{tid}', ax=ax[f], label=f'{tid}')
+                        
+                    ax[f].set_title(f"{feature_labels[f]} for CG {int(cg)}", fontsize=14)
                     ax[f].set_xlabel("Time [s]")
+                    ax[f].set_ylabel(feature_labels[f])
                     ax[f].legend([], [], frameon=False)
         else:
             fig, ax = plt.subplots(len(feature_types), 1, figsize=(12, 10), sharex=True)
             if not hasattr(ax, "__len__"):
                 ax = [ax]
             for f, feat in enumerate(feature_types):
-                df = df_query.select(pl.col("time"), cs.starts_with(feat))\
-                             .select([pl.col("time")] + [cs.ends_with(tid) for tid in turbine_ids]).collect().to_pandas()
-                # df = df_query.select(pl.col("time"), cs.starts_with(feat) & cs.ends_with(np.str_('wt088'))).collect().to_pandas()
-                for tid in turbine_ids:
-                    sns.lineplot(data=df, x='time', y=f'{feat}_{tid}', ax=ax[f], label=f'{tid}')
+                # map feature name
+                feat_col =  f"{current_mapping[feat][0]}"
+                available_cols = ["time"]
+                if all(f"{feat_col}_{tid}" in columns for tid in valid_turbines):
+                    available_cols.append(feat_col)
+                else:
+                    print(f"Warning: Column {feat_col} not found in data for {valid_turbines}")
+                    print(f"No valid data columns found for {valid_turbines}")
+                    continue
+                    
+                feature_df = df_query.select(pl.col("time"), cs.starts_with(feat))
+                             
+                for tid in valid_turbines:
+                    turbine_df = feature_df.select([pl.col("time"), cs.ends_with(tid)]).collect().to_pandas()
+                    sns.lineplot(data=turbine_df, x='time', y=f'{feat}_{tid}', ax=ax[f], label=f'{tid}')
                 
-                ax[f].set_title(f"{feat}")
+                ax[f].set_title(f"{feature_labels[f]}")
                 ax[f].set_xlabel("Time [s]")
+                ax[f].set_ylabel(feature_labels[f])
                 ax[f].legend([], [], frameon=False)
-            # sns.lineplot(data=turbine_data.collect().to_pandas(),
-            #              x='time', y=f'wind_direction_{turbine_id}', ax=ax2, label=f'{turbine_id} Wind Direction')
-            # sns.lineplot(data=turbine_data.collect().to_pandas(),
-            #              x='time', y=f'nacelle_direction_{turbine_id}', ax=ax3, label=f'{turbine_id} Nacelle Direction')
-            # sns.lineplot(data=turbine_data.collect().to_pandas(),
-            #              x='time', y=f'power_output_{turbine_id}', ax=ax4, label=f'{turbine_id} Power Output')
-        
-        # ax1.set_ylabel('Wind Speed (m/s)')
-        # ax2.set_ylabel('Wind Direction (deg)')
-        # ax4.set_ylabel('Nacelle Direction (deg)')
-        # ax4.set_ylabel('Power Output (kW)')
-        # ax2.set_xlabel('Time')
-        
-        # ax1.set_title('Wind Speed vs. Time', fontsize=14)
-        # ax2.set_title('Wind Direction vs. Time', fontsize=14)
-        # ax3.set_title('Nacelle Direction vs. Time', fontsize=14)
-        # ax4.set_title('Power Output vs. Time', fontsize=14)
-        
-        # fig.suptitle(f'Wind Speed, Wind Direction, Nacelle Direction, and Power Output for Turbines: {", ".join(valid_turbines)}', fontsize=16)
-        
-        # ax1.legend(loc='upper left', bbox_to_anchor=(1, 1))
-        # ax2.legend(loc='upper left', bbox_to_anchor=(1, 1))
+                
+        fig.suptitle(f'Time Series for Turbines: {", ".join(valid_turbines)}', fontsize=16)
         ax[0].legend(loc='upper left', bbox_to_anchor=(1, 1))
         
         plt.tight_layout()
+        plt.show()
 
-    def plot_wind_speed_power(self, df, turbine_ids: list[str]) -> None:
-        """_summary_
-
+    def plot_wind_speed_power(self, df: pl.LazyFrame, turbine_ids: list[str]) -> None:
+        """Plot wind speed vs power output scatter plot for specified turbines.
+        
+        Args:
+            df: Input dataframe
+            turbine_ids: List of turbine IDs to plot
         """
+        # Convert turbine_ids to list if it's a single string
+        if isinstance(turbine_ids, str):
+            turbine_ids = [turbine_ids]
+        
         valid_turbines = self._get_valid_turbine_ids(df, turbine_ids=turbine_ids)
         
         if len(valid_turbines) == 0:
             return
         
+        _, ax = plt.subplots(1, 1, figsize=(12, 6))
+        
+        # Collect all required data at once for better performance
+        required_cols = []
         for turbine_id in valid_turbines:
-            _, ax = plt.subplots(1, 1, figsize=(12, 6))
-            turbine_data = df.select(pl.col(f"wind_speed_{turbine_id}"), pl.col(f"power_output_{turbine_id}"))\
-                .filter(pl.all_horizontal(pl.col(f"wind_speed_{turbine_id}", f"power_output_{turbine_id}").is_not_null()))\
-                            .collect(streaming=True).to_pandas()
-            sns.scatterplot(data=turbine_data, ax=ax, x=f"wind_speed_{turbine_id}", y=f"power_output_{turbine_id}", label=turbine_id, alpha=0.5)
-
-            plt.xlabel('Wind Speed [m/s]')
-            plt.ylabel('Power Output [kW]')
-            plt.title('Scatter Plot of Wind Speed vs Power Output')
-            plt.legend(title='Turbine ID', loc='upper left', bbox_to_anchor=(1, 1))
-            plt.grid(True, alpha=0.3)
-            sns.despine()
-            plt.tight_layout()
-            plt.show()
+            # Get the actual column names using the mapping
+            ws_cols = self.get_features(df, "wind_speed", turbine_id)
+            power_cols = self.get_features(df, "power_output", turbine_id)
+            if ws_cols and power_cols:
+                required_cols.extend([ws_cols[0], power_cols[0]])
+            else:
+                print(f"Could not find required columns for turbine {turbine_id}")
+                print(f"Wind speed columns found: {ws_cols}")
+                print(f"Power output columns found: {power_cols}")
+        
+        if not required_cols:
+            print("No valid columns found for plotting")
+            return
+        
+        # Collect all data at once
+        all_data = df.select(required_cols)\
+            .filter(pl.all_horizontal(pl.col(required_cols).is_not_null()))\
+            .collect()\
+            .to_pandas()
+        
+        # Plot for each turbine using the collected data
+        for turbine_id in valid_turbines:
+            ws_cols = self.get_features(df, "wind_speed", turbine_id)
+            power_cols = self.get_features(df, "power_output", turbine_id)
+            
+            if not ws_cols or not power_cols:
+                continue
+            
+            ws_col = ws_cols[0]
+            power_col = power_cols[0]
+            
+            sns.scatterplot(data=all_data, ax=ax, x=ws_col, y=power_col,
+                           label=turbine_id, alpha=0.5)
+        
+        plt.xlabel('Wind Speed [m/s]')
+        plt.ylabel('Power Output [kW]')
+        plt.title('Wind Speed vs Power Output')
+        plt.legend(title='Turbine ID', loc='upper left', bbox_to_anchor=(1, 1))
+        plt.grid(True, alpha=0.3)
+        sns.despine()
+        plt.tight_layout()
+        plt.show()
 
     # DEBUG: @Juan 10/18/24 Added method to plot wind rose for both wide and long formats [CHECK]
     def plot_wind_rose(self, df, turbine_ids: list[str] | str) -> None:
         data_format = self.detect_data_format(df)
         if data_format == 'wide':
             if turbine_ids == "all":
-                plt.figure(figsize=(10, 10))
-                ax = WindroseAxes.from_ax()
-                ax.bar(df.select(cs.contains("wind_direction")).collect(streaming=True).to_numpy().flatten(), 
-                    df.select(cs.contains("wind_speed")).collect(streaming=True).to_numpy().flatten(), 
-                    normed=True, opening=0.8, edgecolor='white')
+                # Get all wind direction and speed columns
+                columns = df.collect_schema().names()
+                wind_dir_cols = [col for col in columns if "wind_direction" in col]
+                wind_spd_cols = [col for col in columns if "wind_speed" in col]
+                
+                # Filter and collect data all at once
+                filtered_data = df.select([
+                    *wind_dir_cols,
+                    *wind_spd_cols
+                ])\
+                .filter(pl.all_horizontal(pl.col(wind_dir_cols + wind_spd_cols).is_not_null()))\
+                .collect()
+                
+                if len(filtered_data) == 0:
+                    print("No valid wind data found after filtering NaN values")
+                    return
+                
+                # Combine all turbine data
+                wind_dir = filtered_data.select(wind_dir_cols).to_numpy().flatten()
+                wind_spd = filtered_data.select(wind_spd_cols).to_numpy().flatten()
+                
+                # Double check arrays have same length and are not empty
+                if len(wind_dir) != len(wind_spd) or len(wind_dir) == 0:
+                    print(f"Mismatch in data lengths or empty data: dir={len(wind_dir)}, spd={len(wind_spd)}")
+                    return
+                    
+                # Create the windrose plot directly without creating a separate figure first
+                fig = plt.figure(figsize=(10, 10), dpi=80)
+                rect = [0.1, 0.1, 0.8, 0.8]
+                ax = WindroseAxes(fig, rect)
+                fig.add_axes(ax)
+                
+                ax.bar(wind_dir, wind_spd, normed=True, opening=0.8, edgecolor='white')
                 ax.set_legend()
                 plt.title('Wind Rose for all Turbines')
                 plt.show()
@@ -198,14 +287,31 @@ class DataInspector:
                     return
 
                 for turbine_id in valid_turbines:
-                    turbine_data = df.select([pl.col(f"wind_speed_{turbine_id}"), pl.col(f"wind_direction_{turbine_id}")])\
-                        .filter(pl.all_horizontal(pl.col(f"wind_speed_{turbine_id}").is_not_null(), pl.col(f"wind_direction_{turbine_id}").is_not_null()))
+                    # Filter out NaN values for specific turbine
+                    turbine_data = df.select([
+                        pl.col(f"wind_speed_{turbine_id}"), 
+                        pl.col(f"wind_direction_{turbine_id}")
+                    ])\
+                    .filter(pl.all_horizontal(
+                        pl.col(f"wind_speed_{turbine_id}").is_not_null(), 
+                        pl.col(f"wind_direction_{turbine_id}").is_not_null()
+                    )).collect()
+
+                    if len(turbine_data) == 0:
+                        print(f"No valid wind data found for turbine {turbine_id}")
+                        continue
+
+                    wind_dir = turbine_data.select(f"wind_direction_{turbine_id}").to_numpy().flatten()
+                    wind_spd = turbine_data.select(f"wind_speed_{turbine_id}").to_numpy().flatten()
+
+                    # Verify data lengths match
+                    if len(wind_dir) != len(wind_spd) or len(wind_dir) == 0:
+                        print(f"Mismatch in data lengths or empty data for turbine {turbine_id}")
+                        continue
 
                     plt.figure(figsize=(10, 10))
                     ax = WindroseAxes.from_ax()
-                    ax.bar(df.select(pl.col("wind_direction*")).collect(streaming=True).to_numpy()[:, 0], 
-                            df.select(pl.col("wind_speed*")).collect(streaming=True).to_numpy()[:, 0], 
-                            normed=True, opening=0.8, edgecolor='white')
+                    ax.bar(wind_dir, wind_spd, normed=True, opening=0.8, edgecolor='white')
                     ax.set_legend()
                     plt.title(f'Wind Rose for Turbine {turbine_id}')
                     plt.show()
@@ -213,8 +319,8 @@ class DataInspector:
             if turbine_ids == "all":
                 plt.figure(figsize=(10, 10))
                 ax = WindroseAxes.from_ax()
-                ax.bar(df.select("wind_direction").collect(streaming=True).to_numpy()[:, 0], 
-                       df.select("wind_speed").collect(streaming=True).to_numpy()[:, 0], 
+                ax.bar(df.select("wind_direction").collect().to_numpy()[:, 0], 
+                       df.select("wind_speed").collect().to_numpy()[:, 0], 
                        normed=True, opening=0.8, edgecolor='white')
                 ax.set_legend()
                 plt.title('Wind Rose for all Turbines')
@@ -263,7 +369,7 @@ class DataInspector:
         """_summary_
         """
         _, ax = plt.subplots(1, 1, figsize=(12, 10))
-        sns.heatmap(df.select(features).collect(streaming=True).to_pandas().corr(), 
+        sns.heatmap(df.select(features).collect().to_pandas().corr(), 
                     annot=True, cmap='coolwarm', linewidths=0.5,  vmin=-1, vmax=1, center=0, ax=ax,
                     xticklabels=features, yticklabels=features)
         plt.title('Feature Correlation Matrix')
@@ -271,30 +377,36 @@ class DataInspector:
         plt.show()
 
     def plot_boxplot_wind_speed_direction(self, df, turbine_ids: list[str]) -> None:
-        """_summary_
-
-        Args:
-            turbine_id (str): _description_
-        """
+        """Plot boxplots of wind speed and direction by hour for specified turbines."""
         valid_turbines = self._get_valid_turbine_ids(df, turbine_ids=turbine_ids)
         
         if len(valid_turbines) == 0:
             return
 
         for turbine_id in valid_turbines:
-            # Select data for the specified turbine
-            # turbine_data = df.loc[turbine_id]
+            # Select and cast data types in Polars
+            turbine_data = df.select([
+                pl.col("time").cast(pl.Datetime),
+                pl.col(f"wind_speed_{turbine_id}").cast(pl.Float64),
+                pl.col(f"wind_direction_{turbine_id}").cast(pl.Float64)
+            ])\
+            .filter(
+                pl.any_horizontal([
+                    pl.col(f"wind_speed_{turbine_id}").is_not_null(),
+                    pl.col(f"wind_direction_{turbine_id}").is_not_null()
+                ])
+            )\
+            .with_columns(
+                pl.col("time").dt.hour().alias("hour").cast(pl.Int32)
+            )\
+            .collect()\
+            .to_pandas()
             
-            turbine_data = df.select([pl.col("time"), pl.col(f"wind_speed_{turbine_id}"), pl.col(f"wind_direction_{turbine_id}")])\
-                .filter(pl.any_horizontal(pl.col(f"wind_speed_{turbine_id}", f"wind_direction_{turbine_id}").is_not_null()))\
-                .collect(streaming=True).to_pandas()
+            turbine_data['hour'] = turbine_data['hour'].astype('int32')
+            turbine_data[f"wind_speed_{turbine_id}"] = turbine_data[f"wind_speed_{turbine_id}"].astype('float64')
+            turbine_data[f"wind_direction_{turbine_id}"] = turbine_data[f"wind_direction_{turbine_id}"].astype('float64')
             
-            if "hour" not in turbine_data.columns:
-                # Extract hour from the time index
-                # turbine_data = turbine_data.reset_index()
-                # turbine_data = turbine_data.with_columns((pl.col('time').dt.hour).alias("hour"))
-                turbine_data["hour"] = turbine_data["time"].dt.hour
-            
+            # Create plots
             fig, ax = plt.subplots(2, 1, figsize=(12, 6))
             sns.boxplot(data=turbine_data, x='hour', y=f"wind_speed_{turbine_id}", ax=ax[0])
             sns.boxplot(data=turbine_data, x='hour', y=f"wind_direction_{turbine_id}", ax=ax[1])
@@ -352,6 +464,11 @@ class DataInspector:
             # Extract wind speed data
             wind_speeds = df.select(cs.contains("wind_speed"))\
                         .collect(streaming=True).to_numpy().flatten()
+            wind_speeds = wind_speeds[np.isfinite(wind_speeds)]  # Remove non-finite values
+            
+            if len(wind_speeds) == 0:
+                print("No valid wind speed data found after filtering")
+                return
 
             # Fit Weibull distribution
             shape, loc, scale = stats.weibull_min.fit(wind_speeds, floc=0)
@@ -386,7 +503,12 @@ class DataInspector:
                 # Extract wind speed data
                 wind_speeds = df.select(f"wind_speed_{turbine_id}")\
                     .filter(pl.col(f"wind_speed_{turbine_id}").is_not_null())\
-                    .collect(streaming=True).to_pandas()
+                    .collect(streaming=True).to_numpy().flatten()
+                wind_speeds = wind_speeds[np.isfinite(wind_speeds)]  # Remove non-finite values
+                
+                if len(wind_speeds) == 0:
+                    print(f"No valid wind speed data found for turbine {turbine_id}")
+                    continue
 
                 # Fit Weibull distribution
                 shape, loc, scale = stats.weibull_min.fit(wind_speeds, floc=0)
@@ -400,7 +522,7 @@ class DataInspector:
                 sns.histplot(wind_speeds, stat='density', kde=True, color='skyblue', label='Observed')
                 plt.plot(x, y, 'r-', lw=2, label=f'Weibull (k={shape:.2f}, λ={scale:.2f})')
                 
-                plt.title('Wind Speed Distribution with Fitted Weibull', fontsize=16)
+                plt.title(f'Wind Speed Distribution with Fitted Weibull - Turbine {turbine_id}', fontsize=16)
                 plt.xlabel('Wind Speed (m/s)', fontsize=12)
                 plt.ylabel('Density', fontsize=12)
                 plt.legend(fontsize=10)
@@ -418,7 +540,7 @@ class DataInspector:
             _type_: _description_
         """
         if wind_directions is None:
-            wind_directions = [90.0]
+            wind_directions = [190.0]
             
         if wind_speeds is None:
             wind_speeds = [10.0]
@@ -428,7 +550,7 @@ class DataInspector:
 
         # Ensure the paths are absolute
         
-        # Initialize the FLORIS model
+        # Initialize the FLORIS modelw
         try:
             fmodel = FlorisModel(self.farm_input_filepath)
         except FileNotFoundError:
@@ -458,7 +580,7 @@ class DataInspector:
         )
         
         # Calculate and visualize the flow field
-        horizontal_plane = fmodel.calculate_horizontal_plane(height=90.0) # TODO get hubheight from turbine type
+        horizontal_plane = fmodel.calculate_horizontal_plane(height=80.0) # TODO get hubheight from turbine type
         visualize_cut_plane(horizontal_plane, ax=ax, min_speed=4, max_speed=10, color_bar=True)
         
         # Plot turbine rotors
@@ -479,61 +601,89 @@ class DataInspector:
         return fmodel
 
     @staticmethod
-    def plot_filtered_vs_unfiltered(df, mask, features, feature_types, feature_labels):
-        # feature_types = np.unique(["_".join(feat.split("_")[:-1]) for feat in features])
+    def plot_filtered_vs_unfiltered(df, mask_func, features, feature_types, feature_labels):
+        import matplotlib.pyplot as plt
+        import seaborn as sns
+        sns.set(style="whitegrid")
+
         _, ax = plt.subplots(len(feature_types), 1, sharex=True)
-        if not hasattr(ax, "__len__"):
+        if not isinstance(ax, np.ndarray):
             ax = [ax]
 
         for feature in features:
+            tid = feature.split("_")[-1]
+            mask_array = mask_func(tid)
+            if mask_array is None:
+                continue
+
             for ft, feature_type in enumerate(feature_types):
                 if feature_type in feature:
                     ax_idx = ft
                     ax[ax_idx].set_title(feature_labels[ft])
                     break
 
-            tid = feature.split("_")[-1]
-            y = df.select(feature).collect(streaming=True).to_numpy().flatten()
-            # ax[0].scatter(x=["inoperational"] * y.shape[0], y=y, color="blue", label="inoperational measurements")
-            ax[ax_idx].scatter(x=[tid] * y.shape[0], y=y, color="blue", label="all measurements")
-            
-            y = df.filter(mask(tid)).select(feature).collect(streaming=True).to_numpy().flatten()
-            # ax[0].scatter(x=["operational"] * y.shape[0], y=y, color="red")
-            ax[ax_idx].scatter(x=[tid] * y.shape[0], y=y, color="red", label="operational and null measurements")
-            
-        
+            # Plot all measurements
+            y_all = df.select(feature).collect(streaming=True).to_numpy().flatten()
+            ax[ax_idx].scatter(x=[tid] * len(y_all), y=y_all, color="blue", label="All Measurements")
+
+            # Plot filtered measurements
+            y_filtered = df.filter(mask_array).select(feature).collect(streaming=True).to_numpy().flatten()
+            ax[ax_idx].scatter(x=[tid] * len(y_filtered), y=y_filtered, color="red", label="Filtered Measurements")
+
         ax[-1].set_xlabel("Turbine ID")
-        h, l = ax[-1].get_legend_handles_labels()
-        ax[-1].legend(h[:2], l[:2])
-        del y
+        # Avoid duplicate labels
+        handles, labels = ax[-1].get_legend_handles_labels()
+        by_label = dict(zip(labels, handles))
+        ax[-1].legend(by_label.values(), by_label.keys())
+        plt.show()
 
     @staticmethod
-    def print_pc_unfiltered_vals(df, features, mask):
+    def print_pc_unfiltered_vals(df, features, mask_func):
         out = []
         for feature in features:
-            turbine_id = feature.split("_")[-1]
-            pc_unfiltered_vals = 100 * (
-                df.filter(mask(turbine_id)).select(pl.len()).collect(streaming=True).item() 
-                / df.select(pl.len()).collect(streaming=True).item() 
-            )
-            print(f"Feature {feature} has {pc_unfiltered_vals} % unfiltered values.")
-            out.append((feature, pc_unfiltered_vals))
-            #   qa.describe(DataInspector.collect_data(df=df_query, feature_types=feature_type, turbine_ids=[turbine_id], mask=out_of_window[:, t_idx]))
+            tid = feature.split("_")[-1]
+            mask_array = mask_func(tid)
+            if mask_array is None:
+                logging.info(f"Mask error for turbine {tid}: mask is None")
+                continue
+            try:
+                pc_unfiltered_vals = 100 * (
+                    df.filter(mask_array)
+                    .select(pl.len())
+                    .collect(streaming=True)
+                    .item()
+                    / df.select(pl.len()).collect(streaming=True).item()
+                )
+                print(f"Feature {feature} has {pc_unfiltered_vals:.2f}% unfiltered values.")
+                out.append((feature, pc_unfiltered_vals))
+            except Exception as e:
+                logging.error(f"Error processing feature {feature}: {str(e)}")
         return out
 
     def get_features(self, df, feature_types, turbine_ids="all"):
+        """Get feature columns based on mapping and turbine ID."""
         data_format = self.detect_data_format(df)
         if feature_types is not None and not isinstance(feature_types, list):
             feature_types = [feature_types]
         
         cols = df.collect_schema().names()
         if data_format == 'wide':
-            if turbine_ids == "all":
-                return sorted([col for col in cols if any(feat in col for feat in feature_types)])
-            elif isinstance(turbine_ids, str):
-                return sorted([col for col in cols if any((feat in col and turbine_ids in col) or (feat == col) for feat in feature_types)])
-            else:
-                return sorted([col for col in cols if any((feat in col and tid in col) or (feat == col) for feat in feature_types for tid in turbine_ids)])
+            matching_cols = []
+            for feature_type in feature_types:
+                # Get the possible feature names from mapping
+                mapped_features = self.feature_mapping.get(feature_type, [feature_type])
+                
+                if turbine_ids == "all":
+                    new_cols = [col for col in cols if any(feat in col for feat in mapped_features)]
+                elif isinstance(turbine_ids, str):
+                    new_cols = [col for col in cols if any((feat in col and turbine_ids in col) or (feat == col) 
+                                                         for feat in mapped_features)]
+                else:
+                    new_cols = [col for col in cols if any((feat in col and tid in col) or (feat == col) 
+                                                         for feat in mapped_features for tid in turbine_ids)]
+                matching_cols.extend(new_cols)
+            
+            return sorted(matching_cols)
         else:  # long format
             return sorted([col for col in cols if col in feature_types])
 
@@ -555,7 +705,7 @@ class DataInspector:
             df = df.filter(mask)
 
         if to_pandas:
-            return df.collect(streaming=True).to_pandas()
+            return df.collect().to_pandas()
         else:
             return df.collect(streaming=True)
 
@@ -573,7 +723,8 @@ class DataInspector:
             else:
                 return pl.concat([
                     df.select(pl.col("time"), cs.starts_with(feature_type))\
-                    .melt(id_vars=["time"], variable_name="feature", value_name=feature_type)\
+                    # .melt(id_vars=["time"], variable_name="feature", value_name=feature_type)\
+                    .unpivot(index=["time"], variable_name="feature", value_name=feature_type)
                     .with_columns(pl.col("feature").str.extract(r"(wt\d+)").alias("turbine_id"))\
                     .drop("feature") for feature_type in feature_types], how="align")\
                     .group_by("turbine_id", "time").agg(cs.numeric().drop_nulls().first()).sort("turbine_id", "time")
@@ -656,11 +807,11 @@ class DataInspector:
 
         return fig, ax
 
-    def plot_wind_offset(self, df, title, turbine_ids):
+    def plot_wind_offset(self, full_df, title, turbine_ids):
         _, ax = plt.subplots(1, 1)
         for turbine_id in turbine_ids:
             # df = full_df.filter(pl.col(f"power_output_{turbine_id}") >= 0).select("time", f"wind_direction_{turbine_id}").collect()
-            df = df.filter(pl.col(f"power_output_{turbine_id}") >= 0)\
+            df = full_df.filter(pl.col(f"power_output_{turbine_id}") >= 0)\
                         .select("time", cs.starts_with("wind_direction"), "wd_median")
                         
             ax.plot(df.select("time").collect().to_numpy().flatten(),
@@ -800,4 +951,18 @@ class DataInspector:
         # 3. Calculate and display mutual information scores
         logging.info(f"Calculating Mutual Information scores for target turbine: {target_turbine}")
         self.calculate_and_display_mutual_info_scores(X_filtered, y, feature_names_filtered, sequence_length, prediction_horizon)
-        
+
+    @staticmethod
+    def print_df_state(df_query, feature_types=None):
+        if feature_types is None:
+            feature_types = ["wind_speed", "wind_direction"]
+        print("% unique values", pl.concat([df_query.select(cs.starts_with(feat_type))\
+                                                            .select((100 * pl.min_horizontal(pl.all().drop_nulls().n_unique()) 
+                                                                     / pl.len()).alias(f"{feat_type}_min_n_unique"), 
+                                                                    (100 * pl.max_horizontal(pl.all().drop_nulls().n_unique())
+                                                                     / pl.len()).alias(f"{feat_type}_max_n_unique"))\
+                                                            .collect() for feat_type in feature_types], how="horizontal"), sep="\n")
+        print("% non-null values", pl.concat([df_query.select(cs.starts_with(feat_type))\
+                                                            .select((100 * pl.min_horizontal(pl.all().count()) / pl.len()).alias(f"{feat_type}_min_non_null"), 
+                                                                    (100 * pl.max_horizontal(pl.all().count()) / pl.len()).alias(f"{feat_type}_max_non_null"))\
+                                                            .collect() for feat_type in feature_types], how="horizontal"), sep="\n")
