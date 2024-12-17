@@ -7,6 +7,7 @@ Returns:
 import logging
 
 import numpy as np
+import numpy.ma as ma
 import polars as pl
 import polars.selectors as cs
 # from scipy.stats import entropy
@@ -332,13 +333,22 @@ class DataFilter:
                 logging.info(f"JS Score for feature {feat} = {js_score}")
                 js_scores.append(js_score)
                 
+                if js_score > threshold:
+                    new_data = ma.filled(ma.array(df.select(pl.col(feat)).collect().to_numpy(), mask=~mask(tid)), fill_value=np.nan)
+                    df = df.with_columns({feat: new_data}).with_columns(pl.col(feat).fill_nan(None).alias(feat))
+                
                 # if js_score > threshold:
                     # df = df.with_columns(pl.when(mask(tid)).then(pl.col(feat)).otherwise(None).alias(feat))
-            df = df.with_columns({feat: pl.when(mask(feat.split("_")[-1]) & js_score > threshold).then(pl.col(feat)).otherwise(None) for js_score, feat in zip(js_scores, features)})
+            # df = df.with_columns({feat: pl.when(mask(feat.split("_")[-1]) & js_score > threshold).then(pl.col(feat)).otherwise(None) for js_score, feat in zip(js_scores, features)})
                     
         else:
-            # df = df.with_columns(pl.when(mask(tid)).then(pl.col(feat)).otherwise(None).alias(feat))
-            df = df.with_columns({feat: pl.when(mask(feat.split("_")[-1])).then(pl.col(feat)).otherwise(None) for feat in features})
+            # df = df.with_columns({feat: pl.when(mask(feat.split("_")[-1])).then(pl.col(feat)).otherwise(None) for feat in features})
+            for feat in features:
+                tid = feat.split("_")[-1]
+                new_data = ma.filled(ma.array(df.select(pl.col(feat)).collect().to_numpy(), mask=~mask(tid)), fill_value=np.nan)
+                df = df.with_columns({feat: new_data}).with_columns(pl.col(feat).fill_nan(None).alias(feat))
+                # df = df.with_columns(pl.when(mask(tid)).then(pl.col(feat)).otherwise(None).alias(feat))
+                logging.info(f"Applied filter to feature {feat}.")
         
         return df
 
