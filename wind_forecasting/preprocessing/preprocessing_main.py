@@ -359,14 +359,6 @@ if __name__ == "__main__":
             ws_mask = lambda tid: safe_mask(tid, outlier_flag=frozen_sensors["wind_speed"], turbine_id_to_index=turbine_id_to_index)
             wd_mask = lambda tid: safe_mask(tid, outlier_flag=frozen_sensors["wind_direction"], turbine_id_to_index=turbine_id_to_index)
             
-            # change the values corresponding to frozen sensor measurements to null or interpolate (instead of dropping full row, since other sensors could be functioning properly)
-            # fill stuck sensor measurements with Null st they are marked for interpolation later,
-            threshold = 0.01
-            logging.info("Nullifying wind speed frozen sensor measurements in dataframe.")
-            df_query = data_filter.conditional_filter(df_query, threshold, ws_mask, ws_cols, check_js=False)
-            logging.info("Nullifying wind direction frozen sensor measurements in dataframe.")
-            df_query = data_filter.conditional_filter(df_query, threshold, wd_mask, wd_cols, check_js=False)
-            
             # check time series
             if PLOT:
                 for feature_type, mask in frozen_sensors.items():
@@ -385,10 +377,20 @@ if __name__ == "__main__":
                 DataInspector.print_pc_unfiltered_vals(df_query, wd_cols, wd_mask)
                 DataInspector.plot_filtered_vs_unfiltered(df_query, ws_mask, ws_cols, ["wind_speed"], ["Wind Speed [m/s]"])
                 DataInspector.plot_filtered_vs_unfiltered(df_query, wd_mask, wd_cols, ["wind_direction"], ["Wind Direction [deg]"])
+
+            # change the values corresponding to frozen sensor measurements to null or interpolate (instead of dropping full row, since other sensors could be functioning properly)
+            # fill stuck sensor measurements with Null st they are marked for interpolation later,
+            threshold = 0.01
+            logging.info("Nullifying wind speed frozen sensor measurements in dataframe.")
+            df_query = data_filter.conditional_filter(df_query, threshold, ws_mask, ws_cols, check_js=False)
+            logging.info("Nullifying wind direction frozen sensor measurements in dataframe.")
+            df_query = data_filter.conditional_filter(df_query, threshold, wd_mask, wd_cols, check_js=False)
+            
+            del frozen_sensors, ws_mask, wd_mask
+            
+            if PLOT:
                 DataInspector.print_df_state(df_query, ["wind_speed", "wind_direction"])
                 data_inspector.plot_time_series(df_query.head(1000), feature_types=["wind_speed", "wind_direction"], turbine_ids=["wt001"], continuity_groups=None) 
-
-            del frozen_sensors, ws_mask, wd_mask
 
         # %%
         if "inoperational" in FILTERS:
@@ -467,7 +469,6 @@ if __name__ == "__main__":
             # check if wind speed/dir measurements from inoperational turbines differ from fully operational 
             mask = lambda tid: safe_mask(tid, outlier_flag=out_of_window, turbine_id_to_index=turbine_id_to_index)
 
-            
             if PLOT:
                 DataInspector.print_pc_unfiltered_vals(df_query, ws_cols, mask)
                 DataInspector.plot_filtered_vs_unfiltered(df_query, mask, ws_cols, ["wind_speed"], ["Wind Speed [m/s]"])
@@ -564,7 +565,6 @@ if __name__ == "__main__":
                                             outlier_flag=std_dev_outliers[:, [i for i, c in enumerate(sorted(ws_cols + wd_cols)) if "wind_direction" in c]], 
                                             turbine_id_to_index=turbine_id_to_index)
             
-            
             # check time series
             if PLOT:
                 DataInspector.print_pc_unfiltered_vals(df_query, ws_cols, ws_mask)
@@ -584,7 +584,6 @@ if __name__ == "__main__":
             if PLOT:
                 DataInspector.print_df_state(df_query, ["wind_speed", "wind_direction"])
                 data_inspector.plot_time_series(df_query.head(1000), feature_types=["wind_speed", "wind_direction"], turbine_ids=["wt001"], continuity_groups=None)
-
     
         df_query.collect().write_parquet(PL_SAVE_PATH.replace(".parquet", "_filtered.parquet"), statistics=False)
     else:
