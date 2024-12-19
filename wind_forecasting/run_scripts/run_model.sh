@@ -15,6 +15,7 @@ mamba activate wind_forecasting
 cd /home/ahenry/toolboxes/wind_forecasting_env/wind-forecasting/wind_forecasting/models
 
 echo $SLURM_NTASKS
-srun python run_model.py
+# srun python run_model.py
+sru
 #python train_spacetimeformer.py spacetimeformer windfarm --debug --run_name spacetimeformer_windfarm_debug --context_points 600 --target_points 600
 # salloc --account=ssc --time=01:00:00 --mem-per-cpu=64G --gpus=2 --ntasks-per-node=2 --partition=debug
