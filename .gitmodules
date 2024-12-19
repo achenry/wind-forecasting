@@ -10,3 +10,6 @@
 [submodule "wind_forecasting/models/pytorch_transformer_ts"]
 	path = wind_forecasting/models/pytorch_transformer_ts
 	url = https://github.com/boujuan/pytorch-transformer-ts
+[submodule "wind_forecasting/models/pytorch-transformer-ts"]
+	path = wind_forecasting/models/pytorch-transformer-ts
+	url = https://github.com/boujuan/pytorch-transformer-ts/tree/feature/spacetimeformer
