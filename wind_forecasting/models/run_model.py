@@ -91,7 +91,8 @@ if __name__ == "__main__":
 
     if platform == "darwin":
         LOG_DIR = "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/logging/"
-        DATA_PATH = "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/short_loaded_data_calibrated_filtered_split_imputed_normalized.parquet"
+        # DATA_PATH = "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/short_loaded_data_calibrated_filtered_split_imputed_normalized.parquet"
+        DATA_PATH = "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/short_loaded_data_normalized.parquet"
         NORM_CONSTS = pd.read_csv("/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/normalization_consts.csv", index_col=None)
         n_workers = mp.cpu_count()
         accelerator = "auto"
