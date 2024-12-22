@@ -37,18 +37,18 @@ class DataInspector:
     """
     
     # INFO: @Juan 11/17/24 Added feature_mapping to allow for custom feature mapping, which is required for different data sources
-    def __init__(self, turbine_input_filepath: str, farm_input_filepath: str, data_format='auto', feature_mapping=None):
+    def __init__(self, turbine_input_filepath: str, farm_input_filepath: str, data_format='auto'):
         self._validate_input_data(turbine_input_filepath=turbine_input_filepath, farm_input_filepath=farm_input_filepath)
         self.turbine_input_filepath = turbine_input_filepath
         self.farm_input_filepath = farm_input_filepath
         self.data_format = data_format
         # Default feature mapping
-        self.feature_mapping = feature_mapping or {
-            "power_output": ["power_output"],
-            "wind_speed": ["wind_speed"],
-            "wind_direction": ["wind_direction"],
-            "nacelle_direction": ["nacelle_direction"]
-        }
+        # self.feature_mapping = feature_mapping or {
+        #     "power_output": ["power_output"],
+        #     "wind_speed": ["wind_speed"],
+        #     "wind_direction": ["wind_direction"],
+        #     "nacelle_direction": ["nacelle_direction"]
+        # }
         
     # INFO: @Juan 10/18/24 Added method to detect data format automatically (wide or long)
     def detect_data_format(self, df: pl.LazyFrame) -> str:

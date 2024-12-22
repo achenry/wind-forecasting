@@ -5,6 +5,7 @@ Returns:
 """
 
 import logging
+from datetime import timedelta
 
 import numpy as np
 import numpy.ma as ma
@@ -13,8 +14,7 @@ import polars.selectors as cs
 # from scipy.stats import entropy
 # from scipy.spatial.distance import jensenshannon
 # from scipy.special import kl_div
-from wind_forecasting.preprocessing.OpenOA.openoa.utils import imputing, filters
-
+from openoa.utils import imputing, filters
 from mpi4py import MPI
 from mpi4py.futures import MPICommExecutor
 from concurrent.futures import ProcessPoolExecutor
@@ -468,7 +468,7 @@ def merge_adjacent_periods(agg_df, dt):
     start_time_idx = 0
     for end_time_idx in range(all_times.select(pl.len()).item()):
         end_time = all_times.item(end_time_idx, "end_time") 
-        if not (end_time_idx + 1 == all_times.select(pl.len()).item()) and (end_time + np.timedelta64(dt, "s")  == all_times.item(end_time_idx + 1, "start_time")):
+        if not (end_time_idx + 1 == all_times.select(pl.len()).item()) and (end_time + timedelta(seconds=dt)  == all_times.item(end_time_idx + 1, "start_time")):
             continue
         
         data["start_time"].append(all_times.item(start_time_idx, "start_time"))
