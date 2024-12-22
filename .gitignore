@@ -25,6 +25,7 @@ examples/data
 examples/postprocessed
 examples/other
 examples/inputs/awaken_data
+examples/checkpoints/
 examples/logging/
 examples/logging/*
 examples/logging/wandb/*
