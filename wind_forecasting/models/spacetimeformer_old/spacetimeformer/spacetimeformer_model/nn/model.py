@@ -253,6 +253,7 @@ class Spacetimeformer(nn.Module):
         self.reconstructor = nn.Linear(d_model, recon_dim, bias=True)
         self.classifier = nn.Linear(d_model, d_yc, bias=True)
 
+    # for training I think?
     def forward(
         self,
         enc_x,

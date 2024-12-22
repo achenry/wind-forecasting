@@ -5,6 +5,7 @@ Returns:
 """
 
 import logging
+from datetime import timedelta
 
 import numpy as np
 import numpy.ma as ma
@@ -13,8 +14,7 @@ import polars.selectors as cs
 # from scipy.stats import entropy
 # from scipy.spatial.distance import jensenshannon
 # from scipy.special import kl_div
-from wind_forecasting.preprocessing.OpenOA.openoa.utils import imputing, filters
-
+from openoa.utils import imputing, filters
 from mpi4py import MPI
 from mpi4py.futures import MPICommExecutor
 from concurrent.futures import ProcessPoolExecutor
@@ -334,8 +334,8 @@ class DataFilter:
                 js_scores.append(js_score)
                 
                 if js_score > threshold:
-                    new_data = ma.filled(ma.array(df.select(pl.col(feat)).collect().to_numpy(), mask=~mask(tid)), fill_value=np.nan)
-                    df = df.with_columns({feat: new_data}).with_columns(pl.col(feat).fill_nan(None).alias(feat))
+                    new_data = ma.filled(ma.array(df.select(pl.col(feat)).collect().to_numpy().flatten(), mask=mask(tid), fill_value=np.nan))
+                    df = df.with_columns(**{feat: new_data}).with_columns(pl.col(feat).fill_nan(None).alias(feat))
                 
                 # if js_score > threshold:
                     # df = df.with_columns(pl.when(mask(tid)).then(pl.col(feat)).otherwise(None).alias(feat))
@@ -345,8 +345,8 @@ class DataFilter:
             # df = df.with_columns({feat: pl.when(mask(feat.split("_")[-1])).then(pl.col(feat)).otherwise(None) for feat in features})
             for feat in features:
                 tid = feat.split("_")[-1]
-                new_data = ma.filled(ma.array(df.select(pl.col(feat)).collect().to_numpy(), mask=~mask(tid)), fill_value=np.nan)
-                df = df.with_columns({feat: new_data}).with_columns(pl.col(feat).fill_nan(None).alias(feat))
+                new_data = ma.filled(ma.array(df.select(pl.col(feat)).collect().to_numpy().flatten(), mask=mask(tid), fill_value=np.nan))
+                df = df.with_columns(**{feat: new_data}).with_columns(pl.col(feat).fill_nan(None).alias(feat))
                 # df = df.with_columns(pl.when(mask(tid)).then(pl.col(feat)).otherwise(None).alias(feat))
                 logging.info(f"Applied filter to feature {feat}.")
         
@@ -407,7 +407,8 @@ class DataFilter:
         return y
     
 def add_df_continuity_columns(df, mask, dt):
-    # change first value of continuous_shifted to false such that add_df_agg_continuity_columns catches it as a start time for a period 
+    # change first value of continuous_shifted to false such that add_df_agg_continuity_columns catches it as a start time for a period
+    # df.filter(df.select("time").collect().to_numpy().flatten() >= datetime.datetime(2022, 3, 2, 0, 0)).head(10).collect() TODO there are duplicate timestamps 
     return df\
             .filter(mask)\
             .with_columns(dt=pl.col("time").diff())\
@@ -418,7 +419,7 @@ def add_df_continuity_columns(df, mask, dt):
 
 def add_df_agg_continuity_columns(df):
     # if the continuous flag is True, but the value in the row before it False
-    df = df.filter(pl.col("continuous") | (pl.col("continuous") & ~pl.col("continuous_shifted")) |  (~pl.col("continuous") & pl.col("continuous_shifted")))
+    df = df.filter(pl.col("continuous") | (~pl.col("continuous") & pl.col("continuous_shifted")))
     start_time_cond = ((pl.col("continuous") & ~pl.col("continuous_shifted"))).shift() | (pl.int_range(0, pl.len()) == 0)
     end_time_cond = (~pl.col("continuous") & pl.col("continuous_shifted")) | (pl.int_range(0, pl.len()) == pl.len() - 1) 
     return pl.concat([df.filter(start_time_cond).select(start_time=pl.col("time")), 
@@ -467,7 +468,7 @@ def merge_adjacent_periods(agg_df, dt):
     start_time_idx = 0
     for end_time_idx in range(all_times.select(pl.len()).item()):
         end_time = all_times.item(end_time_idx, "end_time") 
-        if not (end_time_idx + 1 == all_times.select(pl.len()).item()) and (end_time + np.timedelta64(dt, "s")  == all_times.item(end_time_idx + 1, "start_time")):
+        if not (end_time_idx + 1 == all_times.select(pl.len()).item()) and (end_time + timedelta(seconds=dt)  == all_times.item(end_time_idx + 1, "start_time")):
             continue
         
         data["start_time"].append(all_times.item(start_time_idx, "start_time"))
@@ -564,7 +565,7 @@ def compute_offsets(df, fi, turbine_pairs:list[tuple[int, int]]=None, plot=False
 def safe_mask(tid, outlier_flag, turbine_id_to_index):
     try:
         idx = turbine_id_to_index[tid]
-        mask_array = ~outlier_flag[:, idx]
+        mask_array = outlier_flag[:, idx]
         # logging.info(f"Mask for turbine {tid} includes {np.sum(~mask_array)} out of {len(mask_array)} data points")
         return mask_array
     except KeyError:

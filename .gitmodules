@@ -1,24 +1,15 @@
 [submodule "models/spacetimeformer"]
 	path = models/spacetimeformer
 	url = git@github.com:achenry/spacetimeformer.git
-[submodule "models/Informer2020"]
-	path = models/Informer2020
-	url = git@github.com:achenry/Informer2020.git
-[submodule "models/Autoformer"]
-	path = models/Autoformer
-	url = git@github.com:achenry/Autoformer.git
 [submodule "wind_forecasting/preprocessing/OpenOA"]
 	path = wind_forecasting/preprocessing/OpenOA
-	url = https://github.com/achenry/OpenOA
-[submodule "wind_forecasting/wind_forecasting/models/pytorch-transformer-ts"]
-	path = wind_forecasting/wind_forecasting/models/pytorch-transformer-ts
-	url = https://github.com/boujuan/pytorch-transformer-ts
-[submodule "wind_forecasting/models/pytorch-transformer-ts"]
-	path = wind_forecasting/models/pytorch-transformer-ts
-	url = https://github.com/boujuan/pytorch-transformer-ts
-[submodule "wind_forecasting/preprocessing/--force"]
-	path = wind_forecasting/preprocessing/--force
-	url = https://github.com/achenry/OpenOA
+	url = https://github.com/achenry/OpenOA/tree/main
 [submodule "openoa_polars"]
 	path = wind_forecasting/preprocessing/OpenOA
 	url = https://github.com/achenry/OpenOA
+[submodule "wind_forecasting/models/pytorch_transformer_ts"]
+	path = wind_forecasting/models/pytorch_transformer_ts
+	url = https://github.com/boujuan/pytorch-transformer-ts
+[submodule "wind_forecasting/models/pytorch-transformer-ts"]
+	path = wind_forecasting/models/pytorch-transformer-ts
+	url = https://github.com/boujuan/pytorch-transformer-ts/tree/feature/spacetimeformer
