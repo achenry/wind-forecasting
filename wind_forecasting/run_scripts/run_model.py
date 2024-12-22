@@ -3,7 +3,7 @@
 # pip3 install torch torchvision torchaudio lightning
 # cd /home/ahenry/toolboxes/wind_forecasting_env/wind-forecasting/wind_forecasting/models/spacetimeformer
 # pip install -r requirements.txt && pip install -e .
-
+    
 from wind_forecasting.datasets.wind_farm import KPWindFarm
 import os
 from wind_forecasting.run_scripts.helpers import TorchDataModule
@@ -14,22 +14,25 @@ import uuid
 warnings.filterwarnings(action="ignore", category=FutureWarning)
 from sys import platform
 
-if __name__ == "__main__":
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
 
+if __name__ == "__main__":
+    
     if platform == "darwin":
         DATA_PATH = "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/normalized_data.parquet"
     elif platform == "linux":
-        DATA_PATH = "/projects/ssc/ahenry/wind_forecasting/awaken_data/normalized_data.parquet/"
+        DATA_PATH = os.path.join(PROJECT_ROOT, "examples/inputs/sample/sample_with_continuity.parquet")
     # Configuration
     config = {
         "experiment" : {"run_name": "windfarm_debug",
                         "debug": True # TODO use small datasets, input_cols, target_turbine_ids, context_len, target_len
                         },
-        "data": {"data_path": "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/normalized_data.parquet",
+        "data": {"data_path": DATA_PATH,
                 "context_len": 10, #120, # 10 minutes for 5 sec sample size,
                 "target_len": 10, # 120, # 10 minutes for 5 sec sample size,
                 "target_turbine_ids": ["wt029", "wt034", "wt074"],
-                "normalize": False, 
+                "normalize": False,
+                "normalization_consts": None,
                 "batch_size": 128,
                 "workers": 6,
                 "overfit": False,
@@ -70,7 +73,7 @@ if __name__ == "__main__":
     filename = f"{config['experiment']['run_name']}_" + str(uuid.uuid1()).split("-")[0]
     model_ckpt_dir = os.path.join(log_dir, filename)
     config["experiment"]["model_ckpt_dir"] = model_ckpt_dir
-    saving = L.callbacks.ModelCheckpoint(
+    saving = L.pytorch.callbacks.ModelCheckpoint(
         dirpath=model_ckpt_dir,
         monitor="val/loss",
         mode="min",

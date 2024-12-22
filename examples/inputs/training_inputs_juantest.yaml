@@ -1,0 +1,24 @@
+experiment:
+  run_name: windfarm_debug
+  debug: true # TODO use small datasets, input_cols, target_turbine_ids, context_len, target_len
+data:
+  data_path: "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/normalized_data.parquet"
+  context_len: 10 # 120, # 10 minutes for 5 sec sample size,
+  target_len: 10 # 120, # 10 minutes for 5 sec sample size,
+  target_turbine_ids: ["wt029", "wt034", "wt074"]
+  normalize: false
+  batch_size: 128
+  workers: 6
+  overfit: false
+  test_split: 0.15
+  val_split: 0.15
+  collate_fn: null
+model:
+  model_cls: spacetimeformer_model.Spacetimeformer_Forecaster # TODO these should all be defined in one models directory
+training:
+  grad_clip_norm: 0.0
+  limit_val_batches: 1.0
+  val_check_interval: 1.0
+  debug: false
+  accumulate: 1.0
+
