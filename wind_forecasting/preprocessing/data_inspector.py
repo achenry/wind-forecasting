@@ -37,18 +37,18 @@ class DataInspector:
     """
     
     # INFO: @Juan 11/17/24 Added feature_mapping to allow for custom feature mapping, which is required for different data sources
-    def __init__(self, turbine_input_filepath: str, farm_input_filepath: str, data_format='auto', feature_mapping=None):
+    def __init__(self, turbine_input_filepath: str, farm_input_filepath: str, data_format='auto'):
         self._validate_input_data(turbine_input_filepath=turbine_input_filepath, farm_input_filepath=farm_input_filepath)
         self.turbine_input_filepath = turbine_input_filepath
         self.farm_input_filepath = farm_input_filepath
         self.data_format = data_format
         # Default feature mapping
-        self.feature_mapping = feature_mapping or {
-            "power_output": ["power_output"],
-            "wind_speed": ["wind_speed"],
-            "wind_direction": ["wind_direction"],
-            "nacelle_direction": ["nacelle_direction"]
-        }
+        # self.feature_mapping = feature_mapping or {
+        #     "power_output": ["power_output"],
+        #     "wind_speed": ["wind_speed"],
+        #     "wind_direction": ["wind_direction"],
+        #     "nacelle_direction": ["nacelle_direction"]
+        # }
         
     # INFO: @Juan 10/18/24 Added method to detect data format automatically (wide or long)
     def detect_data_format(self, df: pl.LazyFrame) -> str:
@@ -64,7 +64,8 @@ class DataInspector:
         
         # valid_turbines = df.select("turbine_id").unique().filter(pl.col("turbine_id").is_in(turbine_ids)).collect(streaming=True).to_numpy()[:, 0]
         cols = df.collect_schema().names()
-        available_turbines = np.unique([re.findall(f"(?<=wind_direction_)(.*)", col)[0] for col in cols if "wind_direction" in col])
+        # available_turbines = np.unique([re.findall(f"(?<=wind_direction_)(.*)", col)[0] for col in cols if "wind_direction" in col])
+        available_turbines = np.unique([col.split("_")[-1] for col in cols])
 
         if turbine_ids == "all":
             valid_turbines = available_turbines
@@ -96,9 +97,9 @@ class DataInspector:
             raise FileNotFoundError(f"Farm input file not found: {farm_input_filepath}")
 
 
-    def plot_time_series(self, df_query, turbine_ids: list[str], feature_mapping: dict = None, feature_types:Optional[list]=None, feature_labels:Optional[list]=None, continuity_groups: Optional[list]=None) -> None:
+    def plot_time_series(self, df_query, turbine_ids: list[str], feature_types:Optional[list] = None, feature_labels:Optional[list] = None, continuity_groups: Optional[list] = None, scatter = False) -> None:
         # Use provided feature mapping or fall back to instance default
-        current_mapping = feature_mapping or self.feature_mapping
+        # current_mapping = feature_mapping or self.feature_mapping
         
         if feature_types is None:
             feature_types = ["wind_speed", "wind_direction", "nacelle_direction", "power_output"]
@@ -109,7 +110,7 @@ class DataInspector:
         if isinstance(turbine_ids, str):
             turbine_ids = [turbine_ids]  # Convert single ID to list
         
-        valid_turbines = self._get_valid_turbine_ids(df_query, turbine_ids=turbine_ids)
+        valid_turbines = self._get_valid_turbine_ids(df_query.select([cs.starts_with(feat_type) for feat_type in feature_types]), turbine_ids=turbine_ids)
          
         sns.set_style("whitegrid")
         sns.set_palette("deep")
@@ -123,21 +124,24 @@ class DataInspector:
                     ax = [ax]
                 for f, feat in enumerate(feature_types):
                     # map feature name
-                    feat_col =  f"{current_mapping[feat][0]}"
-                    available_cols = ["time"]
-                    if all(f"{feat_col}_{tid}" in columns for tid in valid_turbines):
-                        available_cols.append(feat_col)
-                    else:
-                        print(f"Warning: Column {feat_col} not found in data for {valid_turbines}")
-                        print(f"No valid data columns found for {valid_turbines}")
-                        continue
+                    # feat_col =  f"{current_mapping[feat][0]}"
+                    # available_cols = ["time"]
+                    # if all(f"{feat_col}_{tid}" in columns for tid in valid_turbines):
+                    #     available_cols.append(feat_col)
+                    # else:
+                    #     print(f"Warning: Column {feat_col} not found in data for {valid_turbines}")
+                    #     print(f"No valid data columns found for {valid_turbines}")
+                    #     continue
                     
                     feature_df = df_query.filter(pl.col("continuity_group") == cg)\
                                  .select(pl.col("time"), cs.starts_with(feat))
                     
                     for tid in valid_turbines:
                         turbine_df = feature_df.select([pl.col("time"), cs.ends_with(tid)]).collect().to_pandas()
-                        sns.lineplot(data=turbine_df, x='time', y=f'{feat}_{tid}', ax=ax[f], label=f'{tid}')
+                        if scatter:
+                            sns.scatterplot(data=turbine_df, x='time', y=f'{feat}_{tid}', ax=ax[f], label=f'{tid}')
+                        else:
+                            sns.lineplot(data=turbine_df, x='time', y=f'{feat}_{tid}', ax=ax[f], label=f'{tid}')
                         
                     ax[f].set_title(f"{feature_labels[f]} for CG {int(cg)}", fontsize=14)
                     ax[f].set_xlabel("Time [s]")
@@ -149,20 +153,23 @@ class DataInspector:
                 ax = [ax]
             for f, feat in enumerate(feature_types):
                 # map feature name
-                feat_col =  f"{current_mapping[feat][0]}"
-                available_cols = ["time"]
-                if all(f"{feat_col}_{tid}" in columns for tid in valid_turbines):
-                    available_cols.append(feat_col)
-                else:
-                    print(f"Warning: Column {feat_col} not found in data for {valid_turbines}")
-                    print(f"No valid data columns found for {valid_turbines}")
-                    continue
+                # feat_col =  f"{current_mapping[feat][0]}"
+                # available_cols = ["time"]
+                # if all(f"{feat_col}_{tid}" in columns for tid in valid_turbines):
+                #     available_cols.append(feat_col)
+                # else:
+                #     print(f"Warning: Column {feat_col} not found in data for {valid_turbines}")
+                #     print(f"No valid data columns found for {valid_turbines}")
+                #     continue
                     
                 feature_df = df_query.select(pl.col("time"), cs.starts_with(feat))
                              
                 for tid in valid_turbines:
                     turbine_df = feature_df.select([pl.col("time"), cs.ends_with(tid)]).collect().to_pandas()
-                    sns.lineplot(data=turbine_df, x='time', y=f'{feat}_{tid}', ax=ax[f], label=f'{tid}')
+                    if scatter:
+                        sns.scatterplot(data=turbine_df, x='time', y=f'{feat}_{tid}', ax=ax[f], label=f'{tid}')
+                    else:
+                        sns.lineplot(data=turbine_df, x='time', y=f'{feat}_{tid}', ax=ax[f], label=f'{tid}')
                 
                 ax[f].set_title(f"{feature_labels[f]}")
                 ax[f].set_xlabel("Time [s]")
