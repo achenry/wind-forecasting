@@ -182,7 +182,8 @@ class Forecaster(L.LightningModule, ABC):
 
     def nan_to_num(self, *inps):
         return (torch.nan_to_num(i) for i in inps)
-
+    
+    # for prediction I think?
     def forward(
         self,
         x_c: torch.Tensor,

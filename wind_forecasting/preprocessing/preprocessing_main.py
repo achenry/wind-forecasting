@@ -21,7 +21,7 @@ from wind_forecasting.preprocessing.data_filter import (DataFilter,
                                                         get_continuity_group_index, group_df_by_continuity, 
                                                         merge_adjacent_periods, compute_offsets, safe_mask)
 from wind_forecasting.preprocessing.data_inspector import DataInspector
-from wind_forecasting.preprocessing.OpenOA.openoa.utils import plot, filters, power_curve
+from openoa.utils import plot, filters, power_curve
 
 import polars as pl
 import polars.selectors as cs
@@ -60,13 +60,13 @@ if __name__ == "__main__":
         FEATURES = ["time", "turbine_id", "turbine_status", "wind_direction", "wind_speed", "power_output", "nacelle_direction"]
         WIDE_FORMAT = False
         COLUMN_MAPPING = {"time": "date",
-                                "turbine_id": "turbine_id",
-                                "turbine_status": "WTUR.TurSt",
-                                "wind_direction": "WMET.HorWdDir",
-                                "wind_speed": "WMET.HorWdSpd",
-                                "power_output": "WTUR.W",
-                                "nacelle_direction": "WNAC.Dir"
-                                }
+                            "turbine_id": "turbine_id",
+                            "turbine_status": "WTUR.TurSt",
+                            "wind_direction": "WMET.HorWdDir",
+                            "wind_speed": "WMET.HorWdSpd",
+                            "power_output": "WTUR.W",
+                            "nacelle_direction": "WNAC.Dir"
+                            }
         # Data configuration
         DT = 5  # Time step in seconds
         CHUNK_SIZE = 100000
@@ -135,7 +135,6 @@ if __name__ == "__main__":
         logging.info("🔄 Loading existing Parquet file")
         df_query = pl.scan_parquet(source=data_loader.save_path)
         logging.info("✅ Loaded existing Parquet file successfully")
-        assert df_query.select("time").collect().is_sorted(), "Loaded data should be sorted by time!"
     else:
         logging.info("🔄 Processing new data files")
         df_query = data_loader.read_multi_files()
@@ -146,31 +145,36 @@ if __name__ == "__main__":
         else:
             logging.warning("⚠️ No data was processed")
     
+    
     data_loader.available_features = sorted(df_query.collect_schema().names())
     data_loader.turbine_ids = sorted(set(col.split("_")[-1] for col in data_loader.available_features if "wt" in col))
+
+    assert all(any(prefix in col for col in data_loader.available_features) for prefix in ["time", "wind_speed_", "wind_direction_", "turbine_status_", "nacelle_direction_", "power_output_"]), "DataFrame must contain columns 'time', then columns with prefixes 'wind_speed_', 'wind_direction_', 'power_output_', 'turbine_status_', 'nacelle_direction_'"
+    assert df_query.select("time").collect().to_series().is_sorted(), "Loaded data should be sorted by time!"
+    assert all(any(f"{prefix}{tid}" in col for col in data_loader.available_features if col != "time") for prefix in ["wind_speed_", "wind_direction_", "turbine_status_", "nacelle_direction_", "power_output_"] for tid in data_loader.turbine_ids), "DataFrame must contain columns with prefixes 'wind_speed_', 'wind_direction_', 'power_output_', 'turbine_status_', 'nacelle_direction_' and suffixes for each turbine id" 
+
     # df_query = df_query.group_by("time").agg(cs.numeric().mean())
     # df_query.collect().write_parquet(PL_SAVE_PATH, statistics=False)
-    # ## Plot Wind Farm, Data Distributions
-    # TODO create config files for Aoife local, Juan local, Aoife Kestrel, Juan Supercomputer
+    
     # %%
     # INFO: @Juan 11/17/24 Added feature mapping to allow for custom feature mapping, which is required for different data sources
     # TODO: Modify this according to the data source, AOIFE TO JUAN better to transform these within dataloader. 
     # TODO: Move all data checks to internal methods.
-    feature_mapping = {
-        "power_output": ["power_output"],
-        "wind_speed": ["wind_speed"],
-        "wind_direction": ["wind_direction"],
-        "nacelle_direction": ["nacelle_direction"]
-    }
+    # feature_mapping = {
+    #     "power_output": ["power_output"],
+    #     "wind_speed": ["wind_speed"],
+    #     "wind_direction": ["wind_direction"],
+    #     "nacelle_direction": ["nacelle_direction"]
+    # }
 
     data_inspector = DataInspector(
         turbine_input_filepath=TURBINE_INPUT_FILEPATH,
         farm_input_filepath=FARM_INPUT_FILEPATH,
         data_format='auto',
-        feature_mapping=feature_mapping
+        # feature_mapping=feature_mapping
     )
 
-    # %%
+    # %% Plot Wind Farm, Data Distributions
     if PLOT:
         logging.info("🔄 Generating plots.")
         data_inspector.plot_wind_farm()
@@ -621,7 +625,7 @@ if __name__ == "__main__":
 
             # check for any periods of time for which more than 'missing_col_thr' features have missing data
             df_query2 = df_query\
-                    .with_columns([cs.contains(col).is_null().name.prefix("is_missing_") for col in missing_data_cols])\
+                    .with_columns(*[cs.contains(col).is_null().name.prefix("is_missing_") for col in missing_data_cols])\
                     .with_columns(**{f"num_missing_{col}": pl.sum_horizontal((cs.contains(col) & cs.starts_with("is_missing"))) for col in missing_data_cols})
 
             # subset of data, indexed by time, which has <= the threshold number of missing columns
