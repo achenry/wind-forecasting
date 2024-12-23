@@ -313,8 +313,8 @@ class DataLoader:
                     pl.when(pl.col("time").is_not_null())
                     .then(pl.col("time").str.to_datetime())
                     .alias("time"),
-                    # Replace infinite values with null for numeric columns
-                    *[pl.col(col).map_elements(lambda x: None if np.isinf(x) else x)
+                    # Replace infinite values with null for numeric columns, specifying return_dtype
+                    *[pl.col(col).map_elements(lambda x: None if np.isinf(x) else x, return_dtype=pl.Float64)
                       for col in relevant_columns if col != "time"]
                 ])\
                 .filter(

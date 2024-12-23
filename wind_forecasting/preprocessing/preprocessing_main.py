@@ -37,8 +37,8 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 
 # %%
 if __name__ == "__main__":
-    PLOT = False 
-    RELOAD_DATA = False
+    PLOT = True 
+    RELOAD_DATA = True
     REGENERATE_FILTERS = False
 
     FILTERS = ["nacelle_calibration", "unresponsive_sensor", "range_flag", "bin_filter", "std_range_flag", "impute_missing_data", "split", "normalize"]
@@ -86,17 +86,18 @@ if __name__ == "__main__":
         DT = 5  # Time step in seconds
         CHUNK_SIZE = 100000
         DATA_FORMAT = "csv"
+        FFILL_LIMIT = None
          
         # Feature configuration
-        FEATURES = ["time", "active_power", "wind_speed", "nacelle_position", "wind_direction", "derate"]
+        FEATURES = ["time", "power_output", "wind_speed", "nacelle_direction", "wind_direction", "derate"]
         WIDE_FORMAT = True
         
         # Column mapping for SMARTEOLE dataset TODO AOIFE TO JUAN make nacelle_position/active_power uniform to nacelle_direction/power_outputs
         COLUMN_MAPPING = {
             "time": "time",
-            **{f"active_power_{i}_avg": f"active_power_{i:03d}" for i in range(1, 8)},
+            **{f"active_power_{i}_avg": f"power_output_{i:03d}" for i in range(1, 8)},
             **{f"wind_speed_{i}_avg": f"wind_speed_{i:03d}" for i in range(1, 8)},
-            **{f"nacelle_position_{i}_avg": f"nacelle_position_{i:03d}" for i in range(1, 8)},
+            **{f"nacelle_position_{i}_avg": f"nacelle_direction_{i:03d}" for i in range(1, 8)},
             **{f"wind_direction_{i}_avg": f"wind_direction_{i:03d}" for i in range(1, 8)},
             **{f"derate_{i}": f"derate_{i:03d}" for i in range(1, 8)}
         }
@@ -609,7 +610,7 @@ if __name__ == "__main__":
     # %% check time series
     if PLOT:
         DataInspector.print_df_state(df_query, ["wind_speed", "wind_direction", "nacelle_direction"])
-        data_inspector.plot_time_series(df_query.head(1000), feature_types=["wind_speed", "wind_direction"], turbine_ids=["wt001"], continuity_groups=None)
+        data_inspector.plot_time_series(df_query.head(1000), feature_types=["wind_speed", "wind_direction"], turbine_ids=data_loader.turbine_ids, continuity_groups=None)
     
     # %%
     if "split" in FILTERS:
