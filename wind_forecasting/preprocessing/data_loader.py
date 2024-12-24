@@ -231,7 +231,7 @@ class DataLoader:
             if self.data_format == "netcdf":
                 result = self._read_single_netcdf(file_path)
             elif self.data_format == "csv":
-                result = self._read_single_csv(file_path)
+                result = self._read_single_csv(file_number, file_path)
             else:
                 raise ValueError(f"❌ Unsupported data format: {self.data_format}")
             
@@ -288,7 +288,9 @@ class DataLoader:
             #     x = 1
             return df_query
 
-    def _read_single_csv(self, file_path: str) -> pl.LazyFrame:
+    def _read_single_csv(self, file_number: int, file_path: str) -> pl.LazyFrame:
+        start_time = time.time()
+        # logging.info(f"Starting to process {file_path}")
         try:
             df = pl.read_csv(file_path, low_memory=False)
             logging.info(f"Initial CSV columns: {df.columns}")
@@ -296,15 +298,11 @@ class DataLoader:
             
             # Select only the average values and derate columns for each feature type
             relevant_columns = ["time"]
-            for feature in self.desired_feature_types:
-                if feature == "time":
-                    continue
-                elif feature == "derate":
-                    relevant_columns.extend([col for col in df.columns if col.startswith(feature)])
-                else:
-                    # select only the _avg columns
-                    relevant_columns.extend([col for col in df.columns 
-                                          if col.startswith(feature) and col.endswith("_avg")])
+            
+            # Add columns based on COLUMN_MAPPING patterns
+            for original_name in self.column_mapping.keys():
+                if original_name != "time":
+                    relevant_columns.extend([col for col in df.columns if col == original_name])
             
             # Select only relevant columns and handle missing values
             df = df.select(relevant_columns)\
@@ -387,16 +385,16 @@ class DataLoader:
         
         # Extract turbine_id and feature_name from the 'feature' column
         df_long = df_long.with_columns([
-            pl.col("feature").str.extract(r"_(\d+)(?:_avg|$)").alias("turbine_id"),
-            pl.col("feature").str.replace(r"_\d+(?:_avg|$)", "").alias("feature_name")
+            pl.col("feature").str.extract(r"_(\d{3})$").alias("turbine_id"),
+            pl.col("feature").str.replace(r"_\d{3}$", "").alias("feature_name")
         ])
         
         # Pivot the data to have features as columns
         df_final = df_long.pivot(
+            values="value",
             index=["time", "turbine_id"],
             columns="feature_name",
-            values="value"
-        )
+        ).sort(by=["time", "turbine_id"])
         
         # Ensure turbine_id is a string with leading zeros
         df_final = df_final.with_columns(
@@ -415,12 +413,10 @@ class DataLoader:
         
         # Pivot the data
         df_wide = df.pivot(
+            values=pivot_features,
             index="time",
             columns="turbine_id",
-            values=pivot_features,
-            # aggregate_function="first",
-            sort_columns=True
-        )
+        ).sort(by=["time"])
         
         logging.info("✅ Data pivoted to wide format successfully")
         return df_wide
@@ -495,7 +491,6 @@ class DataLoader:
         logging.info(f"Columns after reduce_features: {df.columns}")
         logging.info(f"Shape after reduce_features: {df.shape}")
         return df
-
     # INFO: @Juan 10/16/24 Modified resampling method to handle both wide and long formats.
     def resample(self, df) -> pl.LazyFrame:
         if self.wide_format:
@@ -643,7 +638,7 @@ if __name__ == "__main__":
             "time": "time",
             **{f"active_power_{i}_avg": f"active_power_{i:03d}" for i in range(1, 8)},
             **{f"wind_speed_{i}_avg": f"wind_speed_{i:03d}" for i in range(1, 8)},
-            **{f"nacelle_position_{i}_avg": f"nacelle_position_{i:03d}" for i in range(1, 8)},
+            **{f"nacelle_position_{i}_avg": f"nacelle_direction_{i:03d}" for i in range(1, 8)},
             **{f"wind_direction_{i}_avg": f"wind_direction_{i:03d}" for i in range(1, 8)},
             **{f"derate_{i}": f"derate_{i:03d}" for i in range(1, 8)}
         }

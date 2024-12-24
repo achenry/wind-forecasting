@@ -102,7 +102,7 @@ if __name__ == "__main__":
             **{f"derate_{i}": f"derate_{i:03d}" for i in range(1, 8)}
         }
 
-    FEATURES = ["time", "turbine_id", "turbine_status", "wind_direction", "wind_speed", "power_output", "nacelle_direction"]
+    FEATURES = ["time", "wind_direction", "wind_speed", "power_output", "nacelle_direction"]
     
     if FILE_SIGNATURE.endswith(".nc"):
         DATA_FORMAT = "netcdf"
