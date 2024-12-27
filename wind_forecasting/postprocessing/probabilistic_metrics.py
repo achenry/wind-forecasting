@@ -1,7 +1,7 @@
 """Probablistic forecast error metrics."""
 
 import numpy as np
-
+from scipy.stats import norm  # For more accurate ppf
 
 def brier_score(obs, fx, fx_prob):
     """Brier Score (BS).
@@ -622,13 +622,116 @@ def crps_skill_score(obs, fx, fx_prob, ref, ref_prob):
         else:
             return 1 - crps_fx / crps_ref
 
-def prediction_interval_coverage_probability(obs, fx, fx_prob):
-    # TODO
-    pass
+def coverage_width_criterion(true_values, predicted_mean, predicted_std, confidence_level=0.95):
+    # TODO CHECK FORMULA
+    """
+    Computes the Coverage Width Criterion (CWC) for a time series.
 
-def prediction_interval_normalized_average_width(obs, fx, fx_prob):
-    # TODO
-    pass
+    Args:
+        true_values: Array of true values.
+        predicted_mean: Array of predicted mean values.
+        predicted_std: Array of predicted standard deviations.
+        confidence_level: Confidence level for the prediction intervals. 
+
+    Returns:
+        A tuple containing:
+            - cwc: The Coverage Width Criterion.
+            - coverage: The coverage percentage.
+        
+    Raises:
+        ValueError: If the input arrays don't have the same length or confidence level is invalid.
+    """
+
+    if not (len(true_values) == len(predicted_mean) == len(predicted_std)):
+        raise ValueError("Input arrays must have the same length.")
+
+    if not (0 < confidence_level < 1):
+        raise ValueError("Confidence level must be between 0 and 1 (exclusive).")
+
+
+    z_score = np.abs(np.ppf((1 - confidence_level) / 2))  # Two-tailed Z-score
+    upper_bound = predicted_mean + z_score * predicted_std
+    lower_bound = predicted_mean - z_score * predicted_std
+
+    covered = np.sum((true_values >= lower_bound) & (true_values <= upper_bound))
+    coverage = covered / len(true_values)
+
+    interval_width = upper_bound - lower_bound
+    cwc = np.mean(interval_width) * (1 + (coverage < confidence_level) * np.exp(0.25*(coverage - confidence_level)))
+
+    return cwc, coverage
+
+
+def pi_coverage_probability(true_values, predicted_mean, predicted_std, confidence_level=0.95):
+    # TODO CHECK FORMULA
+    """
+    Computes the Prediction Interval Coverage Probability (PICP) for a time series.
+
+    Args:
+        true_values: Array of true values.
+        predicted_mean: Array of predicted mean values.
+        predicted_std: Array of predicted standard deviations.
+        confidence_level: Confidence level for the prediction intervals. 
+
+    Returns:
+        The PICP (a float between 0 and 1).
+
+    Raises:
+        ValueError: If the input arrays don't have the same length or confidence level is invalid.
+    """
+
+
+    if not (len(true_values) == len(predicted_mean) == len(predicted_std)):
+        raise ValueError("Input arrays must have the same length.")
+
+    if not (0 < confidence_level < 1):
+        raise ValueError("Confidence level must be between 0 and 1 (exclusive).")
+
+    z_score = np.abs(norm.ppf((1 - confidence_level) / 2))  # Two-tailed Z-score
+    upper_bound = predicted_mean + z_score * predicted_std
+    lower_bound = predicted_mean - z_score * predicted_std
+
+    covered = np.sum((true_values >= lower_bound) & (true_values <= upper_bound))
+    picp = covered / len(true_values)
+
+    return picp
+
+def pi_normalized_average_width(true_values, predicted_mean, predicted_std, confidence_level=0.95):
+    # TODO CHECK FORMULA
+    """
+    Computes the Prediction Interval Normalized Average Width (PINAW) for a time series.
+
+    Args:
+        true_values: Array of true values.  Used for range normalization.
+        predicted_mean: Array of predicted mean values.
+        predicted_std: Array of predicted standard deviations.
+        confidence_level: Confidence level for the prediction intervals.
+
+    Returns:
+        The PINAW (a float).
+
+    Raises:
+        ValueError: If the input arrays don't have the same length, confidence level is invalid, or the range of true values is zero.
+    """
+
+    if not (len(true_values) == len(predicted_mean) == len(predicted_std)):
+        raise ValueError("Input arrays must have the same length.")
+
+    if not (0 < confidence_level < 1):
+        raise ValueError("Confidence level must be between 0 and 1 (exclusive).")
+    
+    true_range = np.max(true_values) - np.min(true_values)
+    if true_range == 0:
+        raise ValueError("The range of true values cannot be zero.  Cannot normalize.")
+
+    z_score = np.abs(norm.ppf((1 - confidence_level) / 2))  # Two-tailed Z-score
+    upper_bound = predicted_mean + z_score * predicted_std
+    lower_bound = predicted_mean - z_score * predicted_std
+
+    interval_width = upper_bound - lower_bound
+    pinaw = np.mean(interval_width) / true_range
+
+    return pinaw
 
 # Add new metrics to this map to map shorthand to function
 _MAP = {
@@ -642,8 +745,9 @@ _MAP = {
     # 'sh': (sharpness, 'SH'),  # TODO
     'crps': (continuous_ranked_probability_score, 'CRPS'),
     'crpss': (crps_skill_score, 'CRPSS'),
-    'picp': (prediction_interval_coverage_probability, 'PICP'),
-    'pinaw': (prediction_interval_normalized_average_width, 'PINAW'),
+    'picp': (pi_coverage_probability, 'PICP'),
+    'pinaw': (pi_normalized_average_width, 'PINAW'),
+    'cwc': (coverage_width_criterion, 'CWC')
 }
 
 __all__ = [m[0].__name__ for m in _MAP.values()]
