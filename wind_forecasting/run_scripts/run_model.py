@@ -95,7 +95,7 @@ if __name__ == "__main__":
     # %% DEFINE ESTIMATOR
     
     from gluonts.time_feature._base import second_of_minute, minute_of_hour, hour_of_day, day_of_year
-    from gluonts.transform import ExpectedNumInstanceSampler
+    from gluonts.transform import ExpectedNumInstanceSampler, SequentialSampler
     estimator = globals()[f"{args.model.capitalize()}Estimator"](
         freq=data_module.freq, 
         prediction_length=data_module.prediction_length,
@@ -107,7 +107,9 @@ if __name__ == "__main__":
         scaling=False,
         lags_seq=[0],
         batch_size=128,
-        validation_sampler=ExpectedNumInstanceSampler(num_instances=1.0, min_future=data_module.prediction_length),
+        train_sampler=SequentialSampler(min_past=data_module.context_length, min_future=data_module.prediction_length), # TODO + context_len for starting indices?
+        validation_sampler=SequentialSampler(min_past=data_module.context_length, min_future=data_module.prediction_length),
+        # validation_sampler=ExpectedNumInstanceSampler(num_instances=1.0, min_future=data_module.prediction_length),
         # dim_feedforward=config["model"][args.model]["dim_feedforward"],
         # d_model=config["model"][args.model]["d_model"],
         # num_encoder_layers=config["model"][args.model]["num_layers"],
@@ -211,7 +213,7 @@ if __name__ == "__main__":
 
                 col_idx = [c for c, col in enumerate(data_module.target_cols) if output_type in col]
                 col_names = [col for col in data_module.target_cols if output_type in col]
-                context_df = ts[-data_module.context_length - data_module.prediction_length:-data_module.prediction_length][col_idx]\
+                context_df = ts[-data_module.context_length - data_module.prediction_length:][col_idx]\
                                 .rename(columns={c: cname for c, cname in zip(col_idx, col_names)})
                 context_df = pd.concat([
                     context_df[col].to_frame()\

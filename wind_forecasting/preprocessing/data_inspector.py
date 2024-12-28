@@ -587,7 +587,7 @@ class DataInspector:
         )
         
         # Calculate and visualize the flow field
-        horizontal_plane = fmodel.calculate_horizontal_plane(height=80.0) # TODO get hubheight from turbine type
+        horizontal_plane = fmodel.calculate_horizontal_plane(height=fmodel.core.farm.hub_heights[0])
         visualize_cut_plane(horizontal_plane, ax=ax, min_speed=4, max_speed=10, color_bar=True)
         
         # Plot turbine rotors
@@ -678,16 +678,14 @@ class DataInspector:
             matching_cols = []
             for feature_type in feature_types:
                 # Get the possible feature names from mapping
-                mapped_features = self.feature_mapping.get(feature_type, [feature_type])
+                # mapped_features = self.feature_mapping.get(feature_type, [feature_type])
                 
                 if turbine_ids == "all":
-                    new_cols = [col for col in cols if any(feat in col for feat in mapped_features)]
+                    new_cols = [col for col in cols if feature_type in col]
                 elif isinstance(turbine_ids, str):
-                    new_cols = [col for col in cols if any((feat in col and turbine_ids in col) or (feat == col) 
-                                                         for feat in mapped_features)]
+                    new_cols = [col for col in cols if col == f"{feature_type}_{turbine_ids}"]
                 else:
-                    new_cols = [col for col in cols if any((feat in col and tid in col) or (feat == col) 
-                                                         for feat in mapped_features for tid in turbine_ids)]
+                    new_cols = [col for col in cols if any(col == f"{feature_type}_{tid}" for tid in turbine_ids)]
                 matching_cols.extend(new_cols)
             
             return sorted(matching_cols)
