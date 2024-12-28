@@ -235,9 +235,9 @@ class Spacetimeformer_Forecaster(Forecaster):
         acc = torchmetrics.functional.accuracy(
             torch.softmax(logits, dim=1),
             labels,
-            num_classes=logits.shape[1],
-            task="multiclass"
-        ) # TODO should this be multiclass
+            num_labels=logits.shape[1],
+            task="multilabel"
+        )
         return class_loss, acc
 
     def compute_loss(self, batch, time_mask=None, forward_kwargs={}):

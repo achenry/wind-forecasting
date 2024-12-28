@@ -408,7 +408,6 @@ class DataFilter:
     
 def add_df_continuity_columns(df, mask, dt):
     # change first value of continuous_shifted to false such that add_df_agg_continuity_columns catches it as a start time for a period
-    # df.filter(df.select("time").collect().to_numpy().flatten() >= datetime.datetime(2022, 3, 2, 0, 0)).head(10).collect() TODO there are duplicate timestamps 
     return df\
             .filter(mask)\
             .with_columns(dt=pl.col("time").diff())\
