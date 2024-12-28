@@ -172,7 +172,6 @@ if __name__ == "__main__":
     }
     
     ## SETUP LOGGING
-    # TODO JUAN are the rank conditinals necessary for WandbLogger, progress bar?
     # Initialize wandb only on rank 0
     os.environ["WANDB_INIT_TIMEOUT"] = "600"
     os.environ["WANDB_INIT_TIMEOUT"] = "300"

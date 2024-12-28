@@ -37,7 +37,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 
 # %%
 if __name__ == "__main__":
-    PLOT = False 
+    PLOT = True
     RELOAD_DATA = False
     REGENERATE_FILTERS = False
 
@@ -91,7 +91,7 @@ if __name__ == "__main__":
         FEATURES = ["time", "active_power", "wind_speed", "nacelle_position", "wind_direction", "derate"]
         WIDE_FORMAT = True
         
-        # Column mapping for SMARTEOLE dataset TODO AOIFE TO JUAN make nacelle_position/active_power uniform to nacelle_direction/power_outputs
+        # Column mapping for SMARTEOLE dataset TODO AOIFE TO JUAN make nacelle_position/active_power uniform to nacelle_direction/power_outputs, do this in data_loader
         COLUMN_MAPPING = {
             "time": "time",
             **{f"active_power_{i}_avg": f"active_power_{i:03d}" for i in range(1, 8)},
@@ -187,7 +187,7 @@ if __name__ == "__main__":
         data_inspector.plot_boxplot_wind_speed_direction(df_query, 
                                                          turbine_ids=data_loader.turbine_ids[:1])
         data_inspector.plot_time_series(df_query.head(1000), 
-                                        turbine_ids=data_loader.turbine_ids[:1], feature_mapping=feature_mapping)
+                                        turbine_ids=data_loader.turbine_ids[:1])
         plot.column_histograms(data_inspector.collect_data(df=df_query.head(1000), 
                                     feature_types=data_inspector.get_features(df_query, ["wind_speed", "wind_direction"])))
         logging.info("✅ Generated plots.")

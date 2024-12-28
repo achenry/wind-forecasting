@@ -26,6 +26,7 @@ matplotlib.use('TkAgg')
 class DataModule():
     data_path: str
     n_splits: int
+    continuity_groups: List[int] | None
     train_split: float
     val_split: float
     test_split: float
@@ -46,24 +47,28 @@ class DataModule():
         # .group_by_dynamic("time", every=self.freq).agg(cs.numeric().mean()).sort_by("time")
 
         # fetch a subset of continuity groups and turbine data
-        if "continuity_group" in dataset.collect_schema().names():
-            # continuity_groups = list(dataset["continuity_group"].value_counts().index[1:5])
-            # self.continuity_groups = sorted(np.unique(dataset["continuity_group"].values.astype(int)))
-            self.continuity_groups = dataset.select(pl.col("continuity_group").unique()).to_numpy().flatten()
-            # sub_dataset = dataset.loc[dataset["continuity_group"].isin(continuity_groups),
-            #         [col for col in dataset.columns if any(col.__contains__(tid) for tid in turbine_ids)] + ["continuity_group"]]
-            # dataset = dataset[[col for col in dataset.columns if any(col.__contains__(tid) for tid in self.target_suffixes)] + ["continuity_group"]]
-            dataset = dataset.select(pl.col("time"), pl.col("continuity_group"), *[cs.ends_with(sfx) for sfx in self.target_suffixes])
+        if self.continuity_groups is None:
+            if "continuity_group" in dataset.collect_schema().names():
+                # continuity_groups = list(dataset["continuity_group"].value_counts().index[1:5])
+                # self.continuity_groups = sorted(np.unique(dataset["continuity_group"].values.astype(int)))
+                self.continuity_groups = dataset.select(pl.col("continuity_group").unique()).to_numpy().flatten()
+                # sub_dataset = dataset.loc[dataset["continuity_group"].isin(continuity_groups),
+                #         [col for col in dataset.columns if any(col.__contains__(tid) for tid in turbine_ids)] + ["continuity_group"]]
+                # dataset = dataset[[col for col in dataset.columns if any(col.__contains__(tid) for tid in self.target_suffixes)] + ["continuity_group"]]
+                dataset = dataset.select(pl.col("time"), pl.col("continuity_group"), *[cs.ends_with(sfx) for sfx in self.target_suffixes])
+            else:
+                self.continuity_groups = [0]
+                # dataset = dataset[[col for col in dataset.columns if any(col.__contains__(tid) for tid in self.target_suffixes)]]
+                # dataset.loc[:, "continuity_group"] = 0
+                dataset = dataset.select(pl.col("time"), *[cs.ends_with(sfx) for sfx in self.target_suffixes])
+                dataset = dataset.with_columns(continuity_group=pl.lit(0))
         else:
-            self.continuity_groups = [0]
-            # dataset = dataset[[col for col in dataset.columns if any(col.__contains__(tid) for tid in self.target_suffixes)]]
-            # dataset.loc[:, "continuity_group"] = 0
-            dataset = dataset.select(pl.col("time"), *[cs.ends_with(sfx) for sfx in self.target_suffixes])
-            dataset = dataset.with_columns(continuity_group=pl.lit(0))
+            dataset = dataset.filter(pl.col("continuity_group").is_in(self.continuity_groups))\
+                             .select(pl.col("time"), pl.col("continuity_group"), *[cs.ends_with(sfx) for sfx in self.target_suffixes])
         
         # float64_cols = list(dataset.select_dtypes(include="float64"))
         # dataset[float64_cols] = dataset[float64_cols].astype("float32")
-        
+        # dataset.filter(pl.col("continuity_group") == 0).to_pandas().to_csv("/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/sample_data.csv", index=False) 
         self.target_cols = [col for col in dataset.columns if any(prefix in col for prefix in self.target_prefixes)]
         self.feat_dynamic_real_cols = [col for col in dataset.columns if any(prefix in col for prefix in self.feat_dynamic_real_prefixes)]
         self.num_feat_dynamic_real = len(self.feat_dynamic_real_cols)
@@ -155,9 +160,9 @@ class DataModule():
                     self.rows_per_split[cg] *= self.n_splits
                     break
             
-            train_offset = int(self.train_split * self.rows_per_split[cg])
-            val_offset = int(self.val_split * self.rows_per_split[cg])
-            test_offset = int(self.test_split * self.rows_per_split[cg])
+            train_offset = round(self.train_split * self.rows_per_split[cg])
+            val_offset = round(self.val_split * self.rows_per_split[cg])
+            test_offset = round(self.test_split * self.rows_per_split[cg])
             # train_val_offset = train_offset + val_offset
             # train_val_dataset, test_gen = split(split_dataset, offset=train_val_offset)
 
@@ -166,8 +171,10 @@ class DataModule():
 
             # TODO shouldn't test data include history, and just the labels be unseen by training data?
             train_dataset = [slice_data_entry(ds, slice_=slice(0, train_offset)) for ds in iter(split_dataset)]
-            val_dataset = [slice_data_entry(ds, slice_=slice(train_offset - self.context_length, train_offset + val_offset)) for ds in iter(split_dataset)]
-            test_dataset = [slice_data_entry(ds, slice_=slice(train_offset + val_offset - self.context_length, train_offset + val_offset + test_offset)) for ds in iter(split_dataset)]
+            # val_dataset = [slice_data_entry(ds, slice_=slice(train_offset - self.context_length, train_offset + val_offset)) for ds in iter(split_dataset)]
+            val_dataset = [slice_data_entry(ds, slice_=slice(train_offset, train_offset + val_offset)) for ds in iter(split_dataset)]
+            # test_dataset = [slice_data_entry(ds, slice_=slice(train_offset + val_offset - self.context_length, train_offset + val_offset + test_offset)) for ds in iter(split_dataset)]
+            test_dataset = [slice_data_entry(ds, slice_=slice(train_offset + val_offset, train_offset + val_offset + test_offset)) for ds in iter(split_dataset)]
 
             for t, train_entry in enumerate(iter(train_dataset)):
                 print(f"training dataset cg {cg}, split {t} start time = {train_entry['start']}, end time = {train_entry['start'] + train_entry['target'].shape[1]}, duration = {train_entry['target'].shape[1] * pd.Timedelta(train_entry['start'].freq)}")

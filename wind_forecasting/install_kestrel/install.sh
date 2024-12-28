@@ -51,7 +51,6 @@ cd ..
 #python -m pip install -r ./spacetimeformer/requirements.txt
 # python wind_forecasting/models/spacetimeformer/setup.py develop
 # pip install wind_forecasting/preprocessing/OpenOA
-# TODO write setup.py scripts for informer, autoformer
 #python -m pip install -r ./Informer2020/requirements.txt
 #python -m pip install -r ./Autoformer/requirements.txt
 
