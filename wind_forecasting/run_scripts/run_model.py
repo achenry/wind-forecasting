@@ -28,7 +28,7 @@ from pytorch_transformer_ts.autoformer.lightning_module import AutoformerLightni
 from pytorch_transformer_ts.spacetimeformer.estimator import SpacetimeformerEstimator
 from pytorch_transformer_ts.spacetimeformer.lightning_module import SpacetimeformerLightningModule
 from wind_forecasting.preprocessing.data_module import DataModule
-from wind_forecasting.postprocessing.probabilistic_metrics import continuous_ranked_probability_score, reliability, resolution, uncertainty, sharpness, prediction_interval_coverage_probability, prediction_interval_normalized_average_width
+from wind_forecasting.postprocessing.probabilistic_metrics import continuous_ranked_probability_score, reliability, resolution, uncertainty, sharpness, pi_coverage_probability, pi_normalized_average_width, coverage_width_criterion 
 
 # Configure logging and matplotlib backend
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -82,7 +82,8 @@ if __name__ == "__main__":
 
     # data_module.plot_dataset_splitting()
 
-    data_module = DataModule(data_path=config["dataset"]["data_path"], n_splits=config["dataset"]["n_splits"], train_split=(1.0 - config["dataset"]["val_split"] - config["dataset"]["test_split"]),
+    data_module = DataModule(data_path=config["dataset"]["data_path"], n_splits=config["dataset"]["n_splits"],
+                             continuity_groups=[0], train_split=(1.0 - config["dataset"]["val_split"] - config["dataset"]["test_split"]),
                                 val_split=config["dataset"]["val_split"], test_split=config["dataset"]["test_split"], 
                                 prediction_length=config["dataset"]["prediction_length"], context_length=config["dataset"]["context_length"],
                                 target_prefixes=["ws_horz", "ws_vert"], feat_dynamic_real_prefixes=["nd_cos", "nd_sin"],
@@ -94,6 +95,7 @@ if __name__ == "__main__":
     # %% DEFINE ESTIMATOR
     
     from gluonts.time_feature._base import second_of_minute, minute_of_hour, hour_of_day, day_of_year
+    from gluonts.transform import ExpectedNumInstanceSampler, SequentialSampler
     estimator = globals()[f"{args.model.capitalize()}Estimator"](
         freq=data_module.freq, 
         prediction_length=data_module.prediction_length,
@@ -103,6 +105,11 @@ if __name__ == "__main__":
         num_feat_static_real=data_module.num_feat_static_real,
         input_size=data_module.num_target_vars,
         scaling=False,
+        lags_seq=[0],
+        batch_size=128,
+        train_sampler=SequentialSampler(min_past=data_module.context_length, min_future=data_module.prediction_length), # TODO + context_len for starting indices?
+        validation_sampler=SequentialSampler(min_past=data_module.context_length, min_future=data_module.prediction_length),
+        # validation_sampler=ExpectedNumInstanceSampler(num_instances=1.0, min_future=data_module.prediction_length),
         # dim_feedforward=config["model"][args.model]["dim_feedforward"],
         # d_model=config["model"][args.model]["d_model"],
         # num_encoder_layers=config["model"][args.model]["num_layers"],
@@ -154,10 +161,10 @@ if __name__ == "__main__":
         # Energy Score, PI Coverage Probability (PICP), PI Normalized Average Width (PINAW), Coverage Width Criterion (CWC), Winkler/IntervalScore(IS)
         
         custom_eval_fn={
-                    "PICP": (None, "mean", "mean"),
-                    "PINAW": (None, "mean", "mean"),
-                    "CWC": (None, "mean", "mean"),
-                    "CRPS": (None, "mean", "mean"),
+                    "PICP": (pi_coverage_probability, "mean", "mean"),
+                    "PINAW": (pi_normalized_average_width, "mean", "mean"),
+                    "CWC": (coverage_width_criterion, "mean", "mean"),
+                    "CRPS": (continuous_ranked_probability_score, "mean", "mean"),
         }
         evaluator = MultivariateEvaluator(num_workers=None, 
             custom_eval_fn=None
@@ -189,21 +196,24 @@ if __name__ == "__main__":
         # forecasts[0].distribution.cov_diag.cpu().numpy()
         num_forecasts = 4
         fig, axs = plt.subplots(min(len(forecasts), num_forecasts), len(data_module.target_prefixes), figsize=(6, 12))
+        axs = axs.flatten()
         def errorbar(vec):
             print(vec)
             return vec["loc"] - 3 * vec["std_dev"], vec["loc"] + 3 * vec["std_dev"]
         # axx = axs.ravel()
         seq_len, target_dim = tss[0].shape
+        ax_idx = 0
         for idx, (forecast, ts) in enumerate(zip(forecasts, tss)):
             if idx == num_forecasts:
                 break
             # for dim in range(min(len(axs), target_dim)):
             for o, output_type in enumerate(data_module.target_prefixes):
-                ax = axs[idx, o]
+                ax = axs[ax_idx]
+                ax_idx += 1
 
                 col_idx = [c for c, col in enumerate(data_module.target_cols) if output_type in col]
                 col_names = [col for col in data_module.target_cols if output_type in col]
-                context_df = ts[-data_module.context_length:][col_idx]\
+                context_df = ts[-data_module.context_length - data_module.prediction_length:][col_idx]\
                                 .rename(columns={c: cname for c, cname in zip(col_idx, col_names)})
                 context_df = pd.concat([
                     context_df[col].to_frame()\
@@ -236,11 +246,11 @@ if __name__ == "__main__":
                     color = ax.get_lines()[t].get_color()
                     tid_df = pred_df.loc[pred_df["turbine_id"] == tid, :]
                     ax.fill_between(
-                        forecast.index.to_timestamp(), tid_df["loc"] - 3*tid_df["std_dev"], tid_df["loc"] + 3*tid_df["std_dev"], alpha=0.2, color=color
+                        forecast.index.to_timestamp(), tid_df["loc"] - 1*tid_df["std_dev"], tid_df["loc"] + 1*tid_df["std_dev"], alpha=0.2, color=color
                     )
 
                 # pred_df["loc"].plot(ax=ax, color='g')
                 ax.legend([], [], frameon=False)
-        h, l = axs[0, 0].get_legend_handles_labels()
-        axs[0, 0].legend(h[:len(data_module.target_suffixes)], l[:len(data_module.target_suffixes)])
+        h, l = axs[0].get_legend_handles_labels()
+        axs[0].legend(h[:len(data_module.target_suffixes)], l[:len(data_module.target_suffixes)])
         plt.show()

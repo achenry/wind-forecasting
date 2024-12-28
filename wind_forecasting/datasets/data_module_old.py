@@ -53,7 +53,7 @@ class STTREDataModule(L.LightningDataModule):
                         f"Suggested batch size: {suggested_batch_size}"
                     )
                 
-                # Create splits # TODO JUAN will these be sequential?
+                # Create splits
                 generator = torch.Generator().manual_seed(42)
                 self.train_dataset, self.val_dataset, self.test_dataset = torch.utils.data.random_split(
                     full_dataset, 
