@@ -229,268 +229,237 @@ class DataLoader:
         # logging.info(f"Starting to process {file_path}")
         try:
             if self.data_format == "netcdf":
-                result = self._read_single_netcdf(file_path)
-            elif self.data_format == "csv":
-                result = self._read_single_csv(file_number, file_path)
-            else:
-                raise ValueError(f"❌ Unsupported data format: {self.data_format}")
-            
-            logging.info(f"✅ Processed {file_number}-th {file_path}. Time: {time.time() - start_time:.2f} s")
-            return result
-        except Exception as e:
-            logging.error(f"❌ Error processing {file_path}: {e}")
-            return None
+                logging.info(f"📖 Reading NetCDF file: {file_path}")
+                with nc.Dataset(file_path, 'r') as ds:
+                    # Assuming time is a dimension in the NetCDF file
+                    time_var = ds.variables['time']
+                    times = nc.num2date(time_var[:], units=time_var.units, calendar=time_var.calendar)
+                    df = pl.DataFrame({'time': times}).lazy()
 
-    # INFO: @Juan 10/16/24 Added method to read single netcdf file. Use pl.Series to convert the time variable to a polars series. and combined time extraction operations into a single line to remove intermediate variables. Removed try/except block as it is done in the calling method (_read_single_file())
-    def _read_single_netcdf(self, file_path: str) -> pl.LazyFrame:
-        with nc.Dataset(file_path, 'r') as dataset:
-            time_var = dataset.variables[self.column_mapping["time"]]
-            time = nc.num2date(times=time_var[:], 
-                               units=time_var.units, 
-                               calendar=time_var.calendar, 
-                               only_use_cftime_datetimes=False, 
-                               only_use_python_datetimes=True)
-            
-            data = {
-                'turbine_id': [os.path.basename(file_path).split('.')[-2]] * len(time),
-                'time': time.tolist(),  # Convert to Polars datetime
-                'turbine_status': dataset.variables[self.column_mapping["turbine_status"]][:],
-                'wind_direction': dataset.variables[self.column_mapping["wind_direction"]][:],
-                'wind_speed': dataset.variables[self.column_mapping["wind_speed"]][:],
-                'power_output': dataset.variables[self.column_mapping["power_output"]][:],
-                'nacelle_direction': dataset.variables[self.column_mapping["nacelle_direction"]][:]
-            }
-
-            # remove the rows with all nans (corresponding to rows where excluded columns would have had a value)
-            # and bundle all values corresponding to identical time stamps together
-            # forward fill missing values
-            df_query = pl.LazyFrame(data).fill_nan(None)\
-                                            .with_columns(pl.col("time").dt.round(f"{self.dt}s").alias("time"))\
-                                            .select([cs.contains(feat) for feat in self.desired_feature_types])\
-                                            .filter(pl.any_horizontal(cs.numeric().is_not_null())) 
-            
-            # pivot table to have columns for each turbine and measurement if not originally in wide format
-            if not self.wide_format:
-                pivot_features = [col for col in df_query.collect_schema().names() if col not in ['time', 'turbine_id']]
-                df_query = df_query.collect(streaming=True).pivot(
-                    index="time",
-                    on="turbine_id",
-                    values=pivot_features,
-                    aggregate_function=pl.element().drop_nulls().first(),
-                    sort_columns=True
-                ).sort("time").lazy()
-            else:
-                df_query = df_query.collect(streaming=True).lazy()
-            # df_query.filter(df_query.select("time").collect().to_numpy().flatten() >= datetime.datetime(2022, 3, 2, 0, 0)).head(10).collect()
-            del data  # Free up memory
-            # df_query.select(pl.col("time").unique()).collect()
-            # if (df_query.select(pl.col("time").first()).collect().item().day == 2):
-            #     x = 1
-            return df_query
-
-    def _read_single_csv(self, file_number: int, file_path: str) -> pl.LazyFrame:
-        start_time = time.time()
-        # logging.info(f"Starting to process {file_path}")
-        try:
-            df = pl.read_csv(file_path, low_memory=False)
-            logging.info(f"Initial CSV columns: {df.columns}")
-            logging.info(f"Initial CSV shape: {df.shape}")
-            
-            # Select only the average values and derate columns for each feature type
-            relevant_columns = ["time"]
-            
-            # Add columns based on COLUMN_MAPPING patterns
-            for original_name in self.column_mapping.keys():
-                if original_name != "time":
-                    relevant_columns.extend([col for col in df.columns if col == original_name])
-            
-            # Select only relevant columns and handle missing values
-            df = df.select(relevant_columns)\
-                .with_columns([
-                    # Convert time column to datetime
-                    pl.when(pl.col("time").is_not_null())
-                    .then(pl.col("time").str.to_datetime())
-                    .alias("time"),
-                    # Replace infinite values with null for numeric columns, specifying return_dtype
-                    *[pl.col(col).map_elements(lambda x: None if np.isinf(x) else x, return_dtype=pl.Float64)
-                      for col in relevant_columns if col != "time"]
-                ])\
-                .filter(
-                    # Remove rows where time is null
-                    pl.col("time").is_not_null()
-                )
-            
-            # Apply column mapping after selecting relevant columns
-            if self.column_mapping:
-                df = df.rename(self.column_mapping)
-                logging.info(f"Columns after mapping: {df.columns}")
-            
-            # Check if data is already in wide format
-            is_already_wide = all(any(feature in col for col in df.columns) 
-                for feature in self.desired_feature_types if feature != "time")
-            
-            if is_already_wide:
-                # Extract features based on the provided list
-                feature_cols = ["time"] + [col for col in df.columns 
-                    if any(feature in col for feature in self.desired_feature_types if feature != "time")]
+                    for var_name, variable in ds.variables.items():
+                        if var_name != 'time':
+                            # Check if the variable has a time dimension
+                            if 'time' in variable.dimensions:
+                                # Flatten the data array and add it as a new column
+                                df = df.with_columns(pl.Series(name=var_name, values=variable[:].flatten()))
+                            else:
+                                logging.warning(f"⚠️  Variable {var_name} does not have a time dimension. Skipping.")
                 
-                df = df.select(feature_cols)\
-                    .with_columns([
-                        # Handle numeric columns: replace nulls with forward/backward fill
-                        *[pl.col(col).fill_null(strategy="forward", limit=self.ffill_limit)
-                          .fill_null(strategy="backward", limit=self.ffill_limit)
-                          for col in feature_cols if col != "time"]
-                    ])\
-                    .filter(
-                        # Remove rows where all numeric columns are null
-                        pl.any_horizontal(pl.exclude("time").is_not_null())
-                    )
-                
-                # Convert to long format if needed
-                if not self.wide_format:
-                    df = self._convert_to_long_format(df)
-            else:
-                df = df.select(self.desired_feature_types)
-                if self.wide_format:
-                    df = self.convert_to_wide_format(df)
-            
-            # Apply feature reduction and resampling
-            df = self.reduce_features(df)
-            logging.info(f"Shape after reduce_features: {df.shape}")
-            
-            if self.dt is not None:
+                df = self.map_column_names(df)
+                df = self.convert_time_to_datetime(df)
+                df = self.convert_to_wide_format(df)
+                df = self.convert_circular_to_sinusoidal(df)
+                df = self.reduce_features(df)
                 df = self.resample(df)
+                
+                return df
             
-            logging.info(f"📁 Processed {file_path}")
-            return df.lazy()
-        
+            elif self.data_format == "csv":
+                logging.info(f"📖 Reading CSV file: {file_path}")
+                df = pl.scan_csv(file_path)
+                
+                # Apply column mapping
+                df = self.map_column_names(df)
+                
+                # Convert time to datetime objects
+                df = self.convert_time_to_datetime(df)
+                
+                # Convert to wide format if necessary
+                df = self.convert_to_wide_format(df)
+                
+                # Convert circular measurements to sinusoidal measurements
+                df = self.convert_circular_to_sinusoidal(df)
+                
+                # Reduce features
+                df = self.reduce_features(df)
+                
+                # Resample
+                df = self.resample(df)
+                
+                return df
+            
+            else:
+                raise ValueError(f"❌ Invalid data format: {self.data_format}. Only 'netcdf' and 'csv' are supported.")
+
+        except FileNotFoundError:
+            logging.error(f"❌ File not found: {file_path}")
+            return None
+        except OSError as e:
+            logging.error(f"❌ Error reading file: {file_path}\n{e}")
+            return None
         except Exception as e:
-            logging.error(f"❌ Error processing CSV file {file_path}: {str(e)}")
+            logging.error(f"❌ Error processing file: {file_path}\n{e}")
             return None
 
-    # INFO: @Juan 10/16/24 Added method to convert to long format. May need refining!!! #UNTESTED
-    def _convert_to_long_format(self, df: pl.LazyFrame) -> pl.LazyFrame:
-        # It will only trigger when wide_format is False.
-        # Identify the columns that contain turbine-specific data
-        logging.info("🔄 Converting data to long format")
-        turbine_columns = [col for col in df.columns if col != "time"]
-        
-        # Melt the DataFrame to convert it to long format
-        df_long = df.melt(
-            id_vars=["time"], 
-            value_vars=turbine_columns,
-            variable_name="feature",
-            value_name="value"
-        )
-        
-        # Extract turbine_id and feature_name from the 'feature' column
-        df_long = df_long.with_columns([
-            pl.col("feature").str.extract(r"_(\d{3})$").alias("turbine_id"),
-            pl.col("feature").str.replace(r"_\d{3}$", "").alias("feature_name")
-        ])
-        
-        # Pivot the data to have features as columns
-        df_final = df_long.pivot(
-            values="value",
-            index=["time", "turbine_id"],
-            columns="feature_name",
-        ).sort(by=["time", "turbine_id"])
-        
-        # Ensure turbine_id is a string with leading zeros
-        df_final = df_final.with_columns(
-            pl.col("turbine_id").cast(pl.Int32).cast(pl.Utf8).str.zfill(3)
-        )
-        
-        logging.info("✅ Data pivoted to long format successfully")
-        return df_final
-    
-    # INFO: @Juan 10/16/24 Added method to convert to wide format.
-    def convert_to_wide_format(self, df: pl.LazyFrame) -> pl.LazyFrame:
-        logging.info("🔄 Converting data to wide format")
-        
-        # List of features to pivot (excluding 'time' and 'turbine_id')
-        pivot_features = [col for col in df.columns if col not in ['time', 'turbine_id']]
-        
-        # Pivot the data
-        df_wide = df.pivot(
-            values=pivot_features,
-            index="time",
-            columns="turbine_id",
-        ).sort(by=["time"])
-        
-        logging.info("✅ Data pivoted to wide format successfully")
-        return df_wide
-
-    def print_netcdf_structure(self, file_path) -> None: #INFO: @Juan 10/02/24 Changed print to logging
-        try:
-            with nc.Dataset(file_path, 'r') as dataset:
-                logging.info(f"📊 NetCDF File: {os.path.basename(file_path)}")
-                logging.info("\n🌐 Global Attributes:")
-                for attr in dataset.ncattrs():
-                    logging.info(f"  {attr}: {getattr(dataset, attr)}")
-
-                logging.info("\n📏 Dimensions:")
-                for dim_name, dim in dataset.dimensions.items():
-                    logging.info(f"  {dim_name}: {len(dim)}")
-
-                logging.info("\n🔢 Variables:")
-                for var_name, var in dataset.variables.items():
-                    logging.info(f"  {var_name}:")
-                    logging.info(f"    Dimensions: {var.dimensions}")
-                    logging.info(f"    Shape: {var.shape}")
-                    logging.info(f"    Data type: {var.dtype}")
-                    logging.info("    Attributes:")
-                    for attr in var.ncattrs():
-                        logging.info(f"      {attr}: {getattr(var, attr)}")
-
-        except Exception as e:
-            logging.error(f"❌ Error reading NetCDF file: {e}")
-
-    # INFO: @Juan 10/02/24 Revamped this method to use Polars functions consistently, vectorized where possible, and using type casting for consistency and performance enhancements.
-
-    def convert_time_to_sin(self, df) -> pl.LazyFrame:
-        """_summary_
-            convert timestamp to cosine and sinusoidal components
-        Returns:
-            pl.LazyFrame: _description_
+    def print_netcdf_structure(self, file_path: str):
         """
-        if df is None:
-            raise ValueError("⚠️ Data not loaded > call read_multi_netcdf() first.")
-        
-        df = self.df.with_columns([
-            pl.col('time').dt.hour().alias('hour'),
-            pl.col('time').dt.ordinal_day().alias('day'),
-            pl.col('time').dt.year().alias('year'),
-        ])
+        Prints the structure and variables of a NetCDF file.
 
-        # Normalize time features using sin/cos for capturing cyclic patterns using Polars vectorized operations
+        Args:
+            file_path (str): The path to the NetCDF file.
+        """
+        try:
+            with nc.Dataset(file_path, 'r') as ds:
+                logging.info(f"Structure of NetCDF file: {file_path}")
+                logging.info("Dimensions:")
+                for dim_name, dim in ds.dimensions.items():
+                    logging.info(f"  {dim_name}: size={len(dim)}")
+                
+                logging.info("Variables:")
+                for var_name, var in ds.variables.items():
+                    logging.info(f"  {var_name}:")
+                    logging.info(f"    shape: {var.shape}")
+                    logging.info(f"    dtype: {var.dtype}")
+                    # Print other attributes if needed
+                    for attr_name in var.ncattrs():
+                        logging.info(f"    {attr_name}: {getattr(var, attr_name)}")
+        except FileNotFoundError:
+            logging.error(f"❌ File not found: {file_path}")
+        except OSError as e:
+            logging.error(f"❌ Error reading file: {file_path}\n{e}")
+        except Exception as e:
+            logging.error(f"❌ Error processing file: {file_path}\n{e}")
+
+    def map_column_names(self, df: pl.LazyFrame) -> pl.LazyFrame:
+        """
+        Maps column names in the DataFrame according to the provided column mapping.
+
+        Args:
+            df (pl.LazyFrame): The input DataFrame.
+
+        Returns:
+            pl.LazyFrame: The DataFrame with renamed columns.
+        """
+        
+        # Filter the column mapping for keys that exist in the DataFrame
+        existing_column_mapping = {k: v for k, v in self.column_mapping.items() if k in df.columns}
+        
+        # Rename columns based on the filtered mapping
+        df = df.rename(existing_column_mapping)
+        
+        return df
+
+    def convert_time_to_datetime(self, df: pl.LazyFrame) -> pl.LazyFrame:
+        """
+        Converts the 'time' column in the DataFrame to datetime objects.
+
+        Args:
+            df (pl.LazyFrame): The input DataFrame.
+
+        Returns:
+            pl.LazyFrame: The DataFrame with the 'time' column converted to datetime.
+        """
+        if 'time' in df.columns:
+            # Assuming 'time' is in seconds since epoch
+            df = df.with_columns(pl.col('time').cast(pl.Datetime))
+        else:
+            logging.warning("⚠️ 'time' column not found. Skipping time conversion.")
+        return df
+
+    def convert_to_wide_format(self, df: pl.LazyFrame) -> pl.LazyFrame:
+        """
+        Converts the DataFrame to wide format if it's in long format.
+
+        Args:
+            df (pl.LazyFrame): The input DataFrame.
+
+        Returns:
+            pl.LazyFrame: The DataFrame in wide format.
+        """
+        if not self.wide_format:
+            # Identify unique turbine IDs
+            unique_turbine_ids = df.select(pl.col("turbine_id").unique()).collect().to_series().to_list()
+
+            # Pivot for each turbine ID
+            df_list = []
+            for turbine_id in unique_turbine_ids:
+                df_turbine = df.filter(pl.col("turbine_id") == turbine_id)
+                
+                # Rename columns to include turbine ID as suffix
+                df_turbine = df_turbine.rename({col: f"{col}_{turbine_id}" for col in df_turbine.columns if col not in ["time", "turbine_id"]})
+                
+                df_list.append(df_turbine)
+
+            # Join all DataFrames on 'time'
+            df = df_list[0]
+            for df_turbine in df_list[1:]:
+                df = df.join(df_turbine, on="time", how="outer")
+
+            # Sort by time
+            df = df.sort("time")
+
+        return df
+
+    def convert_circular_to_sinusoidal(self, df: pl.LazyFrame) -> pl.LazyFrame:
+        """
+        Converts circular measurements (like wind direction) to sinusoidal components.
+
+        Args:
+            df (pl.LazyFrame): The input DataFrame.
+
+        Returns:
+            pl.LazyFrame: The DataFrame with circular measurements converted to sinusoidal.
+        """
+        circular_cols = [col for col in df.columns if "direction" in col]
+        for col in circular_cols:
+            # Convert degrees to radians
+            rad_col = f"{col}_rad"
+            df = df.with_columns((pl.col(col) * np.pi / 180).alias(rad_col))
+
+            # Convert to sinusoidal components
+            sin_col = f"{col}_sin"
+            cos_col = f"{col}_cos"
+            df = df.with_columns([
+                pl.col(rad_col).sin().alias(sin_col),
+                pl.col(rad_col).cos().alias(cos_col)
+            ])
+
+            # Drop the intermediate radians column
+            df = df.drop(rad_col)
+        
+        # Add hour, day, and year sinusoidal features
         df = df.with_columns([
-            (2 * np.pi * pl.col('hour') / 24).sin().alias('hour_sin'),
-            (2 * np.pi * pl.col('hour') / 24).cos().alias('hour_cos'),
-            (2 * np.pi * pl.col('day') / 365).sin().alias('day_sin'),
-            (2 * np.pi * pl.col('day') / 365).cos().alias('day_cos'),
-            (2 * np.pi * pl.col('year') / 365).sin().alias('year_sin'),
-            (2 * np.pi * pl.col('year') / 365).cos().alias('year_cos'),
+            (2 * np.pi * pl.col('time').dt.hour() / 24).sin().alias('hour_sin'),
+            (2 * np.pi * pl.col('time').dt.hour() / 24).cos().alias('hour_cos'),
+            (2 * np.pi * pl.col('time').dt.day() / 31).sin().alias('day_sin'),
+            (2 * np.pi * pl.col('time').dt.day() / 31).cos().alias('day_cos'),
+            (2 * np.pi * pl.col('time').dt.month() / 12).sin().alias('month_sin'),
+            (2 * np.pi * pl.col('time').dt.month() / 12).cos().alias('month_cos'),
+            (2 * np.pi * pl.col('time').dt.year() / pl.col('time').dt.year().max()).sin().alias('year_sin'),
+            (2 * np.pi * pl.col('time').dt.year() / pl.col('time').dt.year().max()).cos().alias('year_cos'),
         ])
 
         return df
 
-    # DEBUG: @Juan 10/16/24 Check that this is reducing the features correctly.
-    def reduce_features(self, df) -> pl.LazyFrame:
+    def reduce_features(self, df: pl.LazyFrame) -> pl.LazyFrame:
         """
         Reduce the DataFrame to include only the specified features that exist in the DataFrame.
         """
-        existing_features = [f for f in self.desired_feature_types if any(f in col for col in df.columns)]
-        df = df.select([pl.col(col) for col in df.columns if any(feature in col for feature in existing_features)])
-        
+        # Check which desired features are actually in the DataFrame
+        available_features = []
+        for feature_type in self.desired_feature_types:
+            if any(feature_type in col for col in df.columns):
+                available_features.append(feature_type)
+            else:
+                logging.warning(f"⚠️ Desired feature '{feature_type}' not found in data. Skipping.")
+
+        # Select only the available features
+        df = df.select([
+            col for col in df.columns if any(feature in col for feature in available_features)
+        ])
+
         # Only filter rows if there are numeric columns
         numeric_cols = df.select(cs.numeric()).columns
         if numeric_cols:
             df = df.filter(pl.any_horizontal(pl.col(numeric_cols).is_not_null()))
-        
+
+        # Update the list of available features after reduction
+        self.available_features = available_features
+        logging.info(f"Available features after reduction: {self.available_features}")
         logging.info(f"Columns after reduce_features: {df.columns}")
         logging.info(f"Shape after reduce_features: {df.shape}")
         return df
+
     # INFO: @Juan 10/16/24 Modified resampling method to handle both wide and long formats.
     def resample(self, df) -> pl.LazyFrame:
         if self.wide_format:
