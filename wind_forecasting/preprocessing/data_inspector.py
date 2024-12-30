@@ -64,9 +64,10 @@ class DataInspector:
         
         # valid_turbines = df.select("turbine_id").unique().filter(pl.col("turbine_id").is_in(turbine_ids)).collect(streaming=True).to_numpy()[:, 0]
         cols = df.collect_schema().names()
-        # available_turbines = np.unique([re.findall(f"(?<=wind_direction_)(.*)", col)[0] for col in cols if "wind_direction" in col])
-        # available_turbines = np.unique([col.split("_")[-1] for col in cols])  # DEBUG
-        available_turbines = np.unique([col.split("_")[-1] for col in cols if col.split("_")[-1].isdigit() and len(col.split("_")[-1]) == 3])
+        available_turbines = np.unique([
+            part for col in cols for part in col.split("_") 
+            if part.isdigit() and len(part) == 3
+        ])
 
         if turbine_ids == "all":
             valid_turbines = available_turbines
@@ -138,7 +139,7 @@ class DataInspector:
                                  .select(pl.col("time"), cs.starts_with(feat))
                     
                     for tid in valid_turbines:
-                        turbine_df = feature_df.select([pl.col("time"), cs.ends_with(tid)]).collect().to_pandas()
+                        turbine_df = feature_df.select([pl.col("time"), cs.contains(tid)]).collect().to_pandas()
                         if scatter:
                             sns.scatterplot(data=turbine_df, x='time', y=f'{feat}_{tid}', ax=ax[f], label=f'{tid}')
                         else:
@@ -166,11 +167,12 @@ class DataInspector:
                 feature_df = df_query.select(pl.col("time"), cs.starts_with(feat))
                              
                 for tid in valid_turbines:
-                    turbine_df = feature_df.select([pl.col("time"), cs.ends_with(tid)]).collect().to_pandas()
+                    # Select columns that contain the turbine ID anywhere in the name
+                    turbine_df = feature_df.select([pl.col("time"), cs.contains(tid)]).collect().to_pandas()
                     if scatter:
-                        sns.scatterplot(data=turbine_df, x='time', y=f'{feat}_{tid}', ax=ax[f], label=f'{tid}')
+                        sns.scatterplot(data=turbine_df, x='time', y=turbine_df.columns[1], ax=ax[f], label=f'{tid}')
                     else:
-                        sns.lineplot(data=turbine_df, x='time', y=f'{feat}_{tid}', ax=ax[f], label=f'{tid}')
+                        sns.lineplot(data=turbine_df, x='time', y=turbine_df.columns[1], ax=ax[f], label=f'{tid}')
                 
                 ax[f].set_title(f"{feature_labels[f]}")
                 ax[f].set_xlabel("Time [s]")

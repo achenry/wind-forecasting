@@ -148,7 +148,8 @@ if __name__ == "__main__":
     
     
     data_loader.available_features = sorted(df_query.collect_schema().names())
-    data_loader.turbine_ids = sorted(set(col.split("_")[-1] for col in data_loader.available_features if "wt" in col))
+    # data_loader.turbine_ids = sorted(set(col.split("_")[-1] for col in data_loader.available_features if "wt" in col))
+    data_loader.turbine_ids = sorted(set(col.split("_")[-1] for col in data_loader.available_features if col.split("_")[-1].isdigit() and len(col.split("_")[-1]) == 3))
 
     assert all(any(prefix in col for col in data_loader.available_features) for prefix in ["time", "wind_speed_", "wind_direction_", "nacelle_direction_", "power_output_"]), "DataFrame must contain columns 'time', then columns with prefixes 'wind_speed_', 'wind_direction_', 'power_output_', 'nacelle_direction_'"
     assert df_query.select("time").collect().to_series().is_sorted(), "Loaded data should be sorted by time!"
@@ -181,17 +182,14 @@ if __name__ == "__main__":
         data_inspector.plot_wind_farm()
         print(df_query.collect_schema().names()) # DEBUG
         print(data_loader.turbine_ids) # DEBUG
-        # data_inspector.plot_wind_speed_power(df_query, turbine_ids=data_loader.turbine_ids[:5])
-        data_inspector.plot_wind_speed_power(df_query, turbine_ids=["001"]) # DEBUG
+        data_inspector.plot_wind_speed_power(df_query, turbine_ids="all")
+        # data_inspector.plot_wind_speed_power(df_query, turbine_ids=["001"])
         data_inspector.plot_wind_speed_weibull(df_query, turbine_ids="all")
         data_inspector.plot_wind_rose(df_query, turbine_ids="all")
-        data_inspector.plot_correlation(df_query, 
-        data_inspector.get_features(df_query, feature_types=["wind_speed", "wind_direction", "nacelle_direction"], 
-                                    turbine_ids=data_loader.turbine_ids[:1]))
+        data_inspector.plot_correlation(df_query, data_inspector.get_features(df_query, feature_types=["wind_speed", "wind_direction", "nacelle_direction"], turbine_ids=data_loader.turbine_ids[:1]))
         data_inspector.plot_boxplot_wind_speed_direction(df_query, 
                                                          turbine_ids=data_loader.turbine_ids[:1])
-        data_inspector.plot_time_series(df_query.head(1000), 
-                                        turbine_ids=data_loader.turbine_ids[:1])
+        data_inspector.plot_time_series(df_query.head(1000), turbine_ids=data_loader.turbine_ids)
         plot.column_histograms(data_inspector.collect_data(df=df_query.head(1000), 
                                     feature_types=data_inspector.get_features(df_query, ["wind_speed", "wind_direction"])))
         logging.info("✅ Generated plots.")
@@ -465,7 +463,7 @@ if __name__ == "__main__":
             
             if PLOT:
                 DataInspector.print_df_state(df_query, ["wind_speed", "wind_direction", "nacelle_direction"])
-                data_inspector.plot_time_series(df_query.head(1000), feature_types=["wind_speed", "wind_direction"], turbine_ids=["wt001"], continuity_groups=None)
+                data_inspector.plot_time_series(df_query.head(1000), feature_types=["wind_speed", "wind_direction"], turbine_ids=data_loader.turbine_ids)
         
         # %%
         if "window_range_flag" in FILTERS:
@@ -511,7 +509,7 @@ if __name__ == "__main__":
             
             if PLOT:
                 DataInspector.print_df_state(df_query, ["wind_speed", "wind_direction", "nacelle_direction"])
-                data_inspector.plot_time_series(df_query.head(1000), feature_types=["wind_speed", "wind_direction"], turbine_ids=["wt001"], continuity_groups=None)
+                data_inspector.plot_time_series(df_query.head(1000), feature_types=["wind_speed", "wind_direction"], turbine_ids=data_loader.turbine_ids)
             
 
         if "bin_filter" in FILTERS:
@@ -559,7 +557,7 @@ if __name__ == "__main__":
             
             if PLOT:
                 DataInspector.print_df_state(df_query, ["wind_speed", "wind_direction", "nacelle_direction"])
-                data_inspector.plot_time_series(df_query.head(1000), feature_types=["wind_speed", "wind_direction"], turbine_ids=["wt001"], continuity_groups=None)
+                data_inspector.plot_time_series(df_query.head(1000), feature_types=["wind_speed", "wind_direction"], turbine_ids=data_loader.turbine_ids)
 
         # %%
         if "std_range_flag" in FILTERS:
@@ -604,7 +602,7 @@ if __name__ == "__main__":
             
             if PLOT:
                 DataInspector.print_df_state(df_query, ["wind_speed", "wind_direction", "nacelle_direction"])
-                data_inspector.plot_time_series(df_query.head(1000), feature_types=["wind_speed", "wind_direction"], turbine_ids=["wt001"], continuity_groups=None)
+                data_inspector.plot_time_series(df_query.head(1000), feature_types=["wind_speed", "wind_direction"], turbine_ids=data_loader.turbine_ids)
     
         df_query.collect().write_parquet(PL_SAVE_PATH.replace(".parquet", "_filtered.parquet"), statistics=False)
     else:
@@ -613,7 +611,7 @@ if __name__ == "__main__":
     # %% check time series
     if PLOT:
         DataInspector.print_df_state(df_query, ["wind_speed", "wind_direction", "nacelle_direction"])
-        data_inspector.plot_time_series(df_query.head(1000), feature_types=["wind_speed", "wind_direction"], turbine_ids=data_loader.turbine_ids, continuity_groups=None) 
+        data_inspector.plot_time_series(df_query.head(1000), feature_types=["wind_speed", "wind_direction"], turbine_ids=data_loader.turbine_ids) 
     
     # %%
     if "split" in FILTERS:
