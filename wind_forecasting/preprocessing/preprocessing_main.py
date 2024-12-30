@@ -47,6 +47,7 @@ if __name__ == "__main__":
     assert all(filt in ["nacelle_calibration", "unresponsive_sensor", "inoperational", "range_flag", "window_range_flag", "bin_filter", "std_range_flag", "split", "impute_missing_data", "normalize"] for filt in FILTERS)
     
     if platform == "darwin":
+        # KP dataset configuration
         DATA_DIR = "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/raw_data"
         PL_SAVE_PATH = "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/kp.turbine.zo2.b0.raw.parquet"
         FILE_SIGNATURE = "kp.turbine.z02.b0.*.*.*.nc"
@@ -57,6 +58,8 @@ if __name__ == "__main__":
         MULTIPROCESSOR = "cf"
         TURBINE_INPUT_FILEPATH = "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/inputs/ge_282_127.yaml"
         FARM_INPUT_FILEPATH = "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/inputs/gch_KP_v4.yaml"
+        
+        # Feature configuration
         FEATURES = ["time", "turbine_id", "turbine_status", "wind_direction", "wind_speed", "power_output", "nacelle_direction"]
         WIDE_FORMAT = False
         COLUMN_MAPPING = {"time": "date",
@@ -81,27 +84,25 @@ if __name__ == "__main__":
         MULTIPROCESSOR = "cf"  # mpi for HPC or "cf" for local computing
         TURBINE_INPUT_FILEPATH = os.path.expanduser("~/wind-forecasting/examples/inputs/turbine_library/mm82.yaml")
         FARM_INPUT_FILEPATH = os.path.expanduser("~/wind-forecasting/examples/inputs/smarteole_farm.yaml")
+         
+        # Feature configuration
+        FEATURES = ["time", "power_output", "wind_speed", "nacelle_direction", "wind_direction"]
+        WIDE_FORMAT = True
+        # Column mapping for SMARTEOLE dataset TODO AOIFE TO JUAN make nacelle_position/active_power uniform to nacelle_direction/power_outputs, do this in data_loader
+        COLUMN_MAPPING = {
+            "time": "time",
+            **{f"active_power_{i}_avg": f"power_output_{i:03d}" for i in range(1, 8)},
+            **{f"wind_speed_{i}_avg": f"wind_speed_{i:03d}" for i in range(1, 8)},
+            **{f"nacelle_position_{i}_avg": f"nacelle_direction_{i:03d}" for i in range(1, 8)},
+            **{f"wind_direction_{i}_avg": f"wind_direction_{i:03d}" for i in range(1, 8)},
+            **{f"derate_{i}": f"derate_{i:03d}" for i in range(1, 8)}
+        }
         
         # Data configuration
         DT = 5  # Time step in seconds
         CHUNK_SIZE = 100000
         DATA_FORMAT = "csv"
-         
-        # Feature configuration
-        FEATURES = ["time", "active_power", "wind_speed", "nacelle_position", "wind_direction", "derate"]
-        WIDE_FORMAT = True
-        
-        # Column mapping for SMARTEOLE dataset TODO AOIFE TO JUAN make nacelle_position/active_power uniform to nacelle_direction/power_outputs, do this in data_loader
-        COLUMN_MAPPING = {
-            "time": "time",
-            **{f"active_power_{i}_avg": f"active_power_{i:03d}" for i in range(1, 8)},
-            **{f"wind_speed_{i}_avg": f"wind_speed_{i:03d}" for i in range(1, 8)},
-            **{f"nacelle_position_{i}_avg": f"nacelle_position_{i:03d}" for i in range(1, 8)},
-            **{f"wind_direction_{i}_avg": f"wind_direction_{i:03d}" for i in range(1, 8)},
-            **{f"derate_{i}": f"derate_{i:03d}" for i in range(1, 8)}
-        }
-
-    FEATURES = ["time", "turbine_id", "turbine_status", "wind_direction", "wind_speed", "power_output", "nacelle_direction"]
+        FFILL_LIMIT = None
     
     if FILE_SIGNATURE.endswith(".nc"):
         DATA_FORMAT = "netcdf"
@@ -149,9 +150,9 @@ if __name__ == "__main__":
     data_loader.available_features = sorted(df_query.collect_schema().names())
     data_loader.turbine_ids = sorted(set(col.split("_")[-1] for col in data_loader.available_features if "wt" in col))
 
-    assert all(any(prefix in col for col in data_loader.available_features) for prefix in ["time", "wind_speed_", "wind_direction_", "turbine_status_", "nacelle_direction_", "power_output_"]), "DataFrame must contain columns 'time', then columns with prefixes 'wind_speed_', 'wind_direction_', 'power_output_', 'turbine_status_', 'nacelle_direction_'"
+    assert all(any(prefix in col for col in data_loader.available_features) for prefix in ["time", "wind_speed_", "wind_direction_", "nacelle_direction_", "power_output_"]), "DataFrame must contain columns 'time', then columns with prefixes 'wind_speed_', 'wind_direction_', 'power_output_', 'nacelle_direction_'"
     assert df_query.select("time").collect().to_series().is_sorted(), "Loaded data should be sorted by time!"
-    assert all(any(f"{prefix}{tid}" in col for col in data_loader.available_features if col != "time") for prefix in ["wind_speed_", "wind_direction_", "turbine_status_", "nacelle_direction_", "power_output_"] for tid in data_loader.turbine_ids), "DataFrame must contain columns with prefixes 'wind_speed_', 'wind_direction_', 'power_output_', 'turbine_status_', 'nacelle_direction_' and suffixes for each turbine id" 
+    assert all(any(f"{prefix}{tid}" in col for col in data_loader.available_features if col != "time") for prefix in ["wind_speed_", "wind_direction_", "nacelle_direction_", "power_output_"] for tid in data_loader.turbine_ids), "DataFrame must contain columns with prefixes 'wind_speed_', 'wind_direction_', 'power_output_', 'nacelle_direction_' and suffixes for each turbine id" 
 
     # df_query = df_query.group_by("time").agg(cs.numeric().mean())
     # df_query.collect().write_parquet(PL_SAVE_PATH, statistics=False)
@@ -178,7 +179,10 @@ if __name__ == "__main__":
     if PLOT:
         logging.info("🔄 Generating plots.")
         data_inspector.plot_wind_farm()
-        data_inspector.plot_wind_speed_power(df_query, turbine_ids=data_loader.turbine_ids[:5])
+        print(df_query.collect_schema().names()) # DEBUG
+        print(data_loader.turbine_ids) # DEBUG
+        # data_inspector.plot_wind_speed_power(df_query, turbine_ids=data_loader.turbine_ids[:5])
+        data_inspector.plot_wind_speed_power(df_query, turbine_ids=["001"]) # DEBUG
         data_inspector.plot_wind_speed_weibull(df_query, turbine_ids="all")
         data_inspector.plot_wind_rose(df_query, turbine_ids="all")
         data_inspector.plot_correlation(df_query, 
@@ -609,7 +613,7 @@ if __name__ == "__main__":
     # %% check time series
     if PLOT:
         DataInspector.print_df_state(df_query, ["wind_speed", "wind_direction", "nacelle_direction"])
-        data_inspector.plot_time_series(df_query.head(1000), feature_types=["wind_speed", "wind_direction"], turbine_ids=["wt001"], continuity_groups=None)
+        data_inspector.plot_time_series(df_query.head(1000), feature_types=["wind_speed", "wind_direction"], turbine_ids=data_loader.turbine_ids, continuity_groups=None) 
     
     # %%
     if "split" in FILTERS:
@@ -739,7 +743,7 @@ if __name__ == "__main__":
     if PLOT:
         DataInspector.print_df_state(df_query, ["wind_speed", "wind_direction", "nacelle_direction"])
         continuity_groups = df_query.select("continuity_group").unique().collect().to_numpy().flatten()
-        data_inspector.plot_time_series(df_query.head(1000), feature_types=["wind_speed", "wind_direction"], turbine_ids=["wt001"], continuity_groups=continuity_groups)
+        data_inspector.plot_time_series(df_query.head(1000), feature_types=["wind_speed", "wind_direction"], turbine_ids=data_loader.turbine_ids, continuity_groups=continuity_groups) 
 
     # %%
     if "normalize" in FILTERS:

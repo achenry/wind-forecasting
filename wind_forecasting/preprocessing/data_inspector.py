@@ -65,7 +65,8 @@ class DataInspector:
         # valid_turbines = df.select("turbine_id").unique().filter(pl.col("turbine_id").is_in(turbine_ids)).collect(streaming=True).to_numpy()[:, 0]
         cols = df.collect_schema().names()
         # available_turbines = np.unique([re.findall(f"(?<=wind_direction_)(.*)", col)[0] for col in cols if "wind_direction" in col])
-        available_turbines = np.unique([col.split("_")[-1] for col in cols])
+        # available_turbines = np.unique([col.split("_")[-1] for col in cols])  # DEBUG
+        available_turbines = np.unique([col.split("_")[-1] for col in cols if col.split("_")[-1].isdigit() and len(col.split("_")[-1]) == 3])
 
         if turbine_ids == "all":
             valid_turbines = available_turbines
