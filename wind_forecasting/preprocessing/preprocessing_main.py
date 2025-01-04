@@ -35,13 +35,16 @@ from floris import FlorisModel
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
+
+
 # %%
 if __name__ == "__main__":
     PLOT = True
     RELOAD_DATA = False
     REGENERATE_FILTERS = False
+    USE_CONTINUITY_GROUPS = False
 
-    FILTERS = ["nacelle_calibration", "unresponsive_sensor", "range_flag", "bin_filter", "std_range_flag", "impute_missing_data", "split", "normalize"]
+    FILTERS = ["nacelle_calibration", "unresponsive_sensor", "range_flag", "bin_filter", "std_range_flag", "normalize"]
     # FILTERS = ["split", "impute_missing_data", "normalize"]
             #    ["unresponsive_sensor", "inoperational", "range_flag", "window_range_flag", "bin_filter", "std_range_flag", "split", "impute_missing_data", "normalize"]
     assert all(filt in ["nacelle_calibration", "unresponsive_sensor", "inoperational", "range_flag", "window_range_flag", "bin_filter", "std_range_flag", "split", "impute_missing_data", "normalize"] for filt in FILTERS)
@@ -180,24 +183,48 @@ if __name__ == "__main__":
     if PLOT:
         logging.info("🔄 Generating plots.")
         data_inspector.plot_wind_farm()
+        print(f"df_query before plotting: {df_query.collect().shape}")
         print(df_query.collect_schema().names()) # DEBUG
         print(data_loader.turbine_ids) # DEBUG
         # data_inspector.plot_wind_speed_power(df_query, turbine_ids="all")
         # data_inspector.plot_wind_speed_power(df_query, turbine_ids=["001"])
         data_inspector.plot_wind_speed_weibull(df_query, turbine_ids="all")
         data_inspector.plot_wind_rose(df_query, turbine_ids="all")
-        data_inspector.plot_correlation(df_query, data_inspector.get_features(df_query, feature_types=["wind_speed", "wind_direction", "nacelle_direction"], turbine_ids=data_loader.turbine_ids[:1]))
-        data_inspector.plot_boxplot_wind_speed_direction(df_query, 
-                                                         turbine_ids=data_loader.turbine_ids[:1])
-        data_inspector.plot_time_series(df_query.head(1000), turbine_ids=data_loader.turbine_ids)
-        plot.column_histograms(data_inspector.collect_data(df=df_query.head(1000), 
-                                    feature_types=data_inspector.get_features(df_query, ["wind_speed", "wind_direction"])))
+        data_inspector.plot_correlation(
+            df_query, 
+            data_inspector.get_features(df_query, feature_types=["wind_speed", "wind_direction", "nacelle_direction"], turbine_ids=data_loader.turbine_ids[:1])
+        )
+        data_inspector.plot_boxplot_wind_speed_direction(df_query, turbine_ids=data_loader.turbine_ids[:1])
+        
+        # Toggle continuity_groups
+        continuity_groups = (
+            df_query.select("continuity_group").unique().collect().to_numpy().flatten()
+            if USE_CONTINUITY_GROUPS else None
+        )
+        
+        data_inspector.plot_time_series(
+            df_query.head(1000),
+            feature_types=["wind_speed", "wind_direction"],
+            turbine_ids=data_loader.turbine_ids,
+            continuity_groups=continuity_groups
+        )
+        
+        plot.column_histograms(
+            data_inspector.collect_data(
+                df=df_query.head(1000),
+                feature_types=data_inspector.get_features(df_query, ["wind_speed", "wind_direction"])
+            )
+        )
         logging.info("✅ Generated plots.")
 
     # %% check time series
     if PLOT:
         DataInspector.print_df_state(df_query, ["wind_speed", "wind_direction", "nacelle_direction"])
-        data_inspector.plot_time_series(df_query.head(1000), feature_types=["wind_speed", "wind_direction"], turbine_ids=data_loader.turbine_ids)
+        continuity_groups = (
+            df_query.select("continuity_group").unique().collect().to_numpy().flatten()
+            if USE_CONTINUITY_GROUPS else None
+        )
+        data_inspector.plot_time_series(df_query.head(1000), feature_types=["wind_speed", "wind_direction"], turbine_ids=data_loader.turbine_ids, continuity_groups=continuity_groups)
     
     # df_query.filter(df_query.select("time").collect().to_numpy().flatten() >= datetime.datetime(2022, 3, 2, 0, 0)).head(10).collect()
     # %%
@@ -209,7 +236,11 @@ if __name__ == "__main__":
 
             # add the 3 degrees back to the wind direction signal
             offset = 3.0
-            df_query2 = df_query.with_columns((cs.starts_with("wind_direction") + offset).mod(360.0))
+            df_query2 = df_query.with_columns([
+                (pl.col(col) + offset).mod(360.0).alias(col)
+                for col in df_query.columns if col.startswith("wind_direction")
+            ])
+
             df_query_10min = df_query2\
                                 .with_columns(pl.col("time").dt.round(f"{10}m").alias("time"))\
                                 .group_by("time").agg(cs.numeric().mean()).sort("time")
@@ -346,7 +377,11 @@ if __name__ == "__main__":
     # %% check time series
     if PLOT:
         DataInspector.print_df_state(df_query, ["wind_speed", "wind_direction", "nacelle_direction"])
-        data_inspector.plot_time_series(df_query.head(1000), feature_types=["wind_speed", "wind_direction"], turbine_ids=["wt001"], continuity_groups=None)
+        continuity_groups = (
+            df_query.select("continuity_group").unique().collect().to_numpy().flatten()
+            if USE_CONTINUITY_GROUPS else None
+        )
+        data_inspector.plot_time_series(df_query.head(1000), feature_types=["wind_speed", "wind_direction"], turbine_ids=data_loader.turbine_ids, continuity_groups=continuity_groups)
 
     # %%
     data_filter = DataFilter(turbine_availability_col=None, turbine_status_col="turbine_status", multiprocessor=MULTIPROCESSOR, data_format='wide')
@@ -619,246 +654,186 @@ if __name__ == "__main__":
     # %%
     if "split" in FILTERS:
         if RELOAD_DATA or not os.path.exists(PL_SAVE_PATH.replace(".parquet", "_split.parquet")):
-            logging.info("Split dataset during time steps for which many turbines have missing data.")
-            
-            # if there is a short or long gap for some turbines, impute them using the imputing.impute_all_assets_by_correlation function
-            #       else if there is a short or long gap for many turbines, split the dataset
-            missing_col_thr = max(1, int(len(data_loader.turbine_ids) * 1.0))
-            missing_duration_thr = np.timedelta64(20, "m")
-            minimum_not_missing_duration = np.timedelta64(20, "m")
-            missing_data_cols = ["wind_speed", "wind_direction"]
+            if USE_CONTINUITY_GROUPS:
+                logging.info("Split dataset during time steps for which many turbines have missing data.")
+                
+                # if there is a short or long gap for some turbines, impute them using the imputing.impute_all_assets_by_correlation function
+                # else if there is a short or long gap for many turbines, split the dataset
+                missing_col_thr = max(1, int(len(data_loader.turbine_ids) * 1.0))
+                missing_duration_thr = np.timedelta64(20, "m")
+                minimum_not_missing_duration = np.timedelta64(20, "m")
+                missing_data_cols = ["wind_speed", "wind_direction"]
 
-            # check for any periods of time for which more than 'missing_col_thr' features have missing data
-            df_query2 = df_query\
-                    .with_columns(*[cs.contains(col).is_null().name.prefix("is_missing_") for col in missing_data_cols])\
-                    .with_columns(**{f"num_missing_{col}": pl.sum_horizontal((cs.contains(col) & cs.starts_with("is_missing"))) for col in missing_data_cols})
+                # check for any periods of time for which more than 'missing_col_thr' features have missing data
+                df_query2 = df_query\
+                        .with_columns(*[cs.contains(col).is_null().name.prefix("is_missing_") for col in missing_data_cols])\
+                        .with_columns(**{f"num_missing_{col}": pl.sum_horizontal((cs.contains(col) & cs.starts_with("is_missing"))) for col in missing_data_cols})
 
-            # subset of data, indexed by time, which has <= the threshold number of missing columns
-            df_query_not_missing_times = add_df_continuity_columns(df_query2, mask=pl.sum_horizontal(cs.starts_with("num_missing")) <= missing_col_thr, dt=data_loader.dt)
+                # subset of data, indexed by time, which has <= the threshold number of missing columns
+                df_query_not_missing_times = add_df_continuity_columns(df_query2, mask=pl.sum_horizontal(cs.starts_with("num_missing")) <= missing_col_thr, dt=data_loader.dt)
 
-            # subset of data, indexed by time, which has > the threshold number of missing columns
-            df_query_missing_times = add_df_continuity_columns(df_query2, mask=pl.sum_horizontal(cs.starts_with("num_missing")) > missing_col_thr, dt=data_loader.dt)
+                # subset of data, indexed by time, which has > the threshold number of missing columns
+                df_query_missing_times = add_df_continuity_columns(df_query2, mask=pl.sum_horizontal(cs.starts_with("num_missing")) > missing_col_thr, dt=data_loader.dt)
 
-            # start times, end times, and durations of each of the continuous subsets of data in df_query_missing_times 
-            df_query_not_missing = add_df_agg_continuity_columns(df_query_not_missing_times) 
-            df_query_missing = add_df_agg_continuity_columns(df_query_missing_times)
+                # start times, end times, and durations of each of the continuous subsets of data in df_query_missing_times 
+                df_query_not_missing = add_df_agg_continuity_columns(df_query_not_missing_times) 
+                df_query_missing = add_df_agg_continuity_columns(df_query_missing_times)
 
-            # start times, end times, and durations of each of the continuous subsets of data in df_query_not_missing_times 
-            # AND of each of the continuous subsets of data in df_query_missing_times that are under the threshold duration time 
-            df_query_not_missing = pl.concat([df_query_not_missing, 
-                                                    df_query_missing.filter(pl.col("duration") <= missing_duration_thr)])\
-                                    .sort("start_time")
+                # start times, end times, and durations of each of the continuous subsets of data in df_query_not_missing_times 
+                # AND of each of the continuous subsets of data in df_query_missing_times that are under the threshold duration time 
+                df_query_not_missing = pl.concat([df_query_not_missing, 
+                                                        df_query_missing.filter(pl.col("duration") <= missing_duration_thr)])\
+                                        .sort("start_time")
 
-            df_query_missing = df_query_missing.filter(pl.col("duration") > missing_duration_thr)
+                df_query_missing = df_query_missing.filter(pl.col("duration") > missing_duration_thr)
 
-            if df_query_not_missing.select(pl.len()).collect().item() == 0:
-                raise Exception("Parameters 'missing_col_thr' or 'missing_duration_thr' are too stringent, can't find any eligible durations of time.")
+                if df_query_not_missing.select(pl.len()).collect().item() == 0:
+                    raise Exception("Parameters 'missing_col_thr' or 'missing_duration_thr' are too stringent, can't find any eligible durations of time.")
 
-            df_query_missing = merge_adjacent_periods(agg_df=df_query_missing, dt=data_loader.dt)
-            df_query_not_missing = merge_adjacent_periods(agg_df=df_query_not_missing, dt=data_loader.dt)
+                df_query_missing = merge_adjacent_periods(agg_df=df_query_missing, dt=data_loader.dt)
+                df_query_not_missing = merge_adjacent_periods(agg_df=df_query_not_missing, dt=data_loader.dt)
 
-            df_query_missing = group_df_by_continuity(df=df_query2, agg_df=df_query_missing, missing_data_cols=missing_data_cols)
-            df_query_not_missing = group_df_by_continuity(df=df_query2, agg_df=df_query_not_missing, missing_data_cols=missing_data_cols)
-            df_query_not_missing = df_query_not_missing.filter(pl.col("duration") >= minimum_not_missing_duration)
-            
-            df_query = df_query2.select(data_loader.available_features)
+                df_query_missing = group_df_by_continuity(df=df_query2, agg_df=df_query_missing, missing_data_cols=missing_data_cols)
+                df_query_not_missing = group_df_by_continuity(df=df_query2, agg_df=df_query_not_missing, missing_data_cols=missing_data_cols)
+                df_query_not_missing = df_query_not_missing.filter(pl.col("duration") >= minimum_not_missing_duration)
+                
+                df_query = df_query2.select(data_loader.available_features)
 
-            if PLOT:
-                # Plot number of missing wind dir/wind speed data for each wind turbine (missing duration on x axis, turbine id on y axis, color for wind direction/wind speed)
-                from matplotlib import colormaps
-                from matplotlib.ticker import MaxNLocator
-                fig, ax = plt.subplots(1, 1)
-                for feature_type, marker in zip(missing_data_cols, ["o", "^"]):
-                    for turbine_id, color in zip(data_loader.turbine_ids, colormaps["tab20c"](np.linspace(0, 1, len(data_loader.turbine_ids)))):
-                        df = df_query_missing.select("duration", f"is_missing_{feature_type}_{turbine_id}").collect().to_pandas()
+                if PLOT:
+                    # Plot number of missing wind dir/wind speed data for each wind turbine (missing duration on x axis, turbine id on y axis, color for wind direction/wind speed)
+                    from matplotlib import colormaps
+                    from matplotlib.ticker import MaxNLocator
+                    fig, ax = plt.subplots(1, 1)
+                    for feature_type, marker in zip(missing_data_cols, ["o", "^"]):
+                        for turbine_id, color in zip(data_loader.turbine_ids, colormaps["tab20c"](np.linspace(0, 1, len(data_loader.turbine_ids)))):
+                            df = df_query_missing.select("duration", f"is_missing_{feature_type}_{turbine_id}").collect().to_pandas()
+                            ax.scatter(x=df["duration"].dt.seconds / 3600,
+                                        y=df[f"is_missing_{feature_type}_{turbine_id}"].astype(int),  
+                            marker=marker, label=turbine_id, s=400, color=color)
+                    ax.set_title("Occurence of Missing Wind Speed (circle) and Wind Direction (triangle) Values vs. Missing Duration, for each Turbine")
+                    ax.set_xlabel("Duration of Missing Values [hrs]")
+                    ax.set_ylabel("Number of Missing Values over this Duration")
+                    h, l = ax.get_legend_handles_labels()
+                    # ax.legend(h[:len(data_loader.turbine_ids)], l[:len(data_loader.turbne_ids)], ncol=8)
+                    ax.yaxis.set_major_locator(MaxNLocator(integer=True))
+
+                    # Plot missing duration on x axis, number of missing turbines on y-axis, marker for wind speed vs wind direction,
+                    fig, ax = plt.subplots(1, 1)
+                    for feature_type, marker in zip(missing_data_cols, ["o", "^"]):
+                        df = df_query_missing.select("duration", (cs.contains(feature_type) & cs.starts_with("is_missing")))\
+                                                .with_columns(pl.sum_horizontal([f"is_missing_{feature_type}_{tid}" for tid in data_loader.turbine_ids]).alias(f"is_missing_{feature_type}")).collect().to_pandas()
                         ax.scatter(x=df["duration"].dt.seconds / 3600,
-                                    y=df[f"is_missing_{feature_type}_{turbine_id}"].astype(int),  
-                        marker=marker, label=turbine_id, s=400, color=color)
-                ax.set_title("Occurence of Missing Wind Speed (circle) and Wind Direction (triangle) Values vs. Missing Duration, for each Turbine")
-                ax.set_xlabel("Duration of Missing Values [hrs]")
-                ax.set_ylabel("Number of Missing Values over this Duration")
-                h, l = ax.get_legend_handles_labels()
-                # ax.legend(h[:len(data_loader.turbine_ids)], l[:len(data_loader.turbne_ids)], ncol=8)
-                ax.yaxis.set_major_locator(MaxNLocator(integer=True))
+                                    y=df[f"is_missing_{feature_type}"].astype(int),  
+                        marker=marker, label=feature_type, s=400)
+                    ax.set_title("Occurence of Missing Wind Speed (circle) and Wind Direction (triangle) Values vs. Missing Duration, for all Turbines")
+                    ax.set_xlabel("Duration of Missing Values [hrs]")
+                    ax.set_ylabel("Number of Missing Values over this Duration")
+                    h, l = ax.get_legend_handles_labels()
+                    # ax.legend(h[:len(missing_data_cols)], l[:len(missing_data_cols)], ncol=8)
+                    ax.yaxis.set_major_locator(MaxNLocator(integer=True))
 
-                # Plot missing duration on x axis, number of missing turbines on y-axis, marker for wind speed vs wind direction,
-                fig, ax = plt.subplots(1, 1)
-                for feature_type, marker in zip(missing_data_cols, ["o", "^"]):
-                    df = df_query_missing.select("duration", (cs.contains(feature_type) & cs.starts_with("is_missing")))\
-                                            .with_columns(pl.sum_horizontal([f"is_missing_{feature_type}_{tid}" for tid in data_loader.turbine_ids]).alias(f"is_missing_{feature_type}")).collect().to_pandas()
-                    ax.scatter(x=df["duration"].dt.seconds / 3600,
-                                y=df[f"is_missing_{feature_type}"].astype(int),  
-                    marker=marker, label=feature_type, s=400)
-                ax.set_title("Occurence of Missing Wind Speed (circle) and Wind Direction (triangle) Values vs. Missing Duration, for all Turbines")
-                ax.set_xlabel("Duration of Missing Values [hrs]")
-                ax.set_ylabel("Number of Missing Values over this Duration")
-                h, l = ax.get_legend_handles_labels()
-                # ax.legend(h[:len(missing_data_cols)], l[:len(missing_data_cols)], ncol=8)
-                ax.yaxis.set_major_locator(MaxNLocator(integer=True))
+                # if more than 'missing_col_thr' columns are missing data for more than 'missing_timesteps_thr', split the dataset at the point of temporal discontinuity
+                # df_query = [df.lazy() for df in df_query.with_columns(get_continuity_group_index(df_query_not_missing).alias("continuity_group"))\
+                #                           .filter(pl.col("continuity_group") != -1)\
+                #                           .drop(cs.contains("is_missing") | cs.contains("num_missing"))
+                #                           .collect(streaming=True)\
+                #                           .sort("time")
+                #                           .partition_by("continuity_group")]
 
-            # if more than 'missing_col_thr' columns are missing data for more than 'missing_timesteps_thr', split the dataset at the point of temporal discontinuity
-            # df_query = [df.lazy() for df in df_query.with_columns(get_continuity_group_index(df_query_not_missing).alias("continuity_group"))\
-            #                           .filter(pl.col("continuity_group") != -1)\
-            #                           .drop(cs.contains("is_missing") | cs.contains("num_missing"))
-            #                           .collect(streaming=True)\
-            #                           .sort("time")
-            #                           .partition_by("continuity_group")]
+                df_query = df_query.with_columns(get_continuity_group_index(df_query_not_missing).alias("continuity_group"))\
+                                        .filter(pl.col("continuity_group") != -1)\
+                                        .drop(cs.contains("is_missing") | cs.contains("num_missing"))\
+                                        .sort("time").collect().lazy()
 
-            df_query = df_query.with_columns(get_continuity_group_index(df_query_not_missing).alias("continuity_group"))\
-                                    .filter(pl.col("continuity_group") != -1)\
-                                    .drop(cs.contains("is_missing") | cs.contains("num_missing"))\
-                                    .sort("time").collect().lazy()
-            df_query.collect().write_parquet(PL_SAVE_PATH.replace(".parquet", "_split.parquet"), statistics=False)
-            # check each split dataframe a) is continuous in time AND b) has <= than the threshold number of missing columns OR for less than the threshold time span
-            # for df in df_query:
-            #     assert df.select((pl.col("time").diff(null_behavior="drop") == np.timedelta64(data_loader.dt, "s")).all()).collect(streaming=True).item()
-            #     assert (df.select((pl.sum_horizontal([(cs.numeric() & cs.contains(col)).is_null() for col in missing_data_cols]) <= missing_col_thr)).collect(streaming=True)
-            #             |  ((df.select("time").max().collect(streaming=True).item() - df.select("time").min().collect(streaming=True).item()) < missing_duration_thr))
+                df_query.collect().write_parquet(PL_SAVE_PATH.replace(".parquet", "_split.parquet"), statistics=False)
+                # check each split dataframe a) is continuous in time AND b) has <= than the threshold number of missing columns OR for less than the threshold time span
+                # for df in df_query:
+                #     assert df.select((pl.col("time").diff(null_behavior="drop") == np.timedelta64(data_loader.dt, "s")).all()).collect(streaming=True).item()
+                #     assert (df.select((pl.sum_horizontal([(cs.numeric() & cs.contains(col)).is_null() for col in missing_data_cols]) <= missing_col_thr)).collect(streaming=True)
+                #             |  ((df.select("time").max().collect(streaming=True).item() - df.select("time").min().collect(streaming=True).item()) < missing_duration_thr))
+            else:
+                # If continuity groups are disabled, skip advanced splitting
+                logging.info("Skipping complex splitting logic because continuity group is disabled.")
+                df_query = df_query.with_columns(pl.lit(0).alias("continuity_group"))\
+                                      .sort("time")\
+                                      .collect()\
+                                      .lazy()
+                df_query.collect().write_parquet(PL_SAVE_PATH.replace(".parquet", "_split.parquet"), statistics=False)
         else:
             df_query = pl.scan_parquet(PL_SAVE_PATH.replace(".parquet", "_split.parquet"))
+            loaded_shape = df_query.collect().shape
+            logging.info(f"Loaded split parquet shape: {loaded_shape}")
     else:
-        df_query = df_query.with_columns(pl.lit(0).alias("continuity_group"))
+        if USE_CONTINUITY_GROUPS:
+            df_query = df_query.with_columns(pl.lit(0).alias("continuity_group"))
 
-    # %% check time series
-    if PLOT:
-        DataInspector.print_df_state(df_query, ["wind_speed", "wind_direction", "nacelle_direction"])
-        continuity_groups = df_query.select("continuity_group").unique().collect().to_numpy().flatten()
-        data_inspector.plot_time_series(df_query.head(1000), feature_types=["wind_speed", "wind_direction"], turbine_ids=data_loader.turbine_ids, continuity_groups=continuity_groups) 
-    
-    # %% 
+    # After split filter
     if "impute_missing_data" in FILTERS:
         if RELOAD_DATA or not os.path.exists(PL_SAVE_PATH.replace(".parquet", "_imputed.parquet")):
             logging.info("Impute/interpolate turbine missing data from correlated measurements.")
-            # else, for each of those split datasets, impute the values using the imputing.impute_all_assets_by_correlation function
-            # fill data on single concatenated dataset
-            df_query2 = data_filter._fill_single_missing_dataset(df_idx=0, df=df_query, impute_missing_features=["wind_speed", "wind_direction"], 
-                                                    interpolate_missing_features=["wind_direction", "wind_speed", "nacelle_direction"], 
-                                                    available_features=data_loader.available_features, parallel="turbine_id")
-
-            df_query = df_query.drop([cs.starts_with(feat) for feat in ["wind_direction", "wind_speed", "nacelle_direction"]]).join(df_query2, on="time", how="left")
+            df_query2 = data_filter._fill_single_missing_dataset(
+                df_idx=0, 
+                df=df_query, 
+                impute_missing_features=["wind_speed", "wind_direction"],
+                interpolate_missing_features=["wind_direction", "wind_speed", "nacelle_direction"],
+                available_features=data_loader.available_features, 
+                parallel="turbine_id"
+            )
+            df_query = df_query.drop([cs.starts_with(feat) for feat in ["wind_direction", "wind_speed", "nacelle_direction"]])\
+                              .join(df_query2, on="time", how="left")
             df_query.collect().write_parquet(PL_SAVE_PATH.replace(".parquet", "_imputed.parquet"), statistics=False)
-        else:
-            df_query = pl.scan_parquet(PL_SAVE_PATH.replace(".parquet", "_imputed.parquet"))
 
-    # %% check time series
-    if PLOT:
-        DataInspector.print_df_state(df_query, ["wind_speed", "wind_direction", "nacelle_direction"])
-        continuity_groups = df_query.select("continuity_group").unique().collect().to_numpy().flatten()
-        data_inspector.plot_time_series(df_query.head(1000), feature_types=["wind_speed", "wind_direction"], turbine_ids=data_loader.turbine_ids, continuity_groups=continuity_groups) 
-
-    # %%
     if "normalize" in FILTERS:
-        if RELOAD_DATA or not os.path.exists(PL_SAVE_PATH.replace(".parquet", "_normalized.parquet")): 
-            # Normalization & Feature Selection
-            logging.info("Normalizing and selecting features.")
+        if RELOAD_DATA or not os.path.exists(PL_SAVE_PATH.replace(".parquet", "_normalized.parquet")):
+            logging.info("Normalizing features for neural network input.")
+            
+            # Ensure the output directory exists
+            save_dir = os.path.dirname(PL_SAVE_PATH)
+            os.makedirs(save_dir, exist_ok=True)
+            
+            # Add continuity_group if it doesn't exist (when split filter is disabled)
+            if "continuity_group" not in df_query.collect_schema().names():
+                df_query = df_query.with_columns(pl.lit(0).alias("continuity_group"))
+            
+            # Convert wind directions to sin/cos components and normalize
             df_query = df_query\
-                    .with_columns(((cs.starts_with("wind_direction") - 180.).radians().sin()).name.map(lambda c: "wd_sin_" + c.split("_")[-1]),
-                                ((cs.starts_with("wind_direction") - 180.).radians().cos()).name.map(lambda c: "wd_cos_" + c.split("_")[-1]))\
-                    .with_columns(**{f"ws_horz_{tid}": (pl.col(f"wind_speed_{tid}") * pl.col(f"wd_sin_{tid}")) for tid in data_loader.turbine_ids})\
-                    .with_columns(**{f"ws_vert_{tid}": (pl.col(f"wind_speed_{tid}") * pl.col(f"wd_cos_{tid}")) for tid in data_loader.turbine_ids})\
-                    .with_columns(**{f"nd_cos_{tid}": ((pl.col(f"nacelle_direction_{tid}") - 180.).radians().cos()) for tid in data_loader.turbine_ids})\
-                    .with_columns(**{f"nd_sin_{tid}": ((pl.col(f"nacelle_direction_{tid}") - 180.).radians().sin()) for tid in data_loader.turbine_ids})
+                .with_columns(
+                    ((cs.starts_with("wind_direction") - 180.).radians().sin()).name.map(lambda c: "wd_sin_" + c.split("_")[-1]),
+                    ((cs.starts_with("wind_direction") - 180.).radians().cos()).name.map(lambda c: "wd_cos_" + c.split("_")[-1])
+                )\
+                .with_columns(
+                    **{f"ws_horz_{tid}": (pl.col(f"wind_speed_{tid}") * pl.col(f"wd_sin_{tid}")) for tid in data_loader.turbine_ids},
+                    **{f"ws_vert_{tid}": (pl.col(f"wind_speed_{tid}") * pl.col(f"wd_cos_{tid}")) for tid in data_loader.turbine_ids},
+                    **{f"nd_cos_{tid}": ((pl.col(f"nacelle_direction_{tid}") - 180.).radians().cos()) for tid in data_loader.turbine_ids},
+                    **{f"nd_sin_{tid}": ((pl.col(f"nacelle_direction_{tid}") - 180.).radians().sin()) for tid in data_loader.turbine_ids}
+                )
             
-            if "continuity_group" in df_query.collect_schema().names():
-                df_query = df_query.select(pl.col("time"), pl.col("continuity_group"), cs.contains("nd_sin"), cs.contains("nd_cos"), cs.contains("ws_horz"), cs.contains("ws_vert"))
-                time_cols = [pl.col("time"), pl.col("continuity_group")]
-            else:
-                time_cols = [pl.col("time")]
-
-            # store min/max of each column to rescale later
+            # Store normalization constants
             feature_types = ["nd_cos", "nd_sin", "ws_horz", "ws_vert"]
-            
             norm_vals = {}
-            for feature_type in feature_types:
-                norm_vals[f"{feature_type}_max"] = df_query.select(pl.max_horizontal(cs.starts_with(feature_type).max())).collect().item()
-                norm_vals[f"{feature_type}_min"] = df_query.select(pl.min_horizontal(cs.starts_with(feature_type).min())).collect().item()
+            for feat in feature_types:
+                norm_vals[f"{feat}_max"] = df_query.select(pl.max_horizontal(cs.starts_with(feat).max())).collect().item()
+                norm_vals[f"{feat}_min"] = df_query.select(pl.min_horizontal(cs.starts_with(feat).min())).collect().item()
+            
+            print(f"Path: {PL_SAVE_PATH}")
+            print(f"Norm vals: {norm_vals}")
+            
+            # Save normalization constants
+            norm_constants_path = os.path.join(save_dir, os.path.basename(PL_SAVE_PATH).replace(".parquet", "_normalization_consts.csv"))
+            pl.DataFrame(norm_vals).select(pl.all().round(2))\
+                .write_csv(norm_constants_path)
+            logging.info(f"Saved normalization constants to: {norm_constants_path}")
 
-            norm_vals = pl.DataFrame(norm_vals).select(pl.all().round(2))
-            norm_vals.write_csv(os.path.join(os.path.dirname(PL_SAVE_PATH), PL_SAVE_PATH.replace(".parquet", "_normalization_consts.csv")))
-
-            df_query = df_query.select(time_cols 
-                                    + [((2.0 * ((cs.starts_with(feature_type) - norm_vals.select(f"{feature_type}_min").item()) 
-                                    / (norm_vals.select(f"{feature_type}_max").item() - norm_vals.select(f"{feature_type}_min").item()))) - 1.0).name.keep()
-                                    for feature_type in feature_types])
+            # Normalize features to [-1, 1] range
+            df_query = df_query.select(
+                [pl.col("time"), pl.col("continuity_group")] + 
+                [((2.0 * ((cs.starts_with(feat) - norm_vals[f"{feat}_min"]) / 
+                  (norm_vals[f"{feat}_max"] - norm_vals[f"{feat}_min"]))) - 1.0).name.keep()
+                 for feat in feature_types]
+            )
             
             df_query.collect().write_parquet(PL_SAVE_PATH.replace(".parquet", "_normalized.parquet"), statistics=False)
-        else:
-            df_query = pl.scan_parquet(PL_SAVE_PATH.replace(".parquet", "_normalized.parquet"))
 
-    # %%
-    if PLOT:
-        logging.info("Plotting time series.")
-        feature_types = ["nd_cos", "nd_sin", "ws_horz", "ws_vert"]
-        if "continuity_group" in df_query.collect_schema().names():
-            continuity_groups = df_query.select(pl.col("continuity_group")).unique().collect().to_numpy().flatten()
-            data_inspector.plot_time_series(df_query, feature_types=["ws_horz", "ws_vert"], 
-                                            turbine_ids=data_loader.turbine_ids, continuity_groups=continuity_groups)
-        
-        data_inspector.plot_time_series(df_query, feature_types=["ws_horz", "ws_vert"],
-                                        turbine_ids=data_loader.turbine_ids[:8], continuity_groups=None)
-
-        logging.info("Plotting and fitting target value distribution.")
-        data_inspector.plot_data_distribution(df_query, feature_types=["ws_horz", "ws_vert"], turbine_ids=data_loader.turbine_ids, distribution=norm)
-       
-        logging.info("Power curve fitting.")
-        # Get unpivoted data with correct column names
-        df_unpivoted = DataInspector.unpivot_dataframe(
-            df_query, 
-            feature_types=["wind_speed", "power_output"]
-        ).head(5000).collect().to_pandas()
-        
-        logging.info(f"Fitting power curves with {len(df_unpivoted)} valid data points")
-        
-        fig, ax = plt.subplots(figsize=(12, 8))
-        x = np.linspace(0, 20, 100)
-        
-        # Fit the curves with error handling
-        try:
-            iec_curve = power_curve.IEC(
-                windspeed_col="wind_speed", 
-                power_col="power_output",
-                data=df_unpivoted
-            )
-            ax.plot(x, iec_curve(x), color="red", label="IEC", linewidth=3)
-
-            l5p_curve = power_curve.logistic_5_parametric(
-                windspeed_col="wind_speed", 
-                power_col="power_output",
-                data=df_unpivoted
-            )
-            ax.plot(x, l5p_curve(x), color="blue", label="L5P", linewidth=3)
-            
-            # Convert sparse matrix to dense if needed
-            try:
-                spline_curve = power_curve.gam(
-                    windspeed_col="wind_speed", 
-                    power_col="power_output",
-                    data=df_unpivoted,
-                    n_splines=20
-                )
-                ax.plot(x, spline_curve(x), color="green", label="Spline", linewidth=3)
-                
-            except AttributeError:
-                # If sparse matrix error occurs, try with fewer splines
-                logging.warning("Sparse matrix error occurred, trying with fewer splines")
-            
-            # Plot scatter points
-            ax.scatter(
-                df_unpivoted["wind_speed"],
-                df_unpivoted["power_output"],
-                alpha=0.1,
-                s=10,
-                label="Measurements"
-            )
-
-            ax.set_xlabel("Wind Speed (m/s)")
-            ax.set_ylabel("Power Output (kW)")
-            ax.set_title("Power Curve Fitting")
-            ax.legend()
-            ax.grid(True, alpha=0.3)
-
-            plt.tight_layout()
-            plt.show()
-            
-        except Exception as e:
-            logging.error(f"Error during power curve fitting: {str(e)}")
+    # Before the final plot
+    print(f"DataFrame schema before final plot: {df_query.collect_schema().names()}")
+    print(f"DataFrame shape before final plot: {df_query.collect().shape}")

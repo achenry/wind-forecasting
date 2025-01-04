@@ -99,19 +99,23 @@ class DataInspector:
             raise FileNotFoundError(f"Farm input file not found: {farm_input_filepath}")
 
 
-    def plot_time_series(self, df_query, turbine_ids: list[str], feature_types:Optional[list] = None, feature_labels:Optional[list] = None, continuity_groups: Optional[list] = None, scatter = False) -> None:
-        # Use provided feature mapping or fall back to instance default
-        # current_mapping = feature_mapping or self.feature_mapping
-        
+    def plot_time_series(self, df_query, turbine_ids: list[str], feature_types: Optional[list] = None,
+                        feature_labels: Optional[list] = None, continuity_groups: Optional[list] = None,
+                        scatter=False) -> None:
         if feature_types is None:
             feature_types = ["wind_speed", "wind_direction", "nacelle_direction", "power_output"]
             feature_labels = ["Wind Speed (m/s)", "Wind Direction (deg)", "Nacelle Direction (deg)", "Power Output (kW)"]
         elif feature_labels is None:
-           feature_labels = [" ".join(feat.split("_")).title() for feat in feature_types] 
+            feature_labels = [" ".join(feat.split("_")).title() for feat in feature_types]
         
         # Get schema once to avoid multiple resolves
-        schema = df_query.collect_schema()
-        column_names = schema.names()
+        try:
+            schema = df_query.collect_schema()
+            column_names = schema.names()
+            print(f"Schema collected. Columns: {column_names}")
+        except Exception as e:
+            logging.error(f"Error collecting schema: {e}")
+            return
         
         # Handle "all" case for turbine_ids
         if turbine_ids == "all" or (isinstance(turbine_ids, list) and "all" in turbine_ids):
@@ -119,16 +123,24 @@ class DataInspector:
                                    if col.startswith('wind_speed_')))
         elif isinstance(turbine_ids, str):
             turbine_ids = [turbine_ids]
-            
+        
         # Clean up turbine IDs - remove any 'wt' prefix and ensure 3 digit format
-        turbine_ids = [tid.replace('wt', '') for tid in turbine_ids]
-        turbine_ids = [f"{int(tid.lstrip('0')):03d}" for tid in turbine_ids]
+        cleaned_turbine_ids = []
+        for tid in turbine_ids:
+            cleaned_tid = tid.replace('wt', '').strip()
+            if cleaned_tid.isdigit():
+                numeric_id = int(cleaned_tid.lstrip('0'))
+                cleaned_turbine_ids.append(f"{numeric_id:03d}")
+            else:
+                logging.error(f"Invalid turbine ID format: {tid}")
+        turbine_ids = sorted(set(cleaned_turbine_ids))
+        print(f"Cleaned turbine IDs: {turbine_ids}")
         
         # Create fig and ax objects
         fig, ax = plt.subplots(len(feature_types), 1, figsize=(12, 10), sharex=True)
         if not hasattr(ax, "__len__"):
             ax = [ax]
-
+        
         # Pre-compute column mappings for each feature type and turbine ID
         feature_columns = {
             feat: {
@@ -137,8 +149,9 @@ class DataInspector:
             }
             for feat in feature_types
         }
-
-        if continuity_groups is not None:
+        print(f"Feature columns mapping: {feature_columns}")
+        
+        if continuity_groups is not None and len(continuity_groups) > 0:
             for c, cg in enumerate(continuity_groups):
                 # fig, ax = plt.subplots(len(feature_types), 1, sharex=True) 
                 # if not hasattr(ax, "__len__"):
@@ -155,10 +168,15 @@ class DataInspector:
                     #     continue
                     
                     feature_df = df_query.filter(pl.col("continuity_group") == cg)\
-                                .select(pl.col("time"), 
-                                      *[pl.col(col) for col in feature_columns[feat].values() if col is not None])
+                                        .select(pl.col("time"),
+                                                *[pl.col(col) for col in feature_columns[feat].values() if col is not None])
                     
                     df_collected = feature_df.collect().to_pandas()
+                    print(f"Continuity Group {c}: Feature '{feat}', Data Points: {len(df_collected)}")
+                    
+                    if df_collected.empty:
+                        logging.warning(f"No data available for Continuity Group {c}, Feature '{feat}'. Skipping plot.")
+                        continue
                     
                     for tid in turbine_ids:
                         col = feature_columns[feat].get(tid)
@@ -183,6 +201,11 @@ class DataInspector:
                 )
                 
                 df_collected = feature_df.collect().to_pandas()
+                print(f"Feature '{feat}', Data Points: {len(df_collected)}")
+                
+                if df_collected.empty:
+                    logging.warning(f"No data available for Feature '{feat}'. Skipping plot.")
+                    continue
                 
                 for tid in turbine_ids:
                     col = feature_columns[feat].get(tid)
@@ -196,7 +219,7 @@ class DataInspector:
                 ax[f].set_xlabel("Time [s]")
                 ax[f].set_ylabel(feature_labels[f])
                 ax[f].legend()
-                
+        
         fig.suptitle(f'Time Series for Turbines', fontsize=16)
         plt.tight_layout()
         plt.show()
