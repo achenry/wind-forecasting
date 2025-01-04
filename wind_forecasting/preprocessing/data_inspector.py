@@ -109,21 +109,40 @@ class DataInspector:
         elif feature_labels is None:
            feature_labels = [" ".join(feat.split("_")).title() for feat in feature_types] 
         
-        if isinstance(turbine_ids, str):
-            turbine_ids = [turbine_ids]  # Convert single ID to list
+        # Get schema once to avoid multiple resolves
+        schema = df_query.collect_schema()
+        column_names = schema.names()
         
-        valid_turbines = self._get_valid_turbine_ids(df_query.select([cs.starts_with(feat_type) for feat_type in feature_types]), turbine_ids=turbine_ids)
-         
-        sns.set_style("whitegrid")
-        sns.set_palette("deep")
+        # Handle "all" case for turbine_ids
+        if turbine_ids == "all" or (isinstance(turbine_ids, list) and "all" in turbine_ids):
+            turbine_ids = sorted(set(col.split('_')[-1] for col in column_names 
+                                   if col.startswith('wind_speed_')))
+        elif isinstance(turbine_ids, str):
+            turbine_ids = [turbine_ids]
+            
+        # Clean up turbine IDs - remove any 'wt' prefix and ensure 3 digit format
+        turbine_ids = [tid.replace('wt', '') for tid in turbine_ids]
+        turbine_ids = [f"{int(tid.lstrip('0')):03d}" for tid in turbine_ids]
         
-        columns = df_query.collect_schema().names()
-        
+        # Create fig and ax objects
+        fig, ax = plt.subplots(len(feature_types), 1, figsize=(12, 10), sharex=True)
+        if not hasattr(ax, "__len__"):
+            ax = [ax]
+
+        # Pre-compute column mappings for each feature type and turbine ID
+        feature_columns = {
+            feat: {
+                tid: next((col for col in column_names if col.startswith(feat) and col.endswith(f"_{tid}")), None)
+                for tid in turbine_ids
+            }
+            for feat in feature_types
+        }
+
         if continuity_groups is not None:
             for c, cg in enumerate(continuity_groups):
-                fig, ax = plt.subplots(len(feature_types), 1, sharex=True)
-                if not hasattr(ax, "__len__"):
-                    ax = [ax]
+                # fig, ax = plt.subplots(len(feature_types), 1, sharex=True) 
+                # if not hasattr(ax, "__len__"):
+                #     ax = [ax]
                 for f, feat in enumerate(feature_types):
                     # map feature name
                     # feat_col =  f"{current_mapping[feat][0]}"
@@ -136,52 +155,49 @@ class DataInspector:
                     #     continue
                     
                     feature_df = df_query.filter(pl.col("continuity_group") == cg)\
-                                 .select(pl.col("time"), cs.starts_with(feat))
+                                .select(pl.col("time"), 
+                                      *[pl.col(col) for col in feature_columns[feat].values() if col is not None])
                     
-                    for tid in valid_turbines:
-                        turbine_df = feature_df.select([pl.col("time"), cs.contains(tid)]).collect().to_pandas()
-                        if scatter:
-                            sns.scatterplot(data=turbine_df, x='time', y=f'{feat}_{tid}', ax=ax[f], label=f'{tid}')
-                        else:
-                            sns.lineplot(data=turbine_df, x='time', y=f'{feat}_{tid}', ax=ax[f], label=f'{tid}')
-                        
+                    df_collected = feature_df.collect().to_pandas()
+                    
+                    for tid in turbine_ids:
+                        col = feature_columns[feat].get(tid)
+                        if col is not None:
+                            if scatter:
+                                sns.scatterplot(data=df_collected, x='time', y=col, ax=ax[f], label=f'T{tid}')
+                            else:
+                                sns.lineplot(data=df_collected, x='time', y=col, ax=ax[f], label=f'T{tid}')
+                    
                     ax[f].set_title(f"{feature_labels[f]} for CG {int(cg)}", fontsize=14)
                     ax[f].set_xlabel("Time [s]")
                     ax[f].set_ylabel(feature_labels[f])
-                    ax[f].legend([], [], frameon=False)
+                    ax[f].legend()
         else:
-            fig, ax = plt.subplots(len(feature_types), 1, figsize=(12, 10), sharex=True)
-            if not hasattr(ax, "__len__"):
-                ax = [ax]
+            # fig, ax = plt.subplots(len(feature_types), 1, figsize=(12, 10), sharex=True) # Remove fig, ax creation from here
+            # if not hasattr(ax, "__len__"):
+            #     ax = [ax]
             for f, feat in enumerate(feature_types):
-                # map feature name
-                # feat_col =  f"{current_mapping[feat][0]}"
-                # available_cols = ["time"]
-                # if all(f"{feat_col}_{tid}" in columns for tid in valid_turbines):
-                #     available_cols.append(feat_col)
-                # else:
-                #     print(f"Warning: Column {feat_col} not found in data for {valid_turbines}")
-                #     print(f"No valid data columns found for {valid_turbines}")
-                #     continue
-                    
-                feature_df = df_query.select(pl.col("time"), cs.starts_with(feat))
-                             
-                for tid in valid_turbines:
-                    # Select columns that contain the turbine ID anywhere in the name
-                    turbine_df = feature_df.select([pl.col("time"), cs.contains(tid)]).collect().to_pandas()
-                    if scatter:
-                        sns.scatterplot(data=turbine_df, x='time', y=turbine_df.columns[1], ax=ax[f], label=f'{tid}')
-                    else:
-                        sns.lineplot(data=turbine_df, x='time', y=turbine_df.columns[1], ax=ax[f], label=f'{tid}')
+                feature_df = df_query.select(
+                    pl.col("time"),
+                    *[pl.col(col) for col in feature_columns[feat].values() if col is not None]
+                )
+                
+                df_collected = feature_df.collect().to_pandas()
+                
+                for tid in turbine_ids:
+                    col = feature_columns[feat].get(tid)
+                    if col is not None:
+                        if scatter:
+                            sns.scatterplot(data=df_collected, x='time', y=col, ax=ax[f], label=f'T{tid}')
+                        else:
+                            sns.lineplot(data=df_collected, x='time', y=col, ax=ax[f], label=f'T{tid}')
                 
                 ax[f].set_title(f"{feature_labels[f]}")
                 ax[f].set_xlabel("Time [s]")
                 ax[f].set_ylabel(feature_labels[f])
-                ax[f].legend([], [], frameon=False)
+                ax[f].legend()
                 
-        fig.suptitle(f'Time Series for Turbines: {", ".join(valid_turbines)}', fontsize=16)
-        ax[0].legend(loc='upper left', bbox_to_anchor=(1, 1))
-        
+        fig.suptitle(f'Time Series for Turbines', fontsize=16)
         plt.tight_layout()
         plt.show()
 

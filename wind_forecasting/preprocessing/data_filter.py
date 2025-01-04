@@ -492,15 +492,25 @@ def compute_offsets(df, fi, turbine_pairs:list[tuple[int, int]]=None, plot=False
 
     dir_offsets = []
 
-    for i in range(len(prat_turbine_pairs)):
-        i_up = prat_turbine_pairs[i][0]
-        i_down = prat_turbine_pairs[i][1]
+    # INFO: JUAN 30/12/2024 - iterate directly through pairs
+    # for i in range(len(prat_turbine_pairs)):
+    #     i_up = prat_turbine_pairs[i][0]
+    #     i_down = prat_turbine_pairs[i][1]
+    for i_up, i_down in prat_turbine_pairs:
+        # Check if indices are within bounds
+        if i_up >= fi.layout_x.size or i_down >= fi.layout_x.size:
+            logging.warning(f"Skipping turbine pair ({i_up + 1}, {i_down + 1}) due to out-of-bounds indices.")
+            continue
 
         dir_align = np.degrees(np.arctan2(fi.layout_x[i_up] - fi.layout_x[i_down], fi.layout_y[i_up] - fi.layout_y[i_down])) % 360
 
-        # df_sub = df_10min.loc[(df_10min['pow_wt%03d' % (i + 1)_up] >= p_min) & (df_10min['pow_wt%03d' % (i + 1)_up] <= p_max) & (df_10min['pow_wt%03d' % (i + 1)_down] >= 0)]
-        tid_up =  f'wt{(i_up + 1):03d}'
-        tid_down =  f'wt{(i_down + 1):03d}'
+        # DEBUG: JUAN INFO: 30/12/2024 - changed regex of turbine IDs to match my format (old commeted)
+        # df_sub = df_10min.loc[(df_10min['pow_wt%03d' % (i + 1)_up] >= p_min) & (df_10min['pow_wt%03d' % (i + 1)_up] <= 
+        # p_max) & (df_10min['pow_wt%03d' % (i + 1)_down] >= 0)]
+        # tid_up =  f'wt{(i_up + 1):03d}' # DEBUG
+        # tid_down =  f'wt{(i_down + 1):03d}' # DEBUG
+        tid_up =  f'{i_up + 1:03d}'
+        tid_down =  f'{i_down + 1:03d}'
 
         df_sub = df.filter((pl.col(f"power_output_{tid_up}") >= p_min) 
                                 & (pl.col(f"power_output_{tid_up}") <= p_max) 
@@ -524,7 +534,7 @@ def compute_offsets(df, fi, turbine_pairs:list[tuple[int, int]]=None, plot=False
 
         wd_idx = np.arange(int(np.round(dir_align)) - prat_hfwdth,int(np.round(dir_align)) + prat_hfwdth + 1) % 360
         if len(set(wd_idx) & set(p_ratio.select(f"wd_round").to_numpy().flatten())) != len(wd_idx):
-            logging.info(f"Cannot compute nadir for turbine pair {i_up + 1, i_down + 1}")
+            logging.info(f"Cannot compute nadir for turbine pair ({tid_up}, {tid_down})")
             continue
         
         nadir = p_ratio.filter(pl.col("wd_round").is_in(wd_idx)).select("p_ratio").to_series().arg_min() \
@@ -540,7 +550,7 @@ def compute_offsets(df, fi, turbine_pairs:list[tuple[int, int]]=None, plot=False
         if plot:
             ax.plot(xs + nadir, gauss,'k',label="_nolegend_")
             ax.plot(2 * [nadir + opt_gauss_params.x[0]], [0, 1.25], 'r--',label="Direction of Measured Wake Center")
-            ax.set_title(f"Turbine Pair: ({i_up + 1}, {i_down + 1})")
+            ax.set_title(f"Turbine Pair: ({tid_up}, {tid_down})")
             ax.legend()
             ax.set_xlabel("Rounded Wind Direction [deg]")
             ax.set_ylabel("Power Ratio [-]")

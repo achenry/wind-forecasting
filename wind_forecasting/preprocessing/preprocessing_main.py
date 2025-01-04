@@ -182,7 +182,7 @@ if __name__ == "__main__":
         data_inspector.plot_wind_farm()
         print(df_query.collect_schema().names()) # DEBUG
         print(data_loader.turbine_ids) # DEBUG
-        data_inspector.plot_wind_speed_power(df_query, turbine_ids="all")
+        # data_inspector.plot_wind_speed_power(df_query, turbine_ids="all")
         # data_inspector.plot_wind_speed_power(df_query, turbine_ids=["001"])
         data_inspector.plot_wind_speed_weibull(df_query, turbine_ids="all")
         data_inspector.plot_wind_rose(df_query, turbine_ids="all")
@@ -197,7 +197,7 @@ if __name__ == "__main__":
     # %% check time series
     if PLOT:
         DataInspector.print_df_state(df_query, ["wind_speed", "wind_direction", "nacelle_direction"])
-        data_inspector.plot_time_series(df_query.head(1000), feature_types=["wind_speed", "wind_direction"], turbine_ids=["wt001"], continuity_groups=None)
+        data_inspector.plot_time_series(df_query.head(1000), feature_types=["wind_speed", "wind_direction"], turbine_ids=data_loader.turbine_ids)
     
     # df_query.filter(df_query.select("time").collect().to_numpy().flatten() >= datetime.datetime(2022, 3, 2, 0, 0)).head(10).collect()
     # %%
@@ -290,10 +290,13 @@ if __name__ == "__main__":
             # in the wind farm.
             fi = FlorisModel(data_inspector.farm_input_filepath)
             
+            # INFO: Update these based on the wind farm layout (pairs of turbines with wake interaction)
+            turbine_pairs = [(0, 1), (2, 3), (4, 6)]
+            # turbine_pairs = [(51,50),(43,42),(41,40),(18,19),(34,33),(22,21),(87,86),(62,63),(33,32),(59,60),(43,42)]
+            
             dir_offsets = compute_offsets(df_query_10min, fi,
-                                        turbine_pairs=[(51,50),(43,42),(41,40),(18,19),(34,33),(22,21),(87,86),(62,63),(33,32),(59,60),(43,42)],
+                                        turbine_pairs=turbine_pairs,
                                         plot=PLOT
-                                        #   turbine_pairs=[(61,60),(51,50),(43,42),(41,40),(18,19),(34,33),(17,16),(21,22),(87,86),(62,63),(32,33),(59,60),(42,43)]
                                         )
             
             if dir_offsets:
@@ -315,7 +318,7 @@ if __name__ == "__main__":
                 
                 # verify that Northing calibration worked properly
                 new_dir_offsets = compute_offsets(df_query_10min, fi,
-                                                turbine_pairs=[(51,50),(43,42),(41,40),(18,19),(34,33),(22,21),(87,86),(62,63),(33,32),(59,60),(43,42)],
+                                                turbine_pairs=turbine_pairs,
                                                 plot=PLOT
                 ) 
 
