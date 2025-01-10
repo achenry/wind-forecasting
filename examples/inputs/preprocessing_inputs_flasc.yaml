@@ -1,0 +1,62 @@
+filters:
+  - nacelle_calibration
+  - unresponsive_sensor
+  - range_flag
+  - bin_filter
+  - std_range_flag
+  - impute_missing_data
+  - split
+  - normalize
+
+feature_mapping:
+  time: time
+  derate_1: derate_001
+  derate_2: derate_002
+  derate_3: derate_003
+  derate_4: derate_004
+  derate_5: derate_005
+  derate_6: derate_006
+  derate_7: derate_007
+  derate_8: derate_008
+  wind_direction_1: wind_direction_avg_001
+  wind_direction_2: wind_direction_avg_002
+  wind_direction_3: wind_direction_avg_003
+  wind_direction_4: wind_direction_avg_004
+  wind_direction_5: wind_direction_avg_005
+  wind_direction_6: wind_direction_avg_006
+  wind_direction_7: wind_direction_avg_007
+  wind_direction_8: wind_direction_avg_008
+  wind_speed_1: wind_speed_avg_001
+  wind_speed_2: wind_speed_avg_002
+  wind_speed_3: wind_speed_avg_003
+  wind_speed_4: wind_speed_avg_004
+  wind_speed_5: wind_speed_avg_005
+  wind_speed_6: wind_speed_avg_006
+  wind_speed_7: wind_speed_avg_007
+  wind_speed_8: wind_speed_avg_008
+  power_output_1: active_power_avg_001
+  power_output_2: active_power_avg_002
+  power_output_3: active_power_avg_003
+  power_output_4: active_power_avg_004
+  power_output_5: active_power_avg_005
+  power_output_6: active_power_avg_006
+  power_output_7: active_power_avg_007
+  power_output_8: active_power_avg_008
+  nacelle_direction_1: nacelle_position_avg_001
+  nacelle_direction_2: nacelle_position_avg_002
+  nacelle_direction_3: nacelle_position_avg_003
+  nacelle_direction_4: nacelle_position_avg_004
+  nacelle_direction_5: nacelle_position_avg_005
+  nacelle_direction_6: nacelle_position_avg_006
+  nacelle_direction_7: nacelle_position_avg_007
+  nacelle_direction_8: nacelle_position_avg_008
+
+dt: 5
+wide_format: True
+data_format: netcdf
+
+raw_data_directory: ~/wind-forecasting/examples/inputs/SMARTEOLE-WFC-open-dataset
+processed_data_path: ~/wind-forecasting/examples/inputs/SMARTEOLE-WFC-open-dataset/processed/SMARTEOLE_WakeSteering_SCADA_1minData.parquet
+raw_data_file_signature: SMARTEOLE_WakeSteering_SCADA_1minData.csv
+turbine_input_path: ~/wind-forecasting/examples/inputs/turbine_library/mm82.yaml
+farm_input_path: ~/wind-forecasting/examples/inputs/smarteole_farm.yaml

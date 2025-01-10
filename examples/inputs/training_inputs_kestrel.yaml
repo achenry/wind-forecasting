@@ -14,22 +14,49 @@ dataset:
     batch_size: 128
     workers: 12
     overfit: False
-    test_split: 0.15
-    val_split: 0.15
+    test_split: 0.20
+    val_split: 0.1
     resample_freq: 30s
-    n_splits: 2 # how many divisions of each continuity group to make which is further subdivided into training test and validation data
+    n_splits: 1 # how many divisions of each continuity group to make which is further subdivided into training test and validation data
 
-model: 
-    estimator_class: InformerEstimator
-    embed_size: 32 # Determines dimension of the embedding space
-    num_layers: 3 # Number of transformer blocks stacked
-    num_heads: 4 # Number of heads for spatio-temporal attention
-    forward_expansion: 4 # Multiplier for feedforward network size
-    output_size: 1 # Number of output variables
+
+model:
+  informer:
+    # embedding_dimension: 32 # Determines dimension of the embedding space
+    num_encoder_layers: 3 # Number of transformer blocks stacked
+    num_decoder_layers: 3 # Number of transformer blocks stacked
+    n_heads: 4 # Number of heads for spatio-temporal attention
     d_model: 64
-    d_queries_keys: 64 
-    d_values: 64 
-    d_ff: 64
+    dim_feedforward: 64
+  autoformer:
+    # embedding_dimension: 32 # Determines dimension of the embedding space
+    num_encoder_layers: 3 # Number of transformer blocks stacked
+    num_decoder_layers: 3 # Number of transformer blocks stacked
+    n_heads: 4 # Number of heads for spatio-temporal attention
+    dim_feedforward: 64
+  spacetimeformer:
+    # embedding_dimension: 32 # Determines dimension of the embedding space
+    num_encoder_layers: 3 # Number of transformer blocks stacked
+    num_decoder_layers: 3 # Number of transformer blocks stacked
+    n_heads: 4 # Number of heads for spatio-temporal attention
+    d_model: 64
+    dim_feedforward: 64
+    d_queries_keys: 64
+    d_values: 64
+    dropout_emb: 0.2
+    dropout_attn_matrix: 0.0
+    dropout_attn_out: 0.0
+    dropout_ff: 0.3
+    dropout_qkv: 0.0
+    max_seq_len: 14
+    start_token_len: 0
+    performer_redraw_interval: 100
+    use_shifted_time_windows: False
+    # decay_factor: 0.25
+    # l2_coeff: 1e-6
+    # class_loss_imp: 0.1
+    pos_emb_type: abs
+    embed_method: spatio-temporal
 
 callbacks: 
     progress_bar:  
@@ -50,6 +77,7 @@ trainer:
     # accumulate: 1.0
     max_epochs: 1 # Maximum number of epochs to train 100
     limit_train_batches: 100
+    default_root_dir: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/checkpoints
     # precision: 32-true # 16-mixed enables mixed precision training 32-true is full precision
     # batch_size: 32 # larger = more stable gradients
     # lr: 0.0001 # Step size
