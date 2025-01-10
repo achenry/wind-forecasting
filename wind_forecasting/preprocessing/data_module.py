@@ -20,7 +20,7 @@ import matplotlib
 import matplotlib.pyplot as plt
 from matplotlib import colormaps
 import seaborn as sns
-matplotlib.use('TkAgg')
+# matplotlib.use('TkAgg')
 
 @dataclass
 class DataModule():
