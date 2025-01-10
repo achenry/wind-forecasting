@@ -18,7 +18,7 @@ cd ..
 
 git clone https://github.com/achenry/OpenOA
 cd OpenOA
-pip install .
+pip install -e .
 cd ..
 
 git clone https://github.com/boujuan/pytorch-transformer-ts
@@ -31,7 +31,7 @@ cd ..
 git clone https://github.com/achenry/gluonts
 cd gluonts
 git checkout mv_prob
-pip install .
+pip install -e .
 cd ..
 
 # salloc --account=ssc --time=01:00:00 --mem-per-cpu=64G --gpus=2 --ntasks-per-node=2 --partition=debug
