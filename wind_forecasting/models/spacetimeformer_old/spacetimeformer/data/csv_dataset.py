@@ -40,7 +40,6 @@ class CSVTimeSeries:
 
 		assert data_path is not None or raw_df is not None
 		assert not hasattr(data_path, "__iter__") or len(data_path)
-		# TODO train on multiple independent datasets id data_path is a directory of csvs
 		if raw_df is None:
 			self.data_path = data_path
 			assert os.path.exists(self.data_path)
@@ -120,7 +119,6 @@ class CSVTimeSeries:
 				] = cond
 			return mask
 
-		# TODO transform these to indices rather than time
 		# min_data_length = min(len(sub_time_df) for sub_time_df in time_df)
 		test_cutoff = len(time_df[0]) - max(round(test_split * len(time_df[0])), 1)
 		val_cutoff = test_cutoff - round(val_split * len(time_df[0]))
@@ -296,7 +294,6 @@ class CSVTorchDset(Dataset):
 		self.context_points = context_points
 		self.target_points = target_points
 		self.time_resolution = time_resolution
-		# TODO this will be empty if target points + context points is too long`
 		self._slice_start_points = [
 			i
 			for i in range(
