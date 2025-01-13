@@ -727,7 +727,7 @@ def main():
                 norm_vals[f"{feature_type}_min"] = df_query.select(pl.min_horizontal(cs.starts_with(feature_type).min())).collect().item()
 
             norm_vals = pl.DataFrame(norm_vals).select(pl.all().round(2))
-            norm_vals.write_csv(os.path.join(os.path.dirname(config["processed_data_path"]), config["processed_data_path"].replace(".parquet", "_normalization_consts.csv")))
+            norm_vals.write_csv(config["processed_data_path"].replace(".parquet", "_normalization_consts.csv"))
 
             df_query = df_query.select(time_cols 
                                     + [((2.0 * ((cs.starts_with(feature_type) - norm_vals.select(f"{feature_type}_min").item()) 
