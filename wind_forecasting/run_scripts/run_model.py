@@ -83,7 +83,7 @@ if __name__ == "__main__":
     # data_module.plot_dataset_splitting()
 
     data_module = DataModule(data_path=config["dataset"]["data_path"], n_splits=config["dataset"]["n_splits"],
-                             continuity_groups=[0], train_split=(1.0 - config["dataset"]["val_split"] - config["dataset"]["test_split"]),
+                             continuity_groups=None, train_split=(1.0 - config["dataset"]["val_split"] - config["dataset"]["test_split"]),
                                 val_split=config["dataset"]["val_split"], test_split=config["dataset"]["test_split"], 
                                 prediction_length=config["dataset"]["prediction_length"], context_length=config["dataset"]["context_length"],
                                 target_prefixes=["ws_horz", "ws_vert"], feat_dynamic_real_prefixes=["nd_cos", "nd_sin"],
@@ -107,7 +107,7 @@ if __name__ == "__main__":
         scaling=False,
         lags_seq=[0],
         batch_size=128,
-        train_sampler=SequentialSampler(min_past=data_module.context_length, min_future=data_module.prediction_length), # TODO + context_len for starting indices?
+        train_sampler=SequentialSampler(min_past=data_module.context_length, min_future=data_module.prediction_length),
         validation_sampler=SequentialSampler(min_past=data_module.context_length, min_future=data_module.prediction_length),
         # validation_sampler=ExpectedNumInstanceSampler(num_instances=1.0, min_future=data_module.prediction_length),
         # dim_feedforward=config["model"][args.model]["dim_feedforward"],
