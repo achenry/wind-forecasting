@@ -10,14 +10,15 @@ mamba activate wind_forecasting
 mamba install conda-forge::cuda-version=12.4 nvidia/label/cuda-12.4.0::cuda-toolkit performer-pytorch pytorch torchvision torchaudio torchmetrics pytorch-cuda=12.4 lightning -c pytorch -c nvidia --y
 mamba install polars windrose statsmodels scikit-learn jupyterlab nb_conda_kernels pyyaml matplotlib numpy seaborn opt_einsum netcdf4 scipy h5pyd pyarrow wandb einops --y 
 pip install mpi4py impi_rt opencv-python floris
-python setup.py develop
-# python wind_forecasting/models/spacetimeformer/setup.py develop
 
-git clone --recurse-submodules https://github.com/achenry/wind-forecasting.git
+git clone https://github.com/achenry/wind-forecasting.git
+cd wind_forecasting
+python setup.py develop
+cd ..
 
 git clone https://github.com/achenry/OpenOA
 cd OpenOA
-pip install .
+pip install -e .
 cd ..
 
 git clone https://github.com/boujuan/pytorch-transformer-ts
@@ -30,7 +31,7 @@ cd ..
 git clone https://github.com/achenry/gluonts
 cd gluonts
 git checkout mv_prob
-pip install .
+pip install -e .
 cd ..
 
 # salloc --account=ssc --time=01:00:00 --mem-per-cpu=64G --gpus=2 --ntasks-per-node=2 --partition=debug

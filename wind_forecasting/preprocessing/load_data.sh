@@ -20,7 +20,7 @@ export RUST_BACKTRACE=full
 #export MPICH_COLL_OPT_OFF=mpi_allreduce 
 #export LD_LIBRARy_PATH=$CONDA_PREFIX/lib
 
-mpirun -np $SLURM_NTASKS python data_loader.py
+mpirun -np $SLURM_NTASKS python preprocessing_main.py --load_data
 #python data_loader.py
 
 #rm /pl/active/paolab/awaken_data/kp.turbine.z02.b0/*.nc

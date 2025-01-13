@@ -213,15 +213,16 @@ if __name__ == "__main__":
 
                 col_idx = [c for c, col in enumerate(data_module.target_cols) if output_type in col]
                 col_names = [col for col in data_module.target_cols if output_type in col]
-                context_df = ts[-data_module.context_length - data_module.prediction_length:][col_idx]\
+                true_df = ts[-data_module.context_length - data_module.prediction_length:][col_idx]\
                                 .rename(columns={c: cname for c, cname in zip(col_idx, col_names)})
-                context_df = pd.concat([
-                    context_df[col].to_frame()\
+                true_df = pd.concat([
+                    true_df[col].to_frame()\
                                    .rename(columns={col: output_type})\
-                                   .assign(turbine_id=pd.Categorical([col.split("_")[-1] for t in range(data_module.context_length)])) 
+                                   .assign(turbine_id=pd.Categorical([col.split("_")[-1] 
+                                   for t in range(data_module.context_length + data_module.prediction_length)])) 
                                    for col in col_names], axis=0).reset_index(names="time").sort_values(["time", "turbine_id"])
-                context_df["time"] = context_df["time"].dt.to_timestamp()
-                sns.lineplot(data=context_df, x="time", y=output_type, hue="turbine_id", ax=ax)
+                true_df["time"] = true_df["time"].dt.to_timestamp()
+                sns.lineplot(data=true_df, x="time", y=output_type, hue="turbine_id", ax=ax)
                 # .plot(ax=ax)
 
                 # (quantile, target_dim, seq_len)
