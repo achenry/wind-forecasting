@@ -43,8 +43,8 @@ from floris import FlorisModel
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # %%
-if __name__ == "__main__":
 
+def main():
     parser = argparse.ArgumentParser(prog="WindFarmForecasting")
     parser.add_argument("-cnf", "--config", type=str)
     parser.add_argument("-m", "--multiprocessor", type=str, choices=["cf", "mpi"], required=False, default=None)
@@ -57,6 +57,8 @@ if __name__ == "__main__":
     with open(args.config, 'r') as file:
         config  = yaml.safe_load(file)
 
+    config["raw_data_directory"] = os.path.expanduser(config["raw_data_directory"])
+    config["processed_data_path"] = os.path.expanduser(config["processed_data_path"])
     config["turbine_input_path"] = os.path.expanduser(config["turbine_input_path"]) 
     config["farm_input_path"] = os.path.expanduser(config["farm_input_path"])
 
@@ -81,8 +83,7 @@ if __name__ == "__main__":
         dt=config["dt"],
         ffill_limit=None,
         data_format=config["data_format"],
-        feature_mapping=config["feature_mapping"],
-        wide_format=config["wide_format"]
+        feature_mapping=config["feature_mapping"]
     )
 
     # %%
@@ -118,12 +119,9 @@ if __name__ == "__main__":
     if not args.preprocess_data:
         return
 
-    data_loader.available_features = sorted(df_query.collect_schema().names())
-    data_loader.turbine_ids = sorted(set(col.split("_")[-1] for col in data_loader.available_features if "wt" in col))
-
-    assert all(any(prefix in col for col in data_loader.available_features) for prefix in ["time", "wind_speed_", "wind_direction_", "turbine_status_", "nacelle_direction_", "power_output_"]), "DataFrame must contain columns 'time', then columns with prefixes 'wind_speed_', 'wind_direction_', 'power_output_', 'turbine_status_', 'nacelle_direction_'"
+    assert all(any(prefix in col for col in data_loader.target_features) for prefix in ["time", "wind_speed_", "wind_direction_", "nacelle_direction_", "power_output_"]), "DataFrame must contain columns 'time', then columns with prefixes 'wind_speed_', 'wind_direction_', 'power_output_', 'nacelle_direction_'"
     assert df_query.select("time").collect().to_series().is_sorted(), "Loaded data should be sorted by time!"
-    assert all(any(f"{prefix}{tid}" in col for col in data_loader.available_features if col != "time") for prefix in ["wind_speed_", "wind_direction_", "turbine_status_", "nacelle_direction_", "power_output_"] for tid in data_loader.turbine_ids), "DataFrame must contain columns with prefixes 'wind_speed_', 'wind_direction_', 'power_output_', 'turbine_status_', 'nacelle_direction_' and suffixes for each turbine id" 
+    assert all(any(f"{prefix}{tid}" in col for col in data_loader.target_features if col != "time") for prefix in ["wind_speed_", "wind_direction_", "nacelle_direction_", "power_output_"] for tid in data_loader.turbine_ids), "DataFrame must contain columns with prefixes 'wind_speed_', 'wind_direction_', 'power_output_', 'nacelle_direction_' and suffixes for each turbine id" 
 
     # df_query = df_query.group_by("time").agg(cs.numeric().mean())
     # df_query.collect().write_parquet(config["processed_data_path"], statistics=False)
@@ -296,9 +294,7 @@ if __name__ == "__main__":
     turbine_id_to_index = {tid: idx for idx, tid in enumerate(data_loader.turbine_ids)}
 
     # %%
-    print(f"Features of interest = {data_loader.desired_feature_types}")
-    print(f"Available features = {data_loader.available_features}")
-    # qa.describe(DataInspector.collect_data(df=df_query))
+    print(f"Available features = {data_loader.target_features}")
     
     # %% check time series
     if args.plot:
@@ -368,7 +364,7 @@ if __name__ == "__main__":
                 data_inspector.plot_time_series(df_query.head(1000), feature_types=["wind_speed", "wind_direction"], turbine_ids=["wt001"], continuity_groups=None) 
 
         # %%
-        if "inoperational" in config["filters"]:
+        if "inoperational" in config["filters"] and any(col.startswith("turbine_status") for col in df_query.collect_schema()["names"]):
             logging.info("Nullifying inoperational turbine cells.")
             # check if wind speed/dir measurements from inoperational turbines differ from fully operational
             status_codes = [1]
@@ -618,7 +614,7 @@ if __name__ == "__main__":
             df_query_not_missing = group_df_by_continuity(df=df_query2, agg_df=df_query_not_missing, missing_data_cols=missing_data_cols)
             df_query_not_missing = df_query_not_missing.filter(pl.col("duration") >= minimum_not_missing_duration)
             
-            df_query = df_query2.select(data_loader.available_features)
+            df_query = df_query2.select(data_loader.target_features)
 
             if args.plot:
                 # Plot number of missing wind dir/wind speed data for each wind turbine (missing duration on x axis, turbine id on y axis, color for wind direction/wind speed)
@@ -690,7 +686,7 @@ if __name__ == "__main__":
             # fill data on single concatenated dataset
             df_query2 = data_filter._fill_single_missing_dataset(df_idx=0, df=df_query, impute_missing_features=["wind_speed", "wind_direction"], 
                                                     interpolate_missing_features=["wind_direction", "wind_speed", "nacelle_direction"], 
-                                                    available_features=data_loader.available_features, parallel="turbine_id")
+                                                    available_features=data_loader.target_features, parallel="turbine_id")
 
             df_query = df_query.drop([cs.starts_with(feat) for feat in ["wind_direction", "wind_speed", "nacelle_direction"]]).join(df_query2, on="time", how="left")
             df_query.collect().write_parquet(config["processed_data_path"].replace(".parquet", "_imputed.parquet"), statistics=False)
@@ -819,3 +815,7 @@ if __name__ == "__main__":
             
         except Exception as e:
             logging.error(f"Error during power curve fitting: {str(e)}")
+
+
+if __name__ == "__main__":
+    main()
