@@ -13,13 +13,10 @@ pip install mpi4py impi_rt opencv-python floris
 
 git clone https://github.com/achenry/wind-forecasting.git
 cd wind_forecasting
+git checkout feature/spacetimeformer
 python setup.py develop
 cd ..
 
-git clone https://github.com/achenry/OpenOA
-cd OpenOA
-pip install -e .
-cd ..
 
 git clone https://github.com/boujuan/pytorch-transformer-ts
 cd pytorch-transformer-ts
@@ -33,6 +30,7 @@ cd gluonts
 git checkout mv_prob
 pip install -e .
 cd ..
+
 
 # salloc --account=ssc --time=01:00:00 --mem-per-cpu=64G --gpus=2 --ntasks-per-node=2 --partition=debug
 

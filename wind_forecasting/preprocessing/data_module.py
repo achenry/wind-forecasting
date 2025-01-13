@@ -43,7 +43,6 @@ class DataModule():
         # dataset = pl.read_parquet(self.data_path).group_by("continuity_group").group_by_dynamic("time", every=self.freq).agg(cs.numeric().mean()).sort_by("time").collect().to_pandas().set_index("time")
         # dataset.index.rename("timestamp")
         dataset = pl.read_parquet(self.data_path).with_columns(time=pl.col("time").dt.round(self.freq)).group_by("time").agg(cs.numeric().mean()).sort(["continuity_group", "time"])
-        
         # .group_by_dynamic("time", every=self.freq).agg(cs.numeric().mean()).sort_by("time")
 
         # fetch a subset of continuity groups and turbine data
@@ -55,7 +54,9 @@ class DataModule():
                 # sub_dataset = dataset.loc[dataset["continuity_group"].isin(continuity_groups),
                 #         [col for col in dataset.columns if any(col.__contains__(tid) for tid in turbine_ids)] + ["continuity_group"]]
                 # dataset = dataset[[col for col in dataset.columns if any(col.__contains__(tid) for tid in self.target_suffixes)] + ["continuity_group"]]
-                dataset = dataset.select(pl.col("time"), pl.col("continuity_group"), *[cs.ends_with(sfx) for sfx in self.target_suffixes])
+                if self.target_suffixes is not None:
+                    dataset = dataset.select(pl.col("time"), pl.col("continuity_group"), *[cs.ends_with(sfx) for sfx in self.target_suffixes])
+                
             else:
                 self.continuity_groups = [0]
                 # dataset = dataset[[col for col in dataset.columns if any(col.__contains__(tid) for tid in self.target_suffixes)]]
@@ -66,6 +67,9 @@ class DataModule():
             dataset = dataset.filter(pl.col("continuity_group").is_in(self.continuity_groups))\
                              .select(pl.col("time"), pl.col("continuity_group"), *[cs.ends_with(sfx) for sfx in self.target_suffixes])
         
+        if self.target_suffixes is None:
+            self.target_suffixes = sorted(list(set(col.split("_")[-1] for col in dataset.select(*[cs.starts_with(pfx) for pfx in self.target_prefixes]).columns)))
+
         # float64_cols = list(dataset.select_dtypes(include="float64"))
         # dataset[float64_cols] = dataset[float64_cols].astype("float32")
         # dataset.filter(pl.col("continuity_group") == 0).to_pandas().to_csv("/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/sample_data.csv", index=False) 
@@ -147,13 +151,19 @@ class DataModule():
         val_datasets = []
 
         for cg, ds in enumerate(dataset):
+            # TODO in this case should just add to training data anyway? 
+            if round(min(self.train_split, self.val_split, self.test_split) * self.rows_per_split[cg] * self.n_splits) < self.context_length + self.prediction_length:
+                logging.info(f"Can't split dataset {cg} into training, validation, testing, not enough data points.")
+                continue 
+
             split_dataset = []
             for split_idx in range(self.n_splits):
                 slc = slice(split_idx * self.rows_per_split[cg], (split_idx + 1) * self.rows_per_split[cg])
                 # check that each split is at least context_len + target_len long, otherwise don't split it
-                if slc.stop - slc.start >= self.context_length + self.prediction_length:
+                # if slc.stop - slc.start >= self.context_length + self.prediction_length:
+                if round(min(self.train_split, self.val_split, self.test_split) * (slc.stop - slc.start)) >= self.context_length + self.prediction_length: 
                     split_dataset.append(slice_data_entry(ds, slice_=slc))
-                    print(f"full dataset cg {cg} split {split_idx} start time = {split_dataset[-1]['start']}, end time = {split_dataset[-1]['start'] + split_dataset[-1]['target'].shape[1]}, duration = {split_dataset[-1]['target'].shape[1] * pd.Timedelta(split_dataset[-1]['start'].freq)}")
+                    logging.info(f"full dataset cg {cg} split {split_idx} start time = {split_dataset[-1]['start']}, end time = {split_dataset[-1]['start'] + split_dataset[-1]['target'].shape[1]}, duration = {split_dataset[-1]['target'].shape[1] * pd.Timedelta(split_dataset[-1]['start'].freq)}")
                 else:
                     logging.info(f"Can't split dataset {cg} into {self.n_splits} , not enough data points, returning whole.")
                     split_dataset = [ds]
@@ -177,13 +187,13 @@ class DataModule():
             test_dataset = [slice_data_entry(ds, slice_=slice(train_offset + val_offset, train_offset + val_offset + test_offset)) for ds in iter(split_dataset)]
 
             for t, train_entry in enumerate(iter(train_dataset)):
-                print(f"training dataset cg {cg}, split {t} start time = {train_entry['start']}, end time = {train_entry['start'] + train_entry['target'].shape[1]}, duration = {train_entry['target'].shape[1] * pd.Timedelta(train_entry['start'].freq)}")
+                print(f"training dataset cg {cg}, split {t} start time = {train_entry['start']}, end time = {train_entry['start'] + train_entry['target'].shape[1]}, duration = {train_entry['target'].shape[1] * pd.Timedelta(train_entry['start'].freq)}\n")
 
             for v, val_entry in enumerate(iter(val_dataset)):
-                print(f"validation dataset cg {cg}, split {v} start time = {val_entry['start']}, end time = {val_entry['start'] + val_entry['target'].shape[1]}, duration = {val_entry['target'].shape[1] * pd.Timedelta(val_entry['start'].freq)}")
+                print(f"validation dataset cg {cg}, split {v} start time = {val_entry['start']}, end time = {val_entry['start'] + val_entry['target'].shape[1]}, duration = {val_entry['target'].shape[1] * pd.Timedelta(val_entry['start'].freq)}\n")
 
             for t, test_entry in enumerate(iter(test_dataset)):
-                print(f"test dataset cg {cg}, split {t} start time = {test_entry['start']}, end time = {test_entry['start'] + test_entry['target'].shape[1]}, duration = {test_entry['target'].shape[1] * pd.Timedelta(test_entry['start'].freq)}")
+                print(f"test dataset cg {cg}, split {t} start time = {test_entry['start']}, end time = {test_entry['start'] + test_entry['target'].shape[1]}, duration = {test_entry['target'].shape[1] * pd.Timedelta(test_entry['start'].freq)}\n")
              
             # n_test_windows = int((self.test_split * self.rows_per_split[cg]) / self.prediction_length)
             # test_dataset = test_gen.generate_instances(prediction_length=self.prediction_length, windows=n_test_windows)
