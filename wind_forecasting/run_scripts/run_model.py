@@ -151,6 +151,11 @@ if __name__ == "__main__":
             predictor=predictor,
             output_distr_params=True
         )
+
+        # x = []
+        # for i in range(len(data_module.test_dataset)):
+        #     x.append((data_module.test_dataset[i]["target"].shape == data_module.test_dataset[i]["feat_dynamic_real"].shape))
+
         forecasts = list(forecast_it)
         tss = list(ts_it)
         
