@@ -43,7 +43,8 @@ class DataModule():
         # dataset = pl.read_parquet(self.data_path).group_by("continuity_group").group_by_dynamic("time", every=self.freq).agg(cs.numeric().mean()).sort_by("time").collect().to_pandas().set_index("time")
         # dataset.index.rename("timestamp")
         dataset = pl.read_parquet(self.data_path).with_columns(time=pl.col("time").dt.round(self.freq)).group_by("time").agg(cs.numeric().mean()).sort(["continuity_group", "time"])
-        
+
+
         # .group_by_dynamic("time", every=self.freq).agg(cs.numeric().mean()).sort_by("time")
 
         # fetch a subset of continuity groups and turbine data
@@ -55,7 +56,9 @@ class DataModule():
                 # sub_dataset = dataset.loc[dataset["continuity_group"].isin(continuity_groups),
                 #         [col for col in dataset.columns if any(col.__contains__(tid) for tid in turbine_ids)] + ["continuity_group"]]
                 # dataset = dataset[[col for col in dataset.columns if any(col.__contains__(tid) for tid in self.target_suffixes)] + ["continuity_group"]]
-                dataset = dataset.select(pl.col("time"), pl.col("continuity_group"), *[cs.ends_with(sfx) for sfx in self.target_suffixes])
+                if self.target_suffixes is not None:
+                    dataset = dataset.select(pl.col("time"), pl.col("continuity_group"), *[cs.ends_with(sfx) for sfx in self.target_suffixes])
+                
             else:
                 self.continuity_groups = [0]
                 # dataset = dataset[[col for col in dataset.columns if any(col.__contains__(tid) for tid in self.target_suffixes)]]
@@ -66,6 +69,9 @@ class DataModule():
             dataset = dataset.filter(pl.col("continuity_group").is_in(self.continuity_groups))\
                              .select(pl.col("time"), pl.col("continuity_group"), *[cs.ends_with(sfx) for sfx in self.target_suffixes])
         
+        if self.target_suffixes is None:
+            self.target_suffixes = sorted(list(set(col.split("_")[-1] for col in dataset.select(*[cs.starts_with(pfx) for pfx in self.target_prefixes]).columns)))
+
         # float64_cols = list(dataset.select_dtypes(include="float64"))
         # dataset[float64_cols] = dataset[float64_cols].astype("float32")
         # dataset.filter(pl.col("continuity_group") == 0).to_pandas().to_csv("/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/sample_data.csv", index=False) 

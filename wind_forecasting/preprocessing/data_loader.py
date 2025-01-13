@@ -46,24 +46,25 @@ class DataLoader:
                  dt: int | None = 5,
                  ffill_limit: int | None = None, 
                  data_format: str = "netcdf", 
-                 feature_mapping: dict = None, 
-                 wide_format: bool = True):
+                 feature_mapping: dict = None):
         
         self.data_dir = data_dir
         self.save_path = save_path
+        self.file_signature = file_signature
         self.multiprocessor = multiprocessor
         self.dt = dt
         self.data_format = data_format.lower()
-        self.feature_mapping = feature_mapping or {}
+        self.feature_mapping = feature_mapping
+
+        self.target_features = list(self.feature_mapping.keys())
+        self.source_features = list(self.feature_mapping.values())
         # self.desired_feature_types = desired_feature_types or ["time", "turbine_id", "turbine_status", "wind_direction", "wind_speed", "power_output", "nacelle_direction"]
         
-        self.wide_format = wide_format
         self.ffill_limit = ffill_limit
 
-        if self.wide_format:
-            self.desired_feature_types = list(set(("_".join(k.split("_")[:-1]) if re.search(r'\d', k) else k) for k in self.feature_mapping.keys()))
-        else:
-            self.desired_feature_types = list(self.feature_mapping.keys())
+        self.turbine_ids = sorted(list(set(k.split("_")[-1] for k in self.feature_mapping.keys() if re.search(r'\d', k)))) 
+
+        self.target_feature_types = list(set(("_".join(k.split("_")[:-1]) if re.search(r'\d', k) else k) for k in self.target_features ))
         
         # Get all the wts in the folder @Juan 10/16/24 used os.path.join for OS compatibility
         self.file_paths = sorted(glob.glob(os.path.join(data_dir, file_signature)))
@@ -82,76 +83,78 @@ class DataLoader:
                     futures = [ex.submit(self._read_single_file, f, file_path) for f, file_path in enumerate(self.file_paths)]
                     df_query = [fut.result() for fut in futures]
                     df_query = [(self.file_paths[d], df) for d, df in enumerate(df_query) if df is not None]
-
-                    if df_query:
-                        # INFO: @Juan 11/13/24 Added check for data patterns in the names and also added a check for single files
-                        join_start = time.time()
-                        logging.info(f"✅ Started join of {len(self.file_paths)} files.")
-                        
-                        # Check if files have date patterns in their names
-                        date_pattern = r"\.(\d{8})\."
-                        has_date_pattern = any(re.search(date_pattern, fp) for fp, _ in df_query)
-                        
-                        if has_date_pattern:
-                            unique_file_timestamps = sorted(set(re.findall(date_pattern, fp)[0] for fp,_ in df_query 
-                                                             if re.search(date_pattern, fp)))
-                            df_query = [self._join_dfs(ts, [df for filepath, df in df_query if ts in filepath]) 
-                                      for ts in unique_file_timestamps]
-                        else:
-                            # For single file or files without timestamps, just get the dataframes
-                            df_query = [df for _, df in df_query]
-                            if len(df_query) == 1:
-                                df_query = df_query[0]  # If single file, no need to join
-                            else:
-                                df_query = pl.concat(df_query, how="diagonal").group_by("time").agg(cs.numeric().mean())
-                            
-                            # Write directly to final parquet
-                            df_query.collect().write_parquet(self.save_path, statistics=False)
-                            return pl.scan_parquet(self.save_path)
-
-                        for ts, df in zip(unique_file_timestamps, df_query):
-                            # print(ts, df.collect(), sep="\n")
-                            df.collect().write_parquet(self.save_path.replace(".parquet", f"_{ts}.parquet"), statistics=False)
-                            logging.info(f"Finished writing parquet {ts}")
-
-                        logging.info(f"🔗 Finished join. Time elapsed: {time.time() - join_start:.2f} s")
-
-                        concat_start = time.time()
-                        df_query = [pl.scan_parquet(self.save_path.replace(".parquet", f"_{ts}.parquet")) 
-                                            for ts in unique_file_timestamps]
-                        df_query = pl.concat(df_query, how="diagonal").group_by("time").agg(cs.numeric().mean())
-                        logging.info(f"🔗 Finished concat. Time elapsed: {time.time() - concat_start:.2f} s")
-
-                        logging.info(f"Started sorting.")
-                        df_query = df_query.sort("time")
-                        logging.info(f"Finished sorting.")
-
-                        logging.info(f"Started resampling.") 
-                        full_datetime_range = df_query.select(pl.datetime_range(
-                            start=df_query.select("time").min().collect().item(),
-                            end=df_query.select("time").max().collect().item(),
-                            interval=f"{self.dt}s", time_unit=df_query.collect_schema()["time"].time_unit).alias("time"))
-                            
-                        df_query = full_datetime_range.join(df_query, on="time", how="left").collect(streaming=True).lazy() # NOTE: @Aoife 10/18 make sure all time stamps are included, to interpolate continuously later
-                        logging.info(f"Finished resampling.") 
-
-                        logging.info(f"Started forward/backward fill.") 
-                        df_query = df_query.fill_null(strategy="forward").fill_null(strategy="backward") # NOTE: @Aoife for KP data, need to fill forward null gaps, don't know about Juan's data
-                        logging.info(f"Finished forward/backward fill.")
-
-                        df_query.collect().write_parquet(self.save_path, statistics=False)
-
-                        for ts in unique_file_timestamps:
-                            os.remove(self.save_path.replace(".parquet", f"_{ts}.parquet"))
                     
-                    return pl.scan_parquet(self.save_path)
         else:
             logging.info(f"🔧 Using single process executor.")
             if not self.file_paths:
                 raise FileExistsError(f"⚠️ File with signature {self.file_signature} in directory {self.data_dir} doesn't exist.")
             df_query = [self._read_single_file(f, file_path) for f, file_path in enumerate(self.file_paths)]
-            df_query = [df for df in df_query if df is not None]
-            return df_query
+            df_query = [(self.file_paths[d], df) for d, df in enumerate(df_query) if df is not None]
+        
+        if df_query:
+            # INFO: @Juan 11/13/24 Added check for data patterns in the names and also added a check for single files
+            join_start = time.time()
+            logging.info(f"✅ Started join of {len(self.file_paths)} files.")
+            
+            # Check if files have date patterns in their names
+            date_pattern = r"\.(\d{8})\."
+            has_date_pattern = any(re.search(date_pattern, fp) for fp, _ in df_query)
+            
+            if has_date_pattern:
+                unique_file_timestamps = sorted(set(re.findall(date_pattern, fp)[0] for fp,_ in df_query 
+                                                    if re.search(date_pattern, fp)))
+                df_query = [self._join_dfs(ts, [df for filepath, df in df_query if ts in filepath]) 
+                            for ts in unique_file_timestamps]
+            else:
+                # For single file or files without timestamps, just get the dataframes
+                df_query = [df for _, df in df_query]
+                if len(df_query) == 1:
+                    df_query = df_query[0]  # If single file, no need to join
+                else:
+                    df_query = pl.concat(df_query, how="diagonal").group_by("time").agg(cs.numeric().mean())
+                
+                # Write directly to final parquet
+                if not os.path.exists(os.path.dirname(self.save_path)):
+                    os.makedirs(os.path.dirname(self.save_path))
+                df_query.collect().write_parquet(self.save_path, statistics=False)
+                return pl.scan_parquet(self.save_path)
+
+            for ts, df in zip(unique_file_timestamps, df_query):
+                # print(ts, df.collect(), sep="\n")
+                df.collect().write_parquet(self.save_path.replace(".parquet", f"_{ts}.parquet"), statistics=False)
+                logging.info(f"Finished writing parquet {ts}")
+
+            logging.info(f"🔗 Finished join. Time elapsed: {time.time() - join_start:.2f} s")
+
+            concat_start = time.time()
+            df_query = [pl.scan_parquet(self.save_path.replace(".parquet", f"_{ts}.parquet")) 
+                                for ts in unique_file_timestamps]
+            df_query = pl.concat(df_query, how="diagonal").group_by("time").agg(cs.numeric().mean())
+            logging.info(f"🔗 Finished concat. Time elapsed: {time.time() - concat_start:.2f} s")
+
+            logging.info(f"Started sorting.")
+            df_query = df_query.sort("time")
+            logging.info(f"Finished sorting.")
+
+            logging.info(f"Started resampling.") 
+            full_datetime_range = df_query.select(pl.datetime_range(
+                start=df_query.select("time").min().collect().item(),
+                end=df_query.select("time").max().collect().item(),
+                interval=f"{self.dt}s", time_unit=df_query.collect_schema()["time"].time_unit).alias("time"))
+                
+            df_query = full_datetime_range.join(df_query, on="time", how="left").collect(streaming=True).lazy() # NOTE: @Aoife 10/18 make sure all time stamps are included, to interpolate continuously later
+            logging.info(f"Finished resampling.") 
+
+            logging.info(f"Started forward/backward fill.") 
+            df_query = df_query.fill_null(strategy="forward").fill_null(strategy="backward") # NOTE: @Aoife for KP data, need to fill forward null gaps, don't know about Juan's data
+            logging.info(f"Finished forward/backward fill.")
+
+            df_query.collect().write_parquet(self.save_path, statistics=False)
+
+            for ts in unique_file_timestamps:
+                os.remove(self.save_path.replace(".parquet", f"_{ts}.parquet"))
+        
+        return pl.scan_parquet(self.save_path)
     
     def sink_parquet(self, df, filepath):
         try:
@@ -270,11 +273,16 @@ class DataLoader:
             # forward fill missing values
             df_query = pl.LazyFrame(data).fill_nan(None)\
                                             .with_columns(pl.col("time").dt.round(f"{self.dt}s").alias("time"))\
-                                            .select([cs.contains(feat) for feat in self.desired_feature_types])\
-                                            .filter(pl.any_horizontal(cs.numeric().is_not_null())) 
+                                            .select([cs.contains(feat) for feat in self.target_feature_types])\
+                                            .filter(pl.any_horizontal(cs.numeric().is_not_null()))
+
+            # Check if data is already in wide format
+            is_already_wide = all(any(f"{feature}_{tid}" in col for col in df.columns) 
+                for feature in self.target_feature_types for tid in self.turbine_ids if feature != "time") 
             
             # pivot table to have columns for each turbine and measurement if not originally in wide format
-            if not self.wide_format:
+            # if not self.wide_format:
+            if not is_already_wide:
                 pivot_features = [col for col in df_query.collect_schema().names() if col not in ['time', 'turbine_id']]
                 df_query = df_query.collect(streaming=True).pivot(
                     index="time",
@@ -294,81 +302,51 @@ class DataLoader:
 
     def _read_single_csv(self, file_path: str) -> pl.LazyFrame:
         try:
-            df = pl.read_csv(file_path, low_memory=False)
-            logging.info(f"Initial CSV columns: {df.columns}")
-            logging.info(f"Initial CSV shape: {df.shape}")
-            
-            # Select only the average values and derate columns for each feature type
-            relevant_columns = ["time"]
-            for feature in self.desired_feature_types:
-                if feature == "time":
-                    continue
-                elif feature == "derate":
-                    relevant_columns.extend([col for col in df.columns if col.startswith(feature)])
-                else:
-                    # select only the _avg columns
-                    relevant_columns.extend([col for col in df.columns 
-                                          if col.startswith(feature) and col.endswith("_avg")])
+            df_query = pl.read_csv(file_path, low_memory=False)
+            logging.info(f"Initial CSV columns: {df_query.columns}")
+            logging.info(f"Initial CSV shape: {df_query.shape}")
+
+            assert all(feat in df_query.columns for feat in self.source_features), "All values in feature_mapping must exist in data columns."
             
             # Select only relevant columns and handle missing values
-            df = df.select(relevant_columns)\
+            df_query = df_query.select(self.source_features)\
                 .with_columns([
                     # Convert time column to datetime
-                    pl.when(pl.col("time").is_not_null())
-                    .then(pl.col("time").str.to_datetime())
-                    .alias("time"),
-                    # Replace infinite values with null for numeric columns
-                    *[pl.col(col).map_elements(lambda x: None if np.isinf(x) else x)
-                      for col in relevant_columns if col != "time"]
-                ])\
-                .filter(
-                    # Remove rows where time is null
-                    pl.col("time").is_not_null()
-                )
+                    pl.col("time").str.to_datetime().alias("time")
+                ])
             
             # Apply column mapping after selecting relevant columns
             if self.feature_mapping:
-                df = df.rename(dict((v, k) for k, v in self.feature_mapping.items()))
-                logging.info(f"Columns after mapping: {df.columns}")
+                df_query = df_query.rename(dict((src, tgt) for tgt, src in self.feature_mapping.items()))
+                logging.info(f"Columns after mapping: {df_query.columns}")
             
             # Check if data is already in wide format
-            is_already_wide = all(any(feature in col for col in df.columns) 
-                for feature in self.desired_feature_types if feature != "time")
+            is_already_wide = all(any(f"{feature}_{tid}" in col for col in df_query.columns) 
+                for feature in self.target_feature_types for tid in self.turbine_ids if feature != "time")
+
+            # remove the rows with all nans (corresponding to rows where excluded columns would have had a value)
+            # and bundle all values corresponding to identical time stamps together
+            # forward fill missing values
+            df_query = pl.LazyFrame(df_query.to_dict()).fill_nan(None)\
+                                            .with_columns(pl.col("time").dt.round(f"{self.dt}s").alias("time"))\
+                                            .select([cs.contains(feat) for feat in self.target_feature_types])\
+                                            .filter(pl.any_horizontal(cs.numeric().is_not_null()))
             
-            if is_already_wide:
-                # Extract features based on the provided list
-                feature_cols = ["time"] + [col for col in df.columns 
-                    if any(feature in col for feature in self.desired_feature_types if feature != "time")]
-                
-                df = df.select(feature_cols)\
-                    .with_columns([
-                        # Handle numeric columns: replace nulls with forward/backward fill
-                        *[pl.col(col).fill_null(strategy="forward", limit=self.ffill_limit)
-                          .fill_null(strategy="backward", limit=self.ffill_limit)
-                          for col in feature_cols if col != "time"]
-                    ])\
-                    .filter(
-                        # Remove rows where all numeric columns are null
-                        pl.any_horizontal(pl.exclude("time").is_not_null())
-                    )
-                
-                # Convert to long format if needed
-                if not self.wide_format:
-                    df = self._convert_to_long_format(df)
+            # pivot table to have columns for each turbine and measurement if not originally in wide format
+            if not is_already_wide:
+                pivot_features = [col for col in df_query.collect_schema().names() if col not in ['time', 'turbine_id']]
+                df_query = df_query.collect(streaming=True).pivot(
+                    index="time",
+                    on="turbine_id",
+                    values=pivot_features,
+                    aggregate_function=pl.element().drop_nulls().first(),
+                    sort_columns=True
+                ).sort("time").lazy()
             else:
-                df = df.select(self.desired_feature_types)
-                if self.wide_format:
-                    df = self.convert_to_wide_format(df)
-            
-            # Apply feature reduction and resampling
-            df = self.reduce_features(df)
-            logging.info(f"Shape after reduce_features: {df.shape}")
-            
-            if self.dt is not None:
-                df = self.resample(df)
+                df_query = df_query.collect(streaming=True).lazy()
             
             logging.info(f"📁 Processed {file_path}")
-            return df.lazy()
+            return df_query
         
         except Exception as e:
             logging.error(f"❌ Error processing CSV file {file_path}: {str(e)}")
