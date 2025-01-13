@@ -1,48 +1,31 @@
-#!/bin/bash
 
-# Instructions for installing environments on the CU Boulder Alpine cluster (for jubo7621)
-# Assumes user has already logged in via SSH and acompile as follows:
-# ssh jubo7621@login.rc.colorado.edu
-# acompile
-
-set -e # Exit immediately if a command exits with !0 status
-
-module purge
 ml mambaforge
+mamba create --prefix=/projects/aohe7145/software/anaconda/envs/wind_forecasting --y
+mamba activate wind_forecasting
+mamba install conda-forge::cuda-version=12.4 nvidia/label/cuda-12.4.0::cuda-toolkit performer-pytorch pytorch torchvision torchaudio torchmetrics pytorch-cuda=12.4 lightning -c pytorch -c nvidia --y
+mamba install polars windrose statsmodels scikit-learn jupyterlab nb_conda_kernels pyyaml matplotlib numpy seaborn opt_einsum netcdf4 scipy h5pyd pyarrow wandb einops --y 
+pip install mpi4py impi_rt opencv-python floris
 
-ENV_DIR="install_rc"
+git clone https://github.com/achenry/wind-forecasting.git
+cd wind_forecasting
+git checkout feature/spacetimeformer
+python setup.py develop
+cd ..
 
-# Function to create and activate environment
-create_and_activate_env() {
-    env_file="$1"
-    env_name="${env_file%.yaml}"
-    echo "Creating environment: $env_name"
-    if [ ! -f "$ENV_DIR/$env_file" ]; then
-        echo "Error: $ENV_DIR/$env_file not found"
-        return 1
-    fi
-    if ! mamba env create -f "$ENV_DIR/$env_file"; then
-        echo "Error: Failed to create environment $env_name"
-        return 1
-    fi
-    echo "Activating environment: $env_name"
-    mamba activate "$env_name"
-    if [ $? -ne 0 ]; then
-        echo "Error: Failed to activate environment $env_name"
-        return 1
-    fi
-    return 0
-}
+git clone https://github.com/boujuan/pytorch-transformer-ts
+cd pytorch-transformer-ts
+git checkout feature/spacetimeformer
+pip install gluonts[torch] ujson datasets xformers etsformer-pytorch reformer_pytorch pykeops apex
+pip install git+https://github.com/kashif/hopfield-layers@pytorch-2 git+https://github.com/microsoft/torchscale
+cd ..
 
-# Create and activate environments
-for env_file in wind_forecasting_cuda.yaml wind_forecasting_rocm.yaml; do
-    if create_and_activate_env "$env_file"; then
-        # Install additional packages if needed
-        # pip install matplotlib==3.7.1 pyside6==6.5.0
-        mamba deactivate
-    else
-        echo "Skipping environment: ${env_file%.yml}"
-    fi
-done
+git clone https://github.com/achenry/gluonts
+cd gluonts
+git checkout mv_prob
+pip install -e .
+cd ..
 
-echo "Environment creation complete"
+# git clone https://github.com/achenry/OpenOA
+# cd OpenOA
+# pip install -e .
+# cd ..
