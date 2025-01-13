@@ -35,7 +35,7 @@ farm:
     # - -522    # WindCube_v1
   turbine_type:
     - mm82  # List format for a single turbine type
-  turbine_library_path: examples/inputs/turbine_library
+  turbine_library_path: ../../examples/inputs/turbine_library
 
 flow_field:
   air_density: 1.225
