@@ -16,10 +16,11 @@ from matplotlib import colormaps, dates as mdates
 import wandb
 import yaml
 
-from gluonts.dataset.repository.datasets import get_dataset
 from gluonts.torch.distributions import LowRankMultivariateNormalOutput
 from gluonts.model.forecast_generator import DistributionForecastGenerator
 from gluonts.evaluation import MultivariateEvaluator, make_evaluation_predictions
+from gluonts.time_feature._base import second_of_minute, minute_of_hour, hour_of_day, day_of_year
+from gluonts.transform import ExpectedNumInstanceSampler, SequentialSampler
 
 from lightning.pytorch.loggers import WandbLogger
 from pytorch_transformer_ts.informer.lightning_module import InformerLightningModule
@@ -60,7 +61,8 @@ if __name__ == "__main__":
     #     else:
     #         config["trainer"]["n_workers"] = mp.cpu_count()
     
-    if config["dataset"]["target_turbine_ids"] == "None":
+    if (type(config["dataset"]["target_turbine_ids"]) is str) and (
+        (config["dataset"]["target_turbine_ids"].lower() == "none") or (config["dataset"]["target_turbine_ids"].lower() == "all")):
         config["dataset"]["target_turbine_ids"] = None # select all turbines
 
     # %% SETUP LOGGING
@@ -76,29 +78,17 @@ if __name__ == "__main__":
 
     # %% CREATE DATASET
 
-    # data_module = DataModule(data_path=config["dataset"]["data_path"], n_splits=config["dataset"]["n_splits"], train_split=(1.0 - config["dataset"]["val_split"] - config["dataset"]["test_split"]),
-    #                             val_split=config["dataset"]["val_split"], test_split=config["dataset"]["test_split"], 
-    #                             prediction_length=config["dataset"]["prediction_length"], context_length=config["dataset"]["context_length"],
-    #                             target_prefixes=["ws_horz", "ws_vert"], feat_dynamic_real_prefixes=["nd_cos", "nd_sin"],
-    #                             freq=config["dataset"]["resample_freq"], target_suffixes=config["dataset"]["target_turbine_ids"],
-    #                             per_turbine_target=True)
-
-    # data_module.plot_dataset_splitting()
-
     data_module = DataModule(data_path=config["dataset"]["data_path"], n_splits=config["dataset"]["n_splits"],
                              continuity_groups=None, train_split=(1.0 - config["dataset"]["val_split"] - config["dataset"]["test_split"]),
                                 val_split=config["dataset"]["val_split"], test_split=config["dataset"]["test_split"], 
                                 prediction_length=config["dataset"]["prediction_length"], context_length=config["dataset"]["context_length"],
                                 target_prefixes=["ws_horz", "ws_vert"], feat_dynamic_real_prefixes=["nd_cos", "nd_sin"],
                                 freq=config["dataset"]["resample_freq"], target_suffixes=config["dataset"]["target_turbine_ids"],
-                                per_turbine_target=False)
+                                per_turbine_target=config["dataset"]["per_turbine_target"])
     
     # data_module.plot_dataset_splitting()
 
     # %% DEFINE ESTIMATOR
-    
-    from gluonts.time_feature._base import second_of_minute, minute_of_hour, hour_of_day, day_of_year
-    from gluonts.transform import ExpectedNumInstanceSampler, SequentialSampler
     estimator = globals()[f"{args.model.capitalize()}Estimator"](
         freq=data_module.freq, 
         prediction_length=data_module.prediction_length,
@@ -154,10 +144,6 @@ if __name__ == "__main__":
             predictor=predictor,
             output_distr_params=True
         )
-
-        # x = []
-        # for i in range(len(data_module.test_dataset)):
-        #     x.append((data_module.test_dataset[i]["target"].shape == data_module.test_dataset[i]["feat_dynamic_real"].shape))
 
         forecasts = list(forecast_it)
         tss = list(ts_it)
