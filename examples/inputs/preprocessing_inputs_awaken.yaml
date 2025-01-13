@@ -18,21 +18,19 @@ feature_mapping:
   nacelle_direction: WNAC.Dir
 
 nacelle_calibration_turbine_pairs:
-- !!python/tuple [51,50]
-- !!python/tuple [43,42]
-- !!python/tuple [41,40]
-- !!python/tuple [18,19]
-- !!python/tuple [34,33]
-- !!python/tuple [22,21]
-- !!python/tuple [87,86]
-- !!python/tuple [62,63]
-- !!python/tuple [33,32]
-- !!python/tuple [59,60]
-- !!python/tuple [43,42]
+- [51,50]
+- [43,42]
+- [41,40]
+- [18,19]
+- [34,33]
+- [22,21]
+- [87,86]
+- [62,63]
+- [33,32]
+- [59,60]
+- [43,42]
 
 dt: 5
-wide_format: False
-data_format: netcdf
 
 raw_data_directory: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/raw_awaken_data
 processed_data_path: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/preprocessed_awaken_data/filled_data.parquet
