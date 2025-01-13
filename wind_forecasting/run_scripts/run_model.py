@@ -34,7 +34,7 @@ from wind_forecasting.postprocessing.probabilistic_metrics import continuous_ran
 # Configure logging and matplotlib backend
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-if sys.platform() == "darwin":
+if sys.platform == "darwin":
     matplotlib.use('TkAgg')
 
 if __name__ == "__main__":
