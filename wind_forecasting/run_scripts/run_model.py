@@ -41,7 +41,7 @@ if sys.platform == "darwin":
 if __name__ == "__main__":
     # %% PARSE CONFIGURATION
     # parse training/test booleans and config file from command line
-
+    logging.info("Parsing configuration from yaml and command line arguments")
     parser = argparse.ArgumentParser(prog="WindFarmForecasting")
     parser.add_argument("-cnf", "--config", type=str)
     parser.add_argument("-tr", "--train", action="store_true")
@@ -66,6 +66,7 @@ if __name__ == "__main__":
         config["dataset"]["target_turbine_ids"] = None # select all turbines
 
     # %% SETUP LOGGING
+    logging.info("Setting up logging")
     if not os.path.exists(config["experiment"]["log_dir"]):
         os.makedirs(config["experiment"]["log_dir"])
     wandb_logger = WandbLogger(
@@ -77,7 +78,7 @@ if __name__ == "__main__":
     )
 
     # %% CREATE DATASET
-
+    logging.info("Creating datasets")
     data_module = DataModule(data_path=config["dataset"]["data_path"], n_splits=config["dataset"]["n_splits"],
                              continuity_groups=None, train_split=(1.0 - config["dataset"]["val_split"] - config["dataset"]["test_split"]),
                                 val_split=config["dataset"]["val_split"], test_split=config["dataset"]["test_split"], 
@@ -89,6 +90,7 @@ if __name__ == "__main__":
     # data_module.plot_dataset_splitting()
 
     # %% DEFINE ESTIMATOR
+    logging.info("Declaring estimator")
     estimator = globals()[f"{args.model.capitalize()}Estimator"](
         freq=data_module.freq, 
         prediction_length=data_module.prediction_length,
@@ -118,6 +120,7 @@ if __name__ == "__main__":
     # %% TRAIN MODEL
     if args.train:
         # TODO add possibilty to add checkpoint here
+        logging.info("Training model")
         predictor = estimator.train(
             training_data=data_module.train_dataset,
             validation_data=data_module.val_dataset,
@@ -138,7 +141,8 @@ if __name__ == "__main__":
                                                     forecast_generator=DistributionForecastGenerator(estimator.distr_output))
         elif not args.train:
             raise TypeError("Must train model with --train flag or provide a --checkpoint argument to load from.")
-        
+
+        logging.info("Making evaluation predictions") 
         forecast_it, ts_it = make_evaluation_predictions(
             dataset=data_module.test_dataset,
             predictor=predictor,
