@@ -421,6 +421,7 @@ def add_df_continuity_columns(df, mask, dt):
 
 def add_df_agg_continuity_columns(df):
     # if the continuous flag is True, but the value in the row before it False
+    #.cast(df.collect_schema()["time"]))\
     df = df.filter(pl.col("continuous") | (~pl.col("continuous") & pl.col("continuous_shifted")))
     start_time_cond = ((pl.col("continuous") & ~pl.col("continuous_shifted"))).shift() | (pl.int_range(0, pl.len()) == 0)
     end_time_cond = (~pl.col("continuous") & pl.col("continuous_shifted")) | (pl.int_range(0, pl.len()) == pl.len() - 1) 
@@ -478,7 +479,9 @@ def merge_adjacent_periods(agg_df, dt):
 
         start_time_idx = end_time_idx + 1
 
-    return pl.LazyFrame(data, schema={"start_time": pl.Datetime(time_unit="us"), "end_time": pl.Datetime(time_unit="us")})\
+    return pl.LazyFrame(data, schema={
+        "start_time": pl.Datetime(time_unit=agg_df.collect_schema()["start_time"].time_unit), 
+        "end_time": pl.Datetime(time_unit=agg_df.collect_schema()["end_time"].time_unit)})\
              .with_columns((pl.col("end_time") - pl.col("start_time")).alias("duration"))
 
 # Optimization function for finding waked direction
@@ -487,11 +490,12 @@ def gauss_corr(gauss_params, power_ratio):
     gauss = -1 * gauss_params[2] * np.exp(-0.5 * ((xs - gauss_params[0]) / gauss_params[1])**2) + 1.
     return -1 * np.corrcoef(gauss, power_ratio)[0, 1]
 
-def compute_offsets(df, fi, turbine_pairs:list[tuple[int, int]]=None, plot=False):
+def compute_offsets(df, fi, turbine_ids, turbine_pairs:list[tuple[int, int]]=None, plot=False):
     p_min = 100
     p_max = 2500
     prat_hfwdth = 30
-    prat_turbine_pairs = turbine_pairs or [(61,60), (51,50), (43,42), (41,40), (18,19), (34,33), (17,16), (21,22), (87,86), (62,63), (32,33), (59,60), (42,43)]
+    # zero indexed
+    prat_turbine_pairs = turbine_pairs 
 
     dir_offsets = []
 
@@ -501,16 +505,14 @@ def compute_offsets(df, fi, turbine_pairs:list[tuple[int, int]]=None, plot=False
 
         dir_align = np.degrees(np.arctan2(fi.layout_x[i_up] - fi.layout_x[i_down], fi.layout_y[i_up] - fi.layout_y[i_down])) % 360
 
-        # df_sub = df_10min.loc[(df_10min['pow_wt%03d' % (i + 1)_up] >= p_min) & (df_10min['pow_wt%03d' % (i + 1)_up] <= p_max) & (df_10min['pow_wt%03d' % (i + 1)_down] >= 0)]
-        tid_up =  f'wt{(i_up + 1):03d}'
-        tid_down =  f'wt{(i_down + 1):03d}'
+        tid_up = turbine_ids[i_up]
+        tid_down = turbine_ids[i_down]
 
         df_sub = df.filter((pl.col(f"power_output_{tid_up}") >= p_min) 
                                 & (pl.col(f"power_output_{tid_up}") <= p_max) 
                                 & (pl.col(f"power_output_{tid_down}") >= 0))\
                                 .select(f"power_output_{tid_up}", f"power_output_{tid_down}", f"wind_direction_{tid_up}", f"wind_direction_{tid_down}")
         
-        # df_sub.loc[df_sub['wd_wt%03d' % (i + 1)_up] >= 359.5,'wd_wt%03d' % (i + 1)_up] = df_sub.loc[df_sub['wd_wt%03d' % (i + 1)_up] >= 359.5,'wd_wt%03d' % (i + 1)_up] - 360.0
         df_sub = df_sub.with_columns(pl.when((pl.col(f"wind_direction_{tid_up}") >= 359.5))\
                                         .then(pl.col(f"wind_direction_{tid_up}") - 360.0)\
                                         .otherwise(pl.col(f"wind_direction_{tid_up}")),
