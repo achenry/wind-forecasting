@@ -1,8 +1,35 @@
 ssh ahenry@kestrel-gpu.hpc.nrel.gov
 # https://docs.github.com/en/authentication/connecting-to-github-with-ssh/generating-a-new-ssh-key-and-adding-it-to-the-ssh-agent?platform=linux
 
+## FOR PREPROCESSING ONLY
+mkdir /home/ahenry/.conda
+chmod a=rx /home/ahenry/.conda
+cd $LARGE_STORAGE
+mkdir conda_pkgs
+conda config --add pkgs_dirs /srv/data/nfs/ahenry/conda_pkgs 
+mkdir conda_envs
+conda config --append envs_dirs /srv/data/nfs/ahenry/conda_envs
+conda create --prefix=/srv/data/nfs/ahenry/conda_envs/wind_forecasting_preprocessing --y
+conda activate /srv/data/nfs/ahenry/conda_envs/wind_forecasting_preprocessing
+mkdir wind_forecasting_env && cd wind_forecasting_env && mkdir bin
+
+git clone https://github.com/achenry/OpenOA
+cd OpenOA
+pip install --target $LARGE_STORAGE/ahenry/wind_forecasting_env/bin .
+cd ..
+
+git clone https://github.com/achenry/wind-forecasting.git
+cd wind-forecasting
+git checkout feature/spacetimeformer
+python setup.py develop --prefix=$LARGE_STORAGE/ahenry/wind_forecasting_env/bin
+cd ..
+
+conda install statsmodels pyyaml matplotlib numpy seaborn netcdf4 --y 
+pip install --target $LARGE_STORAGE/ahenry/wind_forecasting_env/bin floris polars windrose 
+
 # rm -rf /projects/ssc/ahenry/conda/envs/wind_forecasting
 # rm -rf /home/ahenry/.conda-pkgs/cache
+# FOR PREPROCESSING AND RUNNING MODEL
 ml PrgEnv-intel
 ml mamba
 mamba create --prefix=/projects/ssc/ahenry/conda/envs/wind_forecasting --y
@@ -17,7 +44,6 @@ git checkout feature/spacetimeformer
 python setup.py develop
 cd ..
 
-
 git clone https://github.com/boujuan/pytorch-transformer-ts
 cd pytorch-transformer-ts
 git checkout feature/spacetimeformer
@@ -29,6 +55,11 @@ git clone https://github.com/achenry/gluonts
 cd gluonts
 git checkout mv_prob
 pip install -e .
+cd ..
+
+git clone https://github.com/achenry/OpenOA
+cd OpenOA
+pip install .
 cd ..
 
 

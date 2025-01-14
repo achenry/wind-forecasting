@@ -1,4 +1,5 @@
 import os
+import sys
 import argparse
 from collections import defaultdict
 import logging
@@ -15,10 +16,11 @@ from matplotlib import colormaps, dates as mdates
 import wandb
 import yaml
 
-from gluonts.dataset.repository.datasets import get_dataset
 from gluonts.torch.distributions import LowRankMultivariateNormalOutput
 from gluonts.model.forecast_generator import DistributionForecastGenerator
 from gluonts.evaluation import MultivariateEvaluator, make_evaluation_predictions
+from gluonts.time_feature._base import second_of_minute, minute_of_hour, hour_of_day, day_of_year
+from gluonts.transform import ExpectedNumInstanceSampler, SequentialSampler
 
 from lightning.pytorch.loggers import WandbLogger
 from pytorch_transformer_ts.informer.lightning_module import InformerLightningModule
@@ -32,12 +34,14 @@ from wind_forecasting.postprocessing.probabilistic_metrics import continuous_ran
 
 # Configure logging and matplotlib backend
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-matplotlib.use('TkAgg')
+
+if sys.platform == "darwin":
+    matplotlib.use('TkAgg')
 
 if __name__ == "__main__":
     # %% PARSE CONFIGURATION
     # parse training/test booleans and config file from command line
-
+    logging.info("Parsing configuration from yaml and command line arguments")
     parser = argparse.ArgumentParser(prog="WindFarmForecasting")
     parser.add_argument("-cnf", "--config", type=str)
     parser.add_argument("-tr", "--train", action="store_true")
@@ -57,10 +61,12 @@ if __name__ == "__main__":
     #     else:
     #         config["trainer"]["n_workers"] = mp.cpu_count()
     
-    if config["dataset"]["target_turbine_ids"] == "None":
+    if (type(config["dataset"]["target_turbine_ids"]) is str) and (
+        (config["dataset"]["target_turbine_ids"].lower() == "none") or (config["dataset"]["target_turbine_ids"].lower() == "all")):
         config["dataset"]["target_turbine_ids"] = None # select all turbines
 
     # %% SETUP LOGGING
+    logging.info("Setting up logging")
     if not os.path.exists(config["experiment"]["log_dir"]):
         os.makedirs(config["experiment"]["log_dir"])
     wandb_logger = WandbLogger(
@@ -72,30 +78,19 @@ if __name__ == "__main__":
     )
 
     # %% CREATE DATASET
-
-    # data_module = DataModule(data_path=config["dataset"]["data_path"], n_splits=config["dataset"]["n_splits"], train_split=(1.0 - config["dataset"]["val_split"] - config["dataset"]["test_split"]),
-    #                             val_split=config["dataset"]["val_split"], test_split=config["dataset"]["test_split"], 
-    #                             prediction_length=config["dataset"]["prediction_length"], context_length=config["dataset"]["context_length"],
-    #                             target_prefixes=["ws_horz", "ws_vert"], feat_dynamic_real_prefixes=["nd_cos", "nd_sin"],
-    #                             freq=config["dataset"]["resample_freq"], target_suffixes=config["dataset"]["target_turbine_ids"],
-    #                             per_turbine_target=True)
-
-    # data_module.plot_dataset_splitting()
-
+    logging.info("Creating datasets")
     data_module = DataModule(data_path=config["dataset"]["data_path"], n_splits=config["dataset"]["n_splits"],
                              continuity_groups=None, train_split=(1.0 - config["dataset"]["val_split"] - config["dataset"]["test_split"]),
                                 val_split=config["dataset"]["val_split"], test_split=config["dataset"]["test_split"], 
                                 prediction_length=config["dataset"]["prediction_length"], context_length=config["dataset"]["context_length"],
                                 target_prefixes=["ws_horz", "ws_vert"], feat_dynamic_real_prefixes=["nd_cos", "nd_sin"],
                                 freq=config["dataset"]["resample_freq"], target_suffixes=config["dataset"]["target_turbine_ids"],
-                                per_turbine_target=False)
+                                per_turbine_target=config["dataset"]["per_turbine_target"])
     
     # data_module.plot_dataset_splitting()
 
     # %% DEFINE ESTIMATOR
-    
-    from gluonts.time_feature._base import second_of_minute, minute_of_hour, hour_of_day, day_of_year
-    from gluonts.transform import ExpectedNumInstanceSampler, SequentialSampler
+    logging.info("Declaring estimator")
     estimator = globals()[f"{args.model.capitalize()}Estimator"](
         freq=data_module.freq, 
         prediction_length=data_module.prediction_length,
@@ -125,6 +120,7 @@ if __name__ == "__main__":
     # %% TRAIN MODEL
     if args.train:
         # TODO add possibilty to add checkpoint here
+        logging.info("Training model")
         predictor = estimator.train(
             training_data=data_module.train_dataset,
             validation_data=data_module.val_dataset,
@@ -145,16 +141,13 @@ if __name__ == "__main__":
                                                     forecast_generator=DistributionForecastGenerator(estimator.distr_output))
         elif not args.train:
             raise TypeError("Must train model with --train flag or provide a --checkpoint argument to load from.")
-        
+
+        logging.info("Making evaluation predictions") 
         forecast_it, ts_it = make_evaluation_predictions(
             dataset=data_module.test_dataset,
             predictor=predictor,
             output_distr_params=True
         )
-
-        # x = []
-        # for i in range(len(data_module.test_dataset)):
-        #     x.append((data_module.test_dataset[i]["target"].shape == data_module.test_dataset[i]["feat_dynamic_real"].shape))
 
         forecasts = list(forecast_it)
         tss = list(ts_it)
