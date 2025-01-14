@@ -23,6 +23,8 @@ from mpi4py.futures import MPICommExecutor
 from sklearn.feature_selection import mutual_info_regression
 from tqdm.auto import tqdm
 import re
+import matplotlib.pyplot as plt
+import seaborn as sns
 
 #INFO: TO use MPI, need to run the script with the following command:
 # mpiexec -n <number_of_processes> python your_script.py
@@ -634,9 +636,8 @@ class DataInspector:
         return fmodel
 
     @staticmethod
-    def plot_filtered_vs_unfiltered(df, mask_func, features, feature_types, feature_labels):
-        import matplotlib.pyplot as plt
-        import seaborn as sns
+    def plot_nulled_vs_remaining(df, mask_func, features, feature_types, feature_labels):
+        
         sns.set(style="whitegrid")
 
         _, ax = plt.subplots(len(feature_types), 1, sharex=True)
@@ -656,12 +657,12 @@ class DataInspector:
                     break
 
             # Plot all measurements
-            y_all = df.select(feature).collect(streaming=True).to_numpy().flatten()
+            y_all = df.select(feature).collect().to_numpy().flatten()
             ax[ax_idx].scatter(x=[tid] * len(y_all), y=y_all, color="blue", label="All Measurements")
 
-            # Plot filtered measurements
-            y_filtered = df.filter(mask_array).select(feature).collect(streaming=True).to_numpy().flatten()
-            ax[ax_idx].scatter(x=[tid] * len(y_filtered), y=y_filtered, color="red", label="Filtered Measurements")
+            # Plot nulled measurements
+            y_nulled = df.filter(mask_array).select(feature).collect().to_numpy().flatten()
+            ax[ax_idx].scatter(x=[tid] * len(y_nulled), y=y_nulled, color="red", label="Nulled Measurements")
 
         ax[-1].set_xlabel("Turbine ID")
         # Avoid duplicate labels
@@ -673,7 +674,7 @@ class DataInspector:
         plt.close()
 
     @staticmethod
-    def print_pc_unfiltered_vals(df, features, mask_func):
+    def print_pc_remaining_vals(df, features, mask_func):
         out = []
         for feature in features:
             tid = feature.split("_")[-1]
@@ -682,15 +683,15 @@ class DataInspector:
                 logging.info(f"Mask error for turbine {tid}: mask is None")
                 continue
             try:
-                pc_unfiltered_vals = 100 * (
-                    df.filter(mask_array)
+                pc_remaining_vals = 100 * (
+                    df.filter(~mask_array)
                     .select(pl.len())
-                    .collect(streaming=True)
+                    .collect()
                     .item()
-                    / df.select(pl.len()).collect(streaming=True).item()
+                    / df.select(pl.len()).collect().item()
                 )
-                print(f"Feature {feature} has {pc_unfiltered_vals:.2f}% unfiltered values.")
-                out.append((feature, pc_unfiltered_vals))
+                print(f"Feature {feature} has {pc_remaining_vals:.2f}% remaining values.")
+                out.append((feature, pc_remaining_vals))
             except Exception as e:
                 logging.error(f"Error processing feature {feature}: {str(e)}")
         return out
