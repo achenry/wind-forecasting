@@ -13,10 +13,18 @@
 
 from sys import platform
 import os
+import sys
 import logging
 import argparse
 import yaml
 import time
+
+# Add absolute path to the parent directory to sys.path
+parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+sys.path.insert(0, parent_dir)
+
+# print(f"Current working directory inside script: {os.getcwd()}")
+# print("sys.path inside script:", sys.path)
 
 from mpi4py import MPI
 from mpi4py.futures import MPICommExecutor
@@ -33,9 +41,10 @@ from openoa.utils import plot, filters, power_curve
 import polars as pl
 import polars.selectors as cs
 import numpy as np
-import matplotlib.pyplot as plt
 import matplotlib
-matplotlib.use('TkAgg') 
+matplotlib.use('Agg') # Use TkAgg for interactive plots
+# matplotlib.use('TkAgg')
+import matplotlib.pyplot as plt
 
 from scipy.stats import norm
 from floris import FlorisModel
@@ -93,6 +102,7 @@ def main():
 
     # %%
     if RUN_ONCE:
+        processing_started = False  # Flag to indicate if processing started
         if not args.reload_data and os.path.exists(data_loader.save_path):
             # Note that the order of the columns in the provided schema must match the order of the columns in the CSV being read.
             logging.info("🔄 Loading existing Parquet file")
@@ -107,6 +117,7 @@ def main():
                 logging.info("🖥️  Using ProcessPoolExecutor with %d workers.", max_workers)
 
             logging.info("🔄 Processing new data files with %d files", len(data_loader.file_paths))
+            processing_started = True
             start_time = time.time()
     
     if args.reload_data or not os.path.exists(data_loader.save_path):
@@ -114,7 +125,10 @@ def main():
     
     if RUN_ONCE:
         logging.info("Parquet file saved into %s", data_loader.save_path)
-        logging.info("✅ Finished reading individual files. Time elapsed: %.2f s", time.time() - start_time)
+        if processing_started:
+            logging.info("✅ Finished reading individual files. Time elapsed: %.2f s", time.time() - start_time)
+        else:
+            logging.info("✅ Loaded existing Parquet file.")
 
     if not args.preprocess_data:
         return
@@ -684,9 +698,12 @@ def main():
             logging.info("Impute/interpolate turbine missing data from correlated measurements.")
             # else, for each of those split datasets, impute the values using the imputing.impute_all_assets_by_correlation function
             # fill data on single concatenated dataset
+
             df_query2 = data_filter._fill_single_missing_dataset(df_idx=0, df=df_query, impute_missing_features=["wind_speed", "wind_direction"], 
                                                     interpolate_missing_features=["wind_direction", "wind_speed", "nacelle_direction"], 
-                                                    available_features=data_loader.target_features, parallel="turbine_id")
+                                                    # available_features=data_loader.target_features,
+                                                    parallel="turbine_id"
+                                                    )
 
             df_query = df_query.drop([cs.starts_with(feat) for feat in ["wind_direction", "wind_speed", "nacelle_direction"]]).join(df_query2, on="time", how="left")
             df_query.collect().write_parquet(config["processed_data_path"].replace(".parquet", "_imputed.parquet"), statistics=False)
@@ -811,7 +828,9 @@ def main():
             ax.grid(True, alpha=0.3)
 
             plt.tight_layout()
-            plt.show()
+            # plt.show()
+            plt.savefig('power_curve.png')
+            plt.close()
             
         except Exception as e:
             logging.error(f"Error during power curve fitting: {str(e)}")

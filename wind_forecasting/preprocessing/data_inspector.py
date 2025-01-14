@@ -180,7 +180,9 @@ class DataInspector:
         ax[0].legend(loc='upper left', bbox_to_anchor=(1, 1))
         
         plt.tight_layout()
-        plt.show()
+        # plt.show()
+        plt.savefig('time_series.png')
+        plt.close()
 
     def plot_wind_speed_power(self, df: pl.LazyFrame, turbine_ids: list[str]) -> None:
         """Plot wind speed vs power output scatter plot for specified turbines.
@@ -244,7 +246,9 @@ class DataInspector:
         plt.grid(True, alpha=0.3)
         sns.despine()
         plt.tight_layout()
-        plt.show()
+        # plt.show()
+        plt.savefig('wind_speed_power.png')
+        plt.close()
 
     # DEBUG: @Juan 10/18/24 Added method to plot wind rose for both wide and long formats [CHECK]
     def plot_wind_rose(self, df, turbine_ids: list[str] | str) -> None:
@@ -286,7 +290,9 @@ class DataInspector:
                 ax.bar(wind_dir, wind_spd, normed=True, opening=0.8, edgecolor='white')
                 ax.set_legend()
                 plt.title('Wind Rose for all Turbines')
-                plt.show()
+                # plt.show()
+                plt.savefig('wind_rose.png')
+                plt.close()
             else:
                 valid_turbines = self._get_valid_turbine_ids(df, turbine_ids=turbine_ids)
 
@@ -321,7 +327,9 @@ class DataInspector:
                     ax.bar(wind_dir, wind_spd, normed=True, opening=0.8, edgecolor='white')
                     ax.set_legend()
                     plt.title(f'Wind Rose for Turbine {turbine_id}')
-                    plt.show()
+                    # plt.show()
+                    plt.savefig('wind_rose.png')
+                    plt.close()
         else:  # long format
             if turbine_ids == "all":
                 plt.figure(figsize=(10, 10))
@@ -331,7 +339,9 @@ class DataInspector:
                        normed=True, opening=0.8, edgecolor='white')
                 ax.set_legend()
                 plt.title('Wind Rose for all Turbines')
-                plt.show()
+                # plt.show()
+                plt.savefig('wind_rose.png')
+                plt.close()
             else:
                 valid_turbines = self._get_valid_turbine_ids(df, turbine_ids=turbine_ids)
             
@@ -348,7 +358,9 @@ class DataInspector:
                            turbine_data.select("wind_speed").collect(streaming=True).to_numpy()[:, 0], normed=True, opening=0.8, edgecolor='white')
                     ax.set_legend()
                     plt.title(f'Wind Rose for Turbine {turbine_id}')
-                    plt.show()
+                    # plt.show()
+                    plt.savefig('wind_rose.png')
+                    plt.close()
 
     def plot_temperature_distribution(self, df) -> None:
         """_summary_
@@ -370,7 +382,9 @@ class DataInspector:
         
         ax.set(title='Temperature Distributions', xlabel="Temperature", ylabel="Frequency")
         plt.legend()
-        plt.show()
+        # plt.show()
+        plt.savefig('temperature_distribution.png')
+        plt.close()
 
     def plot_correlation(self, df, features) -> None:
         """_summary_
@@ -381,7 +395,9 @@ class DataInspector:
                     xticklabels=features, yticklabels=features)
         plt.title('Feature Correlation Matrix')
         plt.tight_layout()
-        plt.show()
+        # plt.show()
+        plt.savefig('correlation_matrix.png')
+        plt.close()
 
     def plot_boxplot_wind_speed_direction(self, df, turbine_ids: list[str]) -> None:
         """Plot boxplots of wind speed and direction by hour for specified turbines."""
@@ -424,7 +440,9 @@ class DataInspector:
             ax[0].set_ylabel("Wind Speed (m/s)")
             ax[1].set_ylabel("Wind Direction ($^\\circ$)")
             fig.tight_layout()
-            plt.show()
+            # plt.show()
+            plt.savefig('boxplot_wind_speed_direction.png')
+            plt.close()
 
     def plot_data_distribution(self, df, feature_types, turbine_ids: list[str], distribution: Callable[[np.ndarray], np.ndarray]=stats.weibull_min) -> None:
         """_summary_
@@ -458,7 +476,9 @@ class DataInspector:
         plt.grid(True, alpha=0.3)
         fig.tight_layout()
         # sns.despine()
-        fig.show()
+        # plt.show()
+        fig.savefig('data_distribution.png')
+        plt.close()
 
     def plot_wind_speed_weibull(self, df, turbine_ids: list[str]) -> None:
         """_summary_
@@ -495,7 +515,9 @@ class DataInspector:
             plt.legend(fontsize=10)
             plt.grid(True, alpha=0.3)
             sns.despine()
-            plt.show()
+            # plt.show()
+            plt.savefig('wind_speed_weibull.png')
+            plt.close()
 
             print(f"Weibull shape parameter (k): {shape:.2f}")
             print(f"Weibull scale parameter (λ): {scale:.2f}")
@@ -535,7 +557,9 @@ class DataInspector:
                 plt.legend(fontsize=10)
                 plt.grid(True, alpha=0.3)
                 sns.despine()
-                plt.show()
+                # plt.show()
+                plt.savefig('wind_speed_weibull.png')
+                plt.close()
 
                 print(f"Weibull shape parameter (k): {shape:.2f}")
                 print(f"Weibull scale parameter (λ): {scale:.2f}")
@@ -603,7 +627,9 @@ class DataInspector:
         
         # Adjust layout and display the plot
         plt.tight_layout()
-        plt.show()
+        # plt.show()
+        plt.savefig('wind_farm.png')
+        plt.close()
         
         return fmodel
 
@@ -642,7 +668,9 @@ class DataInspector:
         handles, labels = ax[-1].get_legend_handles_labels()
         by_label = dict(zip(labels, handles))
         ax[-1].legend(by_label.values(), by_label.keys())
-        plt.show()
+        # plt.show()
+        plt.savefig('filtered_vs_unfiltered.png')
+        plt.close()
 
     @staticmethod
     def print_pc_unfiltered_vals(df, features, mask_func):
@@ -808,7 +836,9 @@ class DataInspector:
             if save_path:
                 fig.savefig(save_path.replace(".png", f"_seed{seed}.png"))
             else:
-                plt.show()
+                # plt.show()
+                plt.savefig('yaw_power_ts.png')
+                plt.close()
 
         return fig, ax
 
