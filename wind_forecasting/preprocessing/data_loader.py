@@ -46,7 +46,8 @@ class DataLoader:
                  dt: int | None = 5,
                  ffill_limit: int | None = None, 
                  data_format: str = "netcdf", 
-                 feature_mapping: dict = None):
+                 feature_mapping: dict = None,
+                 turbine_signature: str = None):
         
         self.data_dir = data_dir
         self.save_path = save_path
@@ -55,21 +56,25 @@ class DataLoader:
         self.dt = dt
         self.data_format = data_format.lower()
         self.feature_mapping = feature_mapping
+        self.reverse_feature_mapping = dict((src, tgt) for tgt, src in self.feature_mapping.items())
 
-        self.target_features = list(self.feature_mapping.keys())
         self.source_features = list(self.feature_mapping.values())
         # self.desired_feature_types = desired_feature_types or ["time", "turbine_id", "turbine_status", "wind_direction", "wind_speed", "power_output", "nacelle_direction"]
         
         self.ffill_limit = ffill_limit
 
-        self.turbine_ids = sorted(list(set(k.split("_")[-1] for k in self.feature_mapping.keys() if re.search(r'\d', k)))) 
+        self.turbine_signature = turbine_signature
+        self.turbine_ids = set()
+        # self.turbine_ids = sorted(list(set(k.split("_")[-1] for k in self.feature_mapping.keys() if re.search(r'\d', k)))) 
 
-        self.target_feature_types = list(set(("_".join(k.split("_")[:-1]) if re.search(r'\d', k) else k) for k in self.target_features ))
+        self.target_feature_types = list(set(("_".join(k.split("_")[:-1]) if re.search(r'\d', k) else k) for k in self.feature_mapping.keys() ))
         
         # Get all the wts in the folder @Juan 10/16/24 used os.path.join for OS compatibility
-        self.file_paths = sorted(glob.glob(os.path.join(data_dir, file_signature)))
+        self.file_paths = sorted(glob.glob(os.path.join(data_dir, file_signature), recursive=True))
     
     def read_multi_files(self) -> pl.LazyFrame | None:
+        read_start = time.time()
+        logging.info(f"✅ Started reading {len(self.file_paths)} files.")
         if self.multiprocessor is not None:
             if self.multiprocessor == "mpi":
                 executor = MPICommExecutor(MPI.COMM_WORLD, root=0)
@@ -90,8 +95,10 @@ class DataLoader:
                 raise FileExistsError(f"⚠️ File with signature {self.file_signature} in directory {self.data_dir} doesn't exist.")
             df_query = [self._read_single_file(f, file_path) for f, file_path in enumerate(self.file_paths)]
             df_query = [(self.file_paths[d], df) for d, df in enumerate(df_query) if df is not None]
-        
+
+        logging.info(f"🔗 Finished reading files. Time elapsed: {time.time() - read_start:.2f} s") 
         if df_query:
+
             # INFO: @Juan 11/13/24 Added check for data patterns in the names and also added a check for single files
             join_start = time.time()
             logging.info(f"✅ Started join of {len(self.file_paths)} files.")
@@ -105,6 +112,21 @@ class DataLoader:
                                                     if re.search(date_pattern, fp)))
                 df_query = [self._join_dfs(ts, [df for filepath, df in df_query if ts in filepath]) 
                             for ts in unique_file_timestamps]
+
+                for ts, df in zip(unique_file_timestamps, df_query):
+                    df.collect().write_parquet(self.save_path.replace(".parquet", f"_{ts}.parquet"), statistics=False)
+                    logging.info(f"Finished writing parquet {ts}")
+                
+                logging.info(f"🔗 Finished join. Time elapsed: {time.time() - join_start:.2f} s")
+
+                concat_start = time.time()
+                df_query = [pl.scan_parquet(self.save_path.replace(".parquet", f"_{ts}.parquet")) 
+                                    for ts in unique_file_timestamps]
+                df_query = pl.concat(df_query, how="diagonal").group_by("time").agg(cs.numeric().mean())
+                logging.info(f"🔗 Finished concat. Time elapsed: {time.time() - concat_start:.2f} s")
+
+                for ts in unique_file_timestamps:
+                    os.remove(self.save_path.replace(".parquet", f"_{ts}.parquet"))
             else:
                 # For single file or files without timestamps, just get the dataframes
                 df_query = [df for _, df in df_query]
@@ -112,25 +134,6 @@ class DataLoader:
                     df_query = df_query[0]  # If single file, no need to join
                 else:
                     df_query = pl.concat(df_query, how="diagonal").group_by("time").agg(cs.numeric().mean())
-                
-                # Write directly to final parquet
-                if not os.path.exists(os.path.dirname(self.save_path)):
-                    os.makedirs(os.path.dirname(self.save_path))
-                df_query.collect().write_parquet(self.save_path, statistics=False)
-                return pl.scan_parquet(self.save_path)
-
-            for ts, df in zip(unique_file_timestamps, df_query):
-                # print(ts, df.collect(), sep="\n")
-                df.collect().write_parquet(self.save_path.replace(".parquet", f"_{ts}.parquet"), statistics=False)
-                logging.info(f"Finished writing parquet {ts}")
-
-            logging.info(f"🔗 Finished join. Time elapsed: {time.time() - join_start:.2f} s")
-
-            concat_start = time.time()
-            df_query = [pl.scan_parquet(self.save_path.replace(".parquet", f"_{ts}.parquet")) 
-                                for ts in unique_file_timestamps]
-            df_query = pl.concat(df_query, how="diagonal").group_by("time").agg(cs.numeric().mean())
-            logging.info(f"🔗 Finished concat. Time elapsed: {time.time() - concat_start:.2f} s")
 
             logging.info(f"Started sorting.")
             df_query = df_query.sort("time")
@@ -149,12 +152,18 @@ class DataLoader:
             df_query = df_query.fill_null(strategy="forward").fill_null(strategy="backward") # NOTE: @Aoife for KP data, need to fill forward null gaps, don't know about Juan's data
             logging.info(f"Finished forward/backward fill.")
 
+            # Write to final parquet
+            if not os.path.exists(os.path.dirname(self.save_path)):
+                os.makedirs(os.path.dirname(self.save_path))
             df_query.collect().write_parquet(self.save_path, statistics=False)
 
-            for ts in unique_file_timestamps:
-                os.remove(self.save_path.replace(".parquet", f"_{ts}.parquet"))
-        
-        return pl.scan_parquet(self.save_path)
+            # turbine ids found in all files so far
+            self.turbine_ids = self.get_turbine_ids(df_query, sort=True)
+            logging.info("Parquet file saved into %s", self.save_path)
+            return pl.scan_parquet(self.save_path)
+        else:
+            logging.error("No data successfully processed by read_multi_files.")
+            return None
     
     def sink_parquet(self, df, filepath):
         try:
@@ -230,6 +239,18 @@ class DataLoader:
             os.makedirs(directory)
             logging.info(f"📁 Created directory: {directory}")
 
+    def get_turbine_ids(self, df_query, sort=False):
+        turbine_ids = set()
+        for col in df_query.collect_schema().names():
+            match = re.search(self.turbine_signature, col)
+            if match:
+                turbine_ids.add(match.group())
+
+        if sort:
+            return sorted(turbine_ids)
+        else:
+            return turbine_ids
+
     # INFO: @Juan 10/14/24 Added method to read single file based on the file signature. 
     def _read_single_file(self, file_number: int, file_path: str) -> pl.LazyFrame:
         start_time = time.time()
@@ -239,10 +260,12 @@ class DataLoader:
                 result = self._read_single_netcdf(file_path)
             elif self.data_format == "csv":
                 result = self._read_single_csv(file_path)
+            elif self.data_format == "parquet":
+                result = self._read_single_parquet(file_path)
             else:
                 raise ValueError(f"❌ Unsupported data format: {self.data_format}")
             
-            logging.info(f"✅ Processed {file_number}-th {file_path}. Time: {time.time() - start_time:.2f} s")
+            logging.info(f"✅ Processed {file_number + 1}-th {file_path}. Time: {time.time() - start_time:.2f} s")
             return result
         except Exception as e:
             logging.error(f"❌ Error processing {file_path}: {e}")
@@ -250,87 +273,122 @@ class DataLoader:
 
     # INFO: @Juan 10/16/24 Added method to read single netcdf file. Use pl.Series to convert the time variable to a polars series. and combined time extraction operations into a single line to remove intermediate variables. Removed try/except block as it is done in the calling method (_read_single_file())
     def _read_single_netcdf(self, file_path: str) -> pl.LazyFrame:
-        with nc.Dataset(file_path, 'r') as dataset:
-            time_var = dataset.variables[self.feature_mapping["time"]]
-            time = nc.num2date(times=time_var[:], 
-                               units=time_var.units, 
-                               calendar=time_var.calendar, 
-                               only_use_cftime_datetimes=False, 
-                               only_use_python_datetimes=True)
-            
-            data = {
-                'turbine_id': [os.path.basename(file_path).split('.')[-2]] * len(time),
-                'time': time.tolist(),  # Convert to Polars datetime
-                'turbine_status': dataset.variables[self.feature_mapping["turbine_status"]][:],
-                'wind_direction': dataset.variables[self.feature_mapping["wind_direction"]][:],
-                'wind_speed': dataset.variables[self.feature_mapping["wind_speed"]][:],
-                'power_output': dataset.variables[self.feature_mapping["power_output"]][:],
-                'nacelle_direction': dataset.variables[self.feature_mapping["nacelle_direction"]][:]
-            }
+        try:
+            with nc.Dataset(file_path, 'r') as dataset:
+                time_var = dataset.variables[self.feature_mapping["time"]]
+                time = nc.num2date(times=time_var[:], 
+                                units=time_var.units, 
+                                calendar=time_var.calendar, 
+                                only_use_cftime_datetimes=False, 
+                                only_use_python_datetimes=True)
+                
+                data = {
+                    'turbine_id': [os.path.basename(file_path).split('.')[-2]] * len(time),
+                    'time': time.tolist(),  # Convert to Polars datetime
+                    'turbine_status': dataset.variables[self.feature_mapping["turbine_status"]][:],
+                    'wind_direction': dataset.variables[self.feature_mapping["wind_direction"]][:],
+                    'wind_speed': dataset.variables[self.feature_mapping["wind_speed"]][:],
+                    'power_output': dataset.variables[self.feature_mapping["power_output"]][:],
+                    'nacelle_direction': dataset.variables[self.feature_mapping["nacelle_direction"]][:]
+                }
 
-            # remove the rows with all nans (corresponding to rows where excluded columns would have had a value)
-            # and bundle all values corresponding to identical time stamps together
-            # forward fill missing values
-            df_query = pl.LazyFrame(data).fill_nan(None)\
-                                            .with_columns(pl.col("time").dt.round(f"{self.dt}s").alias("time"))\
-                                            .select([cs.contains(feat) for feat in self.target_feature_types])\
-                                            .filter(pl.any_horizontal(cs.numeric().is_not_null()))
+                # self.turbine_ids = self.turbine_ids.union(set(data["turbine_id"]))
 
-            # Check if data is already in wide format
-            is_already_wide = all(any(f"{feature}_{tid}" in col for col in df.columns) 
-                for feature in self.target_feature_types for tid in self.turbine_ids if feature != "time") 
-            
-            # pivot table to have columns for each turbine and measurement if not originally in wide format
-            # if not self.wide_format:
-            if not is_already_wide:
-                pivot_features = [col for col in df_query.collect_schema().names() if col not in ['time', 'turbine_id']]
-                df_query = df_query.collect(streaming=True).pivot(
-                    index="time",
-                    on="turbine_id",
-                    values=pivot_features,
-                    aggregate_function=pl.element().drop_nulls().first(),
-                    sort_columns=True
-                ).sort("time").lazy()
-            else:
-                df_query = df_query.collect(streaming=True).lazy()
-            # df_query.filter(df_query.select("time").collect().to_numpy().flatten() >= datetime.datetime(2022, 3, 2, 0, 0)).head(10).collect()
-            del data  # Free up memory
-            # df_query.select(pl.col("time").unique()).collect()
-            # if (df_query.select(pl.col("time").first()).collect().item().day == 2):
-            #     x = 1
-            return df_query
+                # remove the rows with all nans (corresponding to rows where excluded columns would have had a value)
+                # and bundle all values corresponding to identical time stamps together
+                # forward fill missing values
+                df_query = pl.LazyFrame(data).fill_nan(None)\
+                                                .with_columns(pl.col("time").dt.round(f"{self.dt}s").alias("time"))\
+                                                .select([cs.contains(feat) for feat in self.target_feature_types])\
+                                                .filter(pl.any_horizontal(cs.numeric().is_not_null()))
+
+                # Check if data is already in wide format
+                is_already_wide = all(any(f"{feature}_{tid}" in col for col in df_query.collect_schema().names()) 
+                    for feature in self.target_feature_types for tid in set(data["turbine_id"]) if feature != "time") 
+                
+                # pivot table to have columns for each turbine and measurement if not originally in wide format
+                # if not self.wide_format:
+                if not is_already_wide:
+                    pivot_features = [col for col in df_query.collect_schema().names() if col not in ['time', 'turbine_id']]
+                    df_query = df_query.collect(streaming=True).pivot(
+                        index="time",
+                        on="turbine_id",
+                        values=pivot_features,
+                        aggregate_function=pl.element().drop_nulls().first(),
+                        sort_columns=True
+                    ).sort("time").lazy()
+                else:
+                    df_query = df_query.collect(streaming=True).lazy()
+                del data  # Free up memory
+
+                return df_query
+        except Exception:
+            logging.error(f"❌ Error processing netcdf file {file_path}: {str(e)}")
+            return None
 
     def _read_single_csv(self, file_path: str) -> pl.LazyFrame:
         try:
-            df_query = pl.read_csv(file_path, low_memory=False)
-            logging.info(f"Initial CSV columns: {df_query.columns}")
-            logging.info(f"Initial CSV shape: {df_query.shape}")
+            df_query = pl.scan_csv(file_path, low_memory=False)
 
-            assert all(feat in df_query.columns for feat in self.source_features), "All values in feature_mapping must exist in data columns."
-            
+            available_columns = df_query.collect_schema().names()
+            assert all(any(bool(re.match(feat, col)) for col in available_columns) for feat in self.source_features), "All values in feature_mapping must exist in data columns."
+
             # Select only relevant columns and handle missing values
-            df_query = df_query.select(self.source_features)\
-                .with_columns([
-                    # Convert time column to datetime
-                    pl.col("time").str.to_datetime().alias("time")
-                ])
+            df_query = df_query.select(*[cs.matches(feat) for feat in self.source_features])
+            source_features = df_query.collect_schema().names()
             
+            # just the turbine ids found in this file
+            turbine_ids = self.get_turbine_ids(df_query)
+
+            # turbine ids found in all files so far 
+            # self.turbine_ids = self.turbine_ids.union(turbine_ids)
+
             # Apply column mapping after selecting relevant columns
-            if self.feature_mapping:
-                df_query = df_query.rename(dict((src, tgt) for tgt, src in self.feature_mapping.items()))
-                logging.info(f"Columns after mapping: {df_query.columns}")
+            # df_query = df_query.rename(dict((src, tgt) for tgt, src in zip(self.feature_mapping.keys(), source_features)))
+            rename_dict = {}
+            for src in source_features:
+                feature_type = None 
+                tid = None
+                for src_signature in self.source_features:
+                    if re.match(src_signature, src):
+                        feature_type = self.reverse_feature_mapping[src_signature]
+                        tid = re.search(self.turbine_signature, src)
+                        if tid:
+                            tid = tid.group()
+                        break
+                if feature_type and tid:
+                    rename_dict[src] = f"{feature_type}_{tid}"
+                elif feature_type:
+                    rename_dict[src] = feature_type
+
+            df_query = df_query.rename(rename_dict)
+
+            if df_query.collect_schema()["time"] == pl.datatypes.String:
+                df_query = df_query.with_columns([
+                                        # Convert time column to datetime
+                                        pl.col("time").str.to_datetime().alias("time")
+                                    ])
+            else:
+                if df_query.collect_schema()["time"].time_zone is None:
+                    df_query = df_query.with_columns(
+                        time=pl.col("time").cast(pl.Datetime(time_unit=df_query.collect_schema()["time"].time_unit))
+                    )
+                else:
+                    df_query = df_query.with_columns(
+                        time=pl.col("time").dt.convert_time_zone("UTC").cast(pl.Datetime(time_unit=df_query.collect_schema()["time"].time_unit))
+                    )
             
             # Check if data is already in wide format
-            is_already_wide = all(any(f"{feature}_{tid}" in col for col in df_query.columns) 
-                for feature in self.target_feature_types for tid in self.turbine_ids if feature != "time")
+            is_already_wide = all(any(f"{feature}_{tid}" in col for col in df_query.collect_schema().names()) 
+                for feature in self.target_feature_types for tid in turbine_ids if feature != "time")
 
             # remove the rows with all nans (corresponding to rows where excluded columns would have had a value)
             # and bundle all values corresponding to identical time stamps together
             # forward fill missing values
-            df_query = pl.LazyFrame(df_query.to_dict()).fill_nan(None)\
-                                            .with_columns(pl.col("time").dt.round(f"{self.dt}s").alias("time"))\
-                                            .select([cs.contains(feat) for feat in self.target_feature_types])\
-                                            .filter(pl.any_horizontal(cs.numeric().is_not_null()))
+            df_query = df_query.fill_nan(None)\
+                                .with_columns(pl.col("time").dt.round(f"{self.dt}s").alias("time"))\
+                                .select([cs.contains(feat) for feat in self.target_feature_types])\
+                                .filter(pl.any_horizontal(cs.numeric().is_not_null()))
             
             # pivot table to have columns for each turbine and measurement if not originally in wide format
             if not is_already_wide:
@@ -345,11 +403,88 @@ class DataLoader:
             else:
                 df_query = df_query.collect(streaming=True).lazy()
             
-            logging.info(f"📁 Processed {file_path}")
             return df_query
         
         except Exception as e:
             logging.error(f"❌ Error processing CSV file {file_path}: {str(e)}")
+            return None
+
+    def _read_single_parquet(self, file_path: str) -> pl.LazyFrame:
+        try:
+            df_query = pl.scan_parquet(file_path)
+            available_columns = df_query.collect_schema().names()
+            assert all(any(bool(re.match(feat, col)) for col in available_columns) for feat in self.source_features), "All values in feature_mapping must exist in data columns."
+
+            # Select only relevant columns and handle missing values
+            # df_query = df_query.select(self.source_features)\
+            df_query = df_query.select(*[cs.matches(feat) for feat in self.source_features])
+            source_features = df_query.collect_schema().names()
+
+            # just the turbine ids found in this file
+            turbine_ids = self.get_turbine_ids(df_query)
+
+            # Apply column mapping after selecting relevant columns
+            rename_dict = {}
+            for src in source_features:
+                feature_type = None
+                tid = None
+                for src_signature in self.source_features:
+                    if re.match(src_signature, src):
+                        feature_type = self.reverse_feature_mapping[src_signature]
+                        tid = re.search(self.turbine_signature, src)
+                        if tid:
+                            tid = tid.group()
+                if feature_type and tid:
+                    rename_dict[src] = f"{feature_type}_{tid}"
+                elif feature_type:
+                    rename_dict[src] = feature_type
+
+            df_query = df_query.rename(rename_dict)
+            
+            if df_query.collect_schema()["time"] == pl.datatypes.String:
+                df_query = df_query.with_columns([
+                                        # Convert time column to datetime
+                                        pl.col("time").str.to_datetime().alias("time")
+                                    ])
+            else:
+                if df_query.collect_schema()["time"].time_zone is None:
+                    df_query = df_query.with_columns(
+                        time=pl.col("time").cast(pl.Datetime(time_unit=df_query.collect_schema()["time"].time_unit))
+                    )
+                else:
+                    df_query = df_query.with_columns(
+                        time=pl.col("time").dt.convert_time_zone("UTC").cast(pl.Datetime(time_unit=df_query.collect_schema()["time"].time_unit))
+                    )
+            
+            # Check if data is already in wide format
+            is_already_wide = all(any(f"{feature}_{tid}" in col for col in df_query.collect_schema().names()) 
+                for feature in self.target_feature_types for tid in turbine_ids if feature != "time")
+
+            # remove the rows with all nans (corresponding to rows where excluded columns would have had a value)
+            # and bundle all values corresponding to identical time stamps together
+            # forward fill missing values
+            df_query = df_query.fill_nan(None)\
+                                .with_columns(pl.col("time").dt.round(f"{self.dt}s").alias("time"))\
+                                .select([cs.contains(feat) for feat in self.target_feature_types])\
+                                .filter(pl.any_horizontal(cs.numeric().is_not_null()))
+            
+            # pivot table to have columns for each turbine and measurement if not originally in wide format
+            if not is_already_wide:
+                pivot_features = [col for col in df_query.collect_schema().names() if col not in ['time', 'turbine_id']]
+                df_query = df_query.collect(streaming=True).pivot(
+                    index="time",
+                    on="turbine_id",
+                    values=pivot_features,
+                    aggregate_function=pl.element().drop_nulls().first(),
+                    sort_columns=True
+                ).sort("time").lazy()
+            else:
+                df_query = df_query.collect(streaming=True).lazy()
+            
+            return df_query
+        
+        except Exception as e:
+            logging.error(f"❌ Error processing parquet file {file_path}: {str(e)}")
             return None
 
     # INFO: @Juan 10/16/24 Added method to convert to long format. May need refining!!! #UNTESTED

@@ -10,34 +10,12 @@ filters:
 
 feature_mapping:
   time: time
-  wind_direction_wt001: wind_direction_1_avg
-  wind_direction_wt002: wind_direction_2_avg
-  wind_direction_wt003: wind_direction_3_avg
-  wind_direction_wt004: wind_direction_4_avg
-  wind_direction_wt005: wind_direction_5_avg
-  wind_direction_wt006: wind_direction_6_avg
-  wind_direction_wt007: wind_direction_7_avg
-  wind_speed_wt001: wind_speed_1_avg
-  wind_speed_wt002: wind_speed_2_avg
-  wind_speed_wt003: wind_speed_3_avg
-  wind_speed_wt004: wind_speed_4_avg
-  wind_speed_wt005: wind_speed_5_avg
-  wind_speed_wt006: wind_speed_6_avg
-  wind_speed_wt007: wind_speed_7_avg
-  power_output_wt001: active_power_1_avg
-  power_output_wt002: active_power_2_avg
-  power_output_wt003: active_power_3_avg
-  power_output_wt004: active_power_4_avg
-  power_output_wt005: active_power_5_avg
-  power_output_wt006: active_power_6_avg
-  power_output_wt007: active_power_7_avg
-  nacelle_direction_wt001: nacelle_position_1_avg
-  nacelle_direction_wt002: nacelle_position_2_avg
-  nacelle_direction_wt003: nacelle_position_3_avg
-  nacelle_direction_wt004: nacelle_position_4_avg
-  nacelle_direction_wt005: nacelle_position_5_avg
-  nacelle_direction_wt006: nacelle_position_6_avg
-  nacelle_direction_wt007: nacelle_position_7_avg
+  wind_direction: 'wind_direction_\d+_avg'
+  wind_speed: 'wind_speed_\d+_avg'
+  power_output: 'active_power_\d+_avg'
+  nacelle_direction: 'nacelle_position_\d+_avg'
+
+turbine_signature: '\d+'
 
 nacelle_calibration_turbine_pairs:
 - [0,1]
@@ -47,8 +25,8 @@ nacelle_calibration_turbine_pairs:
 
 dt: 60
 
-raw_data_directory: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/inputs/SMARTEOLE-WFC-open-dataset # ~/wind-forecasting/examples/inputs/SMARTEOLE-WFC-open-dataset
-processed_data_path: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/inputs/SMARTEOLE-WFC-open-dataset/processed/SMARTEOLE_WakeSteering_SCADA_1minData.parquet
+raw_data_directory: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/raw_flasc_data # ~/wind-forecasting/examples/inputs/SMARTEOLE-WFC-open-dataset
+processed_data_path: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/preprocessed_flasc_data/SMARTEOLE_WakeSteering_SCADA_1minData.parquet
 raw_data_file_signature: SMARTEOLE_WakeSteering_SCADA_1minData.csv
 turbine_input_path: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/inputs/turbine_library/mm82.yaml
 farm_input_path: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/inputs/smarteole_farm.yaml
