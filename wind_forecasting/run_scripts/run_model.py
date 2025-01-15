@@ -38,6 +38,8 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 if sys.platform == "darwin":
     matplotlib.use('TkAgg')
 
+# TODO add RUN_ONCE qualifiers for MPI
+
 if __name__ == "__main__":
     # %% PARSE CONFIGURATION
     # parse training/test booleans and config file from command line
