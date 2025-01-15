@@ -24,7 +24,7 @@ nacelle_calibration_turbine_pairs:
 - [5,6]
 
 dt: 60
-# TEST CHANGE
+
 raw_data_directory: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/raw_flasc_data # ~/wind-forecasting/examples/inputs/SMARTEOLE-WFC-open-dataset
 processed_data_path: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/preprocessed_flasc_data/SMARTEOLE_WakeSteering_SCADA_1minData.parquet
 raw_data_file_signature: SMARTEOLE_WakeSteering_SCADA_1minData.csv
