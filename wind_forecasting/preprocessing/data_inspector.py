@@ -29,6 +29,8 @@ import seaborn as sns
 #INFO: TO use MPI, need to run the script with the following command:
 # mpiexec -n <number_of_processes> python your_script.py
 
+PLOT_DIR = "examples/plots"
+
 class DataInspector:
     """_summary_
     - compute statistical summary of the data,
@@ -99,7 +101,7 @@ class DataInspector:
             raise FileNotFoundError(f"Farm input file not found: {farm_input_filepath}")
 
 
-    def plot_time_series(self, df_query, turbine_ids: list[str], feature_types:Optional[list] = None, feature_labels:Optional[list] = None, continuity_groups: Optional[list] = None, scatter = False) -> None:
+    def plot_time_series(self, df_query, turbine_ids: list[str], feature_types:Optional[list] = None, feature_labels:Optional[list] = None, continuity_groups: Optional[list] = None, scatter = False, name: Optional[str] = "Default") -> None:
         # Use provided feature mapping or fall back to instance default
         # current_mapping = feature_mapping or self.feature_mapping
         
@@ -183,7 +185,7 @@ class DataInspector:
         
         plt.tight_layout()
         # plt.show()
-        plt.savefig('time_series.png')
+        plt.savefig(f'{PLOT_DIR}/time_series_{name}.png')
         plt.close()
 
     def plot_wind_speed_power(self, df: pl.LazyFrame, turbine_ids: list[str]) -> None:
@@ -249,7 +251,7 @@ class DataInspector:
         sns.despine()
         plt.tight_layout()
         # plt.show()
-        plt.savefig('wind_speed_power.png')
+        plt.savefig(f'{PLOT_DIR}/wind_speed_power.png')
         plt.close()
 
     # DEBUG: @Juan 10/18/24 Added method to plot wind rose for both wide and long formats [CHECK]
@@ -293,7 +295,7 @@ class DataInspector:
                 ax.set_legend()
                 plt.title('Wind Rose for all Turbines')
                 # plt.show()
-                plt.savefig('wind_rose.png')
+                plt.savefig(f'{PLOT_DIR}/wind_rose.png')
                 plt.close()
             else:
                 valid_turbines = self._get_valid_turbine_ids(df, turbine_ids=turbine_ids)
@@ -330,7 +332,7 @@ class DataInspector:
                     ax.set_legend()
                     plt.title(f'Wind Rose for Turbine {turbine_id}')
                     # plt.show()
-                    plt.savefig('wind_rose.png')
+                    plt.savefig(f'{PLOT_DIR}/wind_rose.png')
                     plt.close()
         else:  # long format
             if turbine_ids == "all":
@@ -342,7 +344,7 @@ class DataInspector:
                 ax.set_legend()
                 plt.title('Wind Rose for all Turbines')
                 # plt.show()
-                plt.savefig('wind_rose.png')
+                plt.savefig(f'{PLOT_DIR}/wind_rose.png')
                 plt.close()
             else:
                 valid_turbines = self._get_valid_turbine_ids(df, turbine_ids=turbine_ids)
@@ -361,7 +363,7 @@ class DataInspector:
                     ax.set_legend()
                     plt.title(f'Wind Rose for Turbine {turbine_id}')
                     # plt.show()
-                    plt.savefig('wind_rose.png')
+                    plt.savefig(f'{PLOT_DIR}/wind_rose.png')
                     plt.close()
 
     def plot_temperature_distribution(self, df) -> None:
@@ -385,7 +387,7 @@ class DataInspector:
         ax.set(title='Temperature Distributions', xlabel="Temperature", ylabel="Frequency")
         plt.legend()
         # plt.show()
-        plt.savefig('temperature_distribution.png')
+        plt.savefig(f'{PLOT_DIR}/temperature_distribution.png')
         plt.close()
 
     def plot_correlation(self, df, features) -> None:
@@ -398,7 +400,7 @@ class DataInspector:
         plt.title('Feature Correlation Matrix')
         plt.tight_layout()
         # plt.show()
-        plt.savefig('correlation_matrix.png')
+        plt.savefig(f'{PLOT_DIR}/correlation_matrix.png')
         plt.close()
 
     def plot_boxplot_wind_speed_direction(self, df, turbine_ids: list[str]) -> None:
@@ -443,7 +445,7 @@ class DataInspector:
             ax[1].set_ylabel("Wind Direction ($^\\circ$)")
             fig.tight_layout()
             # plt.show()
-            plt.savefig('boxplot_wind_speed_direction.png')
+            plt.savefig(f'{PLOT_DIR}/boxplot_wind_speed_direction.png')
             plt.close()
 
     def plot_data_distribution(self, df, feature_types, turbine_ids: list[str], distribution: Callable[[np.ndarray], np.ndarray]=stats.weibull_min) -> None:
@@ -479,7 +481,7 @@ class DataInspector:
         fig.tight_layout()
         # sns.despine()
         # plt.show()
-        fig.savefig('data_distribution.png')
+        fig.savefig(f'{PLOT_DIR}/data_distribution.png')
         plt.close()
 
     def plot_wind_speed_weibull(self, df, turbine_ids: list[str]) -> None:
@@ -518,7 +520,7 @@ class DataInspector:
             plt.grid(True, alpha=0.3)
             sns.despine()
             # plt.show()
-            plt.savefig('wind_speed_weibull.png')
+            plt.savefig(f'{PLOT_DIR}/wind_speed_weibull.png')
             plt.close()
 
             print(f"Weibull shape parameter (k): {shape:.2f}")
@@ -560,7 +562,7 @@ class DataInspector:
                 plt.grid(True, alpha=0.3)
                 sns.despine()
                 # plt.show()
-                plt.savefig('wind_speed_weibull.png')
+                plt.savefig(f'{PLOT_DIR}/wind_speed_weibull.png')
                 plt.close()
 
                 print(f"Weibull shape parameter (k): {shape:.2f}")
@@ -630,13 +632,13 @@ class DataInspector:
         # Adjust layout and display the plot
         plt.tight_layout()
         # plt.show()
-        plt.savefig('wind_farm.png')
+        plt.savefig(f'{PLOT_DIR}/wind_farm.png')
         plt.close()
         
         return fmodel
 
     @staticmethod
-    def plot_nulled_vs_remaining(df, mask_func, features, feature_types, feature_labels):
+    def plot_nulled_vs_remaining(df, mask_func, features, feature_types, feature_labels, name: Optional[str] = "Default"):
         
         sns.set(style="whitegrid")
 
@@ -670,7 +672,7 @@ class DataInspector:
         by_label = dict(zip(labels, handles))
         ax[-1].legend(by_label.values(), by_label.keys())
         # plt.show()
-        plt.savefig('filtered_vs_unfiltered.png')
+        plt.savefig(f'{PLOT_DIR}/filtered_vs_unfiltered_{name}.png')
         plt.close()
 
     @staticmethod
@@ -835,10 +837,10 @@ class DataInspector:
             fig.suptitle(f"Yaw and Power Time Series for Seed {seed}")
             
             if save_path:
-                fig.savefig(save_path.replace(".png", f"_seed{seed}.png"))
+                fig.savefig(save_path.replace(".png", f"{PLOT_DIR}/yaw_power_ts_{seed}.png"))
             else:
                 # plt.show()
-                plt.savefig('yaw_power_ts.png')
+                plt.savefig(f'{PLOT_DIR}/yaw_power_ts.png')
                 plt.close()
 
         return fig, ax
@@ -958,7 +960,7 @@ class DataInspector:
         plt.xticks(rotation=90)
         plt.title('Average Mutual Information Scores for Each Feature')
         plt.tight_layout()
-        plt.savefig('./preprocessing/outputs/mi_scores_avg.png')
+        plt.savefig(f'{PLOT_DIR}/mi_scores_avg.png')
         plt.close()
         
         plt.figure(figsize=(12, 6))
@@ -969,7 +971,7 @@ class DataInspector:
         plt.title('Mutual Information Scores for Each Feature (u, v, and direction)')
         plt.legend()
         plt.tight_layout()
-        plt.savefig('./preprocessing/outputs/mi_scores_uvdir.png')
+        plt.savefig(f'{PLOT_DIR}/mi_scores_uvdir.png')
         plt.close()
 
     #INFO: @Juan 10/02/24 Added method to calculate and display mutual information scores for the target turbine
