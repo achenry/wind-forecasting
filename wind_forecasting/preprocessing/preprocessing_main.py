@@ -470,7 +470,7 @@ def main():
             # check if wind speed/dir measurements from inoperational turbines differ from fully operational 
             mask = lambda tid: safe_mask(tid, outlier_flag=out_of_window, turbine_id_to_index=turbine_id_to_index)
 
-            if args.plot:
+            if args.plot or True:
                 DataInspector.print_pc_remaining_vals(df_query, ws_cols, mask)
                 DataInspector.plot_nulled_vs_remaining(df_query, mask, ws_cols, ["wind_speed"], ["Wind Speed [m/s]"])
 
