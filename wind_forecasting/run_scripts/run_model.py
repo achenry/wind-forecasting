@@ -87,7 +87,8 @@ if __name__ == "__main__":
                                 prediction_length=config["dataset"]["prediction_length"], context_length=config["dataset"]["context_length"],
                                 target_prefixes=["ws_horz", "ws_vert"], feat_dynamic_real_prefixes=["nd_cos", "nd_sin"],
                                 freq=config["dataset"]["resample_freq"], target_suffixes=config["dataset"]["target_turbine_ids"],
-                                per_turbine_target=config["dataset"]["per_turbine_target"])
+                                per_turbine_target=True)
+                                # per_turbine_target=config["dataset"]["per_turbine_target"])
     
     # data_module.plot_dataset_splitting()
 
