@@ -716,14 +716,14 @@ class DataInspector:
             return df.collect(streaming=True)
 
     @staticmethod
-    def unpivot_dataframe(df, feature_types, data_format="wide"):
+    def unpivot_dataframe(df, feature_types, turbine_signature, data_format="wide"):
         if data_format == 'wide':
             # Unpivot wide format to long format
             if "continuity_group" in df.collect_schema().names():
                 return pl.concat([
                   df.select(pl.col("time"), pl.col("continuity_group"), cs.starts_with(feature_type))\
                   .unpivot(index=["time", "continuity_group"], variable_name="feature", value_name=feature_type)\
-                  .with_columns(pl.col("feature").str.extract(r"(wt\d+)").alias("turbine_id"))\
+                  .with_columns(pl.col("feature").str.extract(turbine_signature).alias("turbine_id"))\
                   .drop("feature") for feature_type in feature_types], how="align")\
                   .group_by("turbine_id", "time").agg(cs.numeric().drop_nulls().first()).sort("turbine_id", "time")
             else:
@@ -731,7 +731,7 @@ class DataInspector:
                     df.select(pl.col("time"), cs.starts_with(feature_type))\
                     # .melt(id_vars=["time"], variable_name="feature", value_name=feature_type)\
                     .unpivot(index=["time"], variable_name="feature", value_name=feature_type)
-                    .with_columns(pl.col("feature").str.extract(r"(wt\d+)").alias("turbine_id"))\
+                    .with_columns(pl.col("feature").str.extract(turbine_signature).alias("turbine_id"))\
                     .drop("feature") for feature_type in feature_types], how="align")\
                     .group_by("turbine_id", "time").agg(cs.numeric().drop_nulls().first()).sort("turbine_id", "time")
         else:
