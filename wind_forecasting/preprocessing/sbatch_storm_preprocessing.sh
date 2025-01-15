@@ -33,3 +33,5 @@ echo "Preprocessing complete."
 # srun -p cfds.p -N 16 -n 16 -c 128 --mem=32G --time=2:00:00 python /fs/dss/home/taed7566/wind-forecasting/wind_forecasting/preprocessing/preprocessing_main.py --config /fs/dss/home/taed7566/wind-forecasting/examples/inputs/preprocessing_inputs_flasc.yaml -pd -p -m mpi
 # srun -p cfds.p -N 1 -n 1 -c 128 --mem=32G --time=2:00:00 --x11 --pty bash
 # python wind_forecasting/preprocessing/preprocessing_main.py --config examples/inputs/preprocessing_inputs_flasc.yaml -pd -p -m mpi
+
+# python wind_forecasting/preprocessing/preprocessing_main.py --config examples/inputs/preprocessing_inputs_flasc.yaml -pd -ld -rf -p
