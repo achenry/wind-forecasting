@@ -87,8 +87,8 @@ if __name__ == "__main__":
                                 prediction_length=config["dataset"]["prediction_length"], context_length=config["dataset"]["context_length"],
                                 target_prefixes=["ws_horz", "ws_vert"], feat_dynamic_real_prefixes=["nd_cos", "nd_sin"],
                                 freq=config["dataset"]["resample_freq"], target_suffixes=config["dataset"]["target_turbine_ids"],
-                                per_turbine_target=True)
-                                # per_turbine_target=config["dataset"]["per_turbine_target"])
+                                # per_turbine_target=True)
+                                per_turbine_target=config["dataset"]["per_turbine_target"])
     
     # data_module.plot_dataset_splitting()
 
@@ -100,13 +100,15 @@ if __name__ == "__main__":
         context_length=data_module.context_length,
         num_feat_dynamic_real=data_module.num_feat_dynamic_real, 
         num_feat_static_cat=data_module.num_feat_static_cat,
+        cardinality=data_module.cardinality,
         num_feat_static_real=data_module.num_feat_static_real,
         input_size=data_module.num_target_vars,
         scaling=False,
         lags_seq=[0],
         batch_size=128,
-        train_sampler=SequentialSampler(min_past=data_module.context_length, min_future=data_module.prediction_length),
-        validation_sampler=SequentialSampler(min_past=data_module.context_length, min_future=data_module.prediction_length),
+        # train_sampler=SequentialSampler(min_past=data_module.context_length, min_future=data_module.prediction_length), # TODO SequentialSampler = terrible results
+        # validation_sampler=SequentialSampler(min_past=data_module.context_length, min_future=data_module.prediction_length),
+        
         # validation_sampler=ExpectedNumInstanceSampler(num_instances=1.0, min_future=data_module.prediction_length),
         # dim_feedforward=config["model"][args.model]["dim_feedforward"],
         # d_model=config["model"][args.model]["d_model"],
@@ -180,11 +182,16 @@ if __name__ == "__main__":
         for k, v in agg_metrics.items():
             if "_" in k and k.split("_")[0].isdigit():
                 target_idx = int(k.split("_")[0])
-                turbine_id = data_module.target_cols[target_idx].split("_")[-1]
-                target_metric = "_".join(data_module.target_cols[target_idx].split("_")[:-1])
                 perf_metric = k.split('_')[1]
-                print(f"Performance metric {perf_metric} for target {target_metric} and turbine {turbine_id} = {v}")
-                agg_df["turbine_id"].append(turbine_id)
+                if data_module.per_turbine_target:
+                    target_metric = data_module.target_cols[target_idx]
+                    print(f"Performance metric {perf_metric} for target {target_metric} = {v}")
+                else:
+                    turbine_id = data_module.target_cols[target_idx].split("_")[-1]
+                    target_metric = "_".join(data_module.target_cols[target_idx].split("_")[:-1])
+                    print(f"Performance metric {perf_metric} for target {target_metric} and turbine {turbine_id} = {v}")
+                    agg_df["turbine_id"].append(turbine_id)
+                
                 agg_df["target_metric"].append(target_metric)
                 agg_df["perf_metric"].append(perf_metric)
                 agg_df["values"].append(v)
@@ -196,7 +203,7 @@ if __name__ == "__main__":
         # forecasts[0].distribution.loc.cpu().numpy()
         # forecasts[0].distribution.cov_diag.cpu().numpy()
         num_forecasts = 4
-        fig, axs = plt.subplots(min(len(forecasts), num_forecasts), len(data_module.target_prefixes), figsize=(6, 12))
+        fig, axs = plt.subplots(min(len(forecasts), num_forecasts), len(data_module.target_prefixes), figsize=(6, 12), sharey=True)
         axs = axs.flatten()
         def errorbar(vec):
             print(vec)
@@ -211,17 +218,27 @@ if __name__ == "__main__":
             for o, output_type in enumerate(data_module.target_prefixes):
                 ax = axs[ax_idx]
                 ax_idx += 1
-
+                # TODO change plotting for perturbine case
                 col_idx = [c for c, col in enumerate(data_module.target_cols) if output_type in col]
                 col_names = [col for col in data_module.target_cols if output_type in col]
                 true_df = ts[-data_module.context_length - data_module.prediction_length:][col_idx]\
                                 .rename(columns={c: cname for c, cname in zip(col_idx, col_names)})
-                true_df = pd.concat([
-                    true_df[col].to_frame()\
-                                   .rename(columns={col: output_type})\
-                                   .assign(turbine_id=pd.Categorical([col.split("_")[-1] 
-                                   for t in range(data_module.context_length + data_module.prediction_length)])) 
-                                   for col in col_names], axis=0).reset_index(names="time").sort_values(["time", "turbine_id"])
+                
+                if data_module.per_turbine_target:
+                    true_df = true_df.assign(turbine_id=pd.Categorical([data_module.static_features.iloc[idx]["turbine_id"]
+                                                            for t in range(data_module.context_length + data_module.prediction_length)]))
+                    # pred_turbine_id = pd.Categorical([data_module.static_features.iloc[idx]["turbine_id"]
+                    #                                         for t in range(data_module.prediction_length)])
+                else:
+                    true_df = pd.concat([
+                        true_df[col].to_frame()\
+                                    .rename(columns={col: output_type})\
+                                    .assign(turbine_id=pd.Categorical([col.split("_")[-1] 
+                                                            for t in range(data_module.context_length + data_module.prediction_length)])) 
+                                                            for col in col_names], axis=0)
+                    pred_turbine_id = pd.Categorical([col.split("_")[-1] for col in col_names for t in range(data_module.prediction_length)])
+                
+                true_df = true_df.reset_index(names="time").sort_values(["time", "turbine_id"])
                 true_df["time"] = true_df["time"].dt.to_timestamp()
                 sns.lineplot(data=true_df, x="time", y=output_type, hue="turbine_id", ax=ax)
                 # .plot(ax=ax)
@@ -233,26 +250,45 @@ if __name__ == "__main__":
                 # )
 
                 # (n_stds, target_dim, seq_len)
-                pred_df = pd.DataFrame(
-                    {
-                        "turbine_id": pd.Categorical([col.split("_")[-1] for col in col_names for t in range(data_module.prediction_length)]),
-                        "loc": forecast.distribution.loc[:, col_idx].transpose(0, 1).reshape(-1, 1).cpu().numpy().flatten(),
-                        "std_dev": np.sqrt(forecast.distribution.cov_diag[:, col_idx].transpose(0, 1).reshape(-1, 1).cpu().numpy()).flatten()
-                    },
-                    index=np.tile(forecast.index, (len(col_names),)),
-                ).reset_index(names="time").sort_values(["time", "turbine_id"])
+                if data_module.per_turbine_target:
+                    pred_df = pd.DataFrame(
+                        {
+                            "loc": forecast.distribution.loc[:, col_idx].transpose(0, 1).reshape(-1, 1).cpu().numpy().flatten(),
+                            "std_dev": np.sqrt(forecast.distribution.cov_diag[:, col_idx].transpose(0, 1).reshape(-1, 1).cpu().numpy()).flatten()
+                        },
+                        index=np.tile(forecast.index, (len(col_names),)),
+                    ).reset_index(names="time").sort_values(["time"])
+                else:
+                    pred_df = pd.DataFrame(
+                        {
+                            "turbine_id": pred_turbine_id,
+                            "loc": forecast.distribution.loc[:, col_idx].transpose(0, 1).reshape(-1, 1).cpu().numpy().flatten(),
+                            "std_dev": np.sqrt(forecast.distribution.cov_diag[:, col_idx].transpose(0, 1).reshape(-1, 1).cpu().numpy()).flatten()
+                        },
+                        index=np.tile(forecast.index, (len(col_names),)),
+                    ).reset_index(names="time").sort_values(["time", "turbine_id"])
+                
                 pred_df["time"] = pred_df["time"].dt.to_timestamp()
 
-                sns.lineplot(data=pred_df, x="time", y="loc", hue="turbine_id", ax=ax, linestyle="dashed")
-                for t, tid in enumerate(pd.unique(pred_df["turbine_id"])):
-                    color = ax.get_lines()[t].get_color()
-                    tid_df = pred_df.loc[pred_df["turbine_id"] == tid, :]
+                if data_module.per_turbine_target:
+                    sns.lineplot(data=pred_df, x="time", y="loc", ax=ax, linestyle="dashed")
                     ax.fill_between(
-                        forecast.index.to_timestamp(), tid_df["loc"] - 1*tid_df["std_dev"], tid_df["loc"] + 1*tid_df["std_dev"], alpha=0.2, color=color
+                        forecast.index.to_timestamp(), pred_df["loc"] - 1*pred_df["std_dev"], pred_df["loc"] + 1*pred_df["std_dev"], alpha=0.2, 
                     )
+                else:
+                    sns.lineplot(data=pred_df, x="time", y="loc", hue="turbine_id", ax=ax, linestyle="dashed")
+                    for t, tid in enumerate(pd.unique(pred_df["turbine_id"])):
+                        color = ax.get_lines()[t].get_color()
+                        tid_df = pred_df.loc[pred_df["turbine_id"] == tid, :]
+                        ax.fill_between(
+                            forecast.index.to_timestamp(), tid_df["loc"] - 1*tid_df["std_dev"], tid_df["loc"] + 1*tid_df["std_dev"], alpha=0.2, color=color
+                        )
 
                 # pred_df["loc"].plot(ax=ax, color='g')
                 ax.legend([], [], frameon=False)
         h, l = axs[0].get_legend_handles_labels()
         axs[0].legend(h[:len(data_module.target_suffixes)], l[:len(data_module.target_suffixes)])
         plt.show()
+        
+        print("here")
+        # TODO test without validation_sampler, with original trainer_sampler
