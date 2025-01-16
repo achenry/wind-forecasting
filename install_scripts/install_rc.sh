@@ -1,4 +1,4 @@
-
+acompile
 ml mambaforge
 mamba create --prefix=/projects/aohe7145/software/anaconda/envs/wind_forecasting --y
 mamba activate wind_forecasting
