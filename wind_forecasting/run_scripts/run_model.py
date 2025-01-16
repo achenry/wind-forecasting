@@ -55,6 +55,8 @@ if __name__ == "__main__":
 
     with open(args.config, 'r') as file:
         config  = yaml.safe_load(file)
+        
+    # TODO set number of devices/number of nodes based on environment variables
 
     # TODO create function to check config params and set defaults
     # if config["trainer"]["n_workers"] == "auto":
@@ -68,16 +70,16 @@ if __name__ == "__main__":
         config["dataset"]["target_turbine_ids"] = None # select all turbines
 
     # %% SETUP LOGGING
-    logging.info("Setting up logging")
-    if not os.path.exists(config["experiment"]["log_dir"]):
-        os.makedirs(config["experiment"]["log_dir"])
-    wandb_logger = WandbLogger(
-        project="wf_forecasting",
-        name=config["experiment"]["run_name"],
-        log_model=True,
-        save_dir=config["experiment"]["log_dir"],
-        config=config
-    )
+    # logging.info("Setting up logging")
+    # if not os.path.exists(config["experiment"]["log_dir"]):
+    #     os.makedirs(config["experiment"]["log_dir"])
+    # wandb_logger = WandbLogger(
+    #     project="wf_forecasting",
+    #     name=config["experiment"]["run_name"],
+    #     log_model=True,
+    #     save_dir=config["experiment"]["log_dir"],
+    #     config=config
+    # )
 
     # %% CREATE DATASET
     logging.info("Creating datasets")

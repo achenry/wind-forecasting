@@ -2,11 +2,11 @@
 
 experiment:
   run_name: windfarm_debug
-  log_dir: /projects/ssc/ahenry/wind_forecasting/logging/
+  log_dir: /home/aohe7145/toolboxes/wind_forecasting/examples/logging/
 
 dataset: 
-    data_path: /scratch/alpine/aohe7145/flasc_data/preprocessed_flasc_data/SMARTEOLE_WakeSteering_SCADA_1minData_normalization_consts.csv
-    normalization_consts_path: /scratch/alpine/aohe7145/flasc_data/preprocessed_flasc_data/SMARTEOLE_WakeSteering_SCADA_1minData_normalized.parquet
+    data_path: /scratch/alpine/aohe7145/flasc_data/preprocessed_flasc_data/SMARTEOLE_WakeSteering_SCADA_1minData_normalized.parquet
+    normalization_consts_path: /scratch/alpine/aohe7145/flasc_data/preprocessed_flasc_data/SMARTEOLE_WakeSteering_SCADA_1minData_normalization_consts.csv
     context_length: 9 # 120=10 minutes for 5 sec sample size
     prediction_length: 3 # 120=10 minutes for 5 sec sample size
     target_turbine_ids: # or leave blank to capture all
@@ -19,7 +19,6 @@ dataset:
     resample_freq: 60s
     n_splits: 1 # how many divisions of each continuity group to make which is further subdivided into training test and validation data
     per_turbine_target: False
-
 
 model:
   informer:
@@ -70,15 +69,15 @@ trainer:
     limit_val_batches: 1.0 
     val_check_interval: 1.0
     accelerator: auto
-    devices: 2
-    num_nodes: 1
+    devices: auto
+    num_nodes: auto
     strategy: ddp_find_unused_parameters_true
     # n_workers: auto
     # debug: False 
     # accumulate: 1.0
-    max_epochs: 1 # Maximum number of epochs to train 100
-    limit_train_batches: 100
-    default_root_dir: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/checkpoints
+    max_epochs: 100 # Maximum number of epochs to train 100
+    # limit_train_batches: 100
+    default_root_dir: /home/aohe7145/toolboxes/wind_forecasting/examples/checkpoints
     # precision: 32-true # 16-mixed enables mixed precision training 32-true is full precision
     # batch_size: 32 # larger = more stable gradients
     # lr: 0.0001 # Step size
