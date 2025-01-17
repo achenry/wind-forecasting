@@ -65,8 +65,8 @@ if __name__ == "__main__":
     #     else:
     #         config["trainer"]["n_workers"] = mp.cpu_count()
     
-    config["trainer"]["devices"] = 'auto'
-    config["trainer"]["accelerator"] = 'auto'
+    # config["trainer"]["devices"] = 'auto'
+    # config["trainer"]["accelerator"] = 'auto'
     
     if (type(config["dataset"]["target_turbine_ids"]) is str) and (
         (config["dataset"]["target_turbine_ids"].lower() == "none") or (config["dataset"]["target_turbine_ids"].lower() == "all")):
