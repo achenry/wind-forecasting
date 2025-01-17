@@ -88,7 +88,7 @@ class DataLoader:
         read_start = time.time()
         logging.info(f"✅ Started reading {len(self.file_paths)} files.")
         if self.multiprocessor is not None:
-            if self.multiprocessor == "mpi":
+            if self.multiprocessor == "mpi" and mpi_exists:
                 executor = MPICommExecutor(MPI.COMM_WORLD, root=0)
             else:  # "cf" case
                 executor = ProcessPoolExecutor()
