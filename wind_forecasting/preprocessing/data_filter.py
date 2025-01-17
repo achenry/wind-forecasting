@@ -15,8 +15,13 @@ import polars.selectors as cs
 # from scipy.spatial.distance import jensenshannon
 # from scipy.special import kl_div
 from openoa.utils import imputing, filters
-from mpi4py import MPI
-from mpi4py.futures import MPICommExecutor
+mpi_exists = False
+try:
+    from mpi4py import MPI
+    from mpi4py.futures import MPICommExecutor
+    mpi_exists = True
+except:
+    print("No MPI available on system.")
 from concurrent.futures import ProcessPoolExecutor
 import multiprocessing
 from scipy.optimize import minimize
