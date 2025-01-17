@@ -341,7 +341,7 @@ class DataLoader:
     def _read_single_csv(self, file_path: str) -> pl.LazyFrame:
         try:
             df_query = pl.scan_csv(file_path, low_memory=False)
-
+            
             available_columns = df_query.collect_schema().names()
             assert all(any(bool(re.match(feat, col)) for col in available_columns) for feat in self.source_features), "All values in feature_mapping must exist in data columns."
 
@@ -374,6 +374,8 @@ class DataLoader:
                     rename_dict[src] = feature_type
 
             df_query = df_query.rename(rename_dict)
+            df_query = df_query.with_columns([pl.col(col).cast(pl.Float64) for col in df_query.collect_schema().names() if any(feat_type in col and feat_type != "time" for feat_type in self.target_features)])
+            df_query = df_query.with_columns(cs.numeric().fill_nan(None))
             
             if "wind_direction" not in self.target_features:
                 if "nacelle_direction" in self.target_features:
@@ -413,8 +415,7 @@ class DataLoader:
             # remove the rows with all nans (corresponding to rows where excluded columns would have had a value)
             # and bundle all values corresponding to identical time stamps together
             # forward fill missing values
-            df_query = df_query.fill_nan(None)\
-                                .with_columns(pl.col("time").dt.round(f"{self.dt}s").alias("time"))\
+            df_query = df_query.with_columns(pl.col("time").dt.round(f"{self.dt}s").alias("time"))\
                                 .select([cs.contains(feat) for feat in self.target_feature_types])\
                                 .filter(pl.any_horizontal(cs.numeric().is_not_null()))
             
@@ -469,6 +470,9 @@ class DataLoader:
 
             df_query = df_query.rename(rename_dict)
             
+            df_query = df_query.with_columns([pl.col(col).cast(pl.Float64) for col in df_query.collect_schema().names() if any(feat_type in col and feat_type != "time" for feat_type in self.target_features)])
+            df_query = df_query.with_columns(cs.numeric().fill_nan(None))
+            
             target_features = list(self.target_features)
             if "wind_direction" not in target_features:
                 if "nacelle_direction" in target_features:
@@ -478,7 +482,7 @@ class DataLoader:
                     elif "yaw_offset_ccw" in target_features:
                         delta = -1
                         direc = "ccw"
-                        
+                    
                     df_query = df_query\
                         .with_columns([
                             (pl.col(f"nacelle_direction_{tid}") + delta * pl.col(f"yaw_offset_{direc}_{tid}")).mod(360.0)\
@@ -510,8 +514,7 @@ class DataLoader:
             # remove the rows with all nans (corresponding to rows where excluded columns would have had a value)
             # and bundle all values corresponding to identical time stamps together
             # forward fill missing values
-            df_query = df_query.fill_nan(None)\
-                                .with_columns(pl.col("time").dt.round(f"{self.dt}s").alias("time"))\
+            df_query = df_query.with_columns(pl.col("time").dt.round(f"{self.dt}s").alias("time"))\
                                 .select([cs.contains(feat) for feat in target_features])\
                                 .filter(pl.any_horizontal(cs.numeric().is_not_null()))
             
