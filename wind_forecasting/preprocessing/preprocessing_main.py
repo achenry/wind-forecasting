@@ -38,7 +38,7 @@ import polars.selectors as cs
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib
-matplotlib.use('TkAgg') 
+# matplotlib.use('TkAgg') 
 
 from scipy.stats import norm
 from floris import FlorisModel
