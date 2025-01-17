@@ -18,8 +18,15 @@ import floris.layout_visualization as layoutviz
 import scipy.stats as stats
 import polars as pl
 import polars.selectors as cs
-from mpi4py import MPI
-from mpi4py.futures import MPICommExecutor
+
+mpi_exists = False
+try:
+    from mpi4py import MPI
+    from mpi4py.futures import MPICommExecutor
+    mpi_exists = True
+except:
+    print("No MPI available on system.")
+    
 from sklearn.feature_selection import mutual_info_regression
 from tqdm.auto import tqdm
 import re
@@ -879,6 +886,7 @@ class DataInspector:
         
         # Create chunks of work
         # BUG: @Juan Make sure that numpy array works with this, otherwise revert to list of tuples
+        # TODO remove dependency on MPI
         chunks = np.array([(i, j) for i in range(sequence_length) for j in range(prediction_horizon)])
         chunk_size = min(1000, len(chunks) // (MPI.COMM_WORLD.Get_size() * 2)) #NOTE: @Juan 10/02/24 Added MPI
         chunks = [chunks[i:i + chunk_size] for i in range(0, len(chunks), chunk_size)]

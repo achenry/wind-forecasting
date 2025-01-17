@@ -22,6 +22,7 @@ try:
     mpi_exists = True
 except:
     print("No MPI available on system.")
+    
 from concurrent.futures import ProcessPoolExecutor
 import multiprocessing
 from scipy.optimize import minimize
@@ -151,7 +152,7 @@ class DataFilter:
     
     def multi_generate_filter(self, df_query, filter_func, feature_types, turbine_ids, **kwargs):
         if self.multiprocessor:
-            if self.multiprocessor == "mpi":
+            if self.multiprocessor == "mpi" and mpi_exists:
                 executor = MPICommExecutor(MPI.COMM_WORLD, root=0)
                 logging.info(f"🚀 Using MPI executor with {MPI.COMM_WORLD.Get_size()} processes")
             else:  # "cf" case
@@ -178,7 +179,7 @@ class DataFilter:
 
     def fill_multi_missing_datasets(self, dfs, impute_missing_features, interpolate_missing_features):
         if self.multiprocessor:
-            if self.multiprocessor == "mpi":
+            if self.multiprocessor == "mpi" and mpi_exists:
                 executor = MPICommExecutor(MPI.COMM_WORLD, root=0)
                 logging.info(f"🚀 Using MPI executor with {MPI.COMM_WORLD.Get_size()} processes")
             else:  # "cf" case
@@ -201,7 +202,7 @@ class DataFilter:
     def _impute_single_missing_dataset(self, df_idx, df, impute_missing_features, parallel=False):
 
         if parallel == "feature":
-            if self.multiprocessor == "mpi":
+            if self.multiprocessor == "mpi" and mpi_exists:
                 executor = MPICommExecutor(MPI.COMM_WORLD, root=0)
                 logging.info(f"🚀 Using MPI executor with {MPI.COMM_WORLD.Get_size()} processes")
             else:  # "cf" case
