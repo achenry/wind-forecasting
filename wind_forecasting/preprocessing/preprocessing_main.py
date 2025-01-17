@@ -117,7 +117,7 @@ def main():
 
             logging.info("✅ Loaded existing Parquet file successfully")
         else:
-            if args.multiprocessor == "mpi":
+            if args.multiprocessor == "mpi" and mpi_exists:
                 comm_size = MPI.COMM_WORLD.Get_size()
                 logging.info(f"🚀 Using MPI executor with {comm_size} processes.")
             else:
