@@ -15,6 +15,7 @@ import os
 import logging
 import argparse
 import yaml
+import re
 
 mpi_exists = False
 try:
