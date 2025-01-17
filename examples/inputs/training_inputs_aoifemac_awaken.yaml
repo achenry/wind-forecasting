@@ -76,7 +76,7 @@ trainer:
     # debug: False 
     # accumulate: 1.0
     max_epochs: 3 # Maximum number of epochs to train 100
-    limit_train_batches: 100
+    limit_train_batches: 50
     default_root_dir: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/checkpoints
     # precision: 32-true # 16-mixed enables mixed precision training 32-true is full precision
     # batch_size: 32 # larger = more stable gradients
