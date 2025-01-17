@@ -962,13 +962,24 @@ class DataInspector:
     def print_df_state(df_query, feature_types=None):
         if feature_types is None:
             feature_types = ["wind_speed", "wind_direction"]
-        print("% unique values", pl.concat([df_query.select(cs.starts_with(feat_type))\
-                                                            .select((100 * pl.min_horizontal(pl.all().drop_nulls().n_unique()) 
-                                                                     / pl.len()).alias(f"{feat_type}_min_n_unique"), 
-                                                                    (100 * pl.max_horizontal(pl.all().drop_nulls().n_unique())
-                                                                     / pl.len()).alias(f"{feat_type}_max_n_unique"))\
-                                                            .collect() for feat_type in feature_types], how="horizontal"), sep="\n")
-        print("% non-null values", pl.concat([df_query.select(cs.starts_with(feat_type))\
-                                                            .select((100 * pl.min_horizontal(pl.all().count()) / pl.len()).alias(f"{feat_type}_min_non_null"), 
-                                                                    (100 * pl.max_horizontal(pl.all().count()) / pl.len()).alias(f"{feat_type}_max_non_null"))\
-                                                            .collect() for feat_type in feature_types], how="horizontal"), sep="\n")
+        
+        df_query = df_query.select(
+            [pl.col(col) for col in df_query.collect_schema().names() 
+                         if (not df_query.select(pl.col(col).is_null().all()).collect().item() 
+                         and any(col.startswith(feat_type) for feat_type in feature_types))])
+        
+        # TODO not robust way to capture feature... 
+        feature_types = set(feat_type for feat_type in feature_types if any(feat_type in col for col in df_query.collect_schema().names()))
+         
+        print("% unique values", pl.concat([
+            df_query.select(cs.starts_with(feat_type))\
+                    .select((100 * pl.min_horizontal(pl.all().drop_nulls().n_unique())
+                                / pl.len()).alias(f"{feat_type}_min_n_unique"), 
+                            (100 * pl.max_horizontal(pl.all().drop_nulls().n_unique())
+                                / pl.len()).alias(f"{feat_type}_max_n_unique"))\
+                    .collect() for feat_type in feature_types], how="horizontal"), sep="\n")
+        print("% non-null values", pl.concat([
+            df_query.select(cs.starts_with(feat_type))\
+                    .select((100 * pl.min_horizontal(pl.all().count()) / pl.len()).alias(f"{feat_type}_min_non_null"), 
+                            (100 * pl.max_horizontal(pl.all().count()) / pl.len()).alias(f"{feat_type}_max_non_null"))\
+                    .collect() for feat_type in feature_types], how="horizontal"), sep="\n")

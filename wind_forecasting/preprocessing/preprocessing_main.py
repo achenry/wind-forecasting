@@ -11,17 +11,14 @@
 # ! python -m ipykernel install --user --name=wind_forecasting_env
 # ./run_jupyter_preprocessing.sh && http://localhost:7878/lab
 
-from sys import platform
 import os
 import logging
 import argparse
 import yaml
-import time
 
 mpi_exists = False
 try:
     from mpi4py import MPI
-    from mpi4py.futures import MPICommExecutor
     mpi_exists = True
 except:
     print("No MPI available on system.")
@@ -85,7 +82,7 @@ def main():
     if "turbine_signature" not in config:
        config["turbine_signature"] = None 
 
-    RUN_ONCE = (args.multiprocessor == "mpi" and mpi_exists and (comm_rank := MPI.COMM_WORLD.Get_rank()) == 0) or (args.multiprocessor != "mpi") or (args.multiprocessor is None)
+    RUN_ONCE = (args.multiprocessor == "mpi" and mpi_exists and (MPI.COMM_WORLD.Get_rank()) == 0) or (args.multiprocessor != "mpi") or (args.multiprocessor is None)
     data_loader = DataLoader(
         data_dir=config["raw_data_directory"],
         file_signature=config["raw_data_file_signature"],
@@ -325,7 +322,7 @@ def main():
             # find values of wind speed/direction, where there are duplicate values with nulls inbetween
             
             if args.regenerate_filters or not os.path.exists(config["processed_data_path"].replace(".parquet", "_frozen_sensors.npy")):
-                thr = int(np.timedelta64(20, 'm') / np.timedelta64(data_loader.dt, 's'))
+                thr = int(np.timedelta64(60, 'm') / np.timedelta64(data_loader.dt, 's'))
                 frozen_sensors = filters.unresponsive_flag(
                     data_pl=df_query.select(cs.starts_with("wind_speed"), cs.starts_with("wind_direction")), threshold=thr)
                 
