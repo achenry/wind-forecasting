@@ -5,7 +5,8 @@
 #SBATCH --output=%j-%x.log
 #SBATCH --partition=atesting_a100
 
-# sinteractive --partition=atesting_a100 --gres=gpu:1 --ntasks=10 --time=50:00
+# sinteractive --partition=atesting_a100 --gres=gpu:1 --ntasks-per-node=10 --ntasks=10 --time=50:00
+
 
 module purge
 ml mambaforge
