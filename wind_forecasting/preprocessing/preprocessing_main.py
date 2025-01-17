@@ -122,13 +122,11 @@ def main():
                 max_workers = multiprocessing.cpu_count()
                 logging.info("🖥️  Using ProcessPoolExecutor with %d workers.", max_workers)
 
-            logging.info("🔄 Processing new data files with %d files", len(data_loader.file_paths))
-            start_time = time.time()
+            logging.info("🔄 Processing new data files with %d files", len(data_loader.file_paths)) 
     
     if args.reload_data or not os.path.exists(data_loader.save_path):
         df_query = data_loader.read_multi_files()
         
-
     if not args.preprocess_data:
         return
 
