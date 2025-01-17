@@ -70,7 +70,7 @@ trainer:
     val_check_interval: 1.0
     accelerator: auto
     devices: auto
-    num_nodes: auto
+    num_nodes: 1
     strategy: ddp_find_unused_parameters_true
     # n_workers: auto
     # debug: False 
