@@ -11,7 +11,7 @@ filters:
 feature_mapping:
   time: '__index_level_0__'
   turbine_status: '[a-zA-Z0-9\_]+\.Turbine_State'
-  wind_direction: '[a-zA-Z0-9\_]+\.[a-zA-Z0-9\_]+\.wind_dev_1sec'
+  yaw_offset_cw: '[a-zA-Z0-9\_]+\.[a-zA-Z0-9\_]+\.wind_dev_1sec'
   wind_speed: '[a-zA-Z0-9\_]+\.[a-zA-Z0-9\_]+\.WindSpeed'
   power_output: '[a-zA-Z0-9\_]+\.[a-zA-Z0-9\_]+\.ActivePower'
   nacelle_direction: '[a-zA-Z0-9\_]+\.[a-zA-Z0-9\_]+\.Nacelle_Position'

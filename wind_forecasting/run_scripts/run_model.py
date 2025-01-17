@@ -80,6 +80,7 @@ if __name__ == "__main__":
     #     save_dir=config["experiment"]["log_dir"],
     #     config=config
     # )
+    # config["trainer"]["logger"] = wandb_logger
 
     # %% CREATE DATASET
     logging.info("Creating datasets")
@@ -89,7 +90,6 @@ if __name__ == "__main__":
                                 prediction_length=config["dataset"]["prediction_length"], context_length=config["dataset"]["context_length"],
                                 target_prefixes=["ws_horz", "ws_vert"], feat_dynamic_real_prefixes=["nd_cos", "nd_sin"],
                                 freq=config["dataset"]["resample_freq"], target_suffixes=config["dataset"]["target_turbine_ids"],
-                                # per_turbine_target=True)
                                 per_turbine_target=config["dataset"]["per_turbine_target"])
     
     # data_module.plot_dataset_splitting()
@@ -120,7 +120,7 @@ if __name__ == "__main__":
         activation="relu",
         time_features=[second_of_minute, minute_of_hour, hour_of_day, day_of_year],
         distr_output=LowRankMultivariateNormalOutput(dim=data_module.num_target_vars, rank=8),
-        trainer_kwargs={**config["trainer"], "logger": wandb_logger},
+        trainer_kwargs=config["trainer"],
         **config["model"][args.model]
     )
 

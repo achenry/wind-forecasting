@@ -59,6 +59,11 @@ class DataLoader:
         self.reverse_feature_mapping = dict((src, tgt) for tgt, src in self.feature_mapping.items())
 
         self.source_features = list(self.feature_mapping.values())
+        self.target_features = list(self.feature_mapping.keys())
+        
+        assert [col in self.target_features for col in ["time", "wind_speed", "nacelle_direction", "power_output"]]
+        assert "wind_direction" in self.target_features or ("nacelle_direction" in self.target_features and ("yaw_offset_cw" in self.target_features or "yaw_offset_ccw" in self.target_features)), "if wind_direction is not in the feature_mapping values, then yaw_offset_cw or yaw_offset_ccw must be to compute it from nacelle_direction"
+        
         # self.desired_feature_types = desired_feature_types or ["time", "turbine_id", "turbine_status", "wind_direction", "wind_speed", "power_output", "nacelle_direction"]
         
         self.ffill_limit = ffill_limit
@@ -362,6 +367,22 @@ class DataLoader:
                     rename_dict[src] = feature_type
 
             df_query = df_query.rename(rename_dict)
+            
+            if "wind_direction" not in self.target_features:
+                if "nacelle_direction" in self.target_features:
+                    if "yaw_offset_cw" in self.target_features:
+                        delta = 1
+                        direc = "cw" 
+                    elif "yaw_offset_ccw" in self.target_features:
+                        delta = -1
+                        direc = "ccw"
+                        
+                    df_query = df_query\
+                        .with_columns([
+                            (pl.col(f"nacelle_direction_{tid}") + delta * pl.col(f"yaw_offset_{direc}_{tid}")).mod(360.0)\
+                            .alias(f"wind_direction_{tid}") for tid in turbine_ids
+                            ])
+                    df_query = df_query.select(pl.exclude("yaw_offset_*"))
 
             if df_query.collect_schema()["time"] == pl.datatypes.String:
                 df_query = df_query.with_columns([
@@ -419,10 +440,10 @@ class DataLoader:
             # df_query = df_query.select(self.source_features)\
             df_query = df_query.select(*[cs.matches(feat) for feat in self.source_features])
             source_features = df_query.collect_schema().names()
-
+            
             # just the turbine ids found in this file
             turbine_ids = self.get_turbine_ids(df_query)
-
+            
             # Apply column mapping after selecting relevant columns
             rename_dict = {}
             for src in source_features:
@@ -441,6 +462,25 @@ class DataLoader:
 
             df_query = df_query.rename(rename_dict)
             
+            target_features = list(self.target_features)
+            if "wind_direction" not in target_features:
+                if "nacelle_direction" in target_features:
+                    if "yaw_offset_cw" in target_features:
+                        delta = 1
+                        direc = "cw" 
+                    elif "yaw_offset_ccw" in target_features:
+                        delta = -1
+                        direc = "ccw"
+                        
+                    df_query = df_query\
+                        .with_columns([
+                            (pl.col(f"nacelle_direction_{tid}") + delta * pl.col(f"yaw_offset_{direc}_{tid}")).mod(360.0)\
+                            .alias(f"wind_direction_{tid}") for tid in turbine_ids
+                            ])
+                    df_query = df_query.select(pl.exclude("^yaw_offset_.*$"))
+                    del target_features[target_features.index(f"yaw_offset_{direc}")]
+                    target_features.append("wind_direction")
+                    
             if df_query.collect_schema()["time"] == pl.datatypes.String:
                 df_query = df_query.with_columns([
                                         # Convert time column to datetime
@@ -458,14 +498,14 @@ class DataLoader:
             
             # Check if data is already in wide format
             is_already_wide = all(any(f"{feature}_{tid}" in col for col in df_query.collect_schema().names()) 
-                for feature in self.target_feature_types for tid in turbine_ids if feature != "time")
+                for feature in target_features for tid in turbine_ids if feature != "time")
 
             # remove the rows with all nans (corresponding to rows where excluded columns would have had a value)
             # and bundle all values corresponding to identical time stamps together
             # forward fill missing values
             df_query = df_query.fill_nan(None)\
                                 .with_columns(pl.col("time").dt.round(f"{self.dt}s").alias("time"))\
-                                .select([cs.contains(feat) for feat in self.target_feature_types])\
+                                .select([cs.contains(feat) for feat in target_features])\
                                 .filter(pl.any_horizontal(cs.numeric().is_not_null()))
             
             # pivot table to have columns for each turbine and measurement if not originally in wide format
