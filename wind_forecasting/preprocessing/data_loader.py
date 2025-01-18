@@ -148,23 +148,24 @@ class DataLoader:
                         # df_query = [fut.result() for fut in futures]
                         # df_query = [(self.file_paths[d], df) for d, df in enumerate(df_query) if df is not None]
                     
-                    rmtree(temp_save_dir)
-                    
                     if len(batch_paths): 
                         logging.info(f"🔗 Finished reading files. Time elapsed: {time.time() - read_start:.2f} s")
                         if len(batch_paths) > 1: 
                             logging.info(f"Running final resample/fill.")
                             df_query = self.process_batch_files(batch_paths)
                             df_query.sink_parquet(self.save_path, statistics=False)
+                            rmtree(temp_save_dir)
                             return df_query
                         else:
                             logging.info(f"Returning final parquet.")
                             df_query = pl.scan_parquet(batch_paths[0])
                             df_query.sink_parquet(self.save_path, statistics=False)
+                            rmtree(temp_save_dir)
                             return df_query
                         
                     else:
                         logging.error("No data successfully processed by read_multi_files.")
+                        rmtree(temp_save_dir)
                         return None
                     
         else:
@@ -208,7 +209,6 @@ class DataLoader:
                 batch_paths.append(self.process_multiple_files(df_query, file_paths, batch_idx, temp_save_dir))
                 gc.collect()
             
-            rmtree(temp_save_dir)
             
             if len(batch_paths):    
                 logging.info(f"🔗 Finished reading files. Time elapsed: {time.time() - read_start:.2f} s")
@@ -216,15 +216,18 @@ class DataLoader:
                     logging.info(f"Running final resample/fill.")
                     df_query = self.process_batch_files(batch_paths)
                     df_query.sink_parquet(self.save_path, statistics=False)
+                    rmtree(temp_save_dir)
                     return df_query
                 else:
                     logging.info(f"Returning final parquet.")
                     df_query = pl.scan_parquet(batch_paths[0])
                     df_query.sink_parquet(self.save_path, statistics=False)
+                    rmtree(temp_save_dir)
                     return df_query
                 
             else:
                 logging.error("No data successfully processed by read_multi_files.")
+                rmtree(temp_save_dir)
                 return None
    
     
