@@ -139,6 +139,7 @@ class DataLoader:
                         logging.info(f"Last batch process.")
                         batch_idx += 1
                         batch_paths.append(self.process_batch_files(df_query, file_paths, batch_idx, temp_save_dir))
+                        gc.collect()
                     # df_query = [fut.result() for fut in futures]
                     # df_query = [(self.file_paths[d], df) for d, df in enumerate(df_query) if df is not None]
                     
@@ -175,7 +176,8 @@ class DataLoader:
                 logging.info(f"Last batch process.")
                 batch_idx += 1
                 batch_paths.append(self.process_batch_files(df_query, file_paths, batch_idx, temp_save_dir))
-        
+                gc.collect()
+                
         logging.info(f"🔗 Finished reading files. Time elapsed: {time.time() - read_start:.2f} s")
         
         df_query = [pl.scan_parquet(bp) for bp in batch_paths]
@@ -186,12 +188,15 @@ class DataLoader:
             
             if df_query.select(pl.col("time").diff().slice(1).n_unique()).collect().item() > 1:
                 logging.info(f"Started final resampling.") 
-                full_datetime_range = df_query.select(pl.datetime_range(
-                    start=df_query.select(pl.col("time").first()).collect().item(),
-                    end=df_query.select(pl.col("time").last()).collect().item(),
-                    interval=f"{self.dt}s", time_unit=df_query.collect_schema()["time"].time_unit).alias("time"))
-            
-                df_query = full_datetime_range.join(df_query, on="time", how="left")
+                bounds = df_query.select(pl.col("time").first().alias("first"),
+                                         pl.col("time").last().alias("last")).collect()
+                df_query = df_query.select(pl.datetime_range(
+                                            start=bounds.select("first").item(),
+                                            end=bounds.select("last").item(),
+                                            interval=f"{self.dt}s", time_unit=df_query.collect_schema()["time"].time_unit).alias("time"))\
+                                  .join(df_query, on="time", how="left")
+                del bounds 
+                # df_query = full_datetime_range.join(df_query, on="time", how="left")
                 logging.info(f"Finished final resampling.") 
 
             logging.info(f"Started final forward/backward fill.") 
@@ -255,13 +260,18 @@ class DataLoader:
         df_queries = df_queries.sort("time")
         logging.info(f"Finished sorting.")
 
-        logging.info(f"Started resampling.") 
-        full_datetime_range = df_queries.select(pl.datetime_range(
-            start=df_queries.select(pl.col("time").first()).collect().item(),
-            end=df_queries.select(pl.col("time").last()).collect().item(),
-            interval=f"{self.dt}s", time_unit=df_queries.collect_schema()["time"].time_unit).alias("time"))
-            
-        df_queries = full_datetime_range.join(df_queries, on="time", how="left") # NOTE: @Aoife 10/18 make sure all time stamps are included, to interpolate continuously later
+        logging.info(f"Started resampling.")
+        bounds = df_queries.select(pl.col("time").first().alias("first"),
+                                         pl.col("time").last().alias("last")).collect()
+        df_queries = df_queries.select(pl.datetime_range(
+            start=df_queries.select("first").item(),
+            end=df_queries.select("last").item(),
+            interval=f"{self.dt}s", time_unit=df_queries.collect_schema()["time"].time_unit).alias("time"))\
+                .join(df_queries, on="time", how="left")
+        del bounds
+        
+        # df_queries = full_datetime_range.join(df_queries, on="time", how="left") # NOTE: @Aoife 10/18 make sure all time stamps are included, to interpolate continuously later
+        # del full_datetime_range
         logging.info(f"Finished resampling.") 
 
         logging.info(f"Started forward/backward fill.") 
