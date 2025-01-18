@@ -46,10 +46,11 @@ class DataInspector:
     """
     
     # INFO: @Juan 11/17/24 Added feature_mapping to allow for custom feature mapping, which is required for different data sources
-    def __init__(self, turbine_input_filepath: str, farm_input_filepath: str, data_format='auto'):
+    def __init__(self, turbine_input_filepath: str, farm_input_filepath: str, turbine_signature: str, data_format='auto'):
         self._validate_input_data(turbine_input_filepath=turbine_input_filepath, farm_input_filepath=farm_input_filepath)
         self.turbine_input_filepath = turbine_input_filepath
         self.farm_input_filepath = farm_input_filepath
+        self.turbine_signature = turbine_signature
         self.data_format = data_format
         # Default feature mapping
         # self.feature_mapping = feature_mapping or {
@@ -74,7 +75,7 @@ class DataInspector:
         # valid_turbines = df.select("turbine_id").unique().filter(pl.col("turbine_id").is_in(turbine_ids)).collect(streaming=True).to_numpy()[:, 0]
         cols = df.collect_schema().names()
         # available_turbines = np.unique([re.findall(f"(?<=wind_direction_)(.*)", col)[0] for col in cols if "wind_direction" in col])
-        available_turbines = np.unique([col.split("_")[-1] for col in cols])
+        available_turbines = set([m.group() for col in cols if (m:=re.search(self.turbine_signature, col))])
 
         if turbine_ids == "all":
             valid_turbines = available_turbines
@@ -976,18 +977,20 @@ class DataInspector:
                          if (not df_query.select(pl.col(col).is_null().all()).collect().item() 
                          and any(col.startswith(feat_type) for feat_type in feature_types))])
         
-        # TODO not robust way to capture feature... 
+        # TODO not robust way to capture feature... what if one feat_type is a substring of another..
         feature_types = set(feat_type for feat_type in feature_types if any(feat_type in col for col in df_query.collect_schema().names()))
-         
+        n_unique_expr =  pl.all().drop_nulls().n_unique()
         print("% unique values", pl.concat([
             df_query.select(cs.starts_with(feat_type))\
-                    .select((100 * pl.min_horizontal(pl.all().drop_nulls().n_unique())
-                                / pl.len()).alias(f"{feat_type}_min_n_unique"), 
-                            (100 * pl.max_horizontal(pl.all().drop_nulls().n_unique())
-                                / pl.len()).alias(f"{feat_type}_max_n_unique"))\
+                    .select((pl.min_horizontal(n_unique_expr)).alias(f"{feat_type}_min_n_unique"), 
+                            (pl.max_horizontal(n_unique_expr)).alias(f"{feat_type}_max_n_unique"))\
+                    .select(100 * pl.all() / pl.len())\
                     .collect() for feat_type in feature_types], how="horizontal"), sep="\n")
+        
+        n_non_null_expr = pl.all().count()
         print("% non-null values", pl.concat([
             df_query.select(cs.starts_with(feat_type))\
-                    .select((100 * pl.min_horizontal(pl.all().count()) / pl.len()).alias(f"{feat_type}_min_non_null"), 
-                            (100 * pl.max_horizontal(pl.all().count()) / pl.len()).alias(f"{feat_type}_max_non_null"))\
+                    .select((pl.min_horizontal(n_non_null_expr)).alias(f"{feat_type}_min_non_null"), 
+                            (pl.max_horizontal(n_non_null_expr)).alias(f"{feat_type}_max_non_null"))\
+                    .select(100 * pl.all() / pl.len())\
                     .collect() for feat_type in feature_types], how="horizontal"), sep="\n")

@@ -121,9 +121,11 @@ def main():
             if args.multiprocessor == "mpi" and mpi_exists:
                 comm_size = MPI.COMM_WORLD.Get_size()
                 logging.info(f"🚀 Using MPI executor with {comm_size} processes.")
-            else:
+            elif args.multiprocessor == "cf":
                 max_workers = multiprocessing.cpu_count()
-                logging.info("🖥️  Using ProcessPoolExecutor with %d workers.", max_workers)
+                logging.info("🚀  Using ProcessPoolExecutor with %d workers.", max_workers)
+            else:
+                logging.info("🚀  Using single process executor.")
 
             logging.info("🔄 Processing new data files with %d files", len(data_loader.file_paths)) 
     
@@ -143,6 +145,7 @@ def main():
     data_inspector = DataInspector(
         turbine_input_filepath=config["turbine_input_path"],
         farm_input_filepath=config["farm_input_path"],
+        turbine_signature=config["turbine_signature"],
         data_format='auto'
     )
 
@@ -317,7 +320,8 @@ def main():
         data_inspector.plot_time_series(df_query.head(1000), feature_types=["wind_speed", "wind_direction"], turbine_ids=data_loader.turbine_ids[:1], continuity_groups=None)
 
     # %%
-    data_filter = DataFilter(turbine_availability_col=None, turbine_status_col="turbine_status", multiprocessor=args.multiprocessor, data_format='wide')
+    data_filter = DataFilter(turbine_signature=config["turbine_signature"], turbine_availability_col=None, 
+                             turbine_status_col="turbine_status", multiprocessor=args.multiprocessor, data_format='wide')
 
     if args.regenerate_filters or args.reload_data or not os.path.exists(config["processed_data_path"].replace(".parquet", "_filtered.parquet")):
         # %%
@@ -722,8 +726,8 @@ def main():
             # Normalization & Feature Selection
             logging.info("Normalizing and selecting features.")
             df_query = df_query\
-                    .with_columns(((cs.starts_with("wind_direction") - 180.).radians().sin()).name.map(lambda c: "wd_sin_" + c.split("_")[-1]),
-                                ((cs.starts_with("wind_direction") - 180.).radians().cos()).name.map(lambda c: "wd_cos_" + c.split("_")[-1]))\
+                    .with_columns(((cs.starts_with("wind_direction") - 180.).radians().sin()).name.map(lambda c: "wd_sin_" + re.findall(data_loader.turbine_signature, c)[0]),
+                                ((cs.starts_with("wind_direction") - 180.).radians().cos()).name.map(lambda c: "wd_cos_" + re.findall(data_loader.turbine_signature, c)[0]))\
                     .with_columns(**{f"ws_horz_{tid}": (pl.col(f"wind_speed_{tid}") * pl.col(f"wd_sin_{tid}")) for tid in data_loader.turbine_ids})\
                     .with_columns(**{f"ws_vert_{tid}": (pl.col(f"wind_speed_{tid}") * pl.col(f"wd_cos_{tid}")) for tid in data_loader.turbine_ids})\
                     .with_columns(**{f"nd_cos_{tid}": ((pl.col(f"nacelle_direction_{tid}") - 180.).radians().cos()) for tid in data_loader.turbine_ids})\
