@@ -25,7 +25,9 @@ python setup.py develop --prefix=$LARGE_STORAGE/ahenry/wind_forecasting_env/bin
 cd ..
 
 conda install statsmodels pyyaml matplotlib numpy seaborn netcdf4 --y 
-pip install --target $LARGE_STORAGE/ahenry/wind_forecasting_env/bin floris polars windrose 
+pip install --target $LARGE_STORAGE/ahenry/wind_forecasting_env/bin floris polars windrose psutil
+
+## END FOR PREPROCESSING ONLY
 
 # rm -rf /projects/ssc/ahenry/conda/envs/wind_forecasting
 # rm -rf /home/ahenry/.conda-pkgs/cache
