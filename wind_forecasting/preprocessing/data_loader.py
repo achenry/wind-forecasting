@@ -91,18 +91,18 @@ class DataLoader:
     def read_multi_files(self) -> pl.LazyFrame | None:
         read_start = time.time()
         
-        temp_save_dir = os.path.join(os.path.dirname(self.save_path), os.path.basename(self.save_path).replace(".parquet", "_temp"))
-        if os.path.exists(temp_save_dir):
-            rmtree(temp_save_dir)
-            # raise Exception(f"Temporary saving directory {temp_save_dir} already exists! Please remove or rename it.")
-        os.makedirs(temp_save_dir)
-        
         if self.multiprocessor is not None:
             if self.multiprocessor == "mpi" and mpi_exists:
                 executor = MPICommExecutor(MPI.COMM_WORLD, root=0)
             else:  # "cf" case
                 executor = ProcessPoolExecutor()
             with executor as ex:
+                temp_save_dir = os.path.join(os.path.dirname(self.save_path), os.path.basename(self.save_path).replace(".parquet", "_temp"))
+                if os.path.exists(temp_save_dir):
+                    rmtree(temp_save_dir)
+                    # raise Exception(f"Temporary saving directory {temp_save_dir} already exists! Please remove or rename it.")
+                os.makedirs(temp_save_dir)
+        
                 logging.info(f"✅ Started reading {len(self.file_paths)} files.")
                 
                 if ex is not None:
@@ -149,7 +149,9 @@ class DataLoader:
                         # df_query = [(self.file_paths[d], df) for d, df in enumerate(df_query) if df is not None]
                         logging.info(f"🔗 Finished reading files. Time elapsed: {time.time() - read_start:.2f} s")
                         if len(batch_paths) > 1: 
-                            return self.process_batch_files(batch_paths, temp_save_dir)
+                            df_query = self.process_batch_files(batch_paths, temp_save_dir)
+                            rmtree(temp_save_dir)
+                            reaturn df_query
                         else:
                             return pl.scan_parquet(batch_paths[0])
                     else:
@@ -159,6 +161,11 @@ class DataLoader:
                 logging.info(f"🔗 Finished reading files. Time elapsed: {time.time() - read_start:.2f} s")    
                 
         else:
+            temp_save_dir = os.path.join(os.path.dirname(self.save_path), os.path.basename(self.save_path).replace(".parquet", "_temp"))
+            if os.path.exists(temp_save_dir):
+                rmtree(temp_save_dir)
+                # raise Exception(f"Temporary saving directory {temp_save_dir} already exists! Please remove or rename it.")
+            os.makedirs(temp_save_dir)
             logging.info(f"✅ Started reading {len(self.file_paths)} files.")
             logging.info(f"🔧 Using single process executor.")
             if not self.file_paths:
@@ -195,7 +202,9 @@ class DataLoader:
                 gc.collect()
                 logging.info(f"🔗 Finished reading files. Time elapsed: {time.time() - read_start:.2f} s")
                 if len(batch_paths) > 1: 
-                    return self.process_batch_files(batch_paths, temp_save_dir)
+                    df_query = self.process_batch_files(batch_paths, temp_save_dir)
+                    rmtree(temp_save_dir)
+                    return df_query
                 else:
                     return pl.scan_parquet(batch_paths[0])
             else:
@@ -233,7 +242,7 @@ class DataLoader:
         # turbine ids found in all files so far
         self.turbine_ids = self.get_turbine_ids(df_query, sort=True)
         logging.info("Final Parquet file saved into %s", self.save_path)
-        rmtree(temp_save_dir)
+        
         return df_query
     
     # @profile 
