@@ -10,6 +10,7 @@ import logging
 import re
 from shutil import rmtree
 from psutil import virtual_memory
+import gc
 from memory_profiler import profile
 
 import time
@@ -130,6 +131,7 @@ class DataLoader:
                             logging.info(f"🔗 Processing {len(df_query)} files read so far.")
                             batch_idx += 1
                             batch_paths.append(self.process_batch_files(df_query, file_paths, batch_idx, temp_save_dir)) # 3% increase in ram
+                            gc.collect()
                             df_query = []
                             file_paths = []
                     
@@ -164,6 +166,7 @@ class DataLoader:
                     logging.info(f"🔗 Processing {len(df_query)} files read so farm.")
                     batch_idx += 1
                     batch_paths.append(self.process_batch_files(df_query, file_paths, batch_idx, temp_save_dir))
+                    gc.collect()
                     df_query = []
                     file_paths = []
             
