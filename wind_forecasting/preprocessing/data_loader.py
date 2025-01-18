@@ -133,7 +133,7 @@ class DataLoader:
                             logging.info(f"🔗 Processing {len(df_query)} files read so far.")
                             batch_idx += 1
                             # batch_paths.append(self.process_batch_files(df_query, file_paths, batch_idx, temp_save_dir)) # 3% increase in ram
-                            batch_paths.append(ex.submit(self.process_multiple_files, df_query, file_paths, batch_idx))
+                            batch_paths.append(ex.submit(self.process_multiple_files, df_query, file_paths, batch_idx, temp_save_dir))
                             gc.collect()
                             df_query = []
                             file_paths = []
@@ -147,13 +147,17 @@ class DataLoader:
                         batch_paths = [fut.result() for fut in batch_paths]
                         # df_query = [fut.result() for fut in futures]
                         # df_query = [(self.file_paths[d], df) for d, df in enumerate(df_query) if df is not None]
+                    
+                    rmtree(temp_save_dir)
+                    
+                    if len(batch_paths): 
                         logging.info(f"🔗 Finished reading files. Time elapsed: {time.time() - read_start:.2f} s")
                         if len(batch_paths) > 1: 
                             df_query = self.process_batch_files(batch_paths)
-                            rmtree(temp_save_dir)
                             return df_query
                         else:
                             return pl.scan_parquet(batch_paths[0])
+                        
                     else:
                         logging.error("No data successfully processed by read_multi_files.")
                         return None
@@ -200,13 +204,17 @@ class DataLoader:
                 batch_idx += 1
                 batch_paths.append(self.process_multiple_files(df_query, file_paths, batch_idx, temp_save_dir))
                 gc.collect()
+            
+            rmtree(temp_save_dir)
+            
+            if len(batch_paths):    
                 logging.info(f"🔗 Finished reading files. Time elapsed: {time.time() - read_start:.2f} s")
                 if len(batch_paths) > 1: 
                     df_query = self.process_batch_files(batch_paths)
-                    rmtree(temp_save_dir)
                     return df_query
                 else:
                     return pl.scan_parquet(batch_paths[0])
+                
             else:
                 logging.error("No data successfully processed by read_multi_files.")
                 return None
