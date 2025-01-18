@@ -79,7 +79,7 @@ class DataLoader:
         self.turbine_ids = set()
         # self.turbine_ids = sorted(list(set(k.split("_")[-1] for k in self.feature_mapping.keys() if re.search(r'\d', k)))) 
 
-        self.target_feature_types = list(set(("_".join(k.split("_")[:-1]) if re.search(r'\d', k) else k) for k in self.feature_mapping.keys() ))
+        self.target_feature_types = list(set((re.sub(self.turbine_signature, "", k) if re.search(self.turbine_signature, k) else k) for k in self.feature_mapping.keys()))
         
         # Get all the wts in the folder @Juan 10/16/24 used os.path.join for OS compatibility
         self.file_paths = sorted(glob.glob(os.path.join(data_dir, file_signature), recursive=True))
@@ -343,7 +343,7 @@ class DataLoader:
             df_query = pl.scan_csv(file_path, low_memory=False)
             
             available_columns = df_query.collect_schema().names()
-            assert all(any(bool(re.match(feat, col)) for col in available_columns) for feat in self.source_features), "All values in feature_mapping must exist in data columns."
+            assert all(any(bool(re.search(feat, col)) for col in available_columns) for feat in self.source_features), "All values in feature_mapping must exist in data columns."
 
             # Select only relevant columns and handle missing values
             df_query = df_query.select(*[cs.matches(feat) for feat in self.source_features])
@@ -362,7 +362,7 @@ class DataLoader:
                 feature_type = None 
                 tid = None
                 for src_signature in self.source_features:
-                    if re.match(src_signature, src):
+                    if re.search(src_signature, src):
                         feature_type = self.reverse_feature_mapping[src_signature]
                         tid = re.search(self.turbine_signature, src)
                         if tid:
@@ -442,7 +442,7 @@ class DataLoader:
         try:
             df_query = pl.scan_parquet(file_path)
             available_columns = df_query.collect_schema().names()
-            assert all(any(bool(re.match(feat, col)) for col in available_columns) for feat in self.source_features), "All values in feature_mapping must exist in data columns."
+            assert all(any(bool(re.search(feat, col)) for col in available_columns) for feat in self.source_features), "All values in feature_mapping must exist in data columns."
 
             # Select only relevant columns and handle missing values
             # df_query = df_query.select(self.source_features)\
@@ -458,7 +458,7 @@ class DataLoader:
                 feature_type = None
                 tid = None
                 for src_signature in self.source_features:
-                    if re.match(src_signature, src):
+                    if re.search(src_signature, src):
                         feature_type = self.reverse_feature_mapping[src_signature]
                         tid = re.search(self.turbine_signature, src)
                         if tid:

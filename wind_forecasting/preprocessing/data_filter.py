@@ -34,7 +34,8 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 class DataFilter:
     """_summary_
     """
-    def __init__(self, turbine_availability_col=None, turbine_status_col=None, data_format='wide', multiprocessor=None):
+    def __init__(self, turbine_signature, turbine_availability_col=None, turbine_status_col=None, data_format='wide', multiprocessor=None):
+        self.turbine_signature = turbine_signature
         self.turbine_availability_col = turbine_availability_col
         self.turbine_status_col = turbine_status_col
         self.data_format = data_format
@@ -334,7 +335,7 @@ class DataFilter:
         if check_js:
             js_scores = []
             for feat in features:
-                tid = feat.split("_")[-1]
+                tid = re.findall(self.turbine_signature, feat)[0]
                 js_score = self._compute_js_divergence(
                     train_sample=df.filter(mask(tid)).select(feat).drop_nulls().collect().to_numpy().flatten(),
                     test_sample=df.select(feat).drop_nulls().collect().to_numpy().flatten()
@@ -353,7 +354,7 @@ class DataFilter:
         else:
             # df = df.with_columns({feat: pl.when(mask(feat.split("_")[-1])).then(pl.col(feat)).otherwise(None) for feat in features})
             for feat in features:
-                tid = feat.split("_")[-1]
+                tid = re.findall(self.turbine_signature, feat)[0]
                 new_data = ma.filled(ma.array(df.select(pl.col(feat)).collect().to_numpy().flatten(), mask=mask(tid), fill_value=np.nan))
                 df = df.with_columns(**{feat: new_data}).with_columns(pl.col(feat).fill_nan(None).alias(feat))
                 # df = df.with_columns(pl.when(mask(tid)).then(pl.col(feat)).otherwise(None).alias(feat))
