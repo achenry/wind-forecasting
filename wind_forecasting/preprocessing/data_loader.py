@@ -102,7 +102,7 @@ class DataLoader:
                     rmtree(temp_save_dir)
                     # raise Exception(f"Temporary saving directory {temp_save_dir} already exists! Please remove or rename it.")
                 os.makedirs(temp_save_dir)
-        
+
                 logging.info(f"✅ Started reading {len(self.file_paths)} files.")
                 
                 if ex is not None:
@@ -155,10 +155,13 @@ class DataLoader:
                         if len(batch_paths) > 1: 
                             logging.info(f"Running final resample/fill.")
                             df_query = self.process_batch_files(batch_paths)
+                            df_query.sink_parquet(self.save_path, statistics=False)
                             return df_query
                         else:
                             logging.info(f"Returning final parquet.")
-                            return pl.scan_parquet(batch_paths[0])
+                            df_query = pl.scan_parquet(batch_paths[0])
+                            df_query.sink_parquet(self.save_path, statistics=False)
+                            return df_query
                         
                     else:
                         logging.error("No data successfully processed by read_multi_files.")
@@ -212,10 +215,13 @@ class DataLoader:
                 if len(batch_paths) > 1: 
                     logging.info(f"Running final resample/fill.")
                     df_query = self.process_batch_files(batch_paths)
+                    df_query.sink_parquet(self.save_path, statistics=False)
                     return df_query
                 else:
                     logging.info(f"Returning final parquet.")
-                    return pl.scan_parquet(batch_paths[0])
+                    df_query = pl.scan_parquet(batch_paths[0])
+                    df_query.sink_parquet(self.save_path, statistics=False)
+                    return df_query
                 
             else:
                 logging.error("No data successfully processed by read_multi_files.")
@@ -247,7 +253,6 @@ class DataLoader:
         # Write to final parquet
         if not os.path.exists(os.path.dirname(self.save_path)):
             os.makedirs(os.path.dirname(self.save_path))
-        df_query.sink_parquet(self.save_path, statistics=False)
 
         # turbine ids found in all files so far
         self.turbine_ids = self.get_turbine_ids(df_query, sort=True)
