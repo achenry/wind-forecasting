@@ -24,7 +24,7 @@ export RUST_BACKTRACE=full
 # conda activate wind_forecasting_preprocessing
 # python preprocessing_main.py --config /srv/data/nfs/ahenry/wind_forecasting_env/wind-forecasting/examples/inputs/preprocessing_inputs_server_awaken_new.yaml --reload_data --multiprocessor cf 
 
-mpirun -np $SLURM_NTASKS python preprocessing_main.py --config /$HOME/toolboxes/wind_forecasting_env/wind-forecasting/examples/inputs/preprocessing_inputs_kestrel_awaken_new.yaml --load_data --multiprocessor mpi
+mpirun -np $SLURM_NTASKS python preprocessing_main.py --config /$HOME/toolboxes/wind_forecasting_env/wind-forecasting/examples/inputs/preprocessing_inputs_kestrel_awaken_new.yaml --reload_data --multiprocessor mpi
 #python data_loader.py
 
 #rm /pl/active/paolab/awaken_data/kp.turbine.z02.b0/*.nc
