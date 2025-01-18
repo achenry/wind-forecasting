@@ -653,7 +653,7 @@ class DataLoader:
             else:
                 df_query = df_query
             
-            return df_query
+            return df_query.collect().lazy()
         
         except Exception as e:
             logging.error(f"❌ Error processing parquet file {file_path}: {str(e)}")
