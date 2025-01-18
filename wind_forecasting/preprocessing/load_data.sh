@@ -29,4 +29,4 @@ mpirun -np $SLURM_NTASKS python preprocessing_main.py --config /$HOME/toolboxes/
 
 #rm /pl/active/paolab/awaken_data/kp.turbine.z02.b0/*.nc
 #mv /scratch/alpine/aohe7145/awaken_data/kp.turbine.zo2.b0.raw.parquet /pl/active/paolab/awaken_data/kp.turbine.zo2.b0.raw.parquet
-mv /tmp/scratch/$SLURM_JOB_ID/loaded_data.parquet /projects/ssc/ahenry/wind_forecasting/awaken_data/ 
+mv /tmp/scratch/$SLURM_JOB_ID/00_engie_scada_processed.parquet /projects/ssc/ahenry/wind_forecasting/awaken_data/ 
