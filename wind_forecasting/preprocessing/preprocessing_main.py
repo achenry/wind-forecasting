@@ -69,7 +69,7 @@ def main():
     for path_key in ["raw_data_directory", "processed_data_path", "turbine_input_path", "farm_input_path"]:
         env_vars = re.findall(r"(?:^|\/)\$(\w+)(?:\/|$)", config[path_key])
         for env_var in env_vars:
-            config[path_key] = config[path_key].replace(f"${env_var}", os.environ.path(env_var))
+            config[path_key] = config[path_key].replace(f"${env_var}", os.environ[env_var])
     
     # config["filters"] = ["nacelle_calibration", "unresponsive_sensor", "range_flag", "bin_filter", "std_range_flag", "impute_missing_data", "split", "normalize"]
     # config["filters"] = ["split", "impute_missing_data", "normalize"]
