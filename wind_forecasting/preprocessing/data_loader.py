@@ -151,7 +151,7 @@ class DataLoader:
                         if len(batch_paths) > 1: 
                             df_query = self.process_batch_files(batch_paths, temp_save_dir)
                             rmtree(temp_save_dir)
-                            reaturn df_query
+                            return df_query
                         else:
                             return pl.scan_parquet(batch_paths[0])
                     else:
