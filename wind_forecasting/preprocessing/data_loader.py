@@ -114,14 +114,14 @@ class DataLoader:
                     for f, file_path in enumerate(self.file_paths):
                         used_ram = virtual_memory().percent 
                         if len(df_query) == 0 or used_ram < 80:
-                            logging.info(f"Available RAM = {available_ram}%. Continue processing single files.")
+                            logging.info(f"Used RAM = {used_ram}%. Continue processing single files.")
                             res = ex.submit(self._read_single_file, f, file_path).result()
                             if res is not None: 
                                 df_query.append(res)
                                 file_paths.append(self.file_paths[f])
                         else:
                             # process what we have so far and dump processed lazy frames
-                            logging.info(f"Available RAM = {available_ram}%. Pause to batch process.")
+                            logging.info(f"Used RAM = {used_ram}%. Pause to batch process.")
                             logging.info(f"🔗 Processing {len(df_query)} files read so farm.")
                             batch_idx += 1
                             batch_paths.append(self.process_batch_files(df_query, file_paths, batch_idx, temp_save_dir))
@@ -148,14 +148,14 @@ class DataLoader:
             for f, file_path in enumerate(self.file_paths):
                 used_ram = virtual_memory().percent
                 if  len(df_query) == 0 or used_ram < 80:
-                    logging.info(f"Available RAM = {available_ram}%. Continue processing single files.")
+                    logging.info(f"Used RAM = {used_ram}%. Continue processing single files.")
                     res = self._read_single_file(f, file_path)
                     if res is not None: 
                         df_query.append(res)
                         file_paths.append(self.file_paths[f])
                 else:
                     # process what we have so far and dump processed lazy frames
-                    logging.info(f"Available RAM = {available_ram}%. Pause to batch process.")
+                    logging.info(f"Used RAM = {used_ram}%. Pause to batch process.")
                     logging.info(f"🔗 Processing {len(df_query)} files read so farm.")
                     batch_idx += 1
                     batch_paths.append(self.process_batch_files(df_query, file_paths, batch_idx, temp_save_dir))
