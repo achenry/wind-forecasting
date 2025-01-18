@@ -8,4 +8,6 @@ scp -r /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/preproce
 scp -r /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/preprocessed_awaken_data/short_loaded_data_normalized.parquet ahenry@kestrel-gpu.hpc.nrel.gov:/projects/ssc/ahenry/wind_forecasting/awaken_data/
 scp -r /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/preprocessed_awaken_data/short_loaded_data_normalization_consts.csv ahenry@kestrel-gpu.hpc.nrel.gov:/projects/ssc/ahenry/wind_forecasting/awaken_data/
 
+scp -r /srv/data/nfs/scada/00_engie_scada/ ahenry@kestrel-gpu.hpc.nrel.gov:/projects/ssc/ahenry/wind_forecasting/awaken_data/
+
 scp -r /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/normalization_consts.csv ahenry@kestrel-gpu.hpc.nrel.gov:/projects/ssc/ahenry/wind_forecasting/awaken_data/
