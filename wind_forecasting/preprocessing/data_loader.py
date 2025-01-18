@@ -149,7 +149,7 @@ class DataLoader:
                         # df_query = [(self.file_paths[d], df) for d, df in enumerate(df_query) if df is not None]
                         logging.info(f"🔗 Finished reading files. Time elapsed: {time.time() - read_start:.2f} s")
                         if len(batch_paths) > 1: 
-                            df_query = self.process_batch_files(batch_paths, temp_save_dir)
+                            df_query = self.process_batch_files(batch_paths)
                             rmtree(temp_save_dir)
                             return df_query
                         else:
@@ -202,7 +202,7 @@ class DataLoader:
                 gc.collect()
                 logging.info(f"🔗 Finished reading files. Time elapsed: {time.time() - read_start:.2f} s")
                 if len(batch_paths) > 1: 
-                    df_query = self.process_batch_files(batch_paths, temp_save_dir)
+                    df_query = self.process_batch_files(batch_paths)
                     rmtree(temp_save_dir)
                     return df_query
                 else:
@@ -212,7 +212,7 @@ class DataLoader:
                 return None
    
     
-    def process_batch_files(self, batch_paths, temp_save_dir):
+    def process_batch_files(self, batch_paths):
         # concatenate intermediary dataframes
         df_query = [pl.scan_parquet(bp) for bp in batch_paths]
         df_query = pl.concat(df_query, how="diagonal").sort("time")
@@ -231,7 +231,7 @@ class DataLoader:
             logging.info(f"Finished final resampling.") 
 
         logging.info(f"Started final forward/backward fill.") 
-        df_query = df_query.fill_null(strategy="forward").fill_null(strategy="backward").collect() # NOTE: @Aoife for KP data, need to fill forward null gaps, don't know about Juan's data
+        df_query = df_query.fill_null(strategy="forward").fill_null(strategy="backward").collect().lazy() # NOTE: @Aoife for KP data, need to fill forward null gaps, don't know about Juan's data
         logging.info(f"Finished final forward/backward fill.") 
 
         # Write to final parquet
