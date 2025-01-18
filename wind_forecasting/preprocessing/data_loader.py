@@ -153,17 +153,17 @@ class DataLoader:
                     if len(batch_paths): 
                         logging.info(f"🔗 Finished reading files. Time elapsed: {time.time() - read_start:.2f} s")
                         if len(batch_paths) > 1: 
+                            logging.info(f"Running final resample/fill.")
                             df_query = self.process_batch_files(batch_paths)
                             return df_query
                         else:
+                            logging.info(f"Returning final parquet.")
                             return pl.scan_parquet(batch_paths[0])
                         
                     else:
                         logging.error("No data successfully processed by read_multi_files.")
                         return None
                     
-                logging.info(f"🔗 Finished reading files. Time elapsed: {time.time() - read_start:.2f} s")    
-                
         else:
             temp_save_dir = os.path.join(os.path.dirname(self.save_path), os.path.basename(self.save_path).replace(".parquet", "_temp"))
             if os.path.exists(temp_save_dir):
@@ -210,9 +210,11 @@ class DataLoader:
             if len(batch_paths):    
                 logging.info(f"🔗 Finished reading files. Time elapsed: {time.time() - read_start:.2f} s")
                 if len(batch_paths) > 1: 
+                    logging.info(f"Running final resample/fill.")
                     df_query = self.process_batch_files(batch_paths)
                     return df_query
                 else:
+                    logging.info(f"Returning final parquet.")
                     return pl.scan_parquet(batch_paths[0])
                 
             else:
