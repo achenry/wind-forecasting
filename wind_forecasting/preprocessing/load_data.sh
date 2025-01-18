@@ -20,6 +20,10 @@ export RUST_BACKTRACE=full
 #export MPICH_COLL_OPT_OFF=mpi_allreduce 
 #export LD_LIBRARy_PATH=$CONDA_PREFIX/lib
 
+# cd $LARGE_STORAGE/ahenry/wind_forecasting_env/wind-forecasting/wind_forecasting/preprocessing
+# conda activate wind_forecasting_preprocessing
+# python preprocessing_main.py --config /srv/data/nfs/ahenry/wind_forecasting_env/wind-forecasting/examples/inputs/preprocessing_inputs_server_awaken_new.yaml --reload_data --multiprocessor cf 
+
 mpirun -np $SLURM_NTASKS python preprocessing_main.py --config /srv/data/nfs/ahenry/wind_forecasting_env/wind-forecasting/examples/inputs/preprocessing_inputs_server_awaken_new.yaml --reload_data --multiprocessor mpi
 
 # mpirun -np $SLURM_NTASKS python preprocessing_main.py --config /$HOME/toolboxes/wind_forecasting_env/wind-forecasting/examples/inputs/preprocessing_inputs_kestrel_awaken_new.yaml --load_data

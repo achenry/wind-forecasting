@@ -264,8 +264,8 @@ class DataLoader:
         bounds = df_queries.select(pl.col("time").first().alias("first"),
                                          pl.col("time").last().alias("last")).collect()
         df_queries = df_queries.select(pl.datetime_range(
-            start=df_queries.select("first").item(),
-            end=df_queries.select("last").item(),
+            start=bounds.select("first").item(),
+            end=bounds.select("last").item(),
             interval=f"{self.dt}s", time_unit=df_queries.collect_schema()["time"].time_unit).alias("time"))\
                 .join(df_queries, on="time", how="left")
         del bounds
