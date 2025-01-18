@@ -296,4 +296,3 @@ if __name__ == "__main__":
         plt.show()
         
         print("here")
-        # TODO test without validation_sampler, with original trainer_sampler
