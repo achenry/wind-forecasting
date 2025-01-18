@@ -10,6 +10,7 @@ import logging
 import re
 from shutil import rmtree
 from psutil import virtual_memory
+from memory_profiler import profile
 
 import time
 
@@ -85,6 +86,7 @@ class DataLoader:
         # Get all the wts in the folder @Juan 10/16/24 used os.path.join for OS compatibility
         self.file_paths = sorted(glob.glob(os.path.join(data_dir, file_signature), recursive=True))
     
+    @profile 
     def read_multi_files(self) -> pl.LazyFrame | None:
         read_start = time.time()
         logging.info(f"✅ Started reading {len(self.file_paths)} files.")
@@ -111,20 +113,23 @@ class DataLoader:
                     file_paths = []
                     batch_idx = 0
                     batch_paths = []
+                    init_used_ram = virtual_memory().percent 
+                    futures = [ex.submit(self._read_single_file, f, file_path) for f, file_path in enumerate(self.file_paths)] #4% increase in mem
                     for f, file_path in enumerate(self.file_paths):
                         used_ram = virtual_memory().percent 
-                        if len(df_query) == 0 or used_ram < 80:
-                            logging.info(f"Used RAM = {used_ram}%. Continue processing single files.")
-                            res = ex.submit(self._read_single_file, f, file_path).result()
+                        if len(df_query) == 0 or used_ram < 55:
+                            # logging.info(f"Used RAM = {used_ram}%. Continue processing single files.")
+                            # res = ex.submit(self._read_single_file, f, file_path).result()
+                            res = futures[f].result() #.5% increase in mem
                             if res is not None: 
                                 df_query.append(res)
                                 file_paths.append(self.file_paths[f])
                         else:
                             # process what we have so far and dump processed lazy frames
                             logging.info(f"Used RAM = {used_ram}%. Pause to batch process.")
-                            logging.info(f"🔗 Processing {len(df_query)} files read so farm.")
+                            logging.info(f"🔗 Processing {len(df_query)} files read so far.")
                             batch_idx += 1
-                            batch_paths.append(self.process_batch_files(df_query, file_paths, batch_idx, temp_save_dir))
+                            batch_paths.append(self.process_batch_files(df_query, file_paths, batch_idx, temp_save_dir)) # 3% increase in ram
                             df_query = []
                             file_paths = []
                     
@@ -147,8 +152,8 @@ class DataLoader:
             batch_paths = []
             for f, file_path in enumerate(self.file_paths):
                 used_ram = virtual_memory().percent
-                if  len(df_query) == 0 or used_ram < 80:
-                    logging.info(f"Used RAM = {used_ram}%. Continue processing single files.")
+                if  len(df_query) == 0 or used_ram < 65:
+                    # logging.info(f"Used RAM = {used_ram}%. Continue processing single files.")
                     res = self._read_single_file(f, file_path)
                     if res is not None: 
                         df_query.append(res)
@@ -177,21 +182,21 @@ class DataLoader:
             if df_query.select(pl.col("time").diff().slice(1).n_unique()).collect().item() > 1:
                 logging.info(f"Started final resampling.") 
                 full_datetime_range = df_query.select(pl.datetime_range(
-                    start=df_query.select("time").min().collect().item(),
-                    end=df_query.select("time").max().collect().item(),
+                    start=df_query.select(pl.col("time").first()).collect().item(),
+                    end=df_query.select(pl.col("time").last()).collect().item(),
                     interval=f"{self.dt}s", time_unit=df_query.collect_schema()["time"].time_unit).alias("time"))
             
                 df_query = full_datetime_range.join(df_query, on="time", how="left")
                 logging.info(f"Finished final resampling.") 
 
             logging.info(f"Started final forward/backward fill.") 
-            df_query = df_query.fill_null(strategy="forward").fill_null(strategy="backward").collect(streaming=True).lazy() # NOTE: @Aoife for KP data, need to fill forward null gaps, don't know about Juan's data
+            df_query = df_query.fill_null(strategy="forward").fill_null(strategy="backward") # NOTE: @Aoife for KP data, need to fill forward null gaps, don't know about Juan's data
             logging.info(f"Finished final forward/backward fill.") 
 
             # Write to final parquet
             if not os.path.exists(os.path.dirname(self.save_path)):
                 os.makedirs(os.path.dirname(self.save_path))
-            df_query.sink_parquet(self.save_path, statistics=False)
+            df_query.collect().write_parquet(self.save_path, statistics=False)
 
             # turbine ids found in all files so far
             self.turbine_ids = self.get_turbine_ids(df_query, sort=True)
@@ -203,6 +208,7 @@ class DataLoader:
             logging.error("No data successfully processed by read_multi_files.")
             return None
     
+    @profile 
     def process_batch_files(self, df_queries, file_paths, i, temp_save_dir):
         # INFO: @Juan 11/13/24 Added check for data patterns in the names and also added a check for single files
         join_start = time.time()
@@ -245,19 +251,19 @@ class DataLoader:
 
         logging.info(f"Started resampling.") 
         full_datetime_range = df_queries.select(pl.datetime_range(
-            start=df_queries.select("time").min().collect().item(),
-            end=df_queries.select("time").max().collect().item(),
+            start=df_queries.select(pl.col("time").first()).collect().item(),
+            end=df_queries.select(pl.col("time").last()).collect().item(),
             interval=f"{self.dt}s", time_unit=df_queries.collect_schema()["time"].time_unit).alias("time"))
             
-        df_queries = full_datetime_range.join(df_queries, on="time", how="left").collect(streaming=True).lazy() # NOTE: @Aoife 10/18 make sure all time stamps are included, to interpolate continuously later
+        df_queries = full_datetime_range.join(df_queries, on="time", how="left") # NOTE: @Aoife 10/18 make sure all time stamps are included, to interpolate continuously later
         logging.info(f"Finished resampling.") 
 
         logging.info(f"Started forward/backward fill.") 
-        df_queries = df_queries.fill_null(strategy="forward").fill_null(strategy="backward").collect(streaming=True).lazy() # NOTE: @Aoife for KP data, need to fill forward null gaps, don't know about Juan's data
+        df_queries = df_queries.fill_null(strategy="forward").fill_null(strategy="backward") # NOTE: @Aoife for KP data, need to fill forward null gaps, don't know about Juan's data
         logging.info(f"Finished forward/backward fill.")
 
         batch_path = os.path.join(temp_save_dir, f"df{i}")
-        df_queries.sink_parquet(batch_path, statistics=False)
+        df_queries.collect().write_parquet(batch_path, statistics=False)
         return batch_path
     
     def sink_parquet(self, df, filepath):
@@ -396,24 +402,7 @@ class DataLoader:
                                                 .with_columns(pl.col("time").dt.round(f"{self.dt}s").alias("time"))\
                                                 .select([cs.contains(feat) for feat in self.target_feature_types])\
                                                 .filter(pl.any_horizontal(cs.numeric().is_not_null()))
-
-                # Check if data is already in wide format
-                is_already_wide = all(any(f"{feature}_{tid}" in col for col in df_query.collect_schema().names()) 
-                    for feature in self.target_feature_types for tid in set(data["turbine_id"]) if feature != "time") 
-                
-                # pivot table to have columns for each turbine and measurement if not originally in wide format
-                # if not self.wide_format:
-                if not is_already_wide:
-                    pivot_features = [col for col in df_query.collect_schema().names() if col not in ['time', 'turbine_id']]
-                    df_query = df_query.collect(streaming=True).pivot(
-                        index="time",
-                        on="turbine_id",
-                        values=pivot_features,
-                        aggregate_function=pl.element().drop_nulls().first(),
-                        sort_columns=True
-                    ).sort("time").lazy()
-                else:
-                    df_query = df_query.collect(streaming=True).lazy()
+                                                
                 del data  # Free up memory
 
                 return df_query
@@ -476,23 +465,25 @@ class DataLoader:
                             ])
                     df_query = df_query.select(pl.exclude("yaw_offset_*"))
 
-            if df_query.collect_schema()["time"] == pl.datatypes.String:
+            time_type = df_query.collect_schema()["time"]
+            if time_type == pl.datatypes.String:
                 df_query = df_query.with_columns([
                                         # Convert time column to datetime
                                         pl.col("time").str.to_datetime().alias("time")
                                     ])
             else:
-                if df_query.collect_schema()["time"].time_zone is None:
+                if time_type.time_zone is None:
                     df_query = df_query.with_columns(
-                        time=pl.col("time").cast(pl.Datetime(time_unit=df_query.collect_schema()["time"].time_unit))
+                        time=pl.col("time").cast(pl.Datetime(time_unit=time_type.time_unit))
                     )
                 else:
                     df_query = df_query.with_columns(
-                        time=pl.col("time").dt.convert_time_zone("UTC").cast(pl.Datetime(time_unit=df_query.collect_schema()["time"].time_unit))
+                        time=pl.col("time").dt.convert_time_zone("UTC").cast(pl.Datetime(time_unit=time_type.time_unit))
                     )
             
             # Check if data is already in wide format
-            is_already_wide = all(any(f"{feature}_{tid}" in col for col in df_query.collect_schema().names()) 
+            available_columns = df_query.collect_schema().names()
+            is_already_wide = all(any(f"{feature}_{tid}" in col for col in available_columns) 
                 for feature in self.target_feature_types for tid in turbine_ids if feature != "time")
 
             # remove the rows with all nans (corresponding to rows where excluded columns would have had a value)
@@ -504,23 +495,24 @@ class DataLoader:
             
             # pivot table to have columns for each turbine and measurement if not originally in wide format
             if not is_already_wide:
-                pivot_features = [col for col in df_query.collect_schema().names() if col not in ['time', 'turbine_id']]
-                df_query = df_query.collect(streaming=True).pivot(
+                pivot_features = [col for col in available_columns if col not in ['time', 'turbine_id']]
+                df_query = df_query.pivot(
                     index="time",
                     on="turbine_id",
                     values=pivot_features,
                     aggregate_function=pl.element().drop_nulls().first(),
                     sort_columns=True
-                ).sort("time").lazy()
+                ).sort("time")
             else:
-                df_query = df_query.collect(streaming=True).lazy()
+                df_query = df_query
             
             return df_query
         
         except Exception as e:
             logging.error(f"❌ Error processing CSV file {file_path}: {str(e)}")
             return None
-
+    
+    @profile
     def _read_single_parquet(self, file_path: str) -> pl.LazyFrame:
         try:
             df_query = pl.scan_parquet(file_path)
@@ -574,24 +566,26 @@ class DataLoader:
                     df_query = df_query.select(pl.exclude("^yaw_offset_.*$"))
                     del target_features[target_features.index(f"yaw_offset_{direc}")]
                     target_features.append("wind_direction")
-                    
-            if df_query.collect_schema()["time"] == pl.datatypes.String:
+            
+            time_type = df_query.collect_schema()["time"]
+            if time_type == pl.datatypes.String:
                 df_query = df_query.with_columns([
                                         # Convert time column to datetime
                                         pl.col("time").str.to_datetime().alias("time")
                                     ])
             else:
-                if df_query.collect_schema()["time"].time_zone is None:
+                if time_type.time_zone is None:
                     df_query = df_query.with_columns(
-                        time=pl.col("time").cast(pl.Datetime(time_unit=df_query.collect_schema()["time"].time_unit))
+                        time=pl.col("time").cast(pl.Datetime(time_unit=time_type.time_unit))
                     )
                 else:
                     df_query = df_query.with_columns(
-                        time=pl.col("time").dt.convert_time_zone("UTC").cast(pl.Datetime(time_unit=df_query.collect_schema()["time"].time_unit))
+                        time=pl.col("time").dt.convert_time_zone("UTC").cast(pl.Datetime(time_unit=time_type.time_unit))
                     )
             
             # Check if data is already in wide format
-            is_already_wide = all(any(f"{feature}_{tid}" in col for col in df_query.collect_schema().names()) 
+            available_columns = df_query.collect_schema().names()
+            is_already_wide = all(any(f"{feature}_{tid}" in col for col in available_columns) 
                 for feature in target_features for tid in turbine_ids if feature != "time")
 
             # remove the rows with all nans (corresponding to rows where excluded columns would have had a value)
@@ -603,18 +597,17 @@ class DataLoader:
             
             # pivot table to have columns for each turbine and measurement if not originally in wide format
             if not is_already_wide:
-                pivot_features = [col for col in df_query.collect_schema().names() if col not in ['time', 'turbine_id']]
-                df_query = df_query.collect(streaming=True).pivot(
+                pivot_features = [col for col in available_columns if col not in ['time', 'turbine_id']]
+                df_query = df_query.pivot(
                     index="time",
                     on="turbine_id",
                     values=pivot_features,
                     aggregate_function=pl.element().drop_nulls().first(),
                     sort_columns=True
-                ).sort("time").lazy()
+                ).sort("time")
             else:
-                df_query = df_query.collect(streaming=True).lazy()
+                df_query = df_query
             
-            # TODO sink this into temporary storage OR when approaching end of RAM, do final preprocessing step and sink into storage
             return df_query
         
         except Exception as e:
