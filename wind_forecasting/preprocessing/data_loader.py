@@ -86,7 +86,7 @@ class DataLoader:
         # Get all the wts in the folder @Juan 10/16/24 used os.path.join for OS compatibility
         self.file_paths = sorted(glob.glob(os.path.join(data_dir, file_signature), recursive=True))
     
-    @profile 
+    # @profile 
     def read_multi_files(self) -> pl.LazyFrame | None:
         read_start = time.time()
         logging.info(f"✅ Started reading {len(self.file_paths)} files.")
@@ -117,7 +117,7 @@ class DataLoader:
                     futures = [ex.submit(self._read_single_file, f, file_path) for f, file_path in enumerate(self.file_paths)] #4% increase in mem
                     for f, file_path in enumerate(self.file_paths):
                         used_ram = virtual_memory().percent 
-                        if len(df_query) == 0 or used_ram < 55:
+                        if len(df_query) == 0 or used_ram < 70:
                             # logging.info(f"Used RAM = {used_ram}%. Continue processing single files.")
                             # res = ex.submit(self._read_single_file, f, file_path).result()
                             res = futures[f].result() #.5% increase in mem
@@ -152,7 +152,7 @@ class DataLoader:
             batch_paths = []
             for f, file_path in enumerate(self.file_paths):
                 used_ram = virtual_memory().percent
-                if  len(df_query) == 0 or used_ram < 65:
+                if  len(df_query) == 0 or used_ram < 70:
                     # logging.info(f"Used RAM = {used_ram}%. Continue processing single files.")
                     res = self._read_single_file(f, file_path)
                     if res is not None: 
@@ -208,7 +208,7 @@ class DataLoader:
             logging.error("No data successfully processed by read_multi_files.")
             return None
     
-    @profile 
+    # @profile 
     def process_batch_files(self, df_queries, file_paths, i, temp_save_dir):
         # INFO: @Juan 11/13/24 Added check for data patterns in the names and also added a check for single files
         join_start = time.time()
@@ -512,7 +512,7 @@ class DataLoader:
             logging.error(f"❌ Error processing CSV file {file_path}: {str(e)}")
             return None
     
-    @profile
+    # @profile
     def _read_single_parquet(self, file_path: str) -> pl.LazyFrame:
         try:
             df_query = pl.scan_parquet(file_path)
