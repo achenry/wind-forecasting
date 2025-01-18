@@ -118,7 +118,7 @@ class DataLoader:
                     futures = [ex.submit(self._read_single_file, f, file_path) for f, file_path in enumerate(self.file_paths)] #4% increase in mem
                     for f, file_path in enumerate(self.file_paths):
                         used_ram = virtual_memory().percent 
-                        if len(df_query) < 100 or used_ram < 80:
+                        if len(df_query) < 100 or used_ram < 70:
                             # logging.info(f"Used RAM = {used_ram}%. Continue processing single files.")
                             # res = ex.submit(self._read_single_file, f, file_path).result()
                             res = futures[f].result() #.5% increase in mem
@@ -136,6 +136,7 @@ class DataLoader:
                             file_paths = []
                     
                     if len(df_query):
+                        logging.info(f"Last batch process.")
                         batch_idx += 1
                         batch_paths.append(self.process_batch_files(df_query, file_paths, batch_idx, temp_save_dir))
                     # df_query = [fut.result() for fut in futures]
@@ -154,7 +155,7 @@ class DataLoader:
             batch_paths = []
             for f, file_path in enumerate(self.file_paths):
                 used_ram = virtual_memory().percent
-                if  len(df_query) < 100 or used_ram < 80:
+                if  len(df_query) < 100 or used_ram < 70:
                     # logging.info(f"Used RAM = {used_ram}%. Continue processing single files.")
                     res = self._read_single_file(f, file_path)
                     if res is not None: 
@@ -171,6 +172,7 @@ class DataLoader:
                     file_paths = []
             
             if len(df_query):
+                logging.info(f"Last batch process.")
                 batch_idx += 1
                 batch_paths.append(self.process_batch_files(df_query, file_paths, batch_idx, temp_save_dir))
         
@@ -247,7 +249,8 @@ class DataLoader:
                 df_queries = df_queries[0]  # If single file, no need to join
             else:
                 df_queries = pl.concat(df_queries, how="diagonal").group_by("time").agg(cs.numeric().mean())
-
+        logging.info(f"Finished join of {len(file_paths)} files.")
+        
         logging.info(f"Started sorting.")
         df_queries = df_queries.sort("time")
         logging.info(f"Finished sorting.")
@@ -267,6 +270,8 @@ class DataLoader:
 
         batch_path = os.path.join(temp_save_dir, f"df{i}")
         df_queries.collect().write_parquet(batch_path, statistics=False)
+        del df_queries
+        gc.collect()
         return batch_path
     
     def sink_parquet(self, df, filepath):
