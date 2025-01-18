@@ -114,14 +114,15 @@ class DataLoader:
                     file_paths = []
                     batch_idx = 0
                     batch_paths = []
+                    batch_futures = []
                     # init_used_ram = virtual_memory().percent 
-                    futures = [ex.submit(self._read_single_file, f, file_path) for f, file_path in enumerate(self.file_paths)] #4% increase in mem
+                    file_futures = [ex.submit(self._read_single_file, f, file_path) for f, file_path in enumerate(self.file_paths)] #4% increase in mem
                     for f, file_path in enumerate(self.file_paths):
                         used_ram = virtual_memory().percent 
                         if len(df_query) < 100 or used_ram < 70:
                             # logging.info(f"Used RAM = {used_ram}%. Continue processing single files.")
                             # res = ex.submit(self._read_single_file, f, file_path).result()
-                            res = futures[f].result() #.5% increase in mem
+                            res = file_futures[f].result() #.5% increase in mem
                             if res is not None: 
                                 df_query.append(res)
                                 file_paths.append(self.file_paths[f])
@@ -130,16 +131,21 @@ class DataLoader:
                             logging.info(f"Used RAM = {used_ram}%. Pause to batch process.")
                             logging.info(f"🔗 Processing {len(df_query)} files read so far.")
                             batch_idx += 1
-                            batch_paths.append(self.process_batch_files(df_query, file_paths, batch_idx, temp_save_dir)) # 3% increase in ram
+                            # batch_paths.append(self.process_batch_files(df_query, file_paths, batch_idx, temp_save_dir)) # 3% increase in ram
+                            batch_futures.append(ex.submit(self.process_batch_files, df_query, file_paths, batch_idx))
                             gc.collect()
                             df_query = []
                             file_paths = []
+                        
                     
                     if len(df_query):
                         logging.info(f"Last batch process.")
                         batch_idx += 1
-                        batch_paths.append(self.process_batch_files(df_query, file_paths, batch_idx, temp_save_dir))
+                        # batch_paths.append(self.process_batch_files(df_query, file_paths, batch_idx, temp_save_dir))
+                        batch_futures.append(ex.submit(self.process_batch_files, df_query, file_paths, batch_idx))
                         gc.collect()
+                        
+                    batch_paths = [fut.result() for fut in batch_futures]
                     # df_query = [fut.result() for fut in futures]
                     # df_query = [(self.file_paths[d], df) for d, df in enumerate(df_query) if df is not None]
                     
