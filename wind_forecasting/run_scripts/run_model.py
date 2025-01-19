@@ -50,63 +50,62 @@ if __name__ == "__main__":
     
     RUN_ONCE = (mpi_exists and (MPI.COMM_WORLD.Get_rank()) == 0)
     
+    # %% PARSE CONFIGURATION
+    # parse training/test booleans and config file from command line
+    logging.info("Parsing configuration from yaml and command line arguments")
+    parser = argparse.ArgumentParser(prog="WindFarmForecasting")
+    parser.add_argument("-cnf", "--config", type=str)
+    parser.add_argument("-tr", "--train", action="store_true")
+    parser.add_argument("-te", "--test", action="store_true")
+    parser.add_argument("-chk", "--checkpoint", type=str, default="")
+    parser.add_argument("-m", "--model", type=str, choices=["informer", "autoformer", "spacetimeformer", "tactis"], required=True)
+    # pretrained_filename = "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/logging/wf_forecasting/lznjshyo/checkpoints/epoch=0-step=50.ckpt"
+    args = parser.parse_args()
+
+    with open(args.config, 'r') as file:
+        config  = yaml.safe_load(file)
+        
+    # TODO set number of devices/number of nodes based on environment variables
+
+    # TODO create function to check config params and set defaults
+    # if config["trainer"]["n_workers"] == "auto":
+    #     if "SLURM_GPUS_ON_NODE" in os.environ:
+    #         config["trainer"]["n_workers"] = int(os.environ["SLURM_GPUS_ON_NODE"])
+    #     else:
+    #         config["trainer"]["n_workers"] = mp.cpu_count()
+    
+    # config["trainer"]["devices"] = 'auto'
+    # config["trainer"]["accelerator"] = 'auto'
+    
+    if (type(config["dataset"]["target_turbine_ids"]) is str) and (
+        (config["dataset"]["target_turbine_ids"].lower() == "none") or (config["dataset"]["target_turbine_ids"].lower() == "all")):
+        config["dataset"]["target_turbine_ids"] = None # select all turbines
+
+    # %% SETUP LOGGING
+    # logging.info("Setting up logging")
+    # if not os.path.exists(config["experiment"]["log_dir"]):
+    #     os.makedirs(config["experiment"]["log_dir"])
+    # wandb_logger = WandbLogger(
+    #     project="wf_forecasting",
+    #     name=config["experiment"]["run_name"],
+    #     log_model=True,
+    #     save_dir=config["experiment"]["log_dir"],
+    #     config=config
+    # )
+    # config["trainer"]["logger"] = wandb_logger
+
+    # %% CREATE DATASET
+    logging.info("Creating datasets")
+    data_module = DataModule(data_path=config["dataset"]["data_path"], n_splits=config["dataset"]["n_splits"],
+                            continuity_groups=None, train_split=(1.0 - config["dataset"]["val_split"] - config["dataset"]["test_split"]),
+                                val_split=config["dataset"]["val_split"], test_split=config["dataset"]["test_split"], 
+                                prediction_length=config["dataset"]["prediction_length"], context_length=config["dataset"]["context_length"],
+                                target_prefixes=["ws_horz", "ws_vert"], feat_dynamic_real_prefixes=["nd_cos", "nd_sin"],
+                                freq=config["dataset"]["resample_freq"], target_suffixes=config["dataset"]["target_turbine_ids"],
+                                per_turbine_target=config["dataset"]["per_turbine_target"])
     if RUN_ONCE:
-        # %% PARSE CONFIGURATION
-        # parse training/test booleans and config file from command line
-        logging.info("Parsing configuration from yaml and command line arguments")
-        parser = argparse.ArgumentParser(prog="WindFarmForecasting")
-        parser.add_argument("-cnf", "--config", type=str)
-        parser.add_argument("-tr", "--train", action="store_true")
-        parser.add_argument("-te", "--test", action="store_true")
-        parser.add_argument("-chk", "--checkpoint", type=str, default="")
-        parser.add_argument("-m", "--model", type=str, choices=["informer", "autoformer", "spacetimeformer", "tactis"], required=True)
-        # pretrained_filename = "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/logging/wf_forecasting/lznjshyo/checkpoints/epoch=0-step=50.ckpt"
-        args = parser.parse_args()
-
-        with open(args.config, 'r') as file:
-            config  = yaml.safe_load(file)
-            
-        # TODO set number of devices/number of nodes based on environment variables
-
-        # TODO create function to check config params and set defaults
-        # if config["trainer"]["n_workers"] == "auto":
-        #     if "SLURM_GPUS_ON_NODE" in os.environ:
-        #         config["trainer"]["n_workers"] = int(os.environ["SLURM_GPUS_ON_NODE"])
-        #     else:
-        #         config["trainer"]["n_workers"] = mp.cpu_count()
-        
-        # config["trainer"]["devices"] = 'auto'
-        # config["trainer"]["accelerator"] = 'auto'
-        
-        if (type(config["dataset"]["target_turbine_ids"]) is str) and (
-            (config["dataset"]["target_turbine_ids"].lower() == "none") or (config["dataset"]["target_turbine_ids"].lower() == "all")):
-            config["dataset"]["target_turbine_ids"] = None # select all turbines
-
-        # %% SETUP LOGGING
-        # logging.info("Setting up logging")
-        # if not os.path.exists(config["experiment"]["log_dir"]):
-        #     os.makedirs(config["experiment"]["log_dir"])
-        # wandb_logger = WandbLogger(
-        #     project="wf_forecasting",
-        #     name=config["experiment"]["run_name"],
-        #     log_model=True,
-        #     save_dir=config["experiment"]["log_dir"],
-        #     config=config
-        # )
-        # config["trainer"]["logger"] = wandb_logger
-
-        # %% CREATE DATASET
-        logging.info("Creating datasets")
-        data_module = DataModule(data_path=config["dataset"]["data_path"], n_splits=config["dataset"]["n_splits"],
-                                continuity_groups=None, train_split=(1.0 - config["dataset"]["val_split"] - config["dataset"]["test_split"]),
-                                    val_split=config["dataset"]["val_split"], test_split=config["dataset"]["test_split"], 
-                                    prediction_length=config["dataset"]["prediction_length"], context_length=config["dataset"]["context_length"],
-                                    target_prefixes=["ws_horz", "ws_vert"], feat_dynamic_real_prefixes=["nd_cos", "nd_sin"],
-                                    freq=config["dataset"]["resample_freq"], target_suffixes=config["dataset"]["target_turbine_ids"],
-                                    per_turbine_target=config["dataset"]["per_turbine_target"])
-        if RUN_ONCE:
-            data_module.generate_datasets()
-            # data_module.plot_dataset_splitting()
+        data_module.generate_datasets()
+        # data_module.plot_dataset_splitting()
 
     # %% DEFINE ESTIMATOR
     logging.info("Declaring estimator")
