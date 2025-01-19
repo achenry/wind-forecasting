@@ -12,7 +12,7 @@
 
 module purge
 module load mamba
-mamba activate wind_forecasting_env
+mamba activate wind_forecasting
 echo $SLURM_NTASKS
 export RUST_BACKTRACE=full
 
