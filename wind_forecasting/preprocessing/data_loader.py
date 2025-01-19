@@ -8,7 +8,7 @@ import glob
 import os
 import logging
 import re
-from shutil import rmtree
+from shutil import rmtree, move
 from psutil import virtual_memory
 import gc
 from memory_profiler import profile
@@ -150,18 +150,19 @@ class DataLoader:
                             # concatenate intermediary dataframes
                             df_query = pl.concat([pl.scan_parquet(bp) for bp in batch_paths], how="diagonal")
                             df_query = self.sort_resample_refill(df_query)
+                            # Write to final parquet
+                            logging.info(f"Saving final Parquet file into {self.save_path}")
+                            df_query.sink_parquet(self.save_path, statistics=False)
                             
                         else:
-                            logging.info(f"Returning only batch.")
-                            df_query = pl.scan_parquet(batch_paths[0])
+                            logging.info(f"Moving only batch to {self.save_path}.")
+                            move(batch_paths[0], self.save_path)
+                            df_query = pl.scan_parquet(self.save_path)    
                         
+                        logging.info(f"Final Parquet file saved into {self.save_path}")
                         # turbine ids found in all files so far
                         self.turbine_ids = self.get_turbine_ids(df_query, sort=True)
                         
-                         # Write to final parquet
-                        logging.info("Saving final Parquet file into %s", self.save_path)
-                        df_query.sink_parquet(self.save_path, statistics=False)
-                        logging.info("Final Parquet file saved into %s", self.save_path)
                         rmtree(temp_save_dir)
                         
                         return df_query
@@ -213,18 +214,20 @@ class DataLoader:
                     # concatenate intermediary dataframes
                     df_query = pl.concat([pl.scan_parquet(bp) for bp in batch_paths], how="diagonal")
                     df_query = self.sort_resample_refill(df_query)
+                    # Write to final parquet
+                    logging.info(f"Saving final Parquet file into {self.save_path}")
+                    df_query.sink_parquet(self.save_path, statistics=False)
                    
                 else:
-                    logging.info(f"Returning only batch.")
-                    df_query = pl.scan_parquet(batch_paths[0])
+                    logging.info(f"Moving only batch to {self.save_path}.")
+                    move(batch_paths[0], self.save_path)
+                    df_query = pl.scan_parquet(self.save_path)
                 
                 # turbine ids found in all files so far
                 self.turbine_ids = self.get_turbine_ids(df_query, sort=True)
+                 
+                logging.info(f"Final Parquet file saved into {self.save_path}")
                 
-                 # Write to final parquet
-                logging.info("Saving final Parquet file into %s", self.save_path)
-                df_query.sink_parquet(self.save_path, statistics=False)
-                logging.info("Final Parquet file saved into %s", self.save_path)
                 rmtree(temp_save_dir)
                 
                 return df_query
@@ -300,7 +303,7 @@ class DataLoader:
         logging.info(f"Finished join of {len(file_paths)} files.")
         
         df_queries = self.sort_resample_refill(df_queries)
-        batch_path = os.path.join(temp_save_dir, f"df{i}")
+        batch_path = os.path.join(temp_save_dir, f"df{i}.parquet")
         df_queries.collect().write_parquet(batch_path, statistics=False)
         return batch_path
     
