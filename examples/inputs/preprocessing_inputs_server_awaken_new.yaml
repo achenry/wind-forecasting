@@ -20,6 +20,9 @@ turbine_signature: 'Turbine[A-Z][0-9]'
 datetime_signature:
   '\d{8}.\d{6}': '%Y%m%d.%H%M%S'
 
+merge_chunk: 100
+ram_limit: 50
+
 nacelle_calibration_turbine_pairs:
 - [51,50]
 - [43,42]

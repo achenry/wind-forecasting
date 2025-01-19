@@ -99,7 +99,9 @@ def main():
         data_format=config["data_format"],
         feature_mapping=config["feature_mapping"],
         turbine_signature=config["turbine_signature"],
-        datetime_signature=config["datetime_signature"]
+        datetime_signature=config["datetime_signature"],
+        merge_chunk=config["merge_chunk"],
+        ram_limit=config["ram_limit"]
     )
 
     # %%
