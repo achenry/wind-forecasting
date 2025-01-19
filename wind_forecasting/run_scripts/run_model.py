@@ -45,24 +45,24 @@ try:
 except:
     print("No MPI available on system.")
 
-# TODO add RUN_ONCE qualifiers for MPI
 
 if __name__ == "__main__":
-    # %% PARSE CONFIGURATION
-    # parse training/test booleans and config file from command line
-    logging.info("Parsing configuration from yaml and command line arguments")
-    parser = argparse.ArgumentParser(prog="WindFarmForecasting")
-    parser.add_argument("-cnf", "--config", type=str)
-    parser.add_argument("-tr", "--train", action="store_true")
-    parser.add_argument("-te", "--test", action="store_true")
-    parser.add_argument("-chk", "--checkpoint", type=str, default="")
-    parser.add_argument("-m", "--model", type=str, choices=["informer", "autoformer", "spacetimeformer", "tactis"], required=True)
-    # pretrained_filename = "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/logging/wf_forecasting/lznjshyo/checkpoints/epoch=0-step=50.ckpt"
-    args = parser.parse_args()
     
     RUN_ONCE = (mpi_exists and (MPI.COMM_WORLD.Get_rank()) == 0)
     
     if RUN_ONCE:
+        # %% PARSE CONFIGURATION
+        # parse training/test booleans and config file from command line
+        logging.info("Parsing configuration from yaml and command line arguments")
+        parser = argparse.ArgumentParser(prog="WindFarmForecasting")
+        parser.add_argument("-cnf", "--config", type=str)
+        parser.add_argument("-tr", "--train", action="store_true")
+        parser.add_argument("-te", "--test", action="store_true")
+        parser.add_argument("-chk", "--checkpoint", type=str, default="")
+        parser.add_argument("-m", "--model", type=str, choices=["informer", "autoformer", "spacetimeformer", "tactis"], required=True)
+        # pretrained_filename = "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/logging/wf_forecasting/lznjshyo/checkpoints/epoch=0-step=50.ckpt"
+        args = parser.parse_args()
+
         with open(args.config, 'r') as file:
             config  = yaml.safe_load(file)
             
@@ -104,38 +104,39 @@ if __name__ == "__main__":
                                     target_prefixes=["ws_horz", "ws_vert"], feat_dynamic_real_prefixes=["nd_cos", "nd_sin"],
                                     freq=config["dataset"]["resample_freq"], target_suffixes=config["dataset"]["target_turbine_ids"],
                                     per_turbine_target=config["dataset"]["per_turbine_target"])
-    
-        # data_module.plot_dataset_splitting()
+        if RUN_ONCE:
+            data_module.generate_datasets()
+            # data_module.plot_dataset_splitting()
 
-        # %% DEFINE ESTIMATOR
-        logging.info("Declaring estimator")
-        estimator = globals()[f"{args.model.capitalize()}Estimator"](
-            freq=data_module.freq, 
-            prediction_length=data_module.prediction_length,
-            context_length=data_module.context_length,
-            num_feat_dynamic_real=data_module.num_feat_dynamic_real, 
-            num_feat_static_cat=data_module.num_feat_static_cat,
-            cardinality=data_module.cardinality,
-            num_feat_static_real=data_module.num_feat_static_real,
-            input_size=data_module.num_target_vars,
-            scaling=False,
-            lags_seq=[0],
-            batch_size=128,
-            # train_sampler=SequentialSampler(min_past=data_module.context_length, min_future=data_module.prediction_length), # TODO SequentialSampler = terrible results
-            # validation_sampler=SequentialSampler(min_past=data_module.context_length, min_future=data_module.prediction_length),
-            
-            # validation_sampler=ExpectedNumInstanceSampler(num_instances=1.0, min_future=data_module.prediction_length),
-            # dim_feedforward=config["model"][args.model]["dim_feedforward"],
-            # d_model=config["model"][args.model]["d_model"],
-            # num_encoder_layers=config["model"][args.model]["num_layers"],
-            # num_decoder_layers=config["model"][args.model]["num_layers"],
-            # n_heads=config["model"]["num_heads"],
-            activation="relu",
-            time_features=[second_of_minute, minute_of_hour, hour_of_day, day_of_year],
-            distr_output=LowRankMultivariateNormalOutput(dim=data_module.num_target_vars, rank=8),
-            trainer_kwargs=config["trainer"],
-            **config["model"][args.model]
-        )
+    # %% DEFINE ESTIMATOR
+    logging.info("Declaring estimator")
+    estimator = globals()[f"{args.model.capitalize()}Estimator"](
+        freq=data_module.freq, 
+        prediction_length=data_module.prediction_length,
+        context_length=data_module.context_length,
+        num_feat_dynamic_real=data_module.num_feat_dynamic_real, 
+        num_feat_static_cat=data_module.num_feat_static_cat,
+        cardinality=data_module.cardinality,
+        num_feat_static_real=data_module.num_feat_static_real,
+        input_size=data_module.num_target_vars,
+        scaling=False,
+        lags_seq=[0],
+        batch_size=128,
+        # train_sampler=SequentialSampler(min_past=data_module.context_length, min_future=data_module.prediction_length), # TODO SequentialSampler = terrible results
+        # validation_sampler=SequentialSampler(min_past=data_module.context_length, min_future=data_module.prediction_length),
+        
+        # validation_sampler=ExpectedNumInstanceSampler(num_instances=1.0, min_future=data_module.prediction_length),
+        # dim_feedforward=config["model"][args.model]["dim_feedforward"],
+        # d_model=config["model"][args.model]["d_model"],
+        # num_encoder_layers=config["model"][args.model]["num_layers"],
+        # num_decoder_layers=config["model"][args.model]["num_layers"],
+        # n_heads=config["model"]["num_heads"],
+        activation="relu",
+        time_features=[second_of_minute, minute_of_hour, hour_of_day, day_of_year],
+        distr_output=LowRankMultivariateNormalOutput(dim=data_module.num_target_vars, rank=8),
+        trainer_kwargs=config["trainer"],
+        **config["model"][args.model]
+    )
 
     # %% TRAIN MODEL
     if args.train:
