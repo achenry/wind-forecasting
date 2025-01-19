@@ -17,6 +17,8 @@ feature_mapping:
   nacelle_direction: '[a-zA-Z0-9\_]+\.[a-zA-Z0-9\_]+\.Nacelle_Position'
 
 turbine_signature: 'Turbine[A-Z][0-9]'
+datetime_signature:
+  '\d{8}.\d{6}': '%Y%m%d.%H%M%S'
 
 nacelle_calibration_turbine_pairs:
 - [51,50]

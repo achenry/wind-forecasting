@@ -98,7 +98,8 @@ def main():
         ffill_limit=None,
         data_format=config["data_format"],
         feature_mapping=config["feature_mapping"],
-        turbine_signature=config["turbine_signature"]
+        turbine_signature=config["turbine_signature"],
+        datetime_signature=config["datetime_signature"]
     )
 
     # %%
