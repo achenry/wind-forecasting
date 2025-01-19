@@ -117,13 +117,17 @@ class DataLoader:
                     batch_paths = []
                     batch_paths = []
                     # init_used_ram = virtual_memory().percent 
+                    logging.info("Before file_futures submit.")
                     file_futures = [ex.submit(self._read_single_file, f, file_path) for f, file_path in enumerate(self.file_paths)] #4% increase in mem
+                    logging.info("After file_futures submit.")
                     for f, file_path in enumerate(self.file_paths):
                         used_ram = virtual_memory().percent 
                         if len(df_query) < 100 or used_ram < 70:
                             # logging.info(f"Used RAM = {used_ram}%. Continue processing single files.")
                             # res = ex.submit(self._read_single_file, f, file_path).result()
+                            logging.info(f"🔗 Buffering {len(df_query)} unprocessed files.")
                             res = file_futures[f].result() #.5% increase in mem
+                            logging.info("After file_futures result.")
                             if res is not None: 
                                 df_query.append(res)
                                 file_paths.append(self.file_paths[f])
