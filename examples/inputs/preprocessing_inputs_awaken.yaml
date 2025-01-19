@@ -17,6 +17,10 @@ feature_mapping:
   power_output: WTUR.W
   nacelle_direction: WNAC.Dir
 
+turbine_signature: 'wt\d{3}'
+datetime_signature:
+  '\d{8}': '%Y%m%d'
+
 nacelle_calibration_turbine_pairs:
 - [51,50]
 - [43,42]

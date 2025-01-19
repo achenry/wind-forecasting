@@ -10,7 +10,7 @@ import logging
 import re
 from shutil import rmtree, move
 from psutil import virtual_memory
-import gc
+from datetime.datetime import strptime
 from memory_profiler import profile
 
 import time
@@ -48,16 +48,16 @@ class DataLoader:
        - normalize data 
     """
     def __init__(self, 
-                 data_dir: str = r"/Users/$USER/Documents/toolboxes/wind_forecasting/examples/data",
-                 file_signature: str = "kp.turbine.z02.b0.*.*.*.nc",
-                 save_path: str = r"/Users/$USER/Documents/toolboxes/wind_forecasting/examples/data/kp.turbine.zo2.b0.raw.parquet",
-                 multiprocessor: str | None = None,
-                #  desired_feature_types: list[str] = None,
-                 dt: int | None = 5,
+                 data_dir: str,
+                 file_signature: str",
+                 save_path: str,
+                 multiprocessor: str | None,
+                 dt: int,
+                 feature_mapping: dict,
+                 turbine_signature: str,
+                 datetime_signature: dict,
                  ffill_limit: int | None = None, 
-                 data_format: str = "netcdf", 
-                 feature_mapping: dict = None,
-                 turbine_signature: str = None):
+                 data_format: str = "netcdf"):
         
         self.data_dir = data_dir
         self.save_path = save_path
@@ -79,6 +79,7 @@ class DataLoader:
         self.ffill_limit = ffill_limit
 
         self.turbine_signature = turbine_signature
+        self.datetime_signature = list(datetime_signature.items())[0] # mapping from a regex expression to a datetime format to capture datetime from filepaths
         self.turbine_ids = set()
         # self.turbine_ids = sorted(list(set(k.split("_")[-1] for k in self.feature_mapping.keys() if re.search(r'\d', k)))) 
 
@@ -125,7 +126,7 @@ class DataLoader:
                     
                     for f, file_path in enumerate(self.file_paths):
                         used_ram = virtual_memory().percent 
-                        if (len(df_query) < 100 or used_ram < 70) and (f != len(self.file_paths) - 1):
+                        if (len(df_query) < 100 or used_ram < 50) and (f != len(self.file_paths) - 1):
                             logging.info(f"Used RAM = {used_ram}%. Continue to buffering {len(df_query)} single files.")
                             # res = ex.submit(self._read_single_file, f, file_path).result()
                             res = file_futures[f].result() #.5% increase in mem
@@ -196,7 +197,7 @@ class DataLoader:
             batch_paths = []
             for f, file_path in enumerate(self.file_paths):
                 used_ram = virtual_memory().percent
-                if  (len(df_query) < 100 or used_ram < 70) and (f != len(self.file_paths) - 1):
+                if  (len(df_query) < 100 or used_ram < 50) and (f != len(self.file_paths) - 1):
                     # logging.info(f"Used RAM = {used_ram}%. Continue processing single files.")
                     res = self._read_single_file(f, file_path)
                     if res is not None: 
@@ -277,13 +278,12 @@ class DataLoader:
         logging.info(f"✅ Started join of {len(file_paths)} files.")
         
         # Check if files have date patterns in their names
-        date_pattern = r"\.(\d{8})\."
-        has_date_pattern = any(re.search(date_pattern, fp) for fp in file_paths)
+        has_date_pattern = all(re.search(self.datetime_signature[0], os.path.basename(fp)) for fp in file_paths)
         
         if has_date_pattern:
             # selectively join dataframes for same timestamps but different turbines, then concatenate different time stamps (more efficient less joins)
-            unique_file_timestamps = sorted(set(re.findall(date_pattern, fp)[0] for fp in file_paths 
-                                                if re.search(date_pattern, fp)))
+            unique_file_timestamps = sorted(set(re.findall(self.datetime_signature[0], fp)[0] for fp in file_paths 
+                                                if re.search(self.datetime_signature[0], fp)))
             df_queries = [self._join_dfs(ts, [df for filepath, df in df_queries if ts in filepath]) 
                         for ts in unique_file_timestamps]
 
