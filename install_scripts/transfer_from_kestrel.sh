@@ -15,3 +15,5 @@ scp -r 'ahenry@kestrel.hpc.nrel.gov:/home/ahenry/toolboxes/wind_forecasting_env/
 
 
 scp -r 'ahenry@kestrel.hpc.nrel.gov:/projects/ssc/ahenry/wind_forecasting/awaken_data/loaded_data.parquet' /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data
+
+scp -r 'ahenry@kestrel.hpc.nrel.gov:/projects/ssc/ahenry/wind_forecasting/awaken_data/00_engie_scada_processed.parquet' /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data
