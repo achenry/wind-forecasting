@@ -290,7 +290,7 @@ class DataLoader:
         has_date_pattern = all(re.search(self.datetime_signature[0], os.path.basename(fp)) for fp in processed_file_paths)
         unique_file_timestamps = sorted(set(re.findall(self.datetime_signature[0], fp)[0] for fp in processed_file_paths 
                                                 if re.search(self.datetime_signature[0], fp)))
-        if has_date_pattern and len(processed_file_paths) > len(unique_file_timestamps):
+        if has_date_pattern and (len(processed_file_paths) > len(unique_file_timestamps)):
             # selectively join dataframes for same timestamps but different turbines, then concatenate different time stamps (more efficient less joins)
             
             df_queries = [self._join_dfs(ts, [df for filepath, df in df_queries if ts in filepath]) 
