@@ -49,7 +49,7 @@ class DataLoader:
     """
     def __init__(self, 
                  data_dir: str,
-                 file_signature: str",
+                 file_signature: str,
                  save_path: str,
                  multiprocessor: str | None,
                  dt: int,
