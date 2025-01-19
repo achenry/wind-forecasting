@@ -57,7 +57,9 @@ class DataLoader:
                  turbine_signature: str,
                  datetime_signature: dict,
                  ffill_limit: int | None = None, 
-                 data_format: str = "netcdf"):
+                 data_format: str = "netcdf",
+                 merge_chunk: int = 100,
+                 ram_limit: int = 50):
         
         self.data_dir = data_dir
         self.save_path = save_path
@@ -67,6 +69,8 @@ class DataLoader:
         self.data_format = data_format.lower()
         self.feature_mapping = feature_mapping
         self.reverse_feature_mapping = dict((src, tgt) for tgt, src in self.feature_mapping.items())
+        self.merge_chunk = merge_chunk # number of files above which processed files should be merged/sorted/resampled/filled
+        self.ram_limit = ram_limit # percentage of used RAM above which processed files should be merged/sorted/resampled/filled
 
         self.source_features = list(self.feature_mapping.values())
         self.target_features = list(self.feature_mapping.keys())
@@ -126,7 +130,7 @@ class DataLoader:
                     
                     for f, file_path in enumerate(self.file_paths):
                         used_ram = virtual_memory().percent 
-                        if (len(df_query) < 100 or used_ram < 50) and (f != len(self.file_paths) - 1):
+                        if (len(df_query) < self.merge_chunk or used_ram < self.ram_limit) and (f != len(self.file_paths) - 1):
                             logging.info(f"Used RAM = {used_ram}%. Continue to buffering {len(df_query)} single files.")
                             # res = ex.submit(self._read_single_file, f, file_path).result()
                             res = file_futures[f].result() #.5% increase in mem
@@ -197,7 +201,7 @@ class DataLoader:
             batch_paths = []
             for f, file_path in enumerate(self.file_paths):
                 used_ram = virtual_memory().percent
-                if  (len(df_query) < 100 or used_ram < 50) and (f != len(self.file_paths) - 1):
+                if  (len(df_query) < self.merge_chunk or used_ram < self.ram_limit) and (f != len(self.file_paths) - 1):
                     # logging.info(f"Used RAM = {used_ram}%. Continue processing single files.")
                     res = self._read_single_file(f, file_path)
                     if res is not None: 
