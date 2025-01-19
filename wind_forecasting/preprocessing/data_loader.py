@@ -97,15 +97,18 @@ class DataLoader:
             else:  # "cf" case
                 executor = ProcessPoolExecutor()
             with executor as ex:
-                temp_save_dir = os.path.join(os.path.dirname(self.save_path), os.path.basename(self.save_path).replace(".parquet", "_temp"))
-                if os.path.exists(temp_save_dir):
-                    rmtree(temp_save_dir)
-                    # raise Exception(f"Temporary saving directory {temp_save_dir} already exists! Please remove or rename it.")
-                os.makedirs(temp_save_dir)
 
-                logging.info(f"✅ Started reading {len(self.file_paths)} files.")
-                
                 if ex is not None:
+                    temp_save_dir = os.path.join(os.path.dirname(self.save_path), os.path.basename(self.save_path).replace(".parquet", "_temp"))
+                    if os.path.exists(temp_save_dir):
+                        rmtree(temp_save_dir)
+                        # raise Exception(f"Temporary saving directory {temp_save_dir} already exists! Please remove or rename it.")
+                    os.makedirs(temp_save_dir)
+                    
+                    if not os.path.exists(os.path.dirname(self.save_path)):
+                        os.makedirs(os.path.dirname(self.save_path))
+                    logging.info(f"✅ Started reading {len(self.file_paths)} files.")
+                    
                     if not self.file_paths:
                         raise FileExistsError(f"⚠️ File with signature {self.file_signature} in directory {self.data_dir} doesn't exist.")
                     
@@ -117,46 +120,42 @@ class DataLoader:
                     batch_paths = []
                     batch_paths = []
                     # init_used_ram = virtual_memory().percent 
-                    logging.info("Before file_futures submit.")
+                    
                     file_futures = [ex.submit(self._read_single_file, f, file_path) for f, file_path in enumerate(self.file_paths)] #4% increase in mem
-                    logging.info("After file_futures submit.")
+                    
                     for f, file_path in enumerate(self.file_paths):
                         used_ram = virtual_memory().percent 
-                        if len(df_query) < 100 or used_ram < 70:
-                            # logging.info(f"Used RAM = {used_ram}%. Continue processing single files.")
+                        if len(df_query) < 100 and used_ram < 70:
+                            logging.info(f"Used RAM = {used_ram}%. Continue to buffering {len(df_query)} single files.")
                             # res = ex.submit(self._read_single_file, f, file_path).result()
-                            logging.info(f"🔗 Buffering {len(df_query)} unprocessed files.")
                             res = file_futures[f].result() #.5% increase in mem
-                            logging.info("After file_futures result.")
                             if res is not None: 
                                 df_query.append(res)
                                 file_paths.append(self.file_paths[f])
                         else:
                             # process what we have so far and dump processed lazy frames
-                            logging.info(f"Used RAM = {used_ram}%. Pause to batch process.")
-                            logging.info(f"🔗 Processing {len(df_query)} files read so far.")
+                            logging.info(f"Used RAM = {used_ram}%. Pause to process {len(df_query)} files read so far.")
                             batch_idx += 1
-                            # batch_paths.append(self.process_batch_files(df_query, file_paths, batch_idx, temp_save_dir)) # 3% increase in ram
-                            batch_paths.append(ex.submit(self.process_multiple_files, df_query, file_paths, batch_idx, temp_save_dir))
-                            gc.collect()
+                            # batch_paths.append(self.sort_resample_refill(df_query, file_paths, batch_idx, temp_save_dir)) # 3% increase in ram
+                            batch_paths.append(ex.submit(self.merge_multiple_files, df_query, file_paths, batch_idx, temp_save_dir))
                             df_query = []
                             file_paths = []
                     
                     if len(df_query):
                         logging.info(f"Last batch process.")
                         batch_idx += 1
-                        # batch_paths.append(self.process_batch_files(df_query, file_paths, batch_idx, temp_save_dir))
-                        batch_paths.append(ex.submit(self.process_multiple_files, df_query, file_paths, batch_idx, temp_save_dir))
-                        gc.collect()
-                        batch_paths = [fut.result() for fut in batch_paths]
-                        # df_query = [fut.result() for fut in futures]
-                        # df_query = [(self.file_paths[d], df) for d, df in enumerate(df_query) if df is not None]
+                        # batch_paths.append(self.sort_resample_refill(df_query, file_paths, batch_idx, temp_save_dir))
+                        batch_paths.append(ex.submit(self.merge_multiple_files, df_query, file_paths, batch_idx, temp_save_dir))
+                    
+                    batch_paths = [fut.result() for fut in batch_paths]
                     
                     if len(batch_paths): 
                         logging.info(f"🔗 Finished reading files. Time elapsed: {time.time() - read_start:.2f} s")
                         if len(batch_paths) > 1: 
-                            logging.info(f"Running final resample/fill.")
-                            df_query = self.process_batch_files(batch_paths)
+                            logging.info(f"Running sort/resample/fill.")
+                            # concatenate intermediary dataframes
+                            df_query = pl.concat([pl.scan_parquet(bp) for bp in batch_paths], how="diagonal")
+                            df_query = self.sort_resample_refill(df_query)
                             df_query.sink_parquet(self.save_path, statistics=False)
                             rmtree(temp_save_dir)
                             return df_query
@@ -176,6 +175,8 @@ class DataLoader:
             temp_save_dir = os.path.join(os.path.dirname(self.save_path), os.path.basename(self.save_path).replace(".parquet", "_temp"))
             if os.path.exists(temp_save_dir):
                 rmtree(temp_save_dir)
+            if not os.path.exists(os.path.dirname(self.save_path)):
+                os.makedirs(os.path.dirname(self.save_path))
                 # raise Exception(f"Temporary saving directory {temp_save_dir} already exists! Please remove or rename it.")
             os.makedirs(temp_save_dir)
             logging.info(f"✅ Started reading {len(self.file_paths)} files.")
@@ -202,23 +203,25 @@ class DataLoader:
                     logging.info(f"Used RAM = {used_ram}%. Pause to batch process.")
                     logging.info(f"🔗 Processing {len(df_query)} files read so farm.")
                     batch_idx += 1
-                    batch_paths.append(self.process_multiple_files(df_query, file_paths, batch_idx, temp_save_dir))
-                    gc.collect()
+                    batch_paths.append(self.merge_multiple_files(df_query, file_paths, batch_idx, temp_save_dir))
                     df_query = []
                     file_paths = []
             
             if len(df_query):
                 logging.info(f"Last batch process.")
                 batch_idx += 1
-                batch_paths.append(self.process_multiple_files(df_query, file_paths, batch_idx, temp_save_dir))
-                gc.collect()
-            
-            
+                batch_paths.append(self.merge_multiple_files(df_query, file_paths, batch_idx, temp_save_dir))
+                 
             if len(batch_paths):    
                 logging.info(f"🔗 Finished reading files. Time elapsed: {time.time() - read_start:.2f} s")
                 if len(batch_paths) > 1: 
-                    logging.info(f"Running final resample/fill.")
-                    df_query = self.process_batch_files(batch_paths)
+                    logging.info(f"Running final sort/resample/fill.")
+                    # concatenate intermediary dataframes
+                    df_query = pl.concat([pl.scan_parquet(bp) for bp in batch_paths], how="diagonal")
+                    df_query = self.sort_resample_refill(df_query)
+                    # Write to final parquet
+                    
+                    logging.info("Final Parquet file saved into %s", self.save_path)
                     df_query.sink_parquet(self.save_path, statistics=False)
                     rmtree(temp_save_dir)
                     return df_query
@@ -235,10 +238,11 @@ class DataLoader:
                 return None
    
     
-    def process_batch_files(self, batch_paths):
-        # concatenate intermediary dataframes
-        df_query = [pl.scan_parquet(bp) for bp in batch_paths]
-        df_query = pl.concat(df_query, how="diagonal").sort("time")
+    def sort_resample_refill(self, df_query):
+        
+        logging.info(f"Started sorting.")
+        df_query = df_qudf_queryeries.sort("time")
+        logging.info(f"Finished sorting.")
         
         if df_query.select(pl.col("time").diff().slice(1).n_unique()).collect().item() > 1:
             logging.info(f"Started final resampling.") 
@@ -257,18 +261,13 @@ class DataLoader:
         df_query = df_query.fill_null(strategy="forward").fill_null(strategy="backward").collect().lazy() # NOTE: @Aoife for KP data, need to fill forward null gaps, don't know about Juan's data
         logging.info(f"Finished final forward/backward fill.") 
 
-        # Write to final parquet
-        if not os.path.exists(os.path.dirname(self.save_path)):
-            os.makedirs(os.path.dirname(self.save_path))
-
         # turbine ids found in all files so far
         self.turbine_ids = self.get_turbine_ids(df_query, sort=True)
-        logging.info("Final Parquet file saved into %s", self.save_path)
         
         return df_query
     
     # @profile 
-    def process_multiple_files(self, df_queries, file_paths, i, temp_save_dir):
+    def merge_multiple_files(self, df_queries, file_paths, i, temp_save_dir):
         # INFO: @Juan 11/13/24 Added check for data patterns in the names and also added a check for single files
         join_start = time.time()
         logging.info(f"✅ Started join of {len(file_paths)} files.")
@@ -278,6 +277,7 @@ class DataLoader:
         has_date_pattern = any(re.search(date_pattern, fp) for fp in file_paths)
         
         if has_date_pattern:
+            # selectively join dataframes for same timestamps but different turbines, then concatenate different time stamps (more efficient less joins)
             unique_file_timestamps = sorted(set(re.findall(date_pattern, fp)[0] for fp in file_paths 
                                                 if re.search(date_pattern, fp)))
             df_queries = [self._join_dfs(ts, [df for filepath, df in df_queries if ts in filepath]) 
@@ -305,32 +305,9 @@ class DataLoader:
                 df_queries = pl.concat(df_queries, how="diagonal").group_by("time").agg(cs.numeric().mean())
         logging.info(f"Finished join of {len(file_paths)} files.")
         
-        logging.info(f"Started sorting.")
-        df_queries = df_queries.sort("time")
-        logging.info(f"Finished sorting.")
-
-        logging.info(f"Started resampling.")
-        bounds = df_queries.select(pl.col("time").first().alias("first"),
-                                         pl.col("time").last().alias("last")).collect()
-        df_queries = df_queries.select(pl.datetime_range(
-            start=bounds.select("first").item(),
-            end=bounds.select("last").item(),
-            interval=f"{self.dt}s", time_unit=df_queries.collect_schema()["time"].time_unit).alias("time"))\
-                .join(df_queries, on="time", how="left")
-        del bounds
-        
-        # df_queries = full_datetime_range.join(df_queries, on="time", how="left") # NOTE: @Aoife 10/18 make sure all time stamps are included, to interpolate continuously later
-        # del full_datetime_range
-        logging.info(f"Finished resampling.") 
-
-        logging.info(f"Started forward/backward fill.") 
-        df_queries = df_queries.fill_null(strategy="forward").fill_null(strategy="backward") # NOTE: @Aoife for KP data, need to fill forward null gaps, don't know about Juan's data
-        logging.info(f"Finished forward/backward fill.")
-
+        df_queries = self.sort_sample_refill(df_queries)
         batch_path = os.path.join(temp_save_dir, f"df{i}")
         df_queries.collect().write_parquet(batch_path, statistics=False)
-        del df_queries
-        gc.collect()
         return batch_path
     
     def sink_parquet(self, df, filepath):
