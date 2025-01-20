@@ -536,7 +536,7 @@ def compute_offsets(df, fi, turbine_ids, turbine_pairs:list[tuple[int, int]]=Non
 
         wd_idx = np.arange(int(np.round(dir_align)) - prat_hfwdth,int(np.round(dir_align)) + prat_hfwdth + 1) % 360
         if len(set(wd_idx) & set(p_ratio.select(f"wd_round").to_numpy().flatten())) != len(wd_idx):
-            logging.info(f"Cannot compute nadir for turbine pair {i_up + 1, i_down + 1}")
+            logging.info(f"Cannot compute nadir for turbine pair {turbine_ids[i_up]}, {turbine_ids[i_down]}")
             continue
         
         nadir = p_ratio.filter(pl.col("wd_round").is_in(wd_idx)).select("p_ratio").to_series().arg_min() \
@@ -552,7 +552,7 @@ def compute_offsets(df, fi, turbine_ids, turbine_pairs:list[tuple[int, int]]=Non
         if plot:
             ax.plot(xs + nadir, gauss,'k',label="_nolegend_")
             ax.plot(2 * [nadir + opt_gauss_params.x[0]], [0, 1.25], 'r--',label="Direction of Measured Wake Center")
-            ax.set_title(f"Turbine Pair: ({i_up + 1}, {i_down + 1})")
+            ax.set_title(f"Turbine Pair: ({turbine_ids[i_up]}, {turbine_ids[i_down]})")
             ax.legend()
             ax.set_xlabel("Rounded Wind Direction [deg]")
             ax.set_ylabel("Power Ratio [-]")
