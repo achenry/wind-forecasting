@@ -86,9 +86,14 @@ def main():
         raise ValueError("Invalid file signature. Please specify either '*.nc', '*.csv', or '*.parquet'.")
     
     if "turbine_signature" not in config:
-       config["turbine_signature"] = None 
+       config["turbine_signature"] = None
+       
+    if "datetime_signature" not in config:
+       config["datetime_signature"] = None  
 
     RUN_ONCE = (args.multiprocessor == "mpi" and mpi_exists and (MPI.COMM_WORLD.Get_rank()) == 0) or (args.multiprocessor != "mpi") or (args.multiprocessor is None)
+    # TODO deal w None vals for signatures
+    # TODO setup RUN_ONCE below
     data_loader = DataLoader(
         data_dir=config["raw_data_directory"],
         file_signature=config["raw_data_file_signature"],
@@ -138,6 +143,9 @@ def main():
     if not args.preprocess_data:
         return
 
+    
+    df_query = df_query.select(pl.all().slice(0, 9000000))  # remove any empty columns
+    
     assert all(any(prefix in col for col in df_query.collect_schema().names()) for prefix in ["time", "wind_speed_", "wind_direction_", "nacelle_direction_", "power_output_"]), "DataFrame must contain columns 'time', then columns with prefixes 'wind_speed_', 'wind_direction_', 'power_output_', 'nacelle_direction_'"
     assert df_query.select("time").collect().to_series().is_sorted(), "Loaded data should be sorted by time!"
     assert all(any(f"{prefix}{tid}" in col for col in df_query.collect_schema().names() if col != "time") for prefix in ["wind_speed_", "wind_direction_", "nacelle_direction_", "power_output_"] for tid in data_loader.turbine_ids), "DataFrame must contain columns with prefixes 'wind_speed_', 'wind_direction_', 'power_output_', 'nacelle_direction_' and suffixes for each turbine id" 
@@ -153,7 +161,7 @@ def main():
     )
 
     # %% Plot Wind Farm, Data Distributions
-    if args.plot:
+    if args.plot and False:
         logging.info("🔄 Generating plots.")
         data_inspector.plot_wind_farm()
         data_inspector.plot_wind_speed_power(df_query, turbine_ids=data_loader.turbine_ids[:5])
@@ -205,7 +213,7 @@ def main():
                                 .collect().to_numpy().flatten()
 
             df_query_10min = df_query_10min.with_columns(wd_median=wd_median, yaw_median=yaw_median).collect().lazy()
-
+            del wd_median, yaw_median
             if args.plot:
                 data_inspector.plot_wind_offset(df_query_10min, "Original", data_loader.turbine_ids)
 
@@ -300,8 +308,9 @@ def main():
                                                 # turbine_pairs=[(51,50),(43,42),(41,40),(18,19),(34,33),(22,21),(87,86),(62,63),(33,32),(59,60),(43,42)],
                                                 plot=args.plot
                 ) 
-
+            del df_query_10min
             df_query = df_query2
+            del df_query2
             df_query.collect().write_parquet(config["processed_data_path"].replace(".parquet", "_calibrated.parquet"), statistics=False)
         else:
             df_query = pl.scan_parquet(config["processed_data_path"].replace(".parquet", "_calibrated.parquet"))
@@ -636,7 +645,7 @@ def main():
             df_query_not_missing = df_query_not_missing.filter(pl.col("duration") >= minimum_not_missing_duration)
             
             df_query = df_query2.select(*[cs.starts_with(feat_type) for feat_type in data_loader.feature_mapping.keys()])
-
+            del df_query2
             if args.plot:
                 # Plot number of missing wind dir/wind speed data for each wind turbine (missing duration on x axis, turbine id on y axis, color for wind direction/wind speed)
                 from matplotlib import colormaps
@@ -713,6 +722,7 @@ def main():
                                                     parallel="turbine_id")
 
             df_query = df_query.drop([cs.starts_with(feat) for feat in ["wind_direction", "wind_speed", "nacelle_direction"]]).join(df_query2, on="time", how="left")
+            del df_query2
             df_query.collect().write_parquet(config["processed_data_path"].replace(".parquet", "_imputed.parquet"), statistics=False)
         else:
             df_query = pl.scan_parquet(config["processed_data_path"].replace(".parquet", "_imputed.parquet"))
