@@ -2,10 +2,10 @@
 
 #SBATCH --nodes=1
 #SBATCH --ntasks=104
-##SBATCH --mem=0
+#SBATCH --mem=0
 #SBATCH --account=ssc
-#SBATCH --time=02:00:00
-##SBATCH --partition=bigmem
+#SBATCH --time=06:00:00
+#SBATCH --partition=bigmem
 #SBATCH --partition=standard
 #SBATCH --output=data_processor_scratch.out
 #SBATCH --tmp=1T
@@ -24,5 +24,5 @@ export RUST_BACKTRACE=full
 # conda activate wind_forecasting_preprocessing
 # python preprocessing_main.py --config /srv/data/nfs/ahenry/wind_forecasting_env/wind-forecasting/examples/inputs/preprocessing_inputs_server_awaken_new.yaml --reload_data --multiprocessor cf 
 
-python preprocessing_main.py --config /$HOME/toolboxes/wind_forecasting_env/wind-forecasting/examples/inputs/preprocessing_inputs_kestrel_awaken_new.yaml --multiprocessor cf --preprocess_data --regenerate_filters
+python preprocessing_main.py --config /$HOME/toolboxes/wind_forecasting_env/wind-forecasting/examples/inputs/preprocessing_inputs_kestrel_awaken_new.yaml --multiprocessor cf --preprocess_data
 
