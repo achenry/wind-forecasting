@@ -346,8 +346,7 @@ def main():
             # find stuck sensor measurements for each turbine and set them to null
             # this filter must be applied before any cells are nullified st null values aren't considered repeated values
             # find values of wind speed/direction, where there are duplicate values with nulls inbetween
-            # if args.regenerate_filters: #or not os.path.exists(config["processed_data_path"].replace(".parquet", "_frozen_sensors.npy")):
-                
+            # if args.regenerate_filters or not os.path.exists(config["processed_data_path"].replace(".parquet", "_frozen_sensors.npy")):
             thr = int(np.timedelta64(30, 'm') / np.timedelta64(data_loader.dt, 's'))
             frozen_sensors = filters.unresponsive_flag(
                 data_pl=df_query.select(cs.starts_with("wind_speed"), cs.starts_with("wind_direction")), threshold=thr)
