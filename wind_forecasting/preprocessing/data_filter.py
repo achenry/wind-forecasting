@@ -336,7 +336,7 @@ class DataFilter:
         if check_js:
             js_scores = []
             for inp_feat, opt_feat in zip(mask_input_features, output_features):
-                filt_expr = mask(inp_feat).to_numpy().flatten()
+                filt_expr = mask(inp_feat)
                 js_score = self._compute_js_divergence(
                     train_sample=df.filter(filt_expr).select(opt_feat).drop_nulls().collect().to_numpy().flatten(),
                     test_sample=df.select(opt_feat).drop_nulls().collect().to_numpy().flatten()
@@ -358,7 +358,7 @@ class DataFilter:
         else:
             # df = df.with_columns({feat: pl.when(mask(feat.split("_")[-1])).then(pl.col(feat)).otherwise(None) for feat in features})
             for inp_feat, opt_feat in zip(mask_input_features, output_features):
-                filt_expr = mask(inp_feat).collect().to_numpy().flatten()
+                filt_expr = mask(inp_feat)
                 # new_data = ma.filled(ma.array(df.select(pl.col(feat)).collect().to_numpy().flatten(), mask=mask(tid), fill_value=np.nan))
                 df = df.with_columns(pl.when(pl.Series(filt_expr)).then(None).otherwise(pl.col(opt_feat)).alias(opt_feat))
                 # df = df.with_columns(**{feat: 
