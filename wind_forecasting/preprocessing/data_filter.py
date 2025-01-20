@@ -6,6 +6,7 @@ Returns:
 
 import logging
 from datetime import timedelta
+import re
 
 import numpy as np
 import numpy.ma as ma
