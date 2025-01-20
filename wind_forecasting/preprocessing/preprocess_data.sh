@@ -2,10 +2,10 @@
 
 #SBATCH --nodes=1
 #SBATCH --ntasks=104
-##SBATCH --mem=0
+#SBATCH --mem=0
 #SBATCH --account=ssc
 #SBATCH --time=02:00:00
-##SBATCH --partition=bigmem
+#SBATCH --partition=bigmem
 #SBATCH --partition=standard
 #SBATCH --output=data_processor_scratch.out
 #SBATCH --tmp=1T

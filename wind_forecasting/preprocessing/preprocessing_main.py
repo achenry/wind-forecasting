@@ -144,7 +144,7 @@ def main():
         return
 
     
-    df_query = df_query.select(pl.all().slice(0, 9000000))  # remove any empty columns
+    # df_query = df_query.select(pl.all().slice(0, 9000000))  # remove any empty columns
     
     assert all(any(prefix in col for col in df_query.collect_schema().names()) for prefix in ["time", "wind_speed_", "wind_direction_", "nacelle_direction_", "power_output_"]), "DataFrame must contain columns 'time', then columns with prefixes 'wind_speed_', 'wind_direction_', 'power_output_', 'nacelle_direction_'"
     assert df_query.select("time").collect().to_series().is_sorted(), "Loaded data should be sorted by time!"
@@ -342,7 +342,7 @@ def main():
             # find stuck sensor measurements for each turbine and set them to null
             # this filter must be applied before any cells are nullified st null values aren't considered repeated values
             # find values of wind speed/direction, where there are duplicate values with nulls inbetween
-            
+            # TODO change polars implementation of this to apply polars expression directly, rather than via numpy mask 
             if args.regenerate_filters or not os.path.exists(config["processed_data_path"].replace(".parquet", "_frozen_sensors.npy")):
                 thr = int(np.timedelta64(30, 'm') / np.timedelta64(data_loader.dt, 's'))
                 frozen_sensors = filters.unresponsive_flag(
@@ -461,7 +461,6 @@ def main():
                 out_of_window = data_filter.multi_generate_filter(df_query=df_query, filter_func=data_filter._single_generate_window_range_filter,
                                                                   feature_types=["wind_speed", "power_output"], turbine_ids=data_loader.turbine_ids,
                                                                   window_start=5., window_end=40., value_min=20., value_max=3000.)
-                # NOTE AOIFE TO JUAN would it be possible for you to transform column names active power to power_output to in data loader part st all functions work
                 data_filter.multiprocessor = args.multiprocessor
                 np.save(config["processed_data_path"].replace(".parquet", "_out_of_window.npy"), out_of_window)
             else:
@@ -508,7 +507,6 @@ def main():
                                                                   bin_width=50, threshold=3, center_type="median", 
                                                                   bin_min=20., bin_max=0.90*(df_query.select(pl.max_horizontal(cs.starts_with(f"power_output").max())).collect().item() or 3000.),
                                                                   threshold_type="scalar", direction="below")
-                # NOTE AOIFE TO JUAN change acive power to power_output, also better to wrap checks within functions so that they don't create clutter here
                 data_filter.multiprocessor = args.multiprocessor
                 np.save(config["processed_data_path"].replace(".parquet", "_bin_outliers.npy"), bin_outliers)
             else:
@@ -847,9 +845,11 @@ def main():
 
             plt.tight_layout()
             plt.show()
-            
+             
         except Exception as e:
             logging.error(f"Error during power curve fitting: {str(e)}")
+        finally:
+            del df_unpivoted
 
 
 if __name__ == "__main__":
