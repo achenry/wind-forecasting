@@ -982,15 +982,13 @@ class DataInspector:
         n_unique_expr =  pl.all().drop_nulls().n_unique()
         print("% unique values", pl.concat([
             df_query.select(cs.starts_with(feat_type))\
-                    .select((pl.min_horizontal(n_unique_expr)).alias(f"{feat_type}_min_n_unique"), 
-                            (pl.max_horizontal(n_unique_expr)).alias(f"{feat_type}_max_n_unique"))\
-                    .select(100 * pl.all() / pl.len())\
+                    .select((100 * pl.min_horizontal(n_unique_expr) / pl.len()).alias(f"{feat_type}_min_n_unique"), 
+                            (100 * pl.max_horizontal(n_unique_expr) / pl.len()).alias(f"{feat_type}_max_n_unique"))\
                     .collect() for feat_type in feature_types], how="horizontal"), sep="\n")
         
         n_non_null_expr = pl.all().count()
         print("% non-null values", pl.concat([
             df_query.select(cs.starts_with(feat_type))\
-                    .select((pl.min_horizontal(n_non_null_expr)).alias(f"{feat_type}_min_non_null"), 
-                            (pl.max_horizontal(n_non_null_expr)).alias(f"{feat_type}_max_non_null"))\
-                    .select(100 * pl.all() / pl.len())\
+                    .select((100 * pl.min_horizontal(n_non_null_expr) / pl.len()).alias(f"{feat_type}_min_non_null"), 
+                            (100 * pl.max_horizontal(n_non_null_expr) / pl.len()).alias(f"{feat_type}_max_non_null"))\
                     .collect() for feat_type in feature_types], how="horizontal"), sep="\n")
