@@ -618,7 +618,7 @@ class DataInspector:
         return fmodel
 
     @staticmethod
-    def plot_nulled_vs_remaining(df, mask_func, features, feature_types, feature_labels):
+    def plot_nulled_vs_remaining(df, mask_func, mask_input_features, output_features, feature_types, feature_labels):
         
         sns.set(style="whitegrid")
 
@@ -626,25 +626,24 @@ class DataInspector:
         if not isinstance(ax, np.ndarray):
             ax = [ax]
 
-        for feature in features:
-            tid = feature.split("_")[-1]
-            mask_array = mask_func(tid)
+        for inp_feat, opt_feat in zip(mask_input_features, output_features):
+            mask_array = mask_func(inp_feat)
             if mask_array is None:
                 continue
 
             for ft, feature_type in enumerate(feature_types):
-                if feature_type in feature:
+                if feature_type in opt_feat:
                     ax_idx = ft
                     ax[ax_idx].set_title(feature_labels[ft])
                     break
 
             # Plot all measurements
-            y_all = df.select(feature).collect().to_numpy().flatten()
-            ax[ax_idx].scatter(x=[tid] * len(y_all), y=y_all, color="blue", label="All Measurements")
+            y_all = df.select(opt_feat).collect().to_numpy().flatten()
+            ax[ax_idx].scatter(x=[inp_feat] * len(y_all), y=y_all, color="blue", label="All Measurements")
 
             # Plot nulled measurements
-            y_nulled = df.filter(mask_array).select(feature).collect().to_numpy().flatten()
-            ax[ax_idx].scatter(x=[tid] * len(y_nulled), y=y_nulled, color="red", label="Nulled Measurements")
+            y_nulled = df.filter(mask_array).select(opt_feat).collect().to_numpy().flatten()
+            ax[ax_idx].scatter(x=[inp_feat] * len(y_nulled), y=y_nulled, color="red", label="Nulled Measurements")
 
         ax[-1].set_xlabel("Turbine ID")
         # Avoid duplicate labels
@@ -654,13 +653,13 @@ class DataInspector:
         plt.show()
 
     @staticmethod
-    def print_pc_remaining_vals(df, features, mask_func):
+    def print_pc_remaining_vals(df, mask_func, mask_input_features, output_features):
         out = []
-        for feature in features:
-            tid = feature.split("_")[-1]
-            mask_array = mask_func(tid)
+        for inp_feat, opt_feat in zip(mask_input_features, output_features):
+            # tid = feature.split("_")[-1]
+            mask_array = mask_func(inp_feat)
             if mask_array is None:
-                logging.info(f"Mask error for turbine {tid}: mask is None")
+                logging.info(f"Mask error for feature {inp_feat}: mask is None")
                 continue
             try:
                 pc_remaining_vals = 100 * (
@@ -670,10 +669,10 @@ class DataInspector:
                     .item()
                     / df.select(pl.len()).collect().item()
                 )
-                print(f"Feature {feature} has {pc_remaining_vals:.2f}% remaining values.")
-                out.append((feature, pc_remaining_vals))
+                print(f"Feature {opt_feat} has {pc_remaining_vals:.2f}% remaining values.")
+                out.append((opt_feat, pc_remaining_vals))
             except Exception as e:
-                logging.error(f"Error processing feature {feature}: {str(e)}")
+                logging.error(f"Error processing feature {opt_feat}: {str(e)}")
         return out
 
     def get_features(self, df, feature_types, turbine_ids="all"):
