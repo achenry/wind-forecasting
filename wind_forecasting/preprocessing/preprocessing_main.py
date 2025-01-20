@@ -346,34 +346,18 @@ def main():
             # find stuck sensor measurements for each turbine and set them to null
             # this filter must be applied before any cells are nullified st null values aren't considered repeated values
             # find values of wind speed/direction, where there are duplicate values with nulls inbetween
-            # if args.regenerate_filters or not os.path.exists(config["processed_data_path"].replace(".parquet", "_frozen_sensors.npy")):
-            thr = int(np.timedelta64(30, 'm') / np.timedelta64(data_loader.dt, 's'))
-            frozen_sensors = filters.unresponsive_flag(
-                data_pl=df_query.select(cs.starts_with("wind_speed"), cs.starts_with("wind_direction")), threshold=thr)
-            mask = lambda feat: frozen_sensors(feat).collect().to_numpy().flatten()
-                # if mask_format == "numpy":
-                #     frozen_sensors = {"wind_speed": frozen_sensors[ws_cols].values, 
-                #                   "wind_direction": frozen_sensors[wd_cols].values}
-                #     np.save(config["processed_data_path"].replace(".parquet", "_frozen_sensors.npy"), frozen_sensors)
-                # else:
-                #     frozen_sensors.collect().write_parquet(config["processed_data_path"].replace(".parquet", "_frozen_sensors.parquet"), statistics=False)()
-                #     frozen_sensors = {"wind_speed": frozen_sensors.select(ws_cols), 
-                #                     "wind_direction": frozen_sensors.select(wd_cols)}
-            # else:
-            #     if mask_format == "numpy":
-            #         frozen_sensors = np.load(config["processed_data_path"].replace(".parquet", "_frozen_sensors.npy"), allow_pickle=True)[()]
-            #     else:
-            #         frozen_sensors = pl.scan_parquet(config["processed_data_path"].replace(".parquet", "_frozen_sensors.parquet"))
-            #         frozen_sensors = {"wind_speed": frozen_sensors.select(ws_cols), 
-            #                           "wind_direction": frozen_sensors.select(wd_cols)}
+            if args.regenerate_filters or not os.path.exists(config["processed_data_path"].replace(".parquet", "_frozen_sensors.npy")):
+                thr = int(np.timedelta64(30, 'm') / np.timedelta64(data_loader.dt, 's'))
+                frozen_sensors = filters.unresponsive_flag(
+                    data_pl=df_query.select(cs.starts_with("wind_speed"), cs.starts_with("wind_direction")), threshold=thr)
+                mask = lambda feat: frozen_sensors(feat).collect().to_numpy().flatten()
+                
+                for feat in ws_cols + wd_cols:
+                    np.save(config["processed_data_path"].replace(".parquet", f"_frozen_sensors_{feat}.npy"), 
+                                frozen_sensors(feat).collect().to_numpy().flatten())
+            else:
+                mask = lambda feat: np.load(config["processed_data_path"].replace(".parquet", f"_frozen_sensors_{feat}.npy"))
 
-            # df = df_query.select("time", cs.starts_with("wind_speed"), cs.starts_with("wind_direction")).filter(frozen_sensors["wind_speed"].all(axis=1) & frozen_sensors["wind_direction"].all(axis=1))
-            # df = df_query.select("time", cs.starts_with("wind_speed"), cs.starts_with("wind_direction")).filter(frozen_sensors["wind_speed"].all(axis=1) & frozen_sensors["wind_direction"].all(axis=1))
-            # data_inspector.plot_time_series(df, turbine_ids=data_loader.turbine_ids, feature_types=["wind_speed", "wind_direction"], scatter=True)
-
-            # ws_mask = lambda tid: safe_mask(tid, outlier_flag=frozen_sensors["wind_speed"], turbine_id_to_index=turbine_id_to_index, flag_format=mask_format)
-            # wd_mask = lambda tid: safe_mask(tid, outlier_flag=frozen_sensors["wind_direction"], turbine_id_to_index=turbine_id_to_index, flag_format=mask_format)
-            
             # check time series
             if args.plot:
                 
