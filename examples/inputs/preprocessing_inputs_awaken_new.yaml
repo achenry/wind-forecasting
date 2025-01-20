@@ -1,11 +1,11 @@
 filters:
-  - nacelle_calibration
-  # - unresponsive_sensor
+  # - nacelle_calibration
+  - unresponsive_sensor
   - range_flag
   - bin_filter
   - std_range_flag
   - impute_missing_data
-  - split
+  # - split
   - normalize
 
 feature_mapping:
