@@ -93,7 +93,8 @@ class DataModule():
     freq: str
     per_turbine_target: bool # if True, feed multiple datasets to trainer, where each one corresponds to the outputs of a single turbine
     dtype: Type = np.float32
-
+ 
+    
     def generate_datasets(self):
         dataset = pl.scan_parquet(self.data_path).with_columns(time=pl.col("time").dt.round(self.freq)).collect(streaming=True).group_by("time").agg(cs.numeric().mean()).sort(["continuity_group", "time"]).lazy()
 
