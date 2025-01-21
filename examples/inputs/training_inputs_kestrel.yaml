@@ -7,8 +7,8 @@ experiment:
 dataset: 
     # data_path: /projects/ssc/ahenry/wind_forecasting/awaken_data/filled_data_normalized.parquet
     # normalization_consts_path: /projects/ssc/ahenry/wind_forecasting/awaken_data/filled_data_normalization_consts.csv
-    data_path: /projects/ssc/ahenry/wind_forecasting/awaken_data/short_loaded_data_normalized.parquet
-    normalization_consts_path: /projects/ssc/ahenry/wind_forecasting/awaken_data/short_loaded_data_normalization_consts.csv
+    data_path: /projects/ssc/ahenry/wind_forecasting/awaken_data/SMARTEOLE_WakeSteering_SCADA_1minData_normalized.parquet
+    normalization_consts_path: /projects/ssc/ahenry/wind_forecasting/awaken_data/SMARTEOLE_WakeSteering_SCADA_1minData_normalization_consts.csv 
     context_length: 9 # 120=10 minutes for 5 sec sample size
     prediction_length: 3 # 120=10 minutes for 5 sec sample size
     target_turbine_ids: # or leave blank to capture all

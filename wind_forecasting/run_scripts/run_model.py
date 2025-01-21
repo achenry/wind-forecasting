@@ -101,8 +101,8 @@ if __name__ == "__main__":
                                 target_prefixes=["ws_horz", "ws_vert"], feat_dynamic_real_prefixes=["nd_cos", "nd_sin"],
                                 freq=config["dataset"]["resample_freq"], target_suffixes=config["dataset"]["target_turbine_ids"],
                                 per_turbine_target=config["dataset"]["per_turbine_target"])
-    if RUN_ONCE:
-        data_module.generate_datasets()
+    # if RUN_ONCE:
+    data_module.generate_datasets()
         # data_module.plot_dataset_splitting()
 
     # %% DEFINE ESTIMATOR
@@ -219,7 +219,7 @@ if __name__ == "__main__":
             # forecasts[0].distribution.loc.cpu().numpy()
             # forecasts[0].distribution.cov_diag.cpu().numpy()
             num_forecasts = 4
-            fig, axs = plt.subplots(min(len(forecasts), num_forecasts), len(data_module.target_prefixes), figsize=(6, 12), sharey=True)
+            fig, axs = plt.subplots(min(len(forecasts), num_forecasts), len(data_module.target_prefixes), figsize=(6, 12))
             axs = axs.flatten()
             def errorbar(vec):
                 print(vec)
@@ -233,7 +233,7 @@ if __name__ == "__main__":
                 # for dim in range(min(len(axs), target_dim)):
                 for o, output_type in enumerate(data_module.target_prefixes):
                     ax = axs[ax_idx]
-                    ax_idx += 1
+                    
                     # TODO change plotting for perturbine case
                     col_idx = [c for c, col in enumerate(data_module.target_cols) if output_type in col]
                     col_names = [col for col in data_module.target_cols if output_type in col]
@@ -254,7 +254,7 @@ if __name__ == "__main__":
                                                                 for col in col_names], axis=0)
                         pred_turbine_id = pd.Categorical([col.split("_")[-1] for col in col_names for t in range(data_module.prediction_length)])
                     
-                    true_df = true_df.reset_index(names="time").sort_values(["time", "turbine_id"])
+                    true_df = true_df.reset_index(names="time").sort_values(["turbine_id", "time"])
                     true_df["time"] = true_df["time"].dt.to_timestamp()
                     sns.lineplot(data=true_df, x="time", y=output_type, hue="turbine_id", ax=ax)
                     # .plot(ax=ax)
@@ -282,7 +282,7 @@ if __name__ == "__main__":
                                 "std_dev": np.sqrt(forecast.distribution.cov_diag[:, col_idx].transpose(0, 1).reshape(-1, 1).cpu().numpy()).flatten()
                             },
                             index=np.tile(forecast.index, (len(col_names),)),
-                        ).reset_index(names="time").sort_values(["time", "turbine_id"])
+                        ).reset_index(names="time").sort_values(["turbine_id", "time"])
                     
                     pred_df["time"] = pred_df["time"].dt.to_timestamp()
 
@@ -294,14 +294,16 @@ if __name__ == "__main__":
                     else:
                         sns.lineplot(data=pred_df, x="time", y="loc", hue="turbine_id", ax=ax, linestyle="dashed")
                         for t, tid in enumerate(pd.unique(pred_df["turbine_id"])):
-                            color = ax.get_lines()[t].get_color()
+                            # color = loc_ax.get_lines()[t].get_color()
                             tid_df = pred_df.loc[pred_df["turbine_id"] == tid, :]
+                            color = sns.color_palette()[t]
                             ax.fill_between(
                                 forecast.index.to_timestamp(), tid_df["loc"] - 1*tid_df["std_dev"], tid_df["loc"] + 1*tid_df["std_dev"], alpha=0.2, color=color
                             )
 
                     # pred_df["loc"].plot(ax=ax, color='g')
                     ax.legend([], [], frameon=False)
+                    ax_idx += 1
             h, l = axs[0].get_legend_handles_labels()
             axs[0].legend(h[:len(data_module.target_suffixes)], l[:len(data_module.target_suffixes)])
             plt.show()
