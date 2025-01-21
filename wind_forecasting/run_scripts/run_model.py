@@ -7,8 +7,6 @@ import multiprocessing as mp
 
 import numpy as np
 import pandas as pd
-import polars as pl
-import polars.selectors as cs
 import matplotlib
 import seaborn as sns
 from matplotlib import pyplot as plt
@@ -119,8 +117,9 @@ if __name__ == "__main__":
         num_feat_static_real=data_module.num_feat_static_real,
         input_size=data_module.num_target_vars,
         scaling=False,
-        lags_seq=[0],
+        lags_seq=[0, 1],
         batch_size=128,
+        num_batches_per_epoch=config["trainer"].setdefault("limit_train_batches", 50), # TODO set this to be arbitrarily high st limit train_batches dominates
         # train_sampler=SequentialSampler(min_past=data_module.context_length, min_future=data_module.prediction_length), # TODO SequentialSampler = terrible results
         # validation_sampler=SequentialSampler(min_past=data_module.context_length, min_future=data_module.prediction_length),
         
