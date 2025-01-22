@@ -340,7 +340,8 @@ def main():
                              turbine_status_col="turbine_status", multiprocessor=args.multiprocessor, data_format='wide')
 
     if args.regenerate_filters or args.reload_data or not os.path.exists(config["processed_data_path"].replace(".parquet", "_filtered.parquet")):
-        # %%
+        # %% # TODO move to end, can be more leniant with stuck sensor time bc it is right
+        # TODO plot one day of turbine data vs plant average
         if "unresponsive_sensor" in config["filters"]:
             logging.info("Nullifying unresponsive sensor cells.")
             # find stuck sensor measurements for each turbine and set them to null
@@ -413,7 +414,7 @@ def main():
                 data_inspector.plot_time_series(df_query.head(ROW_LIMIT), feature_types=["wind_speed", "wind_direction"], turbine_ids=data_loader.turbine_ids[:1], continuity_groups=None) 
 
         # %%
-        if "inoperational" in config["filters"] and any(col.startswith("turbine_status") for col in df_query.collect_schema()["names"]):
+        if "inoperational" in config["filters"] and any(col.startswith("turbine_status") for col in df_query.collect_schema()["names"]): # TODO 10 is normal operation for AWAKEN
             logging.info("Nullifying inoperational turbine cells.")
             # check if wind speed/dir measurements from inoperational turbines differ from fully operational
             status_codes = [1]
@@ -549,7 +550,7 @@ def main():
                                                                   feature_types=["wind_speed", "power_output"], turbine_ids=data_loader.turbine_ids,
                                                                   bin_width=50, threshold=3, center_type="median", 
                                                                   bin_min=20., bin_max=0.90*(df_query.select(pl.max_horizontal(cs.starts_with(f"power_output").max())).collect().item() or 3000.),
-                                                                  threshold_type="scalar", direction="below")
+                                                                  threshold_type="scalar", direction="below") # keep derated cases
                 data_filter.multiprocessor = args.multiprocessor
                 np.save(config["processed_data_path"].replace(".parquet", "_bin_outliers.npy"), bin_outliers)
             else:
