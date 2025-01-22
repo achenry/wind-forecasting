@@ -1,8 +1,6 @@
 from dataclasses import dataclass
-from collections import defaultdict
-from typing import List, Iterable, Type
-from itertools import chain
-import gc
+from typing import List, Type
+import os
 import logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -104,18 +102,20 @@ class DataModule():
     per_turbine_target: bool # if True, feed multiple datasets to trainer, where each one corresponds to the outputs of a single turbine
     dtype: Type = pl.Float32
     
+    def __post_init__(self):
+        self.train_ready_data_path = self.data_path.replace(".parquet", "_train_ready.parquet")
+     
     @profile
     def generate_datasets(self):
         
-        train_ready_data_path = self.data_path.replace(".parquet", "_train_ready.parquet")
-        IterableLazyFrame(data_path=self.data_path, dtype=self.dtype)\
+        dataset = IterableLazyFrame(data_path=self.data_path, dtype=self.dtype)\
                     .with_columns(time=pl.col("time").dt.round(self.freq))\
                     .group_by("time").agg(cs.numeric().mean())\
-                    .sort(["continuity_group", "time"])\
-                    .collect().write_parquet(train_ready_data_path, statistics=False)
+                    .sort(["continuity_group", "time"])
+                    # .collect().write_parquet(self.train_ready_data_path, statistics=False)
         
-        dataset = IterableLazyFrame(data_path=train_ready_data_path, dtype=self.dtype) # data stored in RAM
-        gc.collect()
+        # dataset = IterableLazyFrame(data_path=self.train_ready_data_path, dtype=self.dtype) # data stored in RAM
+        # gc.collect()
         
         # fetch a subset of continuity groups and turbine data
         if self.continuity_groups is None:
@@ -133,7 +133,26 @@ class DataModule():
         else:
             dataset = dataset.filter(pl.col("continuity_group").is_in(self.continuity_groups))\
                              .select(pl.col("time"), pl.col("continuity_group"), *[cs.ends_with(sfx) for sfx in self.target_suffixes])
+       
+        # dataset.target_cols = self.target_cols 
         
+        
+        dataset.collect().write_parquet(self.train_ready_data_path, statistics=False)
+        # dataset = IterableLazyFrame(data_path=train_ready_data_path)
+        # univariate=ListDataset of multiple dictionaires each corresponding to measurements from a single turbine, to implicitly capture correlations
+        # or multivariate=multivariate dictionary for all measurements, to explicity capture all correlations
+        # or debug= to use electricity dataset
+        
+    def generate_splits(self):
+        assert os.path.exists(self.train_ready_data_path), "Must run generate_datasets before generate_splits."
+        dataset = IterableLazyFrame(data_path=self.train_ready_data_path, dtype=self.dtype)
+        
+        if self.continuity_groups is None:
+            if "continuity_group" in dataset.collect_schema().names():
+                self.continuity_groups = dataset.select(pl.col("continuity_group").unique()).collect().to_numpy().flatten()
+            else:
+                self.continuity_groups = [0]
+         
         if self.target_suffixes is None:
             self.target_cols = dataset.select(*[cs.starts_with(pfx) for pfx in self.target_prefixes]).collect_schema().names()
             self.target_suffixes = sorted(list(set(col.split("_")[-1] for col in self.target_cols)))
@@ -142,15 +161,8 @@ class DataModule():
             # dataset[float64_cols] = dataset[float64_cols].astype("float32")
             # dataset.filter(pl.col("continuity_group") == 0).to_pandas().to_csv("/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/sample_data.csv", index=False) 
             self.target_cols = [col for col in dataset.collect_schema().names() if any(prefix in col for prefix in self.target_prefixes)]
-       
-        # dataset.target_cols = self.target_cols 
         self.feat_dynamic_real_cols = [col for col in dataset.collect_schema().names() if any(prefix in col for prefix in self.feat_dynamic_real_prefixes)]
         
-        dataset.collect().write_parquet(train_ready_data_path, statistics=False)
-        dataset = IterableLazyFrame(data_path=train_ready_data_path)
-        # univariate=ListDataset of multiple dictionaires each corresponding to measurements from a single turbine, to implicitly capture correlations
-        # or multivariate=multivariate dictionary for all measurements, to explicity capture all correlations
-        # or debug= to use electricity dataset
         if self.per_turbine_target:
             self.num_target_vars = len(self.target_prefixes)
             self.num_feat_dynamic_real = int(len(self.feat_dynamic_real_cols) / len(self.target_suffixes))
@@ -163,8 +175,7 @@ class DataModule():
             del cg_counts
             
             self.train_dataset, self.val_dataset, self.test_dataset = \
-                self.split_dataset([dataset.filter(pl.col("continuity_group") == cg) for cg in self.continuity_groups], 
-                                   return_paths=True) 
+                self.split_dataset([dataset.filter(pl.col("continuity_group") == cg) for cg in self.continuity_groups]) 
             
             static_index = [f"TURBINE{turbine_id}_SPLIT{split}" for turbine_id in self.target_suffixes for split in range(len(self.train_dataset))]
             self.static_features = pd.DataFrame(
@@ -213,7 +224,7 @@ class DataModule():
             del cg_counts
             
             self.train_dataset, self.val_dataset, self.test_dataset = \
-                self.split_dataset([dataset.filter(pl.col("continuity_group") == cg) for cg in self.continuity_groups], return_paths=True)
+                self.split_dataset([dataset.filter(pl.col("continuity_group") == cg) for cg in self.continuity_groups])
 
             self.static_features = pd.DataFrame()
             self.cardinality = None 
@@ -275,8 +286,7 @@ class DataModule():
         # self.val_dataset = ListDataset(self.val_dataset, self.freq, one_dim_target=False)
         # self.test_dataset = ListDataset(self.test_dataset, self.freq, one_dim_target=False)
 
-    def get_df_by_turbine(self, dataset, turbine_id, return_path=False):
-        # TODO try with lazyframe from file for now, if that doesnt work sink_parquet and return_path
+    def get_df_by_turbine(self, dataset, turbine_id):
         return dataset.select(pl.col("time"), *[col for col in (self.feat_dynamic_real_cols + self.target_cols) if turbine_id in col])\
                         .rename(mapping={**{f"{tgt_col}_{turbine_id}": tgt_col for tgt_col in self.target_prefixes},
                                         **{f"{feat_col}_{turbine_id}": feat_col for feat_col in self.feat_dynamic_real_prefixes}})
@@ -290,7 +300,7 @@ class DataModule():
                 ) for ds in datasets for turbine_id in self.target_suffixes
         ]
 
-    def split_dataset(self, dataset, return_paths=False):
+    def split_dataset(self, dataset):
         train_datasets = []
         test_datasets = []
         val_datasets = []
@@ -317,7 +327,7 @@ class DataModule():
                     #                 end time = {split_dataset[-1]['start'] + split_dataset[-1]['target'].shape[1]}, 
                     #                 duration = {split_dataset[-1]['target'].shape[1] * pd.Timedelta(split_dataset[-1]['start'].freq)}")
 
-                    datasets.append(ds.select(pl.exclude("continuity_group")).select(pl.all().slice(slc.start, slc.stop - slc.start)))
+                    datasets.append(ds.select(pl.exclude("continuity_group")).slice(slc.start, slc.stop - slc.start))
                     start_time = datasets[-1].select(pl.col("time").first()).collect().item()
                     end_time = datasets[-1].select(pl.col("time").last()).collect().item()
                     duration = end_time - start_time
@@ -334,9 +344,9 @@ class DataModule():
             test_offset = round(self.test_split * self.rows_per_split[cg])
 
             # TODO shouldn't test data include history, and just the labels be unseen by training data?
-            train_datasets += [ds.select(pl.all().slice(0, train_offset)) for ds in datasets]
-            val_datasets += [ds.select(pl.all().slice(train_offset, val_offset)) for ds in datasets]
-            test_datasets += [ds.select(pl.all().slice(train_offset + val_offset, test_offset)) for ds in datasets]
+            train_datasets += [ds.slice(0, train_offset) for ds in datasets]
+            val_datasets += [ds.slice(train_offset, val_offset) for ds in datasets]
+            test_datasets += [ds.slice(train_offset + val_offset, test_offset) for ds in datasets]
             # train_dataset = [slice_data_entry(ds, slice_=slice(0, train_offset)) for ds in iter(split_dataset)]
             # val_dataset = [slice_data_entry(ds, slice_=slice(train_offset, train_offset + val_offset)) for ds in iter(split_dataset)]
             # test_dataset = [slice_data_entry(ds, slice_=slice(train_offset + val_offset, train_offset + val_offset + test_offset)) for ds in iter(split_dataset)]
