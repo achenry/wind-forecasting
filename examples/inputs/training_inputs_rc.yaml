@@ -21,6 +21,10 @@ dataset:
     per_turbine_target: False
 
 model:
+  distr_output: 
+    class: LowRankMultivariateNormalOutput
+    kwargs:
+      rank: 8
   informer:
     # embedding_dimension: 32 # Determines dimension of the embedding space
     num_encoder_layers: 3 # Number of transformer blocks stacked

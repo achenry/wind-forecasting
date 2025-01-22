@@ -4,9 +4,11 @@ import argparse
 from collections import defaultdict
 import logging
 import multiprocessing as mp
+from memory_profiler import profile
 
 import numpy as np
 import pandas as pd
+import polars as pl
 import matplotlib
 import seaborn as sns
 from matplotlib import pyplot as plt
@@ -18,7 +20,7 @@ from gluonts.torch.distributions import LowRankMultivariateNormalOutput
 from gluonts.model.forecast_generator import DistributionForecastGenerator
 from gluonts.evaluation import MultivariateEvaluator, make_evaluation_predictions
 from gluonts.time_feature._base import second_of_minute, minute_of_hour, hour_of_day, day_of_year
-from gluonts.transform import ExpectedNumInstanceSampler, SequentialSampler
+from gluonts.transform import ExpectedNumInstanceSampler, ValidationSplitSampler, SequentialSampler
 
 from lightning.pytorch.loggers import WandbLogger
 from pytorch_transformer_ts.informer.lightning_module import InformerLightningModule
@@ -43,8 +45,8 @@ try:
 except:
     print("No MPI available on system.")
 
-
-if __name__ == "__main__":
+@profile
+def main():
     
     RUN_ONCE = (mpi_exists and (MPI.COMM_WORLD.Get_rank()) == 0)
     
@@ -100,7 +102,7 @@ if __name__ == "__main__":
                                 prediction_length=config["dataset"]["prediction_length"], context_length=config["dataset"]["context_length"],
                                 target_prefixes=["ws_horz", "ws_vert"], feat_dynamic_real_prefixes=["nd_cos", "nd_sin"],
                                 freq=config["dataset"]["resample_freq"], target_suffixes=config["dataset"]["target_turbine_ids"],
-                                per_turbine_target=config["dataset"]["per_turbine_target"])
+                                per_turbine_target=config["dataset"]["per_turbine_target"], dtype=pl.Float32)
     # if RUN_ONCE:
     data_module.generate_datasets()
         # data_module.plot_dataset_splitting()
@@ -117,12 +119,13 @@ if __name__ == "__main__":
         num_feat_static_real=data_module.num_feat_static_real,
         input_size=data_module.num_target_vars,
         scaling=False,
-        lags_seq=[0, 1],
-        batch_size=128,
+        # lags_seq=[0, 1],
+        batch_size=config["dataset"].setdefault("batch_size", 128),
         num_batches_per_epoch=config["trainer"].setdefault("limit_train_batches", 50), # TODO set this to be arbitrarily high st limit train_batches dominates
         # train_sampler=SequentialSampler(min_past=data_module.context_length, min_future=data_module.prediction_length), # TODO SequentialSampler = terrible results
         # validation_sampler=SequentialSampler(min_past=data_module.context_length, min_future=data_module.prediction_length),
-        
+        train_sampler=ExpectedNumInstanceSampler(num_instances=1.0, min_past=data_module.context_length, min_future=data_module.prediction_length), # TODO should be context_len + max(seq_len) to avoid padding..
+        validation_sampler=ValidationSplitSampler(min_past=data_module.context_length, min_future=data_module.prediction_length),
         # validation_sampler=ExpectedNumInstanceSampler(num_instances=1.0, min_future=data_module.prediction_length),
         # dim_feedforward=config["model"][args.model]["dim_feedforward"],
         # d_model=config["model"][args.model]["d_model"],
@@ -131,7 +134,7 @@ if __name__ == "__main__":
         # n_heads=config["model"]["num_heads"],
         activation="relu",
         time_features=[second_of_minute, minute_of_hour, hour_of_day, day_of_year],
-        distr_output=LowRankMultivariateNormalOutput(dim=data_module.num_target_vars, rank=8),
+        distr_output=globals()[config["model"]["distr_output"]["class"]](dim=data_module.num_target_vars, **config["model"]["distr_output"]["kwargs"]),
         trainer_kwargs=config["trainer"],
         **config["model"][args.model]
     )
@@ -157,10 +160,10 @@ if __name__ == "__main__":
             if not args.train and os.path.exists(args.checkpoint):
                 logging.info("Found pretrained model, loading...")
                 model = globals()[f"{args.model.capitalize()}LightningModule"].load_from_checkpoint(args.checkpoint)
-                transformation = estimator.create_transformation()
+                transformation = estimator.create_transformation(use_lazyframe=False)
                 predictor = estimator.create_predictor(transformation, model, 
                                                         forecast_generator=DistributionForecastGenerator(estimator.distr_output))
-            elif not args.train:
+            elif not args.train and not os.path.exists(args.checkpoint):
                 raise TypeError("Must train model with --train flag or provide a --checkpoint argument to load from.")
 
             logging.info("Making evaluation predictions") 
@@ -309,3 +312,6 @@ if __name__ == "__main__":
             plt.show()
             
             print("here")
+            
+if __name__ == "__main__":
+    main()
