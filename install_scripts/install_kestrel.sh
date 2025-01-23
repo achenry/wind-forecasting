@@ -25,7 +25,9 @@ python setup.py develop --prefix=$LARGE_STORAGE/ahenry/wind_forecasting_env/bin
 cd ..
 
 conda install statsmodels pyyaml matplotlib numpy seaborn netcdf4 --y 
-pip install --target $LARGE_STORAGE/ahenry/wind_forecasting_env/bin floris polars windrose 
+pip install --target $LARGE_STORAGE/ahenry/wind_forecasting_env/bin floris polars windrose psutil
+
+## END FOR PREPROCESSING ONLY
 
 # rm -rf /projects/ssc/ahenry/conda/envs/wind_forecasting
 # rm -rf /home/ahenry/.conda-pkgs/cache
@@ -47,7 +49,7 @@ cd ..
 git clone https://github.com/boujuan/pytorch-transformer-ts
 cd pytorch-transformer-ts
 git checkout feature/spacetimeformer
-pip install gluonts[torch] ujson datasets xformers etsformer-pytorch reformer_pytorch pykeops apex
+pip install ujson datasets xformers etsformer-pytorch reformer_pytorch pykeops apex # gluonts[torch]
 pip install git+https://github.com/kashif/hopfield-layers@pytorch-2 git+https://github.com/microsoft/torchscale
 cd ..
 

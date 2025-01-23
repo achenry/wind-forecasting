@@ -18,8 +18,15 @@ import floris.layout_visualization as layoutviz
 import scipy.stats as stats
 import polars as pl
 import polars.selectors as cs
-from mpi4py import MPI
-from mpi4py.futures import MPICommExecutor
+
+mpi_exists = False
+try:
+    from mpi4py import MPI
+    from mpi4py.futures import MPICommExecutor
+    mpi_exists = True
+except:
+    print("No MPI available on system.")
+    
 from sklearn.feature_selection import mutual_info_regression
 from tqdm.auto import tqdm
 import re
@@ -39,10 +46,11 @@ class DataInspector:
     """
     
     # INFO: @Juan 11/17/24 Added feature_mapping to allow for custom feature mapping, which is required for different data sources
-    def __init__(self, turbine_input_filepath: str, farm_input_filepath: str, data_format='auto'):
+    def __init__(self, turbine_input_filepath: str, farm_input_filepath: str, turbine_signature: str, data_format='auto'):
         self._validate_input_data(turbine_input_filepath=turbine_input_filepath, farm_input_filepath=farm_input_filepath)
         self.turbine_input_filepath = turbine_input_filepath
         self.farm_input_filepath = farm_input_filepath
+        self.turbine_signature = turbine_signature
         self.data_format = data_format
         # Default feature mapping
         # self.feature_mapping = feature_mapping or {
@@ -67,7 +75,7 @@ class DataInspector:
         # valid_turbines = df.select("turbine_id").unique().filter(pl.col("turbine_id").is_in(turbine_ids)).collect(streaming=True).to_numpy()[:, 0]
         cols = df.collect_schema().names()
         # available_turbines = np.unique([re.findall(f"(?<=wind_direction_)(.*)", col)[0] for col in cols if "wind_direction" in col])
-        available_turbines = np.unique([col.split("_")[-1] for col in cols])
+        available_turbines = set([m.group() for col in cols if (m:=re.search(self.turbine_signature, col))])
 
         if turbine_ids == "all":
             valid_turbines = available_turbines
@@ -636,7 +644,7 @@ class DataInspector:
         return fmodel
 
     @staticmethod
-    def plot_nulled_vs_remaining(df, mask_func, features, feature_types, feature_labels):
+    def plot_nulled_vs_remaining(df, mask_func, mask_input_features, output_features, feature_types, feature_labels):
         
         sns.set(style="whitegrid")
 
@@ -644,25 +652,24 @@ class DataInspector:
         if not isinstance(ax, np.ndarray):
             ax = [ax]
 
-        for feature in features:
-            tid = feature.split("_")[-1]
-            mask_array = mask_func(tid)
+        for inp_feat, opt_feat in zip(mask_input_features, output_features):
+            mask_array = mask_func(inp_feat)
             if mask_array is None:
                 continue
 
             for ft, feature_type in enumerate(feature_types):
-                if feature_type in feature:
+                if feature_type in opt_feat:
                     ax_idx = ft
                     ax[ax_idx].set_title(feature_labels[ft])
                     break
 
             # Plot all measurements
-            y_all = df.select(feature).collect().to_numpy().flatten()
-            ax[ax_idx].scatter(x=[tid] * len(y_all), y=y_all, color="blue", label="All Measurements")
+            y_all = df.select(opt_feat).collect().to_numpy().flatten()
+            ax[ax_idx].scatter(x=[inp_feat] * len(y_all), y=y_all, color="blue", label="All Measurements")
 
             # Plot nulled measurements
-            y_nulled = df.filter(mask_array).select(feature).collect().to_numpy().flatten()
-            ax[ax_idx].scatter(x=[tid] * len(y_nulled), y=y_nulled, color="red", label="Nulled Measurements")
+            y_nulled = df.filter(mask_array).select(opt_feat).collect().to_numpy().flatten()
+            ax[ax_idx].scatter(x=[inp_feat] * len(y_nulled), y=y_nulled, color="red", label="Nulled Measurements")
 
         ax[-1].set_xlabel("Turbine ID")
         # Avoid duplicate labels
@@ -674,13 +681,13 @@ class DataInspector:
         plt.close()
 
     @staticmethod
-    def print_pc_remaining_vals(df, features, mask_func):
+    def print_pc_remaining_vals(df, mask_func, mask_input_features, output_features):
         out = []
-        for feature in features:
-            tid = feature.split("_")[-1]
-            mask_array = mask_func(tid)
+        for inp_feat, opt_feat in zip(mask_input_features, output_features):
+            # tid = feature.split("_")[-1]
+            mask_array = mask_func(inp_feat)
             if mask_array is None:
-                logging.info(f"Mask error for turbine {tid}: mask is None")
+                logging.info(f"Mask error for feature {inp_feat}: mask is None")
                 continue
             try:
                 pc_remaining_vals = 100 * (
@@ -690,10 +697,10 @@ class DataInspector:
                     .item()
                     / df.select(pl.len()).collect().item()
                 )
-                print(f"Feature {feature} has {pc_remaining_vals:.2f}% remaining values.")
-                out.append((feature, pc_remaining_vals))
+                print(f"Feature {opt_feat} has {pc_remaining_vals:.2f}% remaining values.")
+                out.append((opt_feat, pc_remaining_vals))
             except Exception as e:
-                logging.error(f"Error processing feature {feature}: {str(e)}")
+                logging.error(f"Error processing feature {opt_feat}: {str(e)}")
         return out
 
     def get_features(self, df, feature_types, turbine_ids="all"):
@@ -909,6 +916,7 @@ class DataInspector:
         
         # Create chunks of work
         # BUG: @Juan Make sure that numpy array works with this, otherwise revert to list of tuples
+        # TODO remove dependency on MPI
         chunks = np.array([(i, j) for i in range(sequence_length) for j in range(prediction_horizon)])
         chunk_size = min(1000, len(chunks) // (MPI.COMM_WORLD.Get_size() * 2)) #NOTE: @Juan 10/02/24 Added MPI
         chunks = [chunks[i:i + chunk_size] for i in range(0, len(chunks), chunk_size)]
@@ -992,13 +1000,24 @@ class DataInspector:
     def print_df_state(df_query, feature_types=None):
         if feature_types is None:
             feature_types = ["wind_speed", "wind_direction"]
-        print("% unique values", pl.concat([df_query.select(cs.starts_with(feat_type))\
-                                                            .select((100 * pl.min_horizontal(pl.all().drop_nulls().n_unique()) 
-                                                                     / pl.len()).alias(f"{feat_type}_min_n_unique"), 
-                                                                    (100 * pl.max_horizontal(pl.all().drop_nulls().n_unique())
-                                                                     / pl.len()).alias(f"{feat_type}_max_n_unique"))\
-                                                            .collect() for feat_type in feature_types], how="horizontal"), sep="\n")
-        print("% non-null values", pl.concat([df_query.select(cs.starts_with(feat_type))\
-                                                            .select((100 * pl.min_horizontal(pl.all().count()) / pl.len()).alias(f"{feat_type}_min_non_null"), 
-                                                                    (100 * pl.max_horizontal(pl.all().count()) / pl.len()).alias(f"{feat_type}_max_non_null"))\
-                                                            .collect() for feat_type in feature_types], how="horizontal"), sep="\n")
+        
+        df_query = df_query.select(
+            [pl.col(col) for col in df_query.collect_schema().names() 
+                         if (not df_query.select(pl.col(col).is_null().all()).collect().item() 
+                         and any(col.startswith(feat_type) for feat_type in feature_types))])
+        
+        # TODO not robust way to capture feature... what if one feat_type is a substring of another..
+        feature_types = set(feat_type for feat_type in feature_types if any(feat_type in col for col in df_query.collect_schema().names()))
+        n_unique_expr =  pl.all().drop_nulls().n_unique()
+        print("% unique values", pl.concat([
+            df_query.select(cs.starts_with(feat_type))\
+                    .select((100 * pl.min_horizontal(n_unique_expr) / pl.len()).alias(f"{feat_type}_min_n_unique"), 
+                            (100 * pl.max_horizontal(n_unique_expr) / pl.len()).alias(f"{feat_type}_max_n_unique"))\
+                    .collect() for feat_type in feature_types], how="horizontal"), sep="\n")
+        
+        n_non_null_expr = pl.all().count()
+        print("% non-null values", pl.concat([
+            df_query.select(cs.starts_with(feat_type))\
+                    .select((100 * pl.min_horizontal(n_non_null_expr) / pl.len()).alias(f"{feat_type}_min_non_null"), 
+                            (100 * pl.max_horizontal(n_non_null_expr) / pl.len()).alias(f"{feat_type}_max_non_null"))\
+                    .collect() for feat_type in feature_types], how="horizontal"), sep="\n")

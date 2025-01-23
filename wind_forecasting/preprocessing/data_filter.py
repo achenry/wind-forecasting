@@ -6,6 +6,7 @@ Returns:
 
 import logging
 from datetime import timedelta
+import re
 
 import numpy as np
 import numpy.ma as ma
@@ -15,8 +16,14 @@ import polars.selectors as cs
 # from scipy.spatial.distance import jensenshannon
 # from scipy.special import kl_div
 from openoa.utils import imputing, filters
-from mpi4py import MPI
-from mpi4py.futures import MPICommExecutor
+mpi_exists = False
+try:
+    from mpi4py import MPI
+    from mpi4py.futures import MPICommExecutor
+    mpi_exists = True
+except:
+    print("No MPI available on system.")
+    
 from concurrent.futures import ProcessPoolExecutor
 import multiprocessing
 from scipy.optimize import minimize
@@ -28,7 +35,8 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 class DataFilter:
     """_summary_
     """
-    def __init__(self, turbine_availability_col=None, turbine_status_col=None, data_format='wide', multiprocessor=None):
+    def __init__(self, turbine_signature, turbine_availability_col=None, turbine_status_col=None, data_format='wide', multiprocessor=None):
+        self.turbine_signature = turbine_signature
         self.turbine_availability_col = turbine_availability_col
         self.turbine_status_col = turbine_status_col
         self.data_format = data_format
@@ -146,7 +154,7 @@ class DataFilter:
     
     def multi_generate_filter(self, df_query, filter_func, feature_types, turbine_ids, **kwargs):
         if self.multiprocessor:
-            if self.multiprocessor == "mpi":
+            if self.multiprocessor == "mpi" and mpi_exists:
                 executor = MPICommExecutor(MPI.COMM_WORLD, root=0)
                 logging.info(f"🚀 Using MPI executor with {MPI.COMM_WORLD.Get_size()} processes")
             else:  # "cf" case
@@ -173,7 +181,7 @@ class DataFilter:
 
     def fill_multi_missing_datasets(self, dfs, impute_missing_features, interpolate_missing_features):
         if self.multiprocessor:
-            if self.multiprocessor == "mpi":
+            if self.multiprocessor == "mpi" and mpi_exists:
                 executor = MPICommExecutor(MPI.COMM_WORLD, root=0)
                 logging.info(f"🚀 Using MPI executor with {MPI.COMM_WORLD.Get_size()} processes")
             else:  # "cf" case
@@ -196,7 +204,7 @@ class DataFilter:
     def _impute_single_missing_dataset(self, df_idx, df, impute_missing_features, parallel=False):
 
         if parallel == "feature":
-            if self.multiprocessor == "mpi":
+            if self.multiprocessor == "mpi" and mpi_exists:
                 executor = MPICommExecutor(MPI.COMM_WORLD, root=0)
                 logging.info(f"🚀 Using MPI executor with {MPI.COMM_WORLD.Get_size()} processes")
             else:  # "cf" case
@@ -314,31 +322,34 @@ class DataFilter:
         
         return __class__._js_divergence(p, q)
 
-    def conditional_filter(self, df, threshold, mask, features, check_js=True):
+    def conditional_filter(self, df, threshold, mask, mask_input_features, output_features, check_js=True):
         """
         only applies mask to features if the Jensen-Shannon metric between filtered and unfiltered 
         data exceeds a threshold
         """
         if self.data_format == 'wide':
-            return self._conditional_filter_wide(df, threshold, mask, features, check_js)
+            return self._conditional_filter_wide(df, threshold, mask, mask_input_features, output_features, check_js)
         else:
-            return self._conditional_filter_long(df, threshold, mask, features, check_js)
+            return self._conditional_filter_long(df, threshold, mask, mask_input_features, output_features, check_js)
 
-    def _conditional_filter_wide(self, df, threshold, mask, features, check_js):
+    def _conditional_filter_wide(self, df, threshold, mask, mask_input_features, output_features, check_js):
         if check_js:
             js_scores = []
-            for feat in features:
-                tid = feat.split("_")[-1]
+            for inp_feat, opt_feat in zip(mask_input_features, output_features):
+                filt_expr = mask(inp_feat)
                 js_score = self._compute_js_divergence(
-                    train_sample=df.filter(mask(tid)).select(feat).drop_nulls().collect().to_numpy().flatten(),
-                    test_sample=df.select(feat).drop_nulls().collect().to_numpy().flatten()
+                    train_sample=df.filter(filt_expr).select(opt_feat).drop_nulls().collect().to_numpy().flatten(),
+                    test_sample=df.select(opt_feat).drop_nulls().collect().to_numpy().flatten()
                 )
-                logging.info(f"JS Score for feature {feat} = {js_score}")
+                logging.info(f"JS Score for feature {opt_feat} = {js_score}")
                 js_scores.append(js_score)
                 
                 if js_score > threshold:
-                    new_data = ma.filled(ma.array(df.select(pl.col(feat)).collect().to_numpy().flatten(), mask=mask(tid), fill_value=np.nan))
-                    df = df.with_columns(**{feat: new_data}).with_columns(pl.col(feat).fill_nan(None).alias(feat))
+                    # new_data = 
+                    # df = df.with_columns(**{feat: 
+                    #     ma.filled(ma.array(df.select(pl.col(feat)).collect().to_numpy().flatten(), mask=mask(tid), fill_value=np.nan))
+                    #                         }).with_columns(pl.col(feat).fill_nan(None).alias(feat))
+                    df = df.with_columns(pl.when(pl.Series(filt_expr)).then(None).otherwise(pl.col(opt_feat)).alias(opt_feat))
                 
                 # if js_score > threshold:
                     # df = df.with_columns(pl.when(mask(tid)).then(pl.col(feat)).otherwise(None).alias(feat))
@@ -346,22 +357,27 @@ class DataFilter:
                     
         else:
             # df = df.with_columns({feat: pl.when(mask(feat.split("_")[-1])).then(pl.col(feat)).otherwise(None) for feat in features})
-            for feat in features:
-                tid = feat.split("_")[-1]
-                new_data = ma.filled(ma.array(df.select(pl.col(feat)).collect().to_numpy().flatten(), mask=mask(tid), fill_value=np.nan))
-                df = df.with_columns(**{feat: new_data}).with_columns(pl.col(feat).fill_nan(None).alias(feat))
+            for inp_feat, opt_feat in zip(mask_input_features, output_features):
+                filt_expr = mask(inp_feat)
+                # new_data = ma.filled(ma.array(df.select(pl.col(feat)).collect().to_numpy().flatten(), mask=mask(tid), fill_value=np.nan))
+                df = df.with_columns(pl.when(pl.Series(filt_expr)).then(None).otherwise(pl.col(opt_feat)).alias(opt_feat))
+                # df = df.with_columns(**{feat: 
+                #     ma.filled(ma.array(df.select(pl.col(feat)).collect().to_numpy().flatten(), mask=filt_expr, fill_value=np.nan))
+                #     }).with_columns(pl.col(feat).fill_nan(None).alias(feat))
                 # df = df.with_columns(pl.when(mask(tid)).then(pl.col(feat)).otherwise(None).alias(feat))
-                logging.info(f"Applied filter to feature {feat}.")
+                logging.info(f"Applied filter to feature {opt_feat}.")
         
         return df
 
-    def _conditional_filter_long(self, df, threshold, mask, features, check_js):
+    def _conditional_filter_long(self, df, threshold, mask, mask_input_features, output_features, check_js):
+        # TODO test this
         if check_js:
             js_scores = []
-            for feat in features:
+            for inp_feat, opt_feat in zip(mask_input_features, output_features):
+                filt_expr = mask(inp_feat).collect().to_numpy().flatten()
                 js_score = self._compute_js_divergence(
-                    train_sample=df.filter(mask).select(feat).drop_nulls().collect().to_numpy().flatten(),
-                    test_sample=df.select(feat).drop_nulls().collect().to_numpy().flatten()
+                    train_sample=df.filter(pl.Series(filt_expr)).select(opt_feat).drop_nulls().collect().to_numpy().flatten(),
+                    test_sample=df.select(opt_feat).drop_nulls().collect().to_numpy().flatten()
                 )
                 logging.info(f"JS Score for feature {feat} = {js_score}")
                 js_scores.append(js_score)
@@ -369,10 +385,10 @@ class DataFilter:
                 #     df = df.with_columns(pl.when(mask).then(pl.col(feat)).otherwise(None).alias(feat))
                 #     
                 
-            df = df.with_columns({feat: pl.when(mask & js_score > threshold).then(pl.col(feat)).otherwise(None) for js_score, feat in zip(js_scores, features)})
+            df = df.with_columns(**{opt_feat: pl.when(mask(inp_feat) & js_score > threshold).then(None).otherwise(pl.col(opt_feat)) for js_score, inp_feat, opt_feat in zip(js_scores, mask_input_features, output_features)})
         else:
-            df = df.with_columns(pl.when(mask).then(pl.col(feat)).otherwise(None).alias(feat))
-        
+            df = df.with_columns(**{opt_feat: pl.when(mask(inp_feat)).then(None).otherwise(pl.col(opt_feat)).alias(opt_feat) for inp_feat, opt_feat in zip(mask_input_features, output_features)})
+            
         return df
     
     @staticmethod
@@ -529,7 +545,7 @@ def compute_offsets(df, fi, turbine_ids, turbine_pairs:list[tuple[int, int]]=Non
 
         wd_idx = np.arange(int(np.round(dir_align)) - prat_hfwdth,int(np.round(dir_align)) + prat_hfwdth + 1) % 360
         if len(set(wd_idx) & set(p_ratio.select(f"wd_round").to_numpy().flatten())) != len(wd_idx):
-            logging.info(f"Cannot compute nadir for turbine pair {i_up + 1, i_down + 1}")
+            logging.info(f"Cannot compute nadir for turbine pair {turbine_ids[i_up]}, {turbine_ids[i_down]}")
             continue
         
         nadir = p_ratio.filter(pl.col("wd_round").is_in(wd_idx)).select("p_ratio").to_series().arg_min() \
@@ -545,7 +561,7 @@ def compute_offsets(df, fi, turbine_ids, turbine_pairs:list[tuple[int, int]]=Non
         if plot:
             ax.plot(xs + nadir, gauss,'k',label="_nolegend_")
             ax.plot(2 * [nadir + opt_gauss_params.x[0]], [0, 1.25], 'r--',label="Direction of Measured Wake Center")
-            ax.set_title(f"Turbine Pair: ({i_up + 1}, {i_down + 1})")
+            ax.set_title(f"Turbine Pair: ({turbine_ids[i_up]}, {turbine_ids[i_down]})")
             ax.legend()
             ax.set_xlabel("Rounded Wind Direction [deg]")
             ax.set_ylabel("Power Ratio [-]")
@@ -566,10 +582,13 @@ def compute_offsets(df, fi, turbine_ids, turbine_pairs:list[tuple[int, int]]=Non
     return dir_offsets
 
 # Define the mask function using the new mapping
-def safe_mask(tid, outlier_flag, turbine_id_to_index):
+def safe_mask(tid, outlier_flag, turbine_id_to_index, flag_format="numpy"):
     try:
-        idx = turbine_id_to_index[tid]
-        mask_array = outlier_flag[:, idx]
+        if flag_format == "numpy":
+            idx = turbine_id_to_index[tid]
+            mask_array = outlier_flag[:, idx]
+        else:
+            mask_array = outlier_flag.select(cs.ends_with(tid))
         # logging.info(f"Mask for turbine {tid} includes {np.sum(~mask_array)} out of {len(mask_array)} data points")
         return mask_array
     except KeyError:
