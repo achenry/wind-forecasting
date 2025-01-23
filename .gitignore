@@ -51,6 +51,7 @@ wind_forecasting.code-workspace
 *.egg-info
 *.zip
 *.parquet
+*.dat
 
 examples/data/*
 .vscode/

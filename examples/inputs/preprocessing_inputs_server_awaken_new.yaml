@@ -38,15 +38,9 @@ nacelle_calibration_turbine_pairs:
 
 dt: 1
 
-# raw_data_directory: /srv/data/nfs/scada/00_engie_scada
-# processed_data_path: /srv/data/nfs/ahenry/preprocessed_awaken_data/filled_data.parquet
-# turbine_input_path: /srv/data/nfs/ahenry/wind_forecasting_env/wind-forecasting/examples/inputs/ge_282_127.yaml
-# farm_input_path: /srv/data/nfs/ahenry/wind_forecasting_env/wind-forecasting/examples/inputs/gch_KP_v4.yaml
-
-raw_data_file_signature: KP_SCADA_*.*.parquet
-
-raw_data_directory: /Users/ahenry/Downloads/00_engie_scada
-processed_data_path: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/00_engie_scada_processed.parquet
+raw_data_directory: /srv/data/nfs/scada/00_engie_scada
+processed_data_path: /srv/data/nfs/ahenry/preprocessed_awaken_data/00_engie_scada_processed.parquet
+# processed_data_path: /srv/data/nfs/ahenry/preprocessed_awaken_data/00_engie_scada_processed.parquet
 raw_data_file_signature: ./**/KP_SCADA_*.*.parquet
-turbine_input_path: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/inputs/turbine_library/ge_282_127.yaml
-farm_input_path: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/inputs/gch_KP_v4.yaml
+turbine_input_path: /srv/data/nfs/ahenry/wind_forecasting_env/wind-forecasting/examples/inputs/turbine_library/ge_282_127.yaml
+farm_input_path: /srv/data/nfs/ahenry/wind_forecasting_env/wind-forecasting/examples/inputs/gch_KP_v4.yaml

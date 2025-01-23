@@ -17,6 +17,9 @@ feature_mapping:
 
 turbine_signature: '\d+'
 
+merge_chunk: 100
+ram_limit: 50
+
 nacelle_calibration_turbine_pairs:
 - [0,1]
 - [1,2]
