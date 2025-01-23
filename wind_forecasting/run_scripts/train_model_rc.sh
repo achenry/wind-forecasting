@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --gres=gpu:1
-#SBATCH --ntasks=11
+#SBATCH --ntasks=1
 #SBATCH --time=01:00:00
 #SBATCH --output=%j-%x.log
 #SBATCH --partition=atesting_a100
