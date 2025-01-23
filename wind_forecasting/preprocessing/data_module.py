@@ -309,8 +309,13 @@ class DataModule():
         for cg, ds in enumerate(dataset):
             # TODO in this case should just add to training data anyway? 
             if round(min(self.train_split, self.val_split, self.test_split) * self.rows_per_split[cg] * self.n_splits) < self.context_length + self.prediction_length:
-                logging.info(f"Can't split dataset {cg} into training, validation, testing, not enough data points.")
-                continue 
+                logging.info(f"Can't split dataset corresponding to continuity group {cg} into training, validation, testing, the full dataset only has data points {round(self.rows_per_split[cg] * self.n_splits)}")
+                
+                if self.train_split * self.rows_per_split[cg] * self.n_splits >= self.context_length + self.prediction_length:
+                    logging.info(f"Adding dataset corresponding to continuity group {cg} to training data, since it can't be split")
+                    train_datasets += [ds] 
+                
+                continue
             
             # splitting each continuity group into subsections, a training/val/test dataset will then be generated from each subsection. 
             # We do this to get a coherent mix of training, val, test data that is more independent of trends over time
@@ -344,9 +349,9 @@ class DataModule():
             test_offset = round(self.test_split * self.rows_per_split[cg])
 
             # TODO shouldn't test data include history, and just the labels be unseen by training data?
-            train_datasets += [ds.slice(0, train_offset) for ds in datasets]
-            val_datasets += [ds.slice(train_offset, val_offset) for ds in datasets]
-            test_datasets += [ds.slice(train_offset + val_offset, test_offset) for ds in datasets]
+            train_datasets.append(ds.slice(0, train_offset))
+            val_datasets.append(ds.slice(train_offset, val_offset))
+            test_datasets.append(ds.slice(train_offset + val_offset, test_offset))
             
             if self.verbose:
                 for t, train_entry in enumerate(iter(train_datasets[-1])):
@@ -357,7 +362,7 @@ class DataModule():
 
                 for t, test_entry in enumerate(iter(test_datasets[-1])):
                     logging.info(f"test dataset cg {cg}, split {t} start time = {test_entry['start']}, end time = {test_entry['start'] + test_entry['target'].shape[1]}, duration = {test_entry['target'].shape[1] * pd.Timedelta(test_entry['start'].freq)}\n")
-             
+            
             # n_test_windows = int((self.test_split * self.rows_per_split[cg]) / self.prediction_length)
             # test_dataset = test_gen.generate_instances(prediction_length=self.prediction_length, windows=n_test_windows)
             
