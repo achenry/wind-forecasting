@@ -3,12 +3,13 @@
 #SBATCH --nodes=1
 #SBATCH --gpus=1
 #SBATCH --ntasks-per-node=1
-##SBATCH --ntasks=1
 #SBATCH --time=01:00:00
-##SBATCH --mem-per-cpu=64G
-##SBATCH --mem=0 # refers to CPU (not GPU) memory, automatically given all GPU memory in a SLURM job, 85G
 #SBATCH --output=%j-%x.log
 #SBATCH --partition=debug
+
+##SBATCH --mem-per-cpu=64G
+##SBATCH --mem=0 # refers to CPU (not GPU) memory, automatically given all GPU memory in a SLURM job, 85G
+##SBATCH --ntasks=1
 
 # salloc --account=ssc --time=01:00:00 --gpus=2 --ntasks-per-node=2 --partition=debug
 
