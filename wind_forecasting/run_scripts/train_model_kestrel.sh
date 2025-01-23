@@ -10,7 +10,7 @@
 #SBATCH --output=%j-%x.log
 #SBATCH --partition=debug
 
-# salloc --account=ssc --time=01:00:00 --mem=0 --gpus=2 --ntasks-per-node=2 --partition=debug
+# salloc --account=ssc --time=01:00:00 --gpus=2 --ntasks-per-node=2 --partition=debug
 
 module purge
 ml PrgEnv-intel
@@ -24,7 +24,7 @@ echo "SLURM_GPUS_ON_NODE=${SLURM_GPUS_ON_NODE}"
 echo "SLURM_JOB_GPUS=${SLURM_JOB_GPUS}"
 echo "SLURM_JOB_GRES=${SLURM_JOB_GRES}"
 
-srun python run_model.py --config ../../examples/inputs/training_inputs_kestrel.yaml --model informer
+srun python train_model.py --config ../../examples/inputs/training_inputs_kestrel.yaml --model informer
 # srun python informer.py
 #python train_spacetimeformer.py spacetimeformer windfarm --debug --run_name spacetimeformer_windfarm_debug --context_points 600 --target_points 600
 
