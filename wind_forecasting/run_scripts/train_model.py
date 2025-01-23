@@ -127,7 +127,7 @@ def main():
         training_data=data_module.train_dataset,
         validation_data=data_module.val_dataset,
         forecast_generator=DistributionForecastGenerator(estimator.distr_output),
-        ckpt_path=args.checkpoint if (not args.train and os.path.exists(args.checkpoint)) else None # TODO
+        ckpt_path=args.checkpoint if (not args.train and os.path.exists(args.checkpoint)) else None
         # shuffle_buffer_length=1024
     )
     
