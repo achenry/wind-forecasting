@@ -4,8 +4,8 @@
 #SBATCH --output=%j-%x.log
 #SBATCH --partition=debug
 #SBATCH --nodes=1 # this needs to match Trainer(num_nodes...)
-#SBATCH --gres=gpu:2
-#SBATCH --ntasks-per-node=2 # this needs to match Trainer(devices=...)
+#SBATCH --gres=gpu:1
+#SBATCH --ntasks-per-node=1 # this needs to match Trainer(devices=...)
 #SBATCH --mem=0 # refers to CPU (not GPU) memory, automatically given all GPU memory in a SLURM job, 85G
 
 ##SBATCH --mem-per-cpu=64G
