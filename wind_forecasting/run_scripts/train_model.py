@@ -12,6 +12,9 @@ from gluonts.model.forecast_generator import DistributionForecastGenerator
 from gluonts.time_feature._base import second_of_minute, minute_of_hour, hour_of_day, day_of_year
 from gluonts.transform import ExpectedNumInstanceSampler, ValidationSplitSampler, SequentialSampler
 
+from torch import set_float32_matmul_precision 
+set_float32_matmul_precision('medium') # or high to trade off performance for precision
+
 from lightning.pytorch.loggers import WandbLogger
 from pytorch_transformer_ts.informer.lightning_module import InformerLightningModule
 from pytorch_transformer_ts.informer.estimator import InformerEstimator
@@ -93,7 +96,7 @@ def main():
 
     # %% DEFINE ESTIMATOR
     if RUN_ONCE:
-        logging.info("Declaring estimator")
+        logging.info(f"Declaring estimator {args.model.capitalize()}")
     estimator = globals()[f"{args.model.capitalize()}Estimator"](
         freq=data_module.freq, 
         prediction_length=data_module.prediction_length,
@@ -122,7 +125,6 @@ def main():
     if RUN_ONCE:
         logging.info("Training model")
         
-    
     predictor = estimator.train(
         training_data=data_module.train_dataset,
         validation_data=data_module.val_dataset,
