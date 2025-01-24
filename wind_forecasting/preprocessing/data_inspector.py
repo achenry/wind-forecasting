@@ -462,6 +462,13 @@ class DataInspector:
             for turbine_id in turbine_ids:
                 # Extract data
                 values = df.select(f"{feature_type}_{turbine_id}").collect().to_numpy().flatten()
+                
+                # Filter out non-finite values
+                values = values[np.isfinite(values)]
+                
+                if len(values) == 0:
+                    print(f"No valid data for turbine {turbine_id} and feature {feature_type}")
+                    continue
 
                 # Fit Weibull distribution
                 dist_params = distribution.fit(values)
@@ -479,8 +486,6 @@ class DataInspector:
         fig.legend(fontsize=10)
         plt.grid(True, alpha=0.3)
         fig.tight_layout()
-        # sns.despine()
-        # plt.show()
         fig.savefig(f'{PLOT_DIR}/data_distribution.png')
         plt.close()
 

@@ -793,9 +793,15 @@ def main():
             turbine_signature=data_loader.turbine_signature, 
             feature_types=["wind_speed", "power_output"]
         ).head(5000).collect().to_pandas()
-        
+
+        # DEBUG: Print the first few rows of the unpivoted DataFrame
+        print(df_unpivoted.head())
+        if 'wind_speed' not in df_unpivoted.columns or 'power_output' not in df_unpivoted.columns:
+            logging.error("Unpivoted DataFrame does not contain required columns: 'wind_speed' and 'power_output'")
+            return
+
         logging.info(f"Fitting power curves with {len(df_unpivoted)} valid data points")
-        
+
         fig, ax = plt.subplots(figsize=(12, 8))
         x = np.linspace(0, 20, 100)
         

@@ -30,7 +30,10 @@ from pytorch_transformer_ts.autoformer.lightning_module import AutoformerLightni
 from pytorch_transformer_ts.spacetimeformer.estimator import SpacetimeformerEstimator
 from pytorch_transformer_ts.spacetimeformer.lightning_module import SpacetimeformerLightningModule
 from wind_forecasting.preprocessing.data_module import DataModule
-from wind_forecasting.postprocessing.probabilistic_metrics import continuous_ranked_probability_score, reliability, resolution, uncertainty, sharpness, pi_coverage_probability, pi_normalized_average_width, coverage_width_criterion 
+from wind_forecasting.postprocessing.probabilistic_metrics import continuous_ranked_probability_score, reliability, resolution, uncertainty, sharpness, pi_coverage_probability, pi_normalized_average_width, coverage_width_criterion
+# TACTIS-2 imports
+from pytorch_transformer_ts.tactis_2.estimator import TACTiSEstimator
+from pytorch_transformer_ts.tactis_2.lightning_module import TACTiSLightningModule
 
 # Configure logging and matplotlib backend
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
