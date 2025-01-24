@@ -154,7 +154,7 @@ class DataModule():
         dataset = IterableLazyFrame(data_path=self.train_ready_data_path, dtype=self.dtype)
         logging.info(f"Finished scanning dataset {self.train_ready_data_path}.")
         
-        print(f"Number of nan/null vars = {dataset.select(pl.sum_horizontal((cs.numeric().is_null() | cs.numeric().is_nan()).sum())).collect().item()}") 
+        # print(f"Number of nan/null vars = {dataset.select(pl.sum_horizontal((cs.numeric().is_null() | cs.numeric().is_nan()).sum())).collect().item()}") 
         
         logging.info("Getting continuity groups.") 
         if self.continuity_groups is None:
@@ -286,10 +286,10 @@ class DataModule():
             
             logging.info(f"Finished splitting datasets for all turbine case.") 
         
-        for split, datasets in [("train", self.train_dataset), ("val", self.val_dataset), ("test", self.test_dataset)]:
-            for ds in iter(datasets):
-                for key in ["target", "feat_dynamic_real"]:
-                    print(f"{split} {key} {ds['item_id']} dataset - num nan/nulls = {ds[key].select(pl.sum_horizontal((cs.numeric().is_null() | cs.numeric().is_nan()).sum())).collect().item()}")
+        # for split, datasets in [("train", self.train_dataset), ("val", self.val_dataset), ("test", self.test_dataset)]:
+        #     for ds in iter(datasets):
+        #         for key in ["target", "feat_dynamic_real"]:
+        #             print(f"{split} {key} {ds['item_id']} dataset - num nan/nulls = {ds[key].select(pl.sum_horizontal((cs.numeric().is_null() | cs.numeric().is_nan()).sum())).collect().item()}")
          
         return None
         
