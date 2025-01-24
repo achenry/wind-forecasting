@@ -1,6 +1,7 @@
 #!/bin/bash
 #SBATCH --nodes=1 # this needs to match Trainer(num_nodes...)
 #SBATCH --gres=gpu:1
+#SBATCH --ntasks=1
 #SBATCH --ntasks-per-node=1 # this needs to match Trainer(devices=...)
 #SBATCH --mem-per-cpu=85G
 #SBATCH --time=01:00:00
