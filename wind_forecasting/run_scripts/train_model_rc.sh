@@ -1,9 +1,11 @@
 #!/bin/bash
 #SBATCH --gres=gpu:1
-#SBATCH --ntasks=1
 #SBATCH --time=01:00:00
 #SBATCH --output=%j-%x.log
 #SBATCH --partition=atesting_a100
+#SBATCH --mem-per-cpu=85G
+#SBATCH --nodes=1 # this needs to match Trainer(num_nodes...)
+#SBATCH --ntasks-per-node=1 # this needs to match Trainer(devices=...)
 
 # sinteractive --partition=atesting_a100 --gres=gpu:1 --ntasks-per-node=1 --time=50:00
 

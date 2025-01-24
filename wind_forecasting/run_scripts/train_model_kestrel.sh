@@ -6,9 +6,8 @@
 #SBATCH --nodes=1 # this needs to match Trainer(num_nodes...)
 #SBATCH --gres=gpu:1
 #SBATCH --ntasks-per-node=1 # this needs to match Trainer(devices=...)
-#SBATCH --mem=0 # refers to CPU (not GPU) memory, automatically given all GPU memory in a SLURM job, 85G
-
-##SBATCH --mem-per-cpu=64G
+##SBATCH --mem=0 # refers to CPU (not GPU) memory, automatically given all GPU memory in a SLURM job, 85G
+#SBATCH --mem-per-cpu=85G
 
 ##SBATCH --ntasks=1
 

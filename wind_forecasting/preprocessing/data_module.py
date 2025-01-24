@@ -201,13 +201,13 @@ class DataModule():
             self.cardinality = list(self.static_features.select_dtypes("category").nunique().values)
             
             self.train_dataset = {f"TURBINE{turbine_id}_SPLIT{split}": 
-                self.get_df_by_turbine(self.train_dataset[split], turbine_id, return_path=True) 
+                self.get_df_by_turbine(self.train_dataset[split], turbine_id) 
                 for turbine_id in self.target_suffixes for split in range(len(self.train_dataset))}
             self.val_dataset = {f"TURBINE{turbine_id}_SPLIT{split}": 
-                self.get_df_by_turbine(self.val_dataset[split], turbine_id, return_path=True) 
+                self.get_df_by_turbine(self.val_dataset[split], turbine_id) 
                 for turbine_id in self.target_suffixes for split in range(len(self.val_dataset))}
             self.test_dataset = {f"TURBINE{turbine_id}_SPLIT{split}": 
-                self.get_df_by_turbine(self.test_dataset[split], turbine_id, return_path=True) 
+                self.get_df_by_turbine(self.test_dataset[split], turbine_id) 
                 for turbine_id in self.target_suffixes for split in range(len(self.test_dataset))}
 
             self.train_dataset = PolarsDataset(self.train_dataset, 
