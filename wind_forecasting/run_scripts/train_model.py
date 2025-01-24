@@ -95,8 +95,7 @@ def main():
     data_module.generate_splits()
 
     # %% DEFINE ESTIMATOR
-    if RUN_ONCE:
-        logging.info(f"Declaring estimator {args.model.capitalize()}")
+    logging.info(f"Declaring estimator {args.model.capitalize()}")
     estimator = globals()[f"{args.model.capitalize()}Estimator"](
         freq=data_module.freq, 
         prediction_length=data_module.prediction_length,
@@ -122,9 +121,7 @@ def main():
     )
 
     # %% TRAIN MODEL
-    if RUN_ONCE:
-        logging.info("Training model")
-        
+    logging.info("Training model")    
     predictor = estimator.train(
         training_data=data_module.train_dataset,
         validation_data=data_module.val_dataset,
