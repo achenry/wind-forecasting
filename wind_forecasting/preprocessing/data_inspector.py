@@ -751,24 +751,17 @@ class DataInspector:
             return df.collect(streaming=True)
 
     @staticmethod
-    def unpivot_dataframe(df, feature_types, turbine_signature, data_format="wide"):
+    def unpivot_dataframe(df, value_vars, turbine_signature, data_format="wide"):
+        id_vars = df.select(pl.exclude(*[f"^{vv}.*$" for vv in value_vars])).columns
+        # value_vars = df.select(pl.exclude(*[f"^{iv}.*$" for iv in id_vars])).columns 
         if data_format == 'wide':
             # Unpivot wide format to long format
-            if "continuity_group" in df.collect_schema().names():
-                return pl.concat([
-                  df.select(pl.col("time"), pl.col("continuity_group"), cs.starts_with(feature_type))\
-                  .unpivot(index=["time", "continuity_group"], variable_name="feature", value_name=feature_type)\
-                  .with_columns(pl.col("feature").str.extract(turbine_signature).alias("turbine_id"))\
-                  .drop("feature") for feature_type in feature_types], how="align")\
-                  .group_by("turbine_id", "time").agg(cs.numeric().drop_nulls().first()).sort("turbine_id", "time")
-            else:
-                return pl.concat([
-                    df.select(pl.col("time"), cs.starts_with(feature_type))\
-                    # .melt(id_vars=["time"], variable_name="feature", value_name=feature_type)\
-                    .unpivot(index=["time"], variable_name="feature", value_name=feature_type)
-                    .with_columns(pl.col("feature").str.extract(turbine_signature).alias("turbine_id"))\
-                    .drop("feature") for feature_type in feature_types], how="align")\
-                    .group_by("turbine_id", "time").agg(cs.numeric().drop_nulls().first()).sort("turbine_id", "time")
+            return pl.concat([
+                df.select(*[pl.col(id_var) for id_var in id_vars], cs.starts_with(feature_type))\
+                .unpivot(index=id_vars, variable_name="feature", value_name=feature_type)\
+                .with_columns(pl.col("feature").str.extract(turbine_signature, group_index=0).alias("turbine_id"))\
+                .drop("feature") for feature_type in value_vars if len(df.select(cs.starts_with(feature_type)).columns)], how="align")\
+                .group_by("turbine_id", *id_vars).agg(cs.numeric().drop_nulls().first()).sort("turbine_id", "time")
         else:
             # Data is already in long format
             return df
