@@ -2,10 +2,16 @@ import argparse
 import logging
 from memory_profiler import profile
 import os
-
+import sys
 import polars as pl
 import wandb
 import yaml
+
+# Forcefully insert the project root at the beginning of sys.path.
+current_dir = os.path.dirname(os.path.abspath(__file__))
+parent_dir = os.path.dirname(current_dir)
+project_root = os.path.dirname(parent_dir)
+sys.path.insert(0, project_root)
 
 from gluonts.torch.distributions import LowRankMultivariateNormalOutput
 from gluonts.model.forecast_generator import DistributionForecastGenerator
@@ -22,6 +28,8 @@ from pytorch_transformer_ts.autoformer.estimator import AutoformerEstimator
 from pytorch_transformer_ts.autoformer.lightning_module import AutoformerLightningModule
 from pytorch_transformer_ts.spacetimeformer.estimator import SpacetimeformerEstimator
 from pytorch_transformer_ts.spacetimeformer.lightning_module import SpacetimeformerLightningModule
+from pytorch_transformer_ts.tactis_2.estimator import TACTiSEstimator
+from pytorch_transformer_ts.tactis_2.lightning_module import TACTiSLightningModule
 from wind_forecasting.preprocessing.data_module import DataModule
 
 # Configure logging and matplotlib backend
@@ -97,28 +105,30 @@ def main():
     # %% DEFINE ESTIMATOR
     if RUN_ONCE:
         logging.info(f"Declaring estimator {args.model.capitalize()}")
-    estimator = globals()[f"{args.model.capitalize()}Estimator"](
-        freq=data_module.freq, 
+    if args.model == "tactis":
+        EstimatorClass = TACTiSEstimator
+    else:
+        EstimatorClass = globals()[f"{args.model.capitalize()}Estimator"]
+
+    estimator = EstimatorClass(
+        freq=data_module.freq,
         prediction_length=data_module.prediction_length,
         context_length=data_module.context_length,
-        num_feat_dynamic_real=data_module.num_feat_dynamic_real, 
+        num_feat_dynamic_real=data_module.num_feat_dynamic_real,
         num_feat_static_cat=data_module.num_feat_static_cat,
         cardinality=data_module.cardinality,
         num_feat_static_real=data_module.num_feat_static_real,
         input_size=data_module.num_target_vars,
-        scaling=False,
-        # lags_seq=[0, 1],
+        scaling=config["model"]["tactis"]["scaling"] if args.model == "tactis" and "tactis" in config["model"] and "scaling" in config["model"]["tactis"] else False,
         batch_size=config["dataset"].setdefault("batch_size", 128),
-        num_batches_per_epoch=config["trainer"].setdefault("limit_train_batches", 50), # TODO set this to be arbitrarily high st limit train_batches dominates
-        # train_sampler=SequentialSampler(min_past=data_module.context_length, min_future=data_module.prediction_length), # TODO SequentialSampler = terrible results
-        # validation_sampler=SequentialSampler(min_past=data_module.context_length, min_future=data_module.prediction_length),
-        train_sampler=ExpectedNumInstanceSampler(num_instances=1.0, min_past=data_module.context_length, min_future=data_module.prediction_length), # TODO should be context_len + max(seq_len) to avoid padding..
+        num_batches_per_epoch=config["trainer"].setdefault("limit_train_batches", 50),
+        train_sampler=ExpectedNumInstanceSampler(num_instances=1.0, min_past=data_module.context_length, min_future=data_module.prediction_length),
         validation_sampler=ValidationSplitSampler(min_past=data_module.context_length, min_future=data_module.prediction_length),
         activation="relu",
         time_features=[second_of_minute, minute_of_hour, hour_of_day, day_of_year],
         distr_output=globals()[config["model"]["distr_output"]["class"]](dim=data_module.num_target_vars, **config["model"]["distr_output"]["kwargs"]),
         trainer_kwargs=config["trainer"],
-        **config["model"][args.model]
+        **(config["model"]["tactis"] if args.model == "tactis" and "tactis" in config["model"] else config["model"].get(args.model, {}))
     )
 
     # %% TRAIN MODEL

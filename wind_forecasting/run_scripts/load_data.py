@@ -1,4 +1,5 @@
 import sys
+import os
 import argparse
 import logging
 from memory_profiler import profile
@@ -6,6 +7,15 @@ from memory_profiler import profile
 import polars as pl
 import matplotlib
 import yaml
+
+# Forcefully insert the project root at the beginning of sys.path.
+current_dir = os.path.dirname(os.path.abspath(__file__))
+parent_dir = os.path.dirname(current_dir)
+project_root = os.path.dirname(parent_dir)
+sys.path.insert(0, project_root)
+
+# print("Current working directory:", os.getcwd())
+# print("sys.path:", sys.path)
 
 from wind_forecasting.preprocessing.data_module import DataModule
 
