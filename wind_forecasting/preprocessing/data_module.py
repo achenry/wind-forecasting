@@ -115,7 +115,7 @@ class DataModule():
                     .group_by("time").agg(cs.numeric().mean())\
                     .sort(["continuity_group", "time"])
                     # .collect().write_parquet(self.train_ready_data_path, statistics=False)
-        
+        # TODO if resampling requieres upsampling: historic_measurements.upsample(time_column="time", every=self.data_module.freq).fill_null(strategy="forward")
         # dataset = IterableLazyFrame(data_path=self.train_ready_data_path, dtype=self.dtype) # data stored in RAM
         # gc.collect()
         
@@ -146,16 +146,11 @@ class DataModule():
         # univariate=ListDataset of multiple dictionaires each corresponding to measurements from a single turbine, to implicitly capture correlations
         # or multivariate=multivariate dictionary for all measurements, to explicity capture all correlations
         # or debug= to use electricity dataset
-        
-    def generate_splits(self):
-        assert os.path.exists(self.train_ready_data_path), "Must run generate_datasets before generate_splits."
-        
-        logging.info(f"Scanning dataset {self.train_ready_data_path}.") 
-        dataset = IterableLazyFrame(data_path=self.train_ready_data_path, dtype=self.dtype)
-        logging.info(f"Finished scanning dataset {self.train_ready_data_path}.")
-        
+    
+    def get_dataset_info(self, dataset=None):
         # print(f"Number of nan/null vars = {dataset.select(pl.sum_horizontal((cs.numeric().is_null() | cs.numeric().is_nan()).sum())).collect().item()}") 
-        
+        if dataset is None:
+            dataset = IterableLazyFrame(data_path=self.train_ready_data_path, dtype=self.dtype) 
         logging.info("Getting continuity groups.") 
         if self.continuity_groups is None:
             if "continuity_group" in dataset.collect_schema().names():
@@ -177,10 +172,42 @@ class DataModule():
         logging.info(f"Found column names target_cols={self.target_cols}, feat_dynamic_real_cols={self.feat_dynamic_real_cols}.") 
         
         if self.per_turbine_target:
-            logging.info(f"Splitting datasets for per turbine case.") 
-            
             self.num_target_vars = len(self.target_prefixes)
             self.num_feat_dynamic_real = int(len(self.feat_dynamic_real_cols) / len(self.target_suffixes))
+            self.num_feat_static_cat = 1
+            self.num_feat_static_real = 0
+            self.target_cols = self.target_prefixes
+            
+            static_index = [f"TURBINE{turbine_id}_SPLIT{split}" for turbine_id in self.target_suffixes for split in range(len(self.train_dataset))]
+            self.static_features = pd.DataFrame(
+                {
+                    "turbine_id": pd.Categorical(turbine_id for turbine_id in self.target_suffixes for split in range(len(self.train_dataset)))
+                },
+                index=static_index
+            )
+
+            self.cardinality = list(self.static_features.select_dtypes("category").nunique().values)
+            
+        else:
+            self.num_feat_dynamic_real = len(self.feat_dynamic_real_cols)
+            self.num_target_vars = len(self.target_cols)
+            self.num_feat_static_cat = 0
+            self.num_feat_static_real = 0
+            
+            self.static_features = pd.DataFrame()
+            self.cardinality = None 
+    
+    def generate_splits(self):
+        assert os.path.exists(self.train_ready_data_path), "Must run generate_datasets before generate_splits."
+        
+        logging.info(f"Scanning dataset {self.train_ready_data_path}.") 
+        dataset = IterableLazyFrame(data_path=self.train_ready_data_path, dtype=self.dtype)
+        logging.info(f"Finished scanning dataset {self.train_ready_data_path}.")
+        
+        self.get_dataset_info(dataset)
+        
+        if self.per_turbine_target:
+            logging.info(f"Splitting datasets for per turbine case.") 
 
             cg_counts = dataset.select("continuity_group").collect(streaming=True).to_series().value_counts().sort("continuity_group").select("count").to_numpy().flatten()
             self.rows_per_split = [
@@ -192,15 +219,6 @@ class DataModule():
             self.train_dataset, self.val_dataset, self.test_dataset = \
                 self.split_dataset([dataset.filter(pl.col("continuity_group") == cg) for cg in self.continuity_groups]) 
             
-            static_index = [f"TURBINE{turbine_id}_SPLIT{split}" for turbine_id in self.target_suffixes for split in range(len(self.train_dataset))]
-            self.static_features = pd.DataFrame(
-                {
-                    "turbine_id": pd.Categorical(turbine_id for turbine_id in self.target_suffixes for split in range(len(self.train_dataset)))
-                },
-                index=static_index
-            )
-
-            self.cardinality = list(self.static_features.select_dtypes("category").nunique().values)
             
             self.train_dataset = {f"TURBINE{turbine_id}_SPLIT{split}": 
                 self.get_df_by_turbine(self.train_dataset[split], turbine_id) 
@@ -227,27 +245,19 @@ class DataModule():
                             feat_dynamic_real=self.feat_dynamic_real_prefixes, static_features=self.static_features, 
                             assume_sorted=True, assume_resampled=True, unchecked=True)
 
-            self.num_feat_static_cat = 1
-            self.num_feat_static_real = 0
-            self.target_cols = self.target_prefixes
+
             
             logging.info(f"Finished splitting datasets for per turbine case.") 
 
         else:
             logging.info(f"Splitting datasets for all turbine case.") 
-            self.num_feat_dynamic_real = len(self.feat_dynamic_real_cols)
-            self.num_target_vars = len(self.target_cols)
+            
             cg_counts = dataset.select("continuity_group").collect().to_series().value_counts().sort("continuity_group").select("count").to_numpy().flatten()
             self.rows_per_split = [int(n_rows / self.n_splits) for n_rows in cg_counts] # each element corresponds to each continuity group
             del cg_counts
             
             self.train_dataset, self.val_dataset, self.test_dataset = \
                 self.split_dataset([dataset.filter(pl.col("continuity_group") == cg) for cg in self.continuity_groups])
-
-            self.static_features = pd.DataFrame()
-            self.cardinality = None 
-            self.num_feat_static_cat = 0
-            self.num_feat_static_real = 0
 
             # train_grouper = MultivariateGrouper(
             #     max_target_dim=self.num_target_vars,
