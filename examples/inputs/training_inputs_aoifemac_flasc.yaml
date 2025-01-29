@@ -7,6 +7,7 @@ experiment:
 optuna:
   journal_dir: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/optuna
   use_rdb: True
+  n_trials: 2
   
 dataset: 
     data_path: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/preprocessed_flasc_data/SMARTEOLE_WakeSteering_SCADA_1minData_normalized.parquet
@@ -85,7 +86,7 @@ trainer:
     # n_workers: auto
     # debug: False 
     # accumulate: 1.0
-    max_epochs: 3 # Maximum number of epochs to train 100
+    max_epochs: 1 # Maximum number of epochs to train 100
     limit_train_batches: 100
     default_root_dir: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/checkpoints
     # precision: 32-true # 16-mixed enables mixed precision training 32-true is full precision
