@@ -13,6 +13,7 @@ import seaborn as sns
 from matplotlib import pyplot as plt
 import yaml
 
+from gluonts.torch.distributions import LowRankMultivariateNormalOutput
 from gluonts.model.forecast_generator import DistributionForecastGenerator
 from gluonts.evaluation import MultivariateEvaluator, make_evaluation_predictions
 
@@ -72,7 +73,7 @@ def main():
                                 target_prefixes=["ws_horz", "ws_vert"], feat_dynamic_real_prefixes=["nd_cos", "nd_sin"],
                                 freq=config["dataset"]["resample_freq"], target_suffixes=config["dataset"]["target_turbine_ids"],
                                 per_turbine_target=config["dataset"]["per_turbine_target"], dtype=pl.Float32)
-    data_module.split_datasets() 
+    data_module.generate_splits() 
     
      # %% DEFINE ESTIMATOR
     logging.info("Declaring estimator")
@@ -93,7 +94,6 @@ def main():
         # validation_sampler=SequentialSampler(min_past=data_module.context_length, min_future=data_module.prediction_length),
         train_sampler=ExpectedNumInstanceSampler(num_instances=1.0, min_past=data_module.context_length, min_future=data_module.prediction_length), # TODO should be context_len + max(seq_len) to avoid padding..
         validation_sampler=ValidationSplitSampler(min_past=data_module.context_length, min_future=data_module.prediction_length),
-        activation="relu",
         time_features=[second_of_minute, minute_of_hour, hour_of_day, day_of_year],
         distr_output=globals()[config["model"]["distr_output"]["class"]](dim=data_module.num_target_vars, **config["model"]["distr_output"]["kwargs"]),
         trainer_kwargs=config["trainer"],

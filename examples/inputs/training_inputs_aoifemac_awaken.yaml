@@ -4,6 +4,11 @@ experiment:
   run_name: windfarm_debug
   log_dir: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/logging/
 
+optuna:
+  journal_dir: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/optuna
+  use_rdb: False
+  n_trials: 2
+
 dataset: 
     data_path: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/preprocessed_awaken_data/short_loaded_data_normalized.parquet
     normalization_consts_path: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/preprocessed_awaken_data/short_loaded_data_normalization_consts.csv
@@ -32,12 +37,14 @@ model:
     n_heads: 4 # Number of heads for spatio-temporal attention
     d_model: 64
     dim_feedforward: 64
+    activation: relu
   autoformer:
     # embedding_dimension: 32 # Determines dimension of the embedding space
     num_encoder_layers: 3 # Number of transformer blocks stacked
     num_decoder_layers: 3 # Number of transformer blocks stacked
     n_heads: 4 # Number of heads for spatio-temporal attention
     dim_feedforward: 64
+    activation: relu
   spacetimeformer:
     # embedding_dimension: 32 # Determines dimension of the embedding space
     num_encoder_layers: 3 # Number of transformer blocks stacked
@@ -60,6 +67,7 @@ model:
     # class_loss_imp: 0.1
     pos_emb_type: abs
     embed_method: spatio-temporal
+    activation: relu
 
 callbacks: 
     progress_bar:  

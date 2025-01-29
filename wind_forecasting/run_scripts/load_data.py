@@ -30,6 +30,7 @@ def main():
     logging.info("Parsing configuration from yaml and command line arguments")
     parser = argparse.ArgumentParser(prog="WindFarmForecasting")
     parser.add_argument("-cnf", "--config", type=str)
+    parser.add_argument("-rl", "--reload", action="store_true")
     # pretrained_filename = "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/logging/wf_forecasting/lznjshyo/checkpoints/epoch=0-step=50.ckpt"
     args = parser.parse_args()
 

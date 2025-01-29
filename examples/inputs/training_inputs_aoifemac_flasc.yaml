@@ -4,11 +4,16 @@ experiment:
   run_name: windfarm_debug
   log_dir: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/logging/
 
+optuna:
+  journal_dir: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/optuna
+  use_rdb: True
+  n_trials: 2
+  
 dataset: 
     data_path: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/preprocessed_flasc_data/SMARTEOLE_WakeSteering_SCADA_1minData_normalized.parquet
     normalization_consts_path: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/preprocessed_flasc_data/SMARTEOLE_WakeSteering_SCADA_1minData_normalization_consts.csv
-    context_length: 9 # 120=10 minutes for 5 sec sample size
-    prediction_length: 5 # 120=10 minutes for 5 sec sample size
+    context_length: 20 # 120=10 minutes for 5 sec sample size
+    prediction_length: 20 # 120=10 minutes for 5 sec sample size
     target_turbine_ids: # or leave blank to capture all
     normalize: False 
     batch_size: 128
@@ -32,12 +37,14 @@ model:
     n_heads: 4 # Number of heads for spatio-temporal attention
     d_model: 64
     dim_feedforward: 64
+    activation: relu
   autoformer:
     # embedding_dimension: 32 # Determines dimension of the embedding space
     num_encoder_layers: 3 # Number of transformer blocks stacked
     num_decoder_layers: 3 # Number of transformer blocks stacked
     n_heads: 4 # Number of heads for spatio-temporal attention
     dim_feedforward: 64
+    activation: relu
   spacetimeformer:
     # embedding_dimension: 32 # Determines dimension of the embedding space
     num_encoder_layers: 3 # Number of transformer blocks stacked
@@ -52,7 +59,6 @@ model:
     dropout_attn_out: 0.0
     dropout_ff: 0.3
     dropout_qkv: 0.0
-    max_seq_len: 14
     start_token_len: 0
     performer_redraw_interval: 100
     use_shifted_time_windows: False
@@ -61,6 +67,7 @@ model:
     # class_loss_imp: 0.1
     pos_emb_type: abs
     embed_method: spatio-temporal
+    activation: relu
 
 callbacks: 
     progress_bar:  
@@ -80,7 +87,7 @@ trainer:
     # debug: False 
     # accumulate: 1.0
     max_epochs: 1 # Maximum number of epochs to train 100
-    limit_train_batches: 50
+    limit_train_batches: 100
     default_root_dir: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/checkpoints
     # precision: 32-true # 16-mixed enables mixed precision training 32-true is full precision
     # batch_size: 32 # larger = more stable gradients
