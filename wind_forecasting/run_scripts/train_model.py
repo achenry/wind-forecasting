@@ -13,7 +13,7 @@ parent_dir = os.path.dirname(current_dir)
 project_root = os.path.dirname(parent_dir)
 sys.path.insert(0, project_root)
 
-from gluonts.torch.distributions import LowRankMultivariateNormalOutput
+from gluonts.torch.distributions import LowRankMultivariateNormalOutput, StudentTOutput
 from gluonts.model.forecast_generator import DistributionForecastGenerator
 from gluonts.time_feature._base import second_of_minute, minute_of_hour, hour_of_day, day_of_year
 from gluonts.transform import ExpectedNumInstanceSampler, ValidationSplitSampler, SequentialSampler
@@ -31,6 +31,7 @@ from pytorch_transformer_ts.spacetimeformer.lightning_module import Spacetimefor
 from pytorch_transformer_ts.tactis_2.estimator import TACTiSEstimator
 from pytorch_transformer_ts.tactis_2.lightning_module import TACTiSLightningModule
 from wind_forecasting.preprocessing.data_module import DataModule
+
 
 # Configure logging and matplotlib backend
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -99,7 +100,8 @@ def main():
                                 target_prefixes=["ws_horz", "ws_vert"], feat_dynamic_real_prefixes=["nd_cos", "nd_sin"],
                                 freq=config["dataset"]["resample_freq"], target_suffixes=config["dataset"]["target_turbine_ids"],
                                     per_turbine_target=config["dataset"]["per_turbine_target"], dtype=pl.Float32)
-    # if RUN_ONCE:
+    if RUN_ONCE:
+        data_module.generate_datasets()
     data_module.generate_splits()
 
     # %% DEFINE ESTIMATOR
@@ -111,24 +113,33 @@ def main():
         EstimatorClass = globals()[f"{args.model.capitalize()}Estimator"]
 
     estimator = EstimatorClass(
-        freq=data_module.freq,
-        prediction_length=data_module.prediction_length,
-        context_length=data_module.context_length,
-        num_feat_dynamic_real=data_module.num_feat_dynamic_real,
-        num_feat_static_cat=data_module.num_feat_static_cat,
-        cardinality=data_module.cardinality,
-        num_feat_static_real=data_module.num_feat_static_real,
-        input_size=data_module.num_target_vars,
-        scaling=config["model"]["tactis"]["scaling"] if args.model == "tactis" and "tactis" in config["model"] and "scaling" in config["model"]["tactis"] else False,
-        batch_size=config["dataset"].setdefault("batch_size", 128),
-        num_batches_per_epoch=config["trainer"].setdefault("limit_train_batches", 50),
-        train_sampler=ExpectedNumInstanceSampler(num_instances=1.0, min_past=data_module.context_length, min_future=data_module.prediction_length),
-        validation_sampler=ValidationSplitSampler(min_past=data_module.context_length, min_future=data_module.prediction_length),
-        activation="relu",
-        time_features=[second_of_minute, minute_of_hour, hour_of_day, day_of_year],
-        distr_output=globals()[config["model"]["distr_output"]["class"]](dim=data_module.num_target_vars, **config["model"]["distr_output"]["kwargs"]),
-        trainer_kwargs=config["trainer"],
-        **(config["model"]["tactis"] if args.model == "tactis" and "tactis" in config["model"] else config["model"].get(args.model, {}))
+        freq=config["dataset"]["resample_freq"],
+        prediction_length=config["dataset"]["prediction_length"],
+        context_length=config["dataset"]["context_length"],
+        num_feat_dynamic_real=len(data_module.feat_dynamic_real_cols),
+        num_feat_static_real=0, # len(data_module.feat_static_real_cols),
+        num_feat_static_cat=0, # len(data_module.feat_static_cat_cols),
+        cardinality=[], # [len(data_module.turbine_ids)],
+        batch_size=config["training"]["batch_size"],
+        num_batches_per_epoch=config["training"]["num_batches_per_epoch"],
+        trainer_kwargs = config["trainer"],
+        model_kwargs = {
+            "num_series": data_module.num_turbines if config["dataset"]["per_turbine_target"] else 1,
+            "flow_series_embedding_dim": config["model"]["flow_series_embedding_dim"],
+            "copula_series_embedding_dim": config["model"]["copula_series_embedding_dim"],
+            "flow_input_encoder_layers": config["model"]["flow_input_encoder_layers"],
+            "copula_input_encoder_layers": config["model"]["copula_input_encoder_layers"],
+            "num_layers_encoder": config["model"]["num_layers_encoder"],
+            "num_decoder_layers": config["model"]["num_decoder_layers"],
+            "prediction_length": config["dataset"]["prediction_length"],
+            "context_length": config["dataset"]["context_length"],
+            "num_feat_dynamic_real": len(data_module.feat_dynamic_real_cols),
+            "num_feat_static_real": 0,
+            "num_feat_static_cat": 0,
+            "cardinality": [],
+            "distr_output": globals()[config["model"]["distr_output"]["class"]](**config["model"]["distr_output"]["kwargs"]),
+            "freq": config["dataset"]["resample_freq"],
+        }
     )
 
     # %% TRAIN MODEL

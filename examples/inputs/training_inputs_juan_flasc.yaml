@@ -1,5 +1,3 @@
-
-
 experiment:
   run_name: tactis2_windfarm_subset_debug
   log_dir: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/logging/
@@ -24,16 +22,15 @@ model:
   distr_output:
     class: StudentTOutput
     kwargs: {}
-  tactis:
-    num_series: 10
-    flow_series_embedding_dim: 32
-    copula_series_embedding_dim: 32
-    flow_input_encoder_layers: 2
-    copula_input_encoder_layers: 2
-    num_layers_encoder: 2
-    num_decoder_layers: 2
-    num_parallel_samples: 100
-    scaling: mean
+  num_series: 10
+  flow_series_embedding_dim: 16
+  copula_series_embedding_dim: 16
+  flow_input_encoder_layers: 2
+  copula_input_encoder_layers: 2
+  num_layers_encoder: 2
+  num_decoder_layers: 2
+  num_parallel_samples: 100
+  scaling: mean
 
 callbacks:
     progress_bar:
@@ -61,3 +58,7 @@ trainer:
     # dropout: 0.1 # Regularization parameter (prevents overfitting)
     # patience: 50 # Number of epochs to wait before early stopping
     # accumulate_grad_batches: 2 # Simulates a larger batch size
+
+training:
+  batch_size: 64
+  num_batches_per_epoch: 50
