@@ -7,6 +7,7 @@ experiment:
 optuna:
   journal_dir: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/optuna
   use_rdb: False
+  n_trials: 2
 
 dataset: 
     data_path: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/preprocessed_awaken_data/short_loaded_data_normalized.parquet
