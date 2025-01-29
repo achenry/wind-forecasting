@@ -95,8 +95,7 @@ def main():
     data_module.generate_splits()
 
     # %% DEFINE ESTIMATOR
-    if RUN_ONCE:
-        logging.info(f"Declaring estimator {args.model.capitalize()}")
+    logging.info(f"Declaring estimator {args.model.capitalize()}")
     estimator = globals()[f"{args.model.capitalize()}Estimator"](
         freq=data_module.freq, 
         prediction_length=data_module.prediction_length,
@@ -114,7 +113,6 @@ def main():
         # validation_sampler=SequentialSampler(min_past=data_module.context_length, min_future=data_module.prediction_length),
         train_sampler=ExpectedNumInstanceSampler(num_instances=1.0, min_past=data_module.context_length, min_future=data_module.prediction_length), # TODO should be context_len + max(seq_len) to avoid padding..
         validation_sampler=ValidationSplitSampler(min_past=data_module.context_length, min_future=data_module.prediction_length),
-        activation="relu",
         time_features=[second_of_minute, minute_of_hour, hour_of_day, day_of_year],
         distr_output=globals()[config["model"]["distr_output"]["class"]](dim=data_module.num_target_vars, **config["model"]["distr_output"]["kwargs"]),
         trainer_kwargs=config["trainer"],
@@ -122,9 +120,7 @@ def main():
     )
 
     # %% TRAIN MODEL
-    if RUN_ONCE:
-        logging.info("Training model")
-        
+    logging.info("Training model")    
     predictor = estimator.train(
         training_data=data_module.train_dataset,
         validation_data=data_module.val_dataset,
