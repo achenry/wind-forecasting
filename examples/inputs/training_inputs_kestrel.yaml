@@ -4,6 +4,11 @@ experiment:
   run_name: windfarm_debug
   log_dir: /projects/ssc/ahenry/wind_forecasting/logging/
 
+optuna:
+  journal_dir: /projects/ssc/ahenry/wind_forecasting/optuna
+  use_rdb: False
+  n_trials: 100
+
 dataset: 
     # data_path: /projects/ssc/ahenry/wind_forecasting/awaken_data/filled_data_normalized.parquet
     # normalization_consts_path: /projects/ssc/ahenry/wind_forecasting/awaken_data/filled_data_normalization_consts.csv
@@ -37,17 +42,19 @@ model:
     n_heads: 4 # Number of heads for spatio-temporal attention
     d_model: 64
     dim_feedforward: 64
+    activation: relu
   autoformer:
     # embedding_dimension: 32 # Determines dimension of the embedding space
     num_encoder_layers: 3 # Number of transformer blocks stacked
     num_decoder_layers: 3 # Number of transformer blocks stacked
     n_heads: 4 # Number of heads for spatio-temporal attention
     dim_feedforward: 64
+    activation: relu
   spacetimeformer:
     # embedding_dimension: 32 # Determines dimension of the embedding space
     num_encoder_layers: 3 # Number of transformer blocks stacked
     num_decoder_layers: 3 # Number of transformer blocks stacked
-    n_heads: 4 # Number of heads for spatio-temporal attention
+    n_heads: 3 # Number of heads for spatio-temporal attention
     d_model: 64
     dim_feedforward: 64
     d_queries_keys: 64
@@ -57,7 +64,6 @@ model:
     dropout_attn_out: 0.0
     dropout_ff: 0.3
     dropout_qkv: 0.0
-    max_seq_len: 14
     start_token_len: 0
     performer_redraw_interval: 100
     use_shifted_time_windows: False
@@ -66,6 +72,7 @@ model:
     # class_loss_imp: 0.1
     pos_emb_type: abs
     embed_method: spatio-temporal
+    activation: relu
 
 callbacks: 
     progress_bar:  
