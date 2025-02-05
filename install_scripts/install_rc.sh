@@ -41,6 +41,17 @@ git checkout mv_prob
 python -m pip install -e .
 cd ..
 
+git clone https://github.com/achenry/floris.git
+cd floris
+git checkout feature/mpc
+pip install -e .
+cd ..
+
+git clone https://github.com/achenry/wind-hybrid-open-controller.git
+cd wind-hybrid-open-controller
+git checkout feature/wind_preview
+pip install -e .
+cd ..
 
 # git clone https://github.com/achenry/OpenOA
 # cd OpenOA
