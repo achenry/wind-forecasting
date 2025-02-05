@@ -182,7 +182,6 @@ def main():
             for o, output_type in enumerate(data_module.target_prefixes):
                 ax = axs[ax_idx]
                 
-                # TODO change plotting for perturbine case
                 col_idx = [c for c, col in enumerate(data_module.target_cols) if output_type in col]
                 col_names = [col for col in data_module.target_cols if output_type in col]
                 true_df = ts[-data_module.context_length - data_module.prediction_length:][col_idx]\
