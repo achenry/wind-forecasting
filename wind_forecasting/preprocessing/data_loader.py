@@ -84,7 +84,7 @@ class DataLoader:
         self.ffill_limit = ffill_limit
 
         self.turbine_signature = turbine_signature
-        self.datetime_signature = list(datetime_signature.items())[0] # mapping from a regex expression to a datetime format to capture datetime from filepaths
+        self.datetime_signature = list(datetime_signature.items())[0] if datetime_signature else None # mapping from a regex expression to a datetime format to capture datetime from filepaths
         self.turbine_ids = set()
         # self.turbine_ids = sorted(list(set(k.split("_")[-1] for k in self.feature_mapping.keys() if re.search(r'\d', k)))) 
 
@@ -124,19 +124,21 @@ class DataLoader:
                     merge_idx = 0
                     merged_paths = []
                     # init_used_ram = virtual_memory().percent 
-                    
                      
                     file_futures = [ex.submit(self._read_single_file, f, file_path, os.path.join(temp_save_dir, os.path.basename(file_path))) for f, file_path in enumerate(self.file_paths)] #4% increase in mem
                     
                     for f, file_path in enumerate(self.file_paths):
                         used_ram = virtual_memory().percent 
-                        if (len(processed_file_paths) < self.merge_chunk or used_ram < self.ram_limit) and (f != len(self.file_paths) - 1):
-                            logging.info(f"Used RAM = {used_ram}%. Continue to buffering {len(processed_file_paths)} single files.")
+                         
+                        # if we have enough ram to continue to process files AND we still have files to process
+                        if (len(processed_file_paths) < self.merge_chunk or used_ram < self.ram_limit):
+                            logging.info(f"Used RAM = {used_ram}%. Continue adding to buffer of {len(processed_file_paths)} processed single files.")
                             # res = ex.submit(self._read_single_file, f, file_path).result()
                             res = file_futures[f].result() #.5% increase in mem
                             if res is not None: 
                                 processed_file_paths.append(os.path.join(temp_save_dir, os.path.basename(file_path)))
-                        else:
+                        
+                        if not (len(processed_file_paths) < self.merge_chunk or used_ram < self.ram_limit) or (f == len(self.file_paths) - 1):
                             # process what we have so far and dump processed lazy frames
                             if f == (len(self.file_paths) - 1):
                                 logging.info(f"Used RAM = {used_ram}%. Pause for FINAL merge/sort/resample/fill of {len(processed_file_paths)} files read so far.")
@@ -202,13 +204,13 @@ class DataLoader:
             merged_paths = []
             for f, file_path in enumerate(self.file_paths):
                 used_ram = virtual_memory().percent
-                if  (len(processed_file_paths) < self.merge_chunk or used_ram < self.ram_limit) and (f != len(self.file_paths) - 1):
+                if (len(processed_file_paths) < self.merge_chunk or used_ram < self.ram_limit):
                     # logging.info(f"Used RAM = {used_ram}%. Continue processing single files.")
                     res = self._read_single_file(f, file_path, 
                                                  os.path.join(temp_save_dir, os.path.basename(file_path)))
                     if res is not None: 
                         processed_file_paths.append(os.path.join(temp_save_dir, os.path.basename(file_path)))
-                else:
+                if not (len(processed_file_paths) < self.merge_chunk or used_ram < self.ram_limit) or (f == len(self.file_paths) - 1):
                     # process what we have so far and dump processed lazy frames
                     if f == (len(self.file_paths) - 1):
                         logging.info(f"Used RAM = {used_ram}%. Pause for FINAL merge/sort/resample/fill of {len(processed_file_paths)} files read so far.")
@@ -282,14 +284,20 @@ class DataLoader:
     # @profile 
     def merge_multiple_files(self, processed_file_paths, i, temp_save_dir):
         # INFO: @Juan 11/13/24 Added check for data patterns in the names and also added a check for single files
+        # if len(processed_file_paths) == 1:
+        #     df_queries = [pl.scan_parquet(fp) for fp in processed_file_paths]
+        #     df_queries = self.sort_resample_refill(df_queries)
+        #     return processed_file_paths[0]
+        
         join_start = time.time()
         logging.info(f"✅ Started join of {len(processed_file_paths)} files.")
         df_queries = [pl.scan_parquet(fp) for fp in processed_file_paths]
         
         # Check if files have date patterns in their names
-        has_date_pattern = all(re.search(self.datetime_signature[0], os.path.basename(fp)) for fp in processed_file_paths)
+        has_date_pattern = self.datetime_signature is not None and all(re.search(self.datetime_signature[0], os.path.basename(fp)) for fp in processed_file_paths)
         unique_file_timestamps = sorted(set(re.findall(self.datetime_signature[0], fp)[0] for fp in processed_file_paths 
-                                                if re.search(self.datetime_signature[0], fp)))
+                                                if re.search(self.datetime_signature[0], fp))) if has_date_pattern else None
+        
         if has_date_pattern and (len(processed_file_paths) > len(unique_file_timestamps)):
             # selectively join dataframes for same timestamps but different turbines, then concatenate different time stamps (more efficient less joins)
             
@@ -317,8 +325,8 @@ class DataLoader:
             else:
                 df_queries = pl.concat(df_queries, how="diagonal").group_by("time").agg(cs.numeric().mean())
         logging.info(f"Finished join of {len(processed_file_paths)} files.")
-        
-        df_queries = self.sort_resample_refill(df_queries)
+       
+        df_queries = self.sort_resample_refill(df_queries) 
         merged_path = os.path.join(temp_save_dir, f"df{i}.parquet")
         df_queries.collect().write_parquet(merged_path, statistics=False)
         return merged_path 
@@ -742,133 +750,3 @@ class DataLoader:
             df = self.convert_time_to_sin(df)
             df = self.normalize_features(df)
         return df
-
-########################################################## INPUTS ##########################################################
-# if __name__ == "__main__":
-#     from sys import platform
-#     RELOAD_DATA = True
-#     PLOT = False
-
-#     DT = 5
-#     DATA_FORMAT = "csv"
-
-#     if platform == "darwin" and DATA_FORMAT == "netcdf":
-#         DATA_DIR = "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data"
-#         # PL_SAVE_PATH = "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/kp.turbine.zo2.b0.raw.parquet"
-#         # FILE_SIGNATURE = "kp.turbine.z02.b0.*.*.*.nc"
-#         PL_SAVE_PATH = "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/short_loaded_data.parquet"
-#         FILE_SIGNATURE = "kp.turbine.z02.b0.202203*1.*.*.nc"
-#         MULTIPROCESSOR = "cf"
-#         TURBINE_INPUT_FILEPATH = "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/inputs/ge_282_127.yaml"
-#         FARM_INPUT_FILEPATH = "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/inputs/gch_KP_v4.yaml"
-#         FEATURES = ["time", "turbine_id", "turbine_status", "wind_direction", "wind_speed", "power_output", "nacelle_direction"]
-#         WIDE_FORMAT = False
-#         feature_mapping = {"date": "time",
-#                           "turbine_id": "turbine_id",
-#                           "WTUR.TurSt": "turbine_status",
-#                           "WMET.HorWdDir": "wind_direction",
-#                           "WMET.HorWdSpd": "wind_speed",
-#                           "WTUR.W": "power_output",
-#                           "WNAC.Dir": "nacelle_direction"
-#                           }
-#     elif platform == "linux" and DATA_FORMAT == "netcdf":
-#         # DATA_DIR = "/pl/active/paolab/awaken_data/kp.turbine.z02.b0/"
-#         DATA_DIR = "/projects/ssc/ahenry/wind_forecasting/awaken_data/kp.turbine.z02.b0/"
-#         # PL_SAVE_PATH = "/scratch/alpine/aohe7145/awaken_data/kp.turbine.zo2.b0.raw.parquet"
-#         # PL_SAVE_PATH = "/projects/ssc/ahenry/wind_forecasting/awaken_data/loaded_data.parquet"
-#         PL_SAVE_PATH = os.path.join("/tmp/scratch", os.environ["SLURM_JOB_ID"], "loaded_data.parquet")
-#         # print(f"PL_SAVE_PATH = {PL_SAVE_PATH}")
-#         FILE_SIGNATURE = "kp.turbine.z02.b0.*.*.*.nc"
-#         MULTIPROCESSOR = "mpi"
-#         # TURBINE_INPUT_FILEPATH = "/projects/aohe7145/toolboxes/wind-forecasting/examples/inputs/ge_282_127.yaml"
-#         TURBINE_INPUT_FILEPATH = "/home/ahenry/toolboxes/wind_forecasting_env/wind-forecasting/examples/inputs/ge_282_127.yaml"
-#         # FARM_INPUT_FILEPATH = "/projects/aohe7145/toolboxes/wind-forecasting/examples/inputs/gch_KP_v4.yaml"
-#         FARM_INPUT_FILEPATH = "/home/ahenry/toolboxes/wind_forecasting_env/wind-forecasting/examples/inputs/gch_KP_v4.yaml"
-#         FEATURES = ["time", "turbine_id", "turbine_status", "wind_direction", "wind_speed", "power_output", "nacelle_direction"]
-#         WIDE_FORMAT = False # not originally in wide format
-#         feature_mapping = {"date": "time",
-#                           "turbine_id": "turbine_id",
-#                           "WTUR.TurSt": "turbine_status",
-#                           "WMET.HorWdDir": "wind_direction",
-#                           "WMET.HorWdSpd": "wind_speed",
-#                           "WTUR.W": "power_output",
-#                           "WNAC.Dir": "nacelle_direction"
-#                           }
-        
-#     elif platform == "linux" and DATA_FORMAT == "csv":
-#         # DATA_DIR = "/pl/active/paolab/awaken_data/kp.turbine.z02.b0/"
-#         # DATA_DIR = "examples/inputs/awaken_data"
-#         DATA_DIR = "examples/inputs/SMARTEOLE-WFC-open-dataset"
-#         # PL_SAVE_PATH = "/scratch/alpine/aohe7145/awaken_data/kp.turbine.zo2.b0.raw.parquet"
-#         PL_SAVE_PATH = "examples/inputs/SMARTEOLE-WFC-open-dataset/processed/SMARTEOLE_WakeSteering_SCADA_1minData.parquet"
-#         FILE_SIGNATURE = "SMARTEOLE_WakeSteering_SCADA_1minData.csv"
-#         MULTIPROCESSOR = "cf" # mpi for HPC or "cf" for local computing
-#         # TURBINE_INPUT_FILEPATH = "/projects/$USER/toolboxes/wind-forecasting/examples/inputs/ge_282_127.yaml"
-#         # FARM_INPUT_FILEPATH = "/projects/$USER/toolboxes/wind-forecasting/examples/inputs/gch_KP_v4.yaml"
-#         TURBINE_INPUT_FILEPATH = "examples/inputs/ge_282_127.yaml"
-#         FARM_INPUT_FILEPATH = "examples/inputs/gch_KP_v4.yaml"
-        
-#         FEATURES = ["time", "active_power", "wind_speed", "nacelle_position", "wind_direction", "derate"]
-#         WIDE_FORMAT = True
-        
-#         feature_mapping = {
-#             "time": "time",
-#             **{f"active_power_{i}_avg": f"active_power_{i:03d}" for i in range(1, 8)},
-#             **{f"wind_speed_{i}_avg": f"wind_speed_{i:03d}" for i in range(1, 8)},
-#             **{f"nacelle_position_{i}_avg": f"nacelle_position_{i:03d}" for i in range(1, 8)},
-#             **{f"wind_direction_{i}_avg": f"wind_direction_{i:03d}" for i in range(1, 8)},
-#             **{f"derate_{i}": f"derate_{i:03d}" for i in range(1, 8)}
-#         }
-    
-#     if FILE_SIGNATURE.endswith(".nc"):
-#         DATA_FORMAT = "netcdf"
-#     elif FILE_SIGNATURE.endswith(".csv"):
-#         DATA_FORMAT = "csv"
-#     else:
-#         raise ValueError("Invalid file signature. Please specify either '*.nc' or '*.csv'.")
-    
-#     RUN_ONCE = (MULTIPROCESSOR == "mpi" and (comm_rank := MPI.COMM_WORLD.Get_rank()) == 0) or (MULTIPROCESSOR != "mpi") or (MULTIPROCESSOR is None)
-#     data_loader = DataLoader(
-#                 data_dir=DATA_DIR,
-#                 file_signature=FILE_SIGNATURE,
-#                 save_path=PL_SAVE_PATH,
-#                 multiprocessor=MULTIPROCESSOR,
-#                 dt=DT,
-#                 desired_feature_types=FEATURES,
-#                 data_format=DATA_FORMAT,
-#                 feature_mapping=feature_mapping,
-#                 wide_format=WIDE_FORMAT,
-#                 ffill_limit=int(60 * 60 * 10 // DT))
-    
-#     if RUN_ONCE:
-        
-#         if not RELOAD_DATA and os.path.exists(data_loader.save_path):
-#             logging.info("🔄 Loading existing Parquet file")
-#             df_query = pl.scan_parquet(source=data_loader.save_path)
-#             logging.info("✅ Loaded existing Parquet file successfully")
-        
-#         logging.info("🔄 Processing new data files")
-       
-#         if MULTIPROCESSOR == "mpi":
-#             comm_size = MPI.COMM_WORLD.Get_size()
-#             logging.info(f"🚀 Using MPI executor with {comm_size} processes.")
-#         else:
-#             max_workers = multiprocessing.cpu_count()
-#             logging.info(f"🖥️  Using ProcessPoolExecutor with {max_workers} workers.")
-    
-#     if RUN_ONCE:
-#         start_time = time.time()
-#         logging.info(f"✅ Starting read_multi_files with {len(data_loader.file_paths)} files")
-#     df_query = data_loader.read_multi_files()
-#     if RUN_ONCE:
-#         logging.info(f"✅ Finished reading individual files. Time elapsed: {time.time() - start_time:.2f} s")
-
-#     if RUN_ONCE:
-    
-#         if df_query is not None:
-#             # Perform any additional operations on df_query if needed
-#             logging.info("✅ Data processing completed successfully")
-#         else:
-#             logging.warning("⚠️  No data was processed")
-        
-#         logging.info("🎉 Script completed successfully")

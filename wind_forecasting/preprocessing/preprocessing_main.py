@@ -16,6 +16,7 @@ import sys
 import logging
 import argparse
 import yaml
+import time
 import re
 from memory_profiler import profile
 
@@ -46,7 +47,7 @@ import polars as pl
 import polars.selectors as cs
 import numpy as np
 import matplotlib
-matplotlib.use('Agg') # Use TkAgg for interactive plots
+# matplotlib.use('Agg') # Use TkAgg for interactive plots
 # matplotlib.use('TkAgg')
 import matplotlib.pyplot as plt
 
@@ -182,12 +183,12 @@ def main():
     )
 
     # %% Plot Wind Farm, Data Distributions
-    if args.plot and False:
+    if args.plot:
         logging.info("🔄 Generating plots.")
+        data_inspector.plot_wind_rose(df_query, turbine_ids="all")
         data_inspector.plot_wind_farm()
         data_inspector.plot_wind_speed_power(df_query, turbine_ids=data_loader.turbine_ids[:5])
         data_inspector.plot_wind_speed_weibull(df_query, turbine_ids="all")
-        data_inspector.plot_wind_rose(df_query, turbine_ids="all")
         data_inspector.plot_correlation(df_query, 
         data_inspector.get_features(df_query, feature_types=["wind_speed", "wind_direction", "nacelle_direction"], 
                                     turbine_ids=data_loader.turbine_ids[:1]))
@@ -358,15 +359,14 @@ def main():
                              turbine_status_col="turbine_status", multiprocessor=args.multiprocessor, data_format='wide')
 
     if args.regenerate_filters or args.reload_data or not os.path.exists(config["processed_data_path"].replace(".parquet", "_filtered.parquet")):
-        # %% # TODO move to end, can be more leniant with stuck sensor time bc it is right
-        # TODO plot one day of turbine data vs plant average
+        # %% # first filter because need to catch frozen measurements before others are nulled from repeated value.
         if "unresponsive_sensor" in config["filters"]:
             logging.info("Nullifying unresponsive sensor cells.")
             # find stuck sensor measurements for each turbine and set them to null
             # this filter must be applied before any cells are nullified st null values aren't considered repeated values
             # find values of wind speed/direction, where there are duplicate values with nulls inbetween
             if args.regenerate_filters or not os.path.exists(config["processed_data_path"].replace(".parquet", "_frozen_sensors.npy")):
-                thr = int(np.timedelta64(30, 'm') / np.timedelta64(data_loader.dt, 's'))
+                thr = int(np.timedelta64(config["frozen_sensor_limit"], 's') / np.timedelta64(data_loader.dt, 's'))
                 frozen_sensors = filters.unresponsive_flag(
                     data_pl=df_query.select(cs.starts_with("wind_speed"), cs.starts_with("wind_direction")), threshold=thr)
                 mask = lambda feat: frozen_sensors(feat).collect().to_numpy().flatten()
@@ -377,6 +377,27 @@ def main():
             else:
                 mask = lambda feat: np.load(config["processed_data_path"].replace(".parquet", f"_frozen_sensors_{feat}.npy"))
 
+            # import datetime
+            
+            # df_query.filter(pl.col("time").is_between(datetime.datetime(2020, 2, 17, 16, 30), datetime.datetime(2020, 2, 25, 13, 7), closed="both"))\
+            #     .select(cs.starts_with("wind_speed") & cs.contains("3")).collect().select((pl.all() == 11.832).sum() / pl.all().is_not_null().sum())
+            # df_query.filter(pl.col("time").is_between(datetime.datetime(2020, 2, 17, 16, 30), datetime.datetime(2020, 2, 25, 13, 7), closed="both"))\
+            #     .select(cs.starts_with("wind_direction") & cs.contains("3")).collect().select((pl.all().is_between(12.464190, 12.464192)).sum() / pl.all().is_not_null().sum())
+                
+            # df_query.filter(pl.col("time").is_between(datetime.datetime(2020, 2, 26, 13, 13), datetime.datetime(2020, 2, 26, 15, 5), closed="both"))\
+            #     .select(cs.starts_with("wind_speed") & cs.contains("3")).collect().select((pl.all() == 11.832).sum() / pl.all().is_not_null().sum())
+            # df_query.filter(pl.col("time").is_between(datetime.datetime(2020, 2, 26, 13, 13), datetime.datetime(2020, 2, 26, 15, 5), closed="both"))\
+            #     .select(cs.starts_with("wind_direction") & cs.contains("3")).collect().select((pl.all().is_between(12.464190, 12.464192)).sum() / pl.all().is_not_null().sum())
+            
+            # df_query.filter(pl.col("time").is_between(datetime.datetime(2020, 2, 17, 16, 30), datetime.datetime(2020, 2, 26, 15, 5), closed="both"))\
+            #     .select(cs.starts_with("wind_speed") & cs.contains("3")).collect().select((pl.all() == 11.832).sum() / pl.all().is_not_null().sum())
+            # df_query.filter(pl.col("time").is_between(datetime.datetime(2020, 2, 17, 16, 30), datetime.datetime(2020, 2, 26, 15, 5), closed="both"))\
+            #     .select(cs.starts_with("wind_direction") & cs.contains("3")).collect().select((pl.all().is_between(12.464190, 12.464192)).sum() / pl.all().is_not_null().sum())
+            
+            # df_query.filter(pl.col("time").is_between(datetime.datetime(2020, 2, 17, 16, 30), datetime.datetime(2020, 2, 26, 15, 5), closed="both"))\
+            #     .filter((pl.col("wind_speed_3") == 11.832) | (pl.col("wind_direction_3").is_between(12.464190, 12.464192))).collect()\
+            #     .select(pl.col("time"), cs.starts_with("wind") & cs.contains("3")).sort("time")
+             
             # check time series
             if args.plot:
                 
@@ -431,6 +452,7 @@ def main():
                 DataInspector.print_df_state(df_query, ["wind_speed", "wind_direction", "nacelle_direction"])
                 data_inspector.plot_time_series(df_query.head(ROW_LIMIT), feature_types=["wind_speed", "wind_direction"], turbine_ids=data_loader.turbine_ids[:1], continuity_groups=None) 
 
+        
         # %%
         if "inoperational" in config["filters"] and any(col.startswith("turbine_status") for col in df_query.collect_schema()["names"]): # TODO 10 is normal operation for AWAKEN
             logging.info("Nullifying inoperational turbine cells.")
@@ -677,7 +699,8 @@ def main():
             if args.plot:
                 DataInspector.print_df_state(df_query, ["wind_speed", "wind_direction", "nacelle_direction"])
                 data_inspector.plot_time_series(df_query.head(ROW_LIMIT), feature_types=["wind_speed", "wind_direction"], turbine_ids=data_loader.turbine_ids[:1], continuity_groups=None)
-    
+
+
         df_query.collect().write_parquet(config["processed_data_path"].replace(".parquet", "_filtered.parquet"), statistics=False)
     else:
         df_query = pl.scan_parquet(config["processed_data_path"].replace(".parquet", "_filtered.parquet"))
@@ -694,9 +717,10 @@ def main():
             
             # if there is a short or long gap for some turbines, impute them using the imputing.impute_all_assets_by_correlation function
             #       else if there is a short or long gap for many turbines, split the dataset
-            missing_col_thr = max(1, int(len(data_loader.turbine_ids) * 1.0))
-            missing_duration_thr = np.timedelta64(20, "m")
-            minimum_not_missing_duration = np.timedelta64(20, "m")
+            assert config["missing_col_thr"] <= len(data_loader.turbine_ids) 
+            missing_col_thr = config["missing_col_thr"] 
+            missing_duration_thr = np.timedelta64(config["missing_duration_thr"], "s")
+            minimum_not_missing_duration = np.timedelta64(config["minimum_not_missing_duration"], "s")
             missing_data_cols = ["wind_speed", "wind_direction"]
 
             # check for any periods of time for which more than 'missing_col_thr' features have missing data
@@ -705,10 +729,19 @@ def main():
                     .with_columns(**{f"num_missing_{col}": pl.sum_horizontal((cs.contains(col) & cs.starts_with("is_missing"))) for col in missing_data_cols})
 
             # subset of data, indexed by time, which has <= the threshold number of missing columns
-            df_query_not_missing_times = add_df_continuity_columns(df_query2, mask=pl.sum_horizontal(cs.starts_with("num_missing")) <= missing_col_thr, dt=data_loader.dt)
+            # check that the number of missing wind dir/speed measurements (over all turbines) is less or equal to missing_col_thr (i.e. both the number of missing wind dirs and wind speeds must be <= missing_col_thr)
+            df_query_not_missing_times = add_df_continuity_columns(df_query2, 
+                                                                   dt=data_loader.dt,
+                                                                   mask=pl.all_horizontal(cs.starts_with("num_missing") <= missing_col_thr) 
+                                                                #    mask=pl.sum_horizontal(cs.starts_with("num_missing")) <= missing_col_thr, 
+                                                                   )
 
-            # subset of data, indexed by time, which has > the threshold number of missing columns
-            df_query_missing_times = add_df_continuity_columns(df_query2, mask=pl.sum_horizontal(cs.starts_with("num_missing")) > missing_col_thr, dt=data_loader.dt)
+            # subset of data, indexed by time, which has > the threshold number of missing wind speed or wind dir
+            df_query_missing_times = add_df_continuity_columns(df_query2, 
+                                                               dt=data_loader.dt,
+                                                               mask=pl.any_horizontal(cs.starts_with("num_missing") > missing_col_thr)
+                                                            #    mask=pl.sum_horizontal(cs.starts_with("num_missing")) > missing_col_thr, 
+                                                               )
 
             # start times, end times, and durations of each of the continuous subsets of data in df_query_missing_times 
             df_query_not_missing = add_df_agg_continuity_columns(df_query_not_missing_times) 
@@ -775,6 +808,17 @@ def main():
             #                           .sort("time")
             #                           .partition_by("continuity_group")]
 
+            # x = df_query.collect().partition_by("continuity_group")
+            # x[0].select(pl.any_horizontal(cs.numeric().is_not_null().sum() < 2)).item()
+            
+            # filter out the continuity groups for which any measurement has 0 non-null values, can't impute then
+            df_query_not_missing = df_query_not_missing.select(pl.col("duration"), pl.col("start_time"), pl.col("end_time"), pl.col("continuity_group"), 
+                                        cs.starts_with("is_missing") & cs.matches(data_loader.turbine_signature))\
+                                .filter(pl.all_horizontal(cs.starts_with("is_missing") < ((pl.col("duration") / np.timedelta64(data_loader.dt, 's')).cast(pl.Int64))))
+            
+            # df_query_not_missing.collect().select(pl.col("duration"), pl.col("start_time"), pl.col("end_time"), pl.col("continuity_group"), cs.contains("3"))\
+            #                     .select(cs.starts_with("is_missing") / (pl.col("duration") / np.timedelta64(data_loader.dt, 's')).cast(pl.Int64))
+             
             df_query = df_query.with_columns(get_continuity_group_index(df_query_not_missing).alias("continuity_group"))\
                                     .filter(pl.col("continuity_group") != -1)\
                                     .drop(cs.contains("is_missing") | cs.contains("num_missing"))\
@@ -823,55 +867,48 @@ def main():
         data_inspector.plot_time_series(df_query.head(ROW_LIMIT), feature_types=["wind_speed", "wind_direction"], turbine_ids=data_loader.turbine_ids[:1], continuity_groups=continuity_groups)
 
     # %%
-    if "normalize" in config["filters"]:
-        if args.reload_data or not os.path.exists(config["processed_data_path"].replace(".parquet", "_normalized.parquet")): 
-            # Normalization & Feature Selection
-            logging.info("Normalizing and selecting features.")
-            df_query = df_query\
-                    .with_columns(((cs.starts_with("wind_direction") - 180.).radians().sin()).name.map(lambda c: "wd_sin_" + re.findall(data_loader.turbine_signature, c)[0]),
-                                ((cs.starts_with("wind_direction") - 180.).radians().cos()).name.map(lambda c: "wd_cos_" + re.findall(data_loader.turbine_signature, c)[0]))\
-                    .with_columns(**{f"ws_horz_{tid}": (pl.col(f"wind_speed_{tid}") * pl.col(f"wd_sin_{tid}")) for tid in data_loader.turbine_ids})\
-                    .with_columns(**{f"ws_vert_{tid}": (pl.col(f"wind_speed_{tid}") * pl.col(f"wd_cos_{tid}")) for tid in data_loader.turbine_ids})\
-                    .with_columns(**{f"nd_cos_{tid}": ((pl.col(f"nacelle_direction_{tid}") - 180.).radians().cos()) for tid in data_loader.turbine_ids})\
-                    .with_columns(**{f"nd_sin_{tid}": ((pl.col(f"nacelle_direction_{tid}") - 180.).radians().sin()) for tid in data_loader.turbine_ids})
-            
-            if "continuity_group" in df_query.collect_schema().names():
-                df_query = df_query.select(pl.col("time"), pl.col("continuity_group"), cs.contains("nd_sin"), cs.contains("nd_cos"), cs.contains("ws_horz"), cs.contains("ws_vert"))
-                time_cols = [pl.col("time"), pl.col("continuity_group")]
-            else:
-                time_cols = [pl.col("time")]
-
-            # store min/max of each column to rescale later
-            feature_types = ["nd_cos", "nd_sin", "ws_horz", "ws_vert"]
-            
-            norm_vals = {}
-            for feature_type in feature_types:
-                norm_vals[f"{feature_type}_max"] = df_query.select(pl.max_horizontal(cs.starts_with(feature_type).max())).collect().item()
-                norm_vals[f"{feature_type}_min"] = df_query.select(pl.min_horizontal(cs.starts_with(feature_type).min())).collect().item()
-
-            norm_vals = pl.DataFrame(norm_vals).select(pl.all().round(2))
-            norm_vals.write_csv(config["processed_data_path"].replace(".parquet", "_normalization_consts.csv"))
-
-            df_query = df_query.select(time_cols 
-                                    + [((2.0 * ((cs.starts_with(feature_type) - norm_vals.select(f"{feature_type}_min").item()) 
-                                    / (norm_vals.select(f"{feature_type}_max").item() - norm_vals.select(f"{feature_type}_min").item()))) - 1.0).name.keep()
-                                    for feature_type in feature_types])
-            
-            df_query.collect().write_parquet(config["processed_data_path"].replace(".parquet", "_normalized.parquet"), statistics=False)
-        else:
-            df_query = pl.scan_parquet(config["processed_data_path"].replace(".parquet", "_normalized.parquet"))
-
-    # %%
+    # Feature Selection
+    logging.info("Selecting features.")
+    df_query2 = df_query\
+            .with_columns(((cs.starts_with("wind_direction")).radians().sin()).name.map(lambda c: "wd_sin_" + re.findall(data_loader.turbine_signature, c)[0]),
+                        ((cs.starts_with("wind_direction")).radians().cos()).name.map(lambda c: "wd_cos_" + re.findall(data_loader.turbine_signature, c)[0]))\
+            .with_columns(**{f"ws_horz_{tid}": (pl.col(f"wind_speed_{tid}") * pl.col(f"wd_sin_{tid}")) for tid in data_loader.turbine_ids})\
+            .with_columns(**{f"ws_vert_{tid}": (pl.col(f"wind_speed_{tid}") * pl.col(f"wd_cos_{tid}")) for tid in data_loader.turbine_ids})\
+            .with_columns(**{f"nd_cos_{tid}": ((pl.col(f"nacelle_direction_{tid}")).radians().cos()) for tid in data_loader.turbine_ids})\
+            .with_columns(**{f"nd_sin_{tid}": ((pl.col(f"nacelle_direction_{tid}")).radians().sin()) for tid in data_loader.turbine_ids})
+    
+    if False:
+        wind_dirs = np.arctan2(df_query2.select(cs.starts_with("ws_horz")).collect().to_numpy(), 
+                               df_query2.select(cs.starts_with("ws_vert")).collect().to_numpy()) * (180.0 / np.pi)
+        wind_dirs[wind_dirs < 0] = 360.0 + wind_dirs[wind_dirs < 0]
+        wind_dirs = np.mod(wind_dirs, 360.0)
+        assert np.allclose(df_query.select(cs.starts_with("wind_direction")).collect().to_numpy(), wind_dirs)
+        wind_mags = (df_query2.select(cs.starts_with("ws_horz")).collect().to_numpy()**2 + df_query2.select(cs.starts_with("ws_vert")).collect().to_numpy()**2)**0.5
+        assert np.allclose(df_query.select(cs.starts_with("wind_speed")).collect().to_numpy(), wind_mags)
+    
+    df_query = df_query2
+    
+    if "continuity_group" in df_query.collect_schema().names():
+        df_query = df_query.select(pl.col("time"), pl.col("continuity_group"), cs.contains("nd_sin"), cs.contains("nd_cos"), cs.contains("ws_horz"), cs.contains("ws_vert"))
+        time_cols = [pl.col("time"), pl.col("continuity_group")]
+    else:
+        time_cols = [pl.col("time")]
+                
+    # %% TODO sanity check
     if args.plot:
         logging.info("Plotting time series.")
         feature_types = ["nd_cos", "nd_sin", "ws_horz", "ws_vert"]
         if "continuity_group" in df_query.collect_schema().names():
             continuity_groups = df_query.select(pl.col("continuity_group")).unique().collect().to_numpy().flatten()
+            # TODO add legend for turbine ids
             data_inspector.plot_time_series(df_query, feature_types=["ws_horz", "ws_vert"], 
-                                            turbine_ids=data_loader.turbine_ids, continuity_groups=continuity_groups)
-        
-        data_inspector.plot_time_series(df_query, feature_types=["ws_horz", "ws_vert"],
-                                        turbine_ids=data_loader.turbine_ids[:8], continuity_groups=None)
+                                            turbine_ids=data_loader.turbine_ids, 
+                                            continuity_groups=[0,1]
+                                            # continuity_groups=continuity_groups
+                                            )
+        else:
+            data_inspector.plot_time_series(df_query, feature_types=["ws_horz", "ws_vert"],
+                                            turbine_ids=data_loader.turbine_ids[:8], continuity_groups=None)
 
         logging.info("Plotting and fitting target value distribution.")
         data_inspector.plot_data_distribution(df_query, feature_types=["ws_horz", "ws_vert"], turbine_ids=data_loader.turbine_ids, distribution=norm)
@@ -944,6 +981,31 @@ def main():
         finally:
             del df_unpivoted
 
+    # %%
+    if "normalize" in config["filters"]:
+        if args.reload_data or not os.path.exists(config["processed_data_path"].replace(".parquet", "_normalized.parquet")): 
+            # Normalization & Feature Selection
+            logging.info("Normalizing features.")
+            
+            # store min/max of each column to rescale later
+            feature_types = ["nd_cos", "nd_sin", "ws_horz", "ws_vert"]
+            
+            norm_vals = {}
+            for feature_type in feature_types:
+                norm_vals[f"{feature_type}_max"] = df_query.select(pl.max_horizontal(cs.starts_with(feature_type).max())).collect().item()
+                norm_vals[f"{feature_type}_min"] = df_query.select(pl.min_horizontal(cs.starts_with(feature_type).min())).collect().item()
+
+            norm_vals = pl.DataFrame(norm_vals).select(pl.all().round(2))
+            norm_vals.write_csv(config["processed_data_path"].replace(".parquet", "_normalization_consts.csv"))
+
+            df_query = df_query.select(time_cols 
+                                    + [((2.0 * ((cs.starts_with(feature_type) - norm_vals.select(f"{feature_type}_min").item()) 
+                                    / (norm_vals.select(f"{feature_type}_max").item() - norm_vals.select(f"{feature_type}_min").item()))) - 1.0).name.keep()
+                                    for feature_type in feature_types])
+            
+            df_query.collect().write_parquet(config["processed_data_path"].replace(".parquet", "_normalized.parquet"), statistics=False)
+        else:
+            df_query = pl.scan_parquet(config["processed_data_path"].replace(".parquet", "_normalized.parquet"))
 
 if __name__ == "__main__":
     main()
