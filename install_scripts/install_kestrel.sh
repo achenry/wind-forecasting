@@ -66,6 +66,18 @@ cd OpenOA
 pip install .
 cd ..
 
+git clone https://github.com/achenry/floris.git
+cd floris
+git checkout feature/mpc
+pip install -e .
+cd ..
+
+git clone https://github.com/achenry/wind-hybrid-open-controller.git
+cd wind-hybrid-open-controller
+git checkout feature/wind_preview
+pip install -e .
+cd ..
+
 
 # salloc --account=ssc --time=01:00:00 --mem-per-cpu=64G --gpus=2 --ntasks-per-node=2 --partition=debug
 

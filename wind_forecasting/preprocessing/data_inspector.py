@@ -157,6 +157,7 @@ class DataInspector:
                     ax[f].set_xlabel("Time [s]")
                     ax[f].set_ylabel(feature_labels[f])
                     ax[f].legend([], [], frameon=False)
+                ax[-1].legend(bbox_to_anchor=(0.95, 1), loc="upper left", ncol=2)
         else:
             fig, ax = plt.subplots(len(feature_types), 1, figsize=(12, 10), sharex=True)
             if not hasattr(ax, "__len__"):
@@ -185,6 +186,7 @@ class DataInspector:
                 ax[f].set_xlabel("Time [s]")
                 ax[f].set_ylabel(feature_labels[f])
                 ax[f].legend([], [], frameon=False)
+            ax[-1].legend(bbox_to_anchor=(0.95, 1), loc="upper left", ncol=2)
                 
         fig.suptitle(f'Time Series for Turbines: {", ".join(valid_turbines)}', fontsize=16)
         ax[0].legend(loc='upper left', bbox_to_anchor=(1, 1))
@@ -300,7 +302,7 @@ class DataInspector:
                 ax.bar(wind_dir, wind_spd, normed=True, opening=0.8, edgecolor='white')
                 ax.set_legend()
                 plt.title('Wind Rose for all Turbines')
-                # plt.show()
+                plt.show()
                 plt.savefig('wind_rose.png')
                 plt.close()
             else:
