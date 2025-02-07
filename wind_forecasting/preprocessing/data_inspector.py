@@ -107,7 +107,7 @@ class DataInspector:
             raise FileNotFoundError(f"Farm input file not found: {farm_input_filepath}")
 
 
-    def plot_time_series(self, df_query, turbine_ids: list[str], feature_types:Optional[list] = None, feature_labels:Optional[list] = None, continuity_groups: Optional[list] = None, scatter = False) -> None:
+    def plot_time_series(self, df_query, turbine_ids: list[str], feature_types:Optional[list] = None, feature_labels:Optional[list] = None, continuity_groups: Optional[list] = None, label="", scatter = False) -> None:
         # Use provided feature mapping or fall back to instance default
         # current_mapping = feature_mapping or self.feature_mapping
         
@@ -192,9 +192,9 @@ class DataInspector:
         ax[0].legend(loc='upper left', bbox_to_anchor=(1, 1))
         
         plt.tight_layout()
-        # plt.show()
-        plt.savefig('time_series.png')
-        plt.close()
+        plt.show()
+        plt.savefig(f'time_series_{label}.png')
+        # plt.close()
 
     def plot_wind_speed_power(self, df: pl.LazyFrame, turbine_ids: list[str]) -> None:
         """Plot wind speed vs power output scatter plot for specified turbines.
@@ -258,9 +258,9 @@ class DataInspector:
         plt.grid(True, alpha=0.3)
         sns.despine()
         plt.tight_layout()
-        # plt.show()
+        plt.show()
         plt.savefig('wind_speed_power.png')
-        plt.close()
+        # plt.close()
 
     # DEBUG: @Juan 10/18/24 Added method to plot wind rose for both wide and long formats [CHECK]
     def plot_wind_rose(self, df, turbine_ids: list[str] | str) -> None:
