@@ -98,7 +98,7 @@ class DataLoader:
         # Get all the wts in the folder @Juan 10/16/24 used os.path.join for OS compatibility
         self.file_paths = [sorted(glob.glob(os.path.join(dd, fs), recursive=True)) for dd, fs in zip(data_dir, file_signature)]
     
-    @profile 
+    # @profile 
     def read_multi_files(self) -> pl.LazyFrame | None:
         read_start = time.time()
         
@@ -238,7 +238,7 @@ class DataLoader:
             logging.info(f"Removed temporary storage directory {temp_save_dir}")
             return None
    
-    @profile
+    # @profile
     def sort_resample_refill(self, df_query):
         
         logging.info(f"Started sorting.")
@@ -265,7 +265,7 @@ class DataLoader:
         
         return df_query
     
-    @profile 
+    # @profile 
     def merge_multiple_files(self, file_set_idx, processed_file_paths, i, temp_save_dir):
         # INFO: @Juan 11/13/24 Added check for data patterns in the names and also added a check for single files
         # if len(processed_file_paths) == 1:
@@ -327,7 +327,7 @@ class DataLoader:
         self.sort_resample_refill(df_queries).collect().write_parquet(merged_path, statistics=False)
         return merged_path 
 
-    @profile
+    # @profile
     def _join_dfs(self, file_suffix, dfs):
         # logging.info(f"✅ Started joins for {file_suffix}-th collection of files.") 
         all_cols = set()
