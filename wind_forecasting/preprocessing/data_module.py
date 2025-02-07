@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import List, Type
+from typing import List, Type, Optional
 import os
 import logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -31,6 +31,7 @@ class DataModule():
     # and store the indices in the full dataset to use for each cg, split_idx, and training/test/validation split
     """
     data_path: str
+    save_data_path: Optional[str]
     n_splits: int
     continuity_groups: List[int] | None
     train_split: float
