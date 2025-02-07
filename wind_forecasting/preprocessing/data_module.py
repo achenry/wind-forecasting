@@ -50,7 +50,7 @@ class DataModule():
     def __post_init__(self):
         self.train_ready_data_path = self.data_path.replace(".parquet", "_train_ready.parquet")
      
-    @profile
+    # @profile
     def generate_datasets(self):
         
         dataset = IterableLazyFrame(data_path=self.data_path, dtype=self.dtype)\
