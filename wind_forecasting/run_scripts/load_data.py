@@ -22,7 +22,7 @@ try:
 except:
     print("No MPI available on system.")
 
-@profile
+# @profile
 def main():
     
     # %% PARSE CONFIGURATION

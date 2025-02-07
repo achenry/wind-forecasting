@@ -41,7 +41,7 @@ try:
 except:
     print("No MPI available on system.")
 
-@profile
+# @profile
 def main():
     
     RUN_ONCE = (mpi_exists and (MPI.COMM_WORLD.Get_rank()) == 0)
