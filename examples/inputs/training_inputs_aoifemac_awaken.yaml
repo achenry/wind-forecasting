@@ -10,8 +10,10 @@ optuna:
   n_trials: 2
 
 dataset: 
-    data_path: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/preprocessed_awaken_data/short_loaded_data_normalized.parquet
-    normalization_consts_path: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/preprocessed_awaken_data/short_loaded_data_normalization_consts.csv
+    # data_path: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/preprocessed_awaken_data/short_loaded_data_normalized.parquet
+    # normalization_consts_path: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/preprocessed_awaken_data/short_loaded_data_normalization_consts.csv
+    data_path: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/preprocessed_awaken1_data/filled_data_normalized.parquet
+    normalization_consts_path: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/preprocessed_awaken1_data/filled_data_normalization_consts.csv
     context_length: 20 # 120=10 minutes for 5 sec sample size
     prediction_length: 20 # 120=10 minutes for 5 sec sample size
     target_turbine_ids: [wt029, wt034, wt074] # or leave blank to capture all

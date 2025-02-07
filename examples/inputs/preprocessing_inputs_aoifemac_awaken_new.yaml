@@ -4,8 +4,8 @@ filters:
   - range_flag
   - bin_filter
   - std_range_flag
-  - impute_missing_data
   - split
+  - impute_missing_data
   - normalize
 
 feature_mapping:
