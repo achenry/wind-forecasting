@@ -85,19 +85,16 @@ class DataLoader:
         
         self.ffill_limit = ffill_limit
 
-        # TODO create uniform turbine_signature
         self.turbine_signature = turbine_signature
         self.datetime_signature = [list(ds.items())[0] if ds else None for ds in datetime_signature] # mapping from a regex expression to a datetime format to capture datetime from filepaths
         self.turbine_ids = set()
         self.turbine_mapping = turbine_mapping
         
-        # check for no duplicates in target turbine ids
-        assert all(len(set(tm.values())) == len(tm.values()) for tm in self.turbine_mapping)
-        # self.turbine_ids = sorted(list(set(k.split("_")[-1] for k in self.feature_mapping.keys() if re.search(r'\d', k)))) 
-
-        # self.target_feature_types = list(set((re.sub(self.turbine_signature, "", k) 
-        #                                       if re.search(self.turbine_signature, k) else k) for k in self.feature_mapping.keys()))
-        
+        if self.turbine_mapping is not None:
+            # check for no duplicates in target turbine ids, also check that values are the same for every element in mapping and only check if not None
+            assert all(len(set(self.turbine_mapping[0].values()).difference(set(tm.values()))) == 0 for tm in self.turbine_mapping[1:]), "target integer turbine ids must match for each file type in turbine mapping"
+            assert all(isinstance(v, int) for tm in self.turbine_mapping for v in tm.values()), "if using turbine_mapping, must map each turbine id to unique integer"
+            
         # Get all the wts in the folder @Juan 10/16/24 used os.path.join for OS compatibility
         self.file_paths = [sorted(glob.glob(os.path.join(dd, fs), recursive=True)) for dd, fs in zip(data_dir, file_signature)]
     
@@ -121,6 +118,7 @@ class DataLoader:
                     
                     if not os.path.exists(os.path.dirname(self.save_path)):
                         os.makedirs(os.path.dirname(self.save_path))
+                        
                     logging.info(f"✅ Started reading {sum(len(fp) for fp in self.file_paths)} files.")
                     
                     for file_set_idx, fp in enumerate(self.file_paths):
@@ -157,46 +155,12 @@ class DataLoader:
                                 else:
                                     logging.info(f"Used RAM = {used_ram}%. Pause to merge/sort/resample/fill {len(processed_file_paths)} files read so far.")
                                 
-                                # merged_paths.append(ex.submit(self.merge_multiple_files, file_set_idx, processed_file_paths, merge_idx, temp_save_dir))
-                                merged_paths.append(self.merge_multiple_files(file_set_idx, processed_file_paths, merge_idx, temp_save_dir))
+                                merged_paths.append(ex.submit(self.merge_multiple_files, file_set_idx, processed_file_paths, merge_idx, temp_save_dir).result())
+                                # merged_paths.append(self.merge_multiple_files(file_set_idx, processed_file_paths, merge_idx, temp_save_dir))
                                 merge_idx += 1
                                 processed_file_paths = []
-                        
                     
-                    merged_paths = [fut.result() for fut in merged_paths]
-                    
-                    if len(merged_paths): 
-                        logging.info(f"🔗 Finished reading files. Time elapsed: {time.time() - read_start:.2f} s")
-                        if len(merged_paths) > 1: 
-                            logging.info(f"Concatenating batches and running sort/resample/fill.")
-                            # concatenate intermediary dataframes
-                            df_query = pl.concat([pl.scan_parquet(bp) for bp in merged_paths], how="diagonal")
-                            df_query = self.sort_resample_refill(df_query)
-                            # Write to final parquet
-                            logging.info(f"Saving final Parquet file into {self.save_path}")
-                            df_query.sink_parquet(self.save_path, statistics=False)
-                            
-                        else:
-                            logging.info(f"Moving only batch to {self.save_path}.")
-                            move(merged_paths[0], self.save_path)
-                            df_query = pl.scan_parquet(self.save_path)    
-                        
-                        logging.info(f"Final Parquet file saved into {self.save_path}")
-                        # turbine ids found in all files so far
-                        self.turbine_ids = self.get_turbine_ids(file_set_idx, df_query, sort=True)
-                        
-                        logging.info(f"Removing temporary storage directory {temp_save_dir}")
-                         
-                        rmtree(temp_save_dir)
-                        logging.info(f"Removed temporary storage directory {temp_save_dir}")
-                        
-                        return df_query
-                    else:
-                        logging.error("No data successfully processed by read_multi_files.")
-                        logging.info(f"Removing temporary storage directory {temp_save_dir}")
-                        rmtree(temp_save_dir)
-                        logging.info(f"Removed temporary storage directory {temp_save_dir}")
-                        return None
+                    # merged_paths = [fut.result() for fut in merged_paths]
                     
         else:
             temp_save_dir = os.path.join(os.path.dirname(self.save_path), os.path.basename(self.save_path).replace(".parquet", "_temp"))
@@ -238,41 +202,41 @@ class DataLoader:
                         merge_idx += 1
                         processed_file_paths = []
             
-            # TODO convert to common turbine_id over multiple filetypes 
-            # TODO can we merge files from multiple file types here?
-            if len(merged_paths):    
-                logging.info(f"🔗 Finished reading files. Time elapsed: {time.time() - read_start:.2f} s")
-                if len(merged_paths) > 1: 
-                    logging.info(f"Concatenating and running final sort/resample/fill.")
-                    # concatenate intermediary dataframes
-                    df_query = pl.concat([pl.scan_parquet(bp) for bp in merged_paths], how="diagonal")
-                    df_query = self.sort_resample_refill(df_query)
-                    # Write to final parquet
-                    logging.info(f"Saving final Parquet file into {self.save_path}")
-                    df_query.sink_parquet(self.save_path, statistics=False)
-                   
-                else:
-                    logging.info(f"Moving only batch to {self.save_path}.")
-                    move(merged_paths[0], self.save_path)
-                    df_query = pl.scan_parquet(self.save_path)
+        if self.turbine_mapping: # if not none, ie there are multiple filetypes being processed
+            self.turbine_signature = "\\d"
                 
-                # turbine ids found in all files so far
-                self.turbine_ids = self.get_turbine_ids(file_set_idx, df_query, sort=True)
-                 
-                logging.info(f"Final Parquet file saved into {self.save_path}")
-                
-                logging.info(f"Removing temporary storage directory {temp_save_dir}")
-                rmtree(temp_save_dir)
-                logging.info(f"Removed temporary storage directory {temp_save_dir}")
-                
-                return df_query
+        if len(merged_paths):    
+            logging.info(f"🔗 Finished reading files. Time elapsed: {time.time() - read_start:.2f} s")
+            if len(merged_paths) > 1: 
+                logging.info(f"Concatenating and running final sort/resample/fill.")
+                # concatenate intermediary dataframes
+                df_query = pl.concat([pl.scan_parquet(bp) for bp in merged_paths], how="diagonal")
+                df_query = self.sort_resample_refill(df_query)
+                # Write to final parquet
+                logging.info(f"Saving final Parquet file into {self.save_path}")
+                df_query.sink_parquet(self.save_path, statistics=False)
                 
             else:
-                logging.error("No data successfully processed by read_multi_files.")
-                logging.info(f"Removing temporary storage directory {temp_save_dir}")
-                rmtree(temp_save_dir)
-                logging.info(f"Removed temporary storage directory {temp_save_dir}")
-                return None
+                logging.info(f"Moving only batch to {self.save_path}.")
+                move(merged_paths[0], self.save_path)
+                df_query = pl.scan_parquet(self.save_path)
+            
+            # turbine ids found in all files so far
+            self.turbine_ids = self.get_turbine_ids(self.turbine_signature, df_query, sort=True)
+                
+            logging.info(f"Final Parquet file saved into {self.save_path}")
+            
+            logging.info(f"Removing temporary storage directory {temp_save_dir}")
+            rmtree(temp_save_dir)
+            logging.info(f"Removed temporary storage directory {temp_save_dir}")
+            
+            return df_query
+        else:
+            logging.error("No data successfully processed by read_multi_files.")
+            logging.info(f"Removing temporary storage directory {temp_save_dir}")
+            rmtree(temp_save_dir)
+            logging.info(f"Removed temporary storage directory {temp_save_dir}")
+            return None
    
     @profile
     def sort_resample_refill(self, df_query):
@@ -281,10 +245,11 @@ class DataLoader:
         df_query = df_query.sort("time")
         logging.info(f"Finished sorting.")
         
-        if df_query.select(pl.col("time").diff().slice(1).n_unique()).collect().item() > 1:
+        # if df_query.select(pl.col("time").diff().slice(1).n_unique()).collect().item() > 1:
+        if df_query.select((pl.col("time").diff().slice(1) == pl.col("time").diff().last()).all()).collect().item():
             logging.info(f"Started resampling.") 
             bounds = df_query.select(pl.col("time").first().alias("first"),
-                                        pl.col("time").last().alias("last")).collect()
+                                     pl.col("time").last().alias("last")).collect()
             df_query = df_query.select(pl.datetime_range(
                                         start=bounds.select("first").item(),
                                         end=bounds.select("last").item(),
@@ -350,7 +315,7 @@ class DataLoader:
         
         # convert to common turbine_id over multiple filetypes
         if self.turbine_mapping is not None:
-            turbine_ids = self.get_turbine_ids(file_set_idx, df_queries, sort=True) # turbine ids available in this collection of file paths (may not represent all)
+            turbine_ids = self.get_turbine_ids(self.turbine_signature[file_set_idx], df_queries, sort=True) # turbine ids available in this collection of file paths (may not represent all)
             assert all(tid in self.turbine_mapping[file_set_idx] for tid in turbine_ids), "check turbine_mapping in parameter, should have n_turbines length of distinct turbine ids, all of which are found in the data" # make sure that turbine mapping accounts for all turbine ids found in files
             df_queries = df_queries.rename({
                 col: 
@@ -359,7 +324,7 @@ class DataLoader:
                     string=col) for col in df_queries.collect_schema().names() if col != "time"})
         
         merged_path = os.path.join(temp_save_dir, f"df_{file_set_idx}_{i}.parquet") 
-        self.sort_resample_refill(df_queries).sink_parquet(merged_path, statistics=False)
+        self.sort_resample_refill(df_queries).collect().write_parquet(merged_path, statistics=False)
         return merged_path 
 
     @profile
@@ -431,13 +396,13 @@ class DataLoader:
             os.makedirs(directory)
             logging.info(f"📁 Created directory: {directory}")
 
-    def get_turbine_ids(self, file_set_idx, df_query, sort=False):
+    def get_turbine_ids(self, turbine_signature, df_query, sort=False):
         turbine_ids = set()
         if "turbine_id" in df_query.collect_schema().names():
             turbine_ids.update(df_query.select("turbine_id").collect().to_series().unique())
         else:
             for col in df_query.collect_schema().names():
-                match = re.search(self.turbine_signature[file_set_idx], col)
+                match = re.search(turbine_signature, col)
                 if match:
                     turbine_ids.add(match.group())
         if sort:
@@ -480,7 +445,7 @@ class DataLoader:
                                                     .select([cs.contains(feat) for feat in target_features])\
                                                     .filter(pl.any_horizontal(cs.numeric().is_not_null()))
                     # just the turbine ids found in this file
-                    turbine_ids = self.get_turbine_ids(file_set_idx, df_query)
+                    turbine_ids = self.get_turbine_ids(self.turbine_signature[file_set_idx], df_query)
                     
             elif self.data_format[file_set_idx] in ["csv", "parquet"]:
                 if self.data_format[file_set_idx] == "csv":
@@ -497,7 +462,7 @@ class DataLoader:
                 source_features = df_query.collect_schema().names()
                 
                 # just the turbine ids found in this file
-                turbine_ids = self.get_turbine_ids(file_set_idx, df_query)
+                turbine_ids = self.get_turbine_ids(self.turbine_signature[file_set_idx], df_query)
                 
                 # Apply column mapping after selecting relevant columns
                 rename_dict = {}
