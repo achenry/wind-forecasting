@@ -81,11 +81,13 @@ def main():
     
     for path_key in ["raw_data_directory", "processed_data_path", "turbine_input_path", "farm_input_path"]:
         if isinstance(config[path_key], list):
+            assert all(os.path.exists(fp) for fp in config[path_key]), f"One of {config[path_key]} doesn't exist."
             env_vars = [re.findall(r"(?:^|\/)\$(\w+)(?:\/|$)", d) for d in config[path_key]]
             for file_set_idx in range(len(env_vars)):
                 for env_var in env_vars[file_set_idx]:
                     config[path_key][file_set_idx] = config[path_key][file_set_idx].replace(f"${env_var}", os.environ[env_var])
         else:
+            assert os.path.exists(config[path_key]), f"{config[path_key]} doesn't exist."
             env_vars = re.findall(r"(?:^|\/)\$(\w+)(?:\/|$)", config[path_key])
             for env_var in env_vars:
                 config[path_key] = config[path_key].replace(f"${env_var}", os.environ[env_var])
@@ -119,7 +121,7 @@ def main():
         assert all(isinstance(tm, dict) for tm in config["turbine_mapping"])
 
     RUN_ONCE = (args.multiprocessor == "mpi" and mpi_exists and (MPI.COMM_WORLD.Get_rank()) == 0) or (args.multiprocessor != "mpi") or (args.multiprocessor is None)
-    # TODO setup RUN_ONCE below
+     
     data_loader = DataLoader(
         data_dir=config["raw_data_directory"],
         file_signature=config["raw_data_file_signature"],
@@ -148,9 +150,11 @@ def main():
             # Note that the order of the columns in the provided schema must match the order of the columns in the CSV being read.
             logging.info("🔄 Loading existing Parquet file")
             df_query = pl.scan_parquet(source=data_loader.save_path)
-
+            if data_loader.turbine_mapping is not None:
+                # if this data was pulled from multiple files, the turbine ids have all been mapped to integers
+                data_loader.turbine_signature = "\\d" 
             # generate turbine ids
-            data_loader.turbine_ids = data_loader.get_turbine_ids(df_query, sort=True)
+            data_loader.turbine_ids = data_loader.get_turbine_ids(data_loader.turbine_signature, df_query, sort=True)
 
         else:
             if args.multiprocessor == "mpi" and mpi_exists:
@@ -192,7 +196,7 @@ def main():
     data_inspector = DataInspector(
         turbine_input_filepath=config["turbine_input_path"],
         farm_input_filepath=config["farm_input_path"],
-        turbine_signature=config["turbine_signature"],
+        turbine_signature=data_loader.turbine_signature,
         data_format='auto'
     )
 

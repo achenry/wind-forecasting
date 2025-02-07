@@ -10,7 +10,8 @@ optuna:
   n_trials: 100
 
 dataset: 
-    data_path: /scratch/alpine/aohe7145/awaken_data/filled_data_normalized.parquet 
+    data_path: /scratch/alpine/aohe7145/awaken_data/filled_data_normalized.parquet
+    save_data_path: /projects/aohe7145/filled_data_normalized.parquet  
     normalization_consts_path: /scratch/alpine/aohe7145/awaken_data/filled_data_normalization_consts.csv
     context_length: 20 # 120=10 minutes for 5 sec sample size
     prediction_length: 20 # 120=10 minutes for 5 sec sample size
@@ -21,7 +22,7 @@ dataset:
     overfit: False
     test_split: 0.20
     val_split: 0.1
-    resample_freq: 60s
+    resample_freq: 5s
     n_splits: 1 # how many divisions of each continuity group to make which is further subdivided into training test and validation data
     per_turbine_target: False
 
