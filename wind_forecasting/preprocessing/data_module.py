@@ -24,64 +24,6 @@ import seaborn as sns
 
 from memory_profiler import profile
 
-
-# from torch.utils.data import IterableDataset, DataLoader, get_worker_info
-# from gluonts.dataset.jsonl import JsonLinesWriter, JsonLinesFile
-
-# matplotlib.use('TkAgg')
-
-# TODO where does the line-by-line parsing of target for each time step happen and can I stream this? eg with IterableDataset
-# class LazyFrameStreamingDataset(IterableDataset):
-# @dataclass
-# class LazyFrameStreamingDataset(Dataset):
-#     """_summary_
-#     # LazyFrameStreamingDataset should iterate over this lazyframe, selecting subsets based on the indices in DataModule using LazyFrame.slice
-
-#     Args:
-#         IterableDataset (_type_): _description_
-#     """
-#     datasets: Iterable[pl.DataFrame]
-#     target_cols: List[str]
-#     feat_dynamic_real_cols: List[str] 
-#     freq: str
-#     static_features: pd.DataFrame
-#     dtype: Type = np.float32
-
-#     def __post_init__(self):
-#         self.lengths = [ds.select(pl.len()).collect().item() for ds in self.datasets]
-#         self.total_length = sum(self.lengths)
-#         self._static_cats = (
-#                     self.static_features.select_dtypes("category")
-#                     .apply(lambda col: col.cat.codes)
-#                     .astype(self.dtype).T
-#         ).values
-#         self.start_times = [pd.Period(ds.select(pl.col("time").first()).collect().item(), freq=self.freq) for ds in self.datasets]
-#         available_cols = [ds.collect_schema().names() for ds in self.datasets]
-#         self.target_cols = [set(cols).intersection(self.target_cols) for cols in available_cols]
-#         self.feat_dynamic_real_cols = [set(cols).intersection(self.feat_dynamic_real_cols) for cols in available_cols]
-
-#     def __iter__(self):
-#         for d, ds in enumerate(self.datasets):
-#             entry = {
-#                 FieldName.TARGET: ds.select(self.target_cols[d]).collect().to_numpy(),
-#                 FieldName.FEAT_DYNAMIC_REAL: ds.select(self.feat_dynamic_real_cols[d]).collect().to_numpy(),
-#                 FieldName.START: self.start_times[d]
-#             }
-#             if len(self.static_features.index):
-#                 entry[FieldName.FEAT_STATIC_CAT] = self._static_cats[:, d] 
-#             yield entry
-    
-#     def __len__(self):
-#         return self.total_length
-
-# class IterableLazyFrameMetaClass(type):
-#     def __instancecheck__(self, instance):
-#         return isinstance(instance, (self.__class__, pl.LazyFrame))
-
-#     def __subclasscheck__(self, subclass):
-#         return issubclass(subclass, (self.__class__, pl.LazyFrame))
-
-
 @dataclass
 class DataModule():
     """_summary_
@@ -140,7 +82,7 @@ class DataModule():
         # dataset.target_cols = self.target_cols 
         
         logging.info(f"Writing resampled/sorted parquet to {self.train_ready_data_path}.") 
-        dataset.sink_parquet(self.train_ready_data_path, statistics=False)
+        dataset.collect().write_parquet(self.train_ready_data_path, statistics=False)
         logging.info(f"Saved resampled/sorted parquet to {self.train_ready_data_path}.")
         # dataset = IterableLazyFrame(data_path=train_ready_data_path)
         # univariate=ListDataset of multiple dictionaires each corresponding to measurements from a single turbine, to implicitly capture correlations

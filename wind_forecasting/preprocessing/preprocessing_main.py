@@ -119,7 +119,6 @@ def main():
         assert all(isinstance(tm, dict) for tm in config["turbine_mapping"])
 
     RUN_ONCE = (args.multiprocessor == "mpi" and mpi_exists and (MPI.COMM_WORLD.Get_rank()) == 0) or (args.multiprocessor != "mpi") or (args.multiprocessor is None)
-    # TODO deal w None vals for signatures
     # TODO setup RUN_ONCE below
     data_loader = DataLoader(
         data_dir=config["raw_data_directory"],
@@ -392,28 +391,7 @@ def main():
                                 frozen_sensors(feat).collect().to_numpy().flatten())
             else:
                 mask = lambda feat: np.load(config["processed_data_path"].replace(".parquet", f"_frozen_sensors_{feat}.npy"))
-
-            # import datetime
-            
-            # df_query.filter(pl.col("time").is_between(datetime.datetime(2020, 2, 17, 16, 30), datetime.datetime(2020, 2, 25, 13, 7), closed="both"))\
-            #     .select(cs.starts_with("wind_speed") & cs.contains("3")).collect().select((pl.all() == 11.832).sum() / pl.all().is_not_null().sum())
-            # df_query.filter(pl.col("time").is_between(datetime.datetime(2020, 2, 17, 16, 30), datetime.datetime(2020, 2, 25, 13, 7), closed="both"))\
-            #     .select(cs.starts_with("wind_direction") & cs.contains("3")).collect().select((pl.all().is_between(12.464190, 12.464192)).sum() / pl.all().is_not_null().sum())
                 
-            # df_query.filter(pl.col("time").is_between(datetime.datetime(2020, 2, 26, 13, 13), datetime.datetime(2020, 2, 26, 15, 5), closed="both"))\
-            #     .select(cs.starts_with("wind_speed") & cs.contains("3")).collect().select((pl.all() == 11.832).sum() / pl.all().is_not_null().sum())
-            # df_query.filter(pl.col("time").is_between(datetime.datetime(2020, 2, 26, 13, 13), datetime.datetime(2020, 2, 26, 15, 5), closed="both"))\
-            #     .select(cs.starts_with("wind_direction") & cs.contains("3")).collect().select((pl.all().is_between(12.464190, 12.464192)).sum() / pl.all().is_not_null().sum())
-            
-            # df_query.filter(pl.col("time").is_between(datetime.datetime(2020, 2, 17, 16, 30), datetime.datetime(2020, 2, 26, 15, 5), closed="both"))\
-            #     .select(cs.starts_with("wind_speed") & cs.contains("3")).collect().select((pl.all() == 11.832).sum() / pl.all().is_not_null().sum())
-            # df_query.filter(pl.col("time").is_between(datetime.datetime(2020, 2, 17, 16, 30), datetime.datetime(2020, 2, 26, 15, 5), closed="both"))\
-            #     .select(cs.starts_with("wind_direction") & cs.contains("3")).collect().select((pl.all().is_between(12.464190, 12.464192)).sum() / pl.all().is_not_null().sum())
-            
-            # df_query.filter(pl.col("time").is_between(datetime.datetime(2020, 2, 17, 16, 30), datetime.datetime(2020, 2, 26, 15, 5), closed="both"))\
-            #     .filter((pl.col("wind_speed_3") == 11.832) | (pl.col("wind_direction_3").is_between(12.464190, 12.464192))).collect()\
-            #     .select(pl.col("time"), cs.starts_with("wind") & cs.contains("3")).sort("time")
-             
             # check time series
             if args.verbose:
                 DataInspector.print_pc_remaining_vals(df_query, mask,
