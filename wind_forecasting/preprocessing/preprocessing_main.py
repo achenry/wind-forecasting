@@ -59,7 +59,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 ROW_LIMIT = 1000
 
 # %%
-@profile
+# @profile
 def main():
     parser = argparse.ArgumentParser(prog="WindFarmForecasting")
     parser.add_argument("-cnf", "--config", type=str)
@@ -79,15 +79,19 @@ def main():
     config["turbine_input_path"] = os.path.expanduser(config["turbine_input_path"]) 
     config["farm_input_path"] = os.path.expanduser(config["farm_input_path"])
     
-    for path_key in ["raw_data_directory", "processed_data_path", "turbine_input_path", "farm_input_path"]:
+    for path_key in ["raw_data_directory", "turbine_input_path", "farm_input_path"]:
         if isinstance(config[path_key], list):
             assert all(os.path.exists(fp) for fp in config[path_key]), f"One of {config[path_key]} doesn't exist."
+        else:
+            assert os.path.exists(config[path_key]), f"{config[path_key]} doesn't exist."
+             
+    for path_key in ["raw_data_directory", "processed_data_path", "turbine_input_path", "farm_input_path"]:
+        if isinstance(config[path_key], list):
             env_vars = [re.findall(r"(?:^|\/)\$(\w+)(?:\/|$)", d) for d in config[path_key]]
             for file_set_idx in range(len(env_vars)):
                 for env_var in env_vars[file_set_idx]:
                     config[path_key][file_set_idx] = config[path_key][file_set_idx].replace(f"${env_var}", os.environ[env_var])
         else:
-            assert os.path.exists(config[path_key]), f"{config[path_key]} doesn't exist."
             env_vars = re.findall(r"(?:^|\/)\$(\w+)(?:\/|$)", config[path_key])
             for env_var in env_vars:
                 config[path_key] = config[path_key].replace(f"${env_var}", os.environ[env_var])

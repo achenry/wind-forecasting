@@ -7,7 +7,7 @@
 #SBATCH --time=12:00:00
 #SBATCH --partition=bigmem
 #SBATCH --partition=standard
-#SBATCH --output=data_processor_scratch.out
+#SBATCH --output=preprocess_data.out
 #SBATCH --tmp=1T
 
 module purge
