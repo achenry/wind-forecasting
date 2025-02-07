@@ -6,10 +6,8 @@ Returns:
 
 import logging
 from datetime import timedelta
-import re
 
 import numpy as np
-import numpy.ma as ma
 import polars as pl
 import polars.selectors as cs
 # from scipy.stats import entropy
@@ -179,7 +177,7 @@ class DataFilter:
                     
             return np.stack(res, axis=1)
 
-    def fill_multi_missing_datasets(self, dfs, impute_missing_features, interpolate_missing_features):
+    def fill_multi_missing_datasets(self, dfs, impute_missing_features, interpolate_missing_features, r2_threshold):
         if self.multiprocessor:
             if self.multiprocessor == "mpi" and mpi_exists:
                 executor = MPICommExecutor(MPI.COMM_WORLD, root=0)
@@ -191,17 +189,17 @@ class DataFilter:
             
             with executor as ex:
                 futures = [ex.submit(self._fill_single_missing_dataset, df_idx=df_idx, df=df, 
-                impute_missing_features=impute_missing_features, interpolate_missing_features=interpolate_missing_features
-                , parallel="turbine_id") 
+                impute_missing_features=impute_missing_features, interpolate_missing_features=interpolate_missing_features,
+                parallel="turbine_id", r2_threshold=r2_threshold) 
                 for df_idx, df in enumerate(dfs)]
                 return [fut.result() for fut in futures if fut.result() is not None]
         else:
             logging.info("🔧 Using single process executor")
             return [self._fill_single_missing_dataset(df_idx=df_idx, df=df, impute_missing_features=impute_missing_features, 
-            interpolate_missing_features=interpolate_missing_features, parallel="turbine_id") 
+            interpolate_missing_features=interpolate_missing_features, parallel="turbine_id", r2_threshold=r2_threshold) 
             for df_idx, df in enumerate(dfs)]
     
-    def _impute_single_missing_dataset(self, df_idx, df, impute_missing_features, parallel=False):
+    def _impute_single_missing_dataset(self, df_idx, df, impute_missing_features, r2_threshold, parallel=False):
 
         if parallel == "feature":
             if self.multiprocessor == "mpi" and mpi_exists:
@@ -217,7 +215,7 @@ class DataFilter:
                                               data_pl=df.select("time", cs.starts_with(feature)), data_pd=None, 
                                     #  data_pd=unpivot_df.select(["time", "turbine_id", feature]).collect().to_pandas().set_index(["time", "turbine_id"]),
                                      impute_col=feature, reference_col=feature,
-                                     asset_id_col="turbine_id", method="linear") for feature in impute_missing_features}
+                                     asset_id_col="turbine_id", method="linear", r2_threshold=r2_threshold) for feature in impute_missing_features}
                 
                 for k, v in futures.items():
                     df = df.update(v, on="time")
@@ -230,7 +228,8 @@ class DataFilter:
                     data_pl=df.select(features_pl), data_pd=None,
                                                             impute_col=feature, reference_col=feature,
                                                             asset_id_col="turbine_id", method="linear", 
-                                                            multiprocessor=self.multiprocessor)
+                                                            multiprocessor=self.multiprocessor,
+                                                            r2_threshold=r2_threshold)
                 
                 df = df.update(imputed_vals, on="time")
                 logging.info(f"Imputed feature {feature} in DataFrame {df_idx}.")
@@ -241,15 +240,16 @@ class DataFilter:
                 imputed_vals = imputing.impute_all_assets_by_correlation(
                                                             data_pl=df.select(features_pl), data_pd=None,
                                                             impute_col=feature, reference_col=feature,
-                                                            asset_id_col="turbine_id", method="linear", multiprocessor=None)
+                                                            asset_id_col="turbine_id", method="linear", multiprocessor=None,
+                                                            r2_threshold=r2_threshold)
                 
                 df = df.update(imputed_vals, on="time")
                 logging.info(f"Imputed feature {feature} in DataFrame {df_idx}.") 
-        return df 
+        return df
 
-    def _fill_single_missing_dataset(self, df_idx, df, impute_missing_features, interpolate_missing_features, parallel=None):
+    def _fill_single_missing_dataset(self, df_idx, df, impute_missing_features, interpolate_missing_features, r2_threshold, parallel=None):
         
-        df = self._impute_single_missing_dataset(df_idx, df, impute_missing_features, parallel=parallel)
+        df = self._impute_single_missing_dataset(df_idx, df, impute_missing_features, r2_threshold=r2_threshold, parallel=parallel)
 
         # if any column is all nulls ... can't be imputed
         df = df.with_columns([cs.starts_with(feat).interpolate().fill_null(strategy="forward").fill_null(strategy="backward") for feat in interpolate_missing_features])

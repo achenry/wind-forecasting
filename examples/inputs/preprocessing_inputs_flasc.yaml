@@ -8,20 +8,22 @@ filters:
   - normalize
 
 feature_mapping:
-  time: time
-  wind_direction: 'wind_direction_\d+_avg'
-  wind_speed: 'wind_speed_\d+_avg'
-  power_output: 'active_power_\d+_avg'
-  nacelle_direction: 'nacelle_position_\d+_avg'
+  - time: time
+    wind_direction: 'wind_direction_\d+_avg'
+    wind_speed: 'wind_speed_\d+_avg'
+    power_output: 'active_power_\d+_avg'
+    nacelle_direction: 'nacelle_position_\d+_avg'
 
-turbine_signature: '\d+'
+turbine_signature: 
+  - '\d+'
 
 merge_chunk: 100
 ram_limit: 50
-frozen_sensor_limit: 600 # maximum duration for which a value can be constant before it is flagged as frozen, seconds
-missing_col_thr: 7 # number of missing turbine measurements, from either wind speed or wind direction, (max = n_turbines) above which this subset of data will be omitted, i.e. if many data points are missing omit the data
-missing_duration_thr: 1200 # maximum duration for which subsets of data which have missing measurements exceeding missing_col_thr in any feature type will still be included, i.e. if many data points are missing but only for a short time, use the data, seconds
+frozen_sensor_limit: 1200 # maximum duration for which a value can be constant before it is flagged as frozen, seconds
+missing_col_thr: 4 # number of missing turbine measurements, from either wind speed or wind direction, (max = n_turbines) above which this subset of data will be omitted, i.e. if many data points are missing omit the data
+missing_duration_thr: 300 # maximum duration for which subsets of data which have missing measurements exceeding missing_col_thr in any feature type will still be included, i.e. if many data points are missing but only for a short time, use the data, seconds
 minimum_not_missing_duration: 1200 # minimum duration that any retained continuous subset of data must be to be useful, seconds, i.e. should contain at least the intended context length and prediction length
+impute_r2_threshold: 0.5
 
 nacelle_calibration_turbine_pairs:
 - [0,1]
@@ -31,9 +33,13 @@ nacelle_calibration_turbine_pairs:
 
 dt: 60
 
-raw_data_directory: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/raw_flasc_data 
-processed_data_path: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/preprocessed_flasc_data/SMARTEOLE_WakeSteering_SCADA_1minData.parquet
-raw_data_file_signature: SMARTEOLE_WakeSteering_SCADA_1minData.csv
+raw_data_directory: 
+  - /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/raw_flasc_data 
+processed_data_path: 
+  - /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/preprocessed_flasc_data/SMARTEOLE_WakeSteering_SCADA_1minData.parquet
+raw_data_file_signature: 
+  - SMARTEOLE_WakeSteering_SCADA_1minData.csv
+  
 turbine_input_path: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/inputs/turbine_library/mm82.yaml
 farm_input_path: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/inputs/smarteole_farm.yaml
 

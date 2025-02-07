@@ -6,6 +6,7 @@
 
 import glob
 import os
+from typing import List, Optional
 import logging
 import re
 from shutil import rmtree, move
@@ -48,16 +49,17 @@ class DataLoader:
        - normalize data 
     """
     def __init__(self, 
-                 data_dir: str,
-                 file_signature: str,
+                 data_dir: List[str],
+                 file_signature: List[str],
                  save_path: str,
                  multiprocessor: str | None,
                  dt: int,
-                 feature_mapping: dict,
-                 turbine_signature: str,
-                 datetime_signature: dict,
+                 feature_mapping: List[dict],
+                 turbine_signature: List[str],
+                 turbine_mapping: Optional[List[dict]],
+                 datetime_signature: List[dict],
+                 data_format: List[str],
                  ffill_limit: int | None = None, 
-                 data_format: str = "netcdf",
                  merge_chunk: int = 100,
                  ram_limit: int = 50):
         
@@ -66,15 +68,15 @@ class DataLoader:
         self.file_signature = file_signature
         self.multiprocessor = multiprocessor
         self.dt = dt
-        self.data_format = data_format.lower()
-        assert self.data_format in ["netcdf", "csv", "parquet"]
+        self.data_format = [df.lower() for df in data_format]
+        assert all(df in ["netcdf", "csv", "parquet"] for df in self.data_format)
         self.feature_mapping = feature_mapping
-        self.reverse_feature_mapping = dict((src, tgt) for tgt, src in self.feature_mapping.items())
+        self.reverse_feature_mapping = [dict((src, tgt) for tgt, src in fm.items()) for fm in self.feature_mapping]
         self.merge_chunk = merge_chunk # number of files above which processed files should be merged/sorted/resampled/filled
         self.ram_limit = ram_limit # percentage of used RAM above which processed files should be merged/sorted/resampled/filled
 
-        self.source_features = list(self.feature_mapping.values())
-        self.target_features = list(self.feature_mapping.keys())
+        self.source_features = [list(fm.values()) for fm in self.feature_mapping]
+        self.target_features = set.union(*[set(fm.keys()) for fm in self.feature_mapping])
         
         assert [col in self.target_features for col in ["time", "wind_speed", "nacelle_direction", "power_output"]]
         assert "wind_direction" in self.target_features or ("nacelle_direction" in self.target_features and ("yaw_offset_cw" in self.target_features or "yaw_offset_ccw" in self.target_features)), "if wind_direction is not in the feature_mapping values, then yaw_offset_cw or yaw_offset_ccw must be to compute it from nacelle_direction"
@@ -83,17 +85,23 @@ class DataLoader:
         
         self.ffill_limit = ffill_limit
 
+        # TODO create uniform turbine_signature
         self.turbine_signature = turbine_signature
-        self.datetime_signature = list(datetime_signature.items())[0] if datetime_signature else None # mapping from a regex expression to a datetime format to capture datetime from filepaths
+        self.datetime_signature = [list(ds.items())[0] if ds else None for ds in datetime_signature] # mapping from a regex expression to a datetime format to capture datetime from filepaths
         self.turbine_ids = set()
+        self.turbine_mapping = turbine_mapping
+        
+        # check for no duplicates in target turbine ids
+        assert all(len(set(tm.values())) == len(tm.values()) for tm in self.turbine_mapping)
         # self.turbine_ids = sorted(list(set(k.split("_")[-1] for k in self.feature_mapping.keys() if re.search(r'\d', k)))) 
 
-        self.target_feature_types = list(set((re.sub(self.turbine_signature, "", k) if re.search(self.turbine_signature, k) else k) for k in self.feature_mapping.keys()))
+        # self.target_feature_types = list(set((re.sub(self.turbine_signature, "", k) 
+        #                                       if re.search(self.turbine_signature, k) else k) for k in self.feature_mapping.keys()))
         
         # Get all the wts in the folder @Juan 10/16/24 used os.path.join for OS compatibility
-        self.file_paths = sorted(glob.glob(os.path.join(data_dir, file_signature), recursive=True))
+        self.file_paths = [sorted(glob.glob(os.path.join(dd, fs), recursive=True)) for dd, fs in zip(data_dir, file_signature)]
     
-    # @profile 
+    @profile 
     def read_multi_files(self) -> pl.LazyFrame | None:
         read_start = time.time()
         
@@ -113,10 +121,11 @@ class DataLoader:
                     
                     if not os.path.exists(os.path.dirname(self.save_path)):
                         os.makedirs(os.path.dirname(self.save_path))
-                    logging.info(f"✅ Started reading {len(self.file_paths)} files.")
+                    logging.info(f"✅ Started reading {sum(len(fp) for fp in self.file_paths)} files.")
                     
-                    if not self.file_paths:
-                        raise FileExistsError(f"⚠️ File with signature {self.file_signature} in directory {self.data_dir} doesn't exist.")
+                    for file_set_idx, fp in enumerate(self.file_paths):
+                        if not fp:
+                            raise FileExistsError(f"⚠️ File with signature {self.file_signature[file_set_idx]} in directory {self.data_dir[file_set_idx]} doesn't exist.")
                     
                     # futures = [ex.submit(self._read_single_file, f, file_path) for f, file_path in enumerate(self.file_paths)]
                     
@@ -125,30 +134,35 @@ class DataLoader:
                     merged_paths = []
                     # init_used_ram = virtual_memory().percent 
                      
-                    file_futures = [ex.submit(self._read_single_file, f, file_path, os.path.join(temp_save_dir, os.path.basename(file_path))) for f, file_path in enumerate(self.file_paths)] #4% increase in mem
+                    file_futures = [ex.submit(self._read_single_file, file_set_idx, f, file_path, os.path.join(temp_save_dir, os.path.basename(file_path))) 
+                                    for file_set_idx in range(len(self.file_paths)) for f, file_path in enumerate(self.file_paths[file_set_idx])] #4% increase in mem
                     
-                    for f, file_path in enumerate(self.file_paths):
-                        used_ram = virtual_memory().percent 
-                         
-                        # if we have enough ram to continue to process files AND we still have files to process
-                        if (len(processed_file_paths) < self.merge_chunk or used_ram < self.ram_limit):
-                            logging.info(f"Used RAM = {used_ram}%. Continue adding to buffer of {len(processed_file_paths)} processed single files.")
-                            # res = ex.submit(self._read_single_file, f, file_path).result()
-                            res = file_futures[f].result() #.5% increase in mem
-                            if res is not None: 
-                                processed_file_paths.append(os.path.join(temp_save_dir, os.path.basename(file_path)))
+                    for file_set_idx in range(len(self.file_paths)):
+                        for f, file_path in enumerate(self.file_paths[file_set_idx]):
+                            used_ram = virtual_memory().percent 
+                            
+                            # if we have enough ram to continue to process files AND we still have files to process
+                            if (len(processed_file_paths) < self.merge_chunk and used_ram < self.ram_limit):
+                                logging.info(f"Used RAM = {used_ram}%. Continue adding to buffer of {len(processed_file_paths)} processed single files.")
+                                # res = ex.submit(self._read_single_file, f, file_path).result()
+                                res = file_futures[f].result() #.5% increase in mem
+                                if res is not None: 
+                                    processed_file_paths.append(os.path.join(temp_save_dir, os.path.basename(file_path)))
+                            
+                            if not (len(processed_file_paths) < self.merge_chunk and used_ram < self.ram_limit) \
+                                or (f == len(self.file_paths[file_set_idx]) - 1):
+                                # process what we have so far and dump processed lazy frames
+                                if f == (len(self.file_paths[file_set_idx]) - 1):
+                                    logging.info(f"Used RAM = {used_ram}%. Pause for FINAL merge/sort/resample/fill of {len(processed_file_paths)} files read so far.")
+                                else:
+                                    logging.info(f"Used RAM = {used_ram}%. Pause to merge/sort/resample/fill {len(processed_file_paths)} files read so far.")
+                                
+                                # merged_paths.append(ex.submit(self.merge_multiple_files, file_set_idx, processed_file_paths, merge_idx, temp_save_dir))
+                                merged_paths.append(self.merge_multiple_files(file_set_idx, processed_file_paths, merge_idx, temp_save_dir))
+                                merge_idx += 1
+                                processed_file_paths = []
                         
-                        if not (len(processed_file_paths) < self.merge_chunk or used_ram < self.ram_limit) or (f == len(self.file_paths) - 1):
-                            # process what we have so far and dump processed lazy frames
-                            if f == (len(self.file_paths) - 1):
-                                logging.info(f"Used RAM = {used_ram}%. Pause for FINAL merge/sort/resample/fill of {len(processed_file_paths)} files read so far.")
-                            else:
-                                logging.info(f"Used RAM = {used_ram}%. Pause to merge/sort/resample/fill {len(processed_file_paths)} files read so far.")
-                            
-                            merged_paths.append(ex.submit(self.merge_multiple_files, processed_file_paths, merge_idx, temp_save_dir))
-                            merge_idx += 1
-                            processed_file_paths = []
-                            
+                    
                     merged_paths = [fut.result() for fut in merged_paths]
                     
                     if len(merged_paths): 
@@ -169,9 +183,10 @@ class DataLoader:
                         
                         logging.info(f"Final Parquet file saved into {self.save_path}")
                         # turbine ids found in all files so far
-                        self.turbine_ids = self.get_turbine_ids(df_query, sort=True)
+                        self.turbine_ids = self.get_turbine_ids(file_set_idx, df_query, sort=True)
                         
                         logging.info(f"Removing temporary storage directory {temp_save_dir}")
+                         
                         rmtree(temp_save_dir)
                         logging.info(f"Removed temporary storage directory {temp_save_dir}")
                         
@@ -191,7 +206,7 @@ class DataLoader:
                 os.makedirs(os.path.dirname(self.save_path))
                 # raise Exception(f"Temporary saving directory {temp_save_dir} already exists! Please remove or rename it.")
             os.makedirs(temp_save_dir)
-            logging.info(f"✅ Started reading {len(self.file_paths)} files.")
+            logging.info(f"✅ Started reading {sum(len(fp) for fp in self.file_paths)} files.")
             logging.info(f"🔧 Using single process executor.")
             if not self.file_paths:
                 raise FileExistsError(f"⚠️ File with signature {self.file_signature} in directory {self.data_dir} doesn't exist.")
@@ -202,25 +217,29 @@ class DataLoader:
             processed_file_paths = []
             merge_idx = 0
             merged_paths = []
-            for f, file_path in enumerate(self.file_paths):
-                used_ram = virtual_memory().percent
-                if (len(processed_file_paths) < self.merge_chunk or used_ram < self.ram_limit):
-                    # logging.info(f"Used RAM = {used_ram}%. Continue processing single files.")
-                    res = self._read_single_file(f, file_path, 
-                                                 os.path.join(temp_save_dir, os.path.basename(file_path)))
-                    if res is not None: 
-                        processed_file_paths.append(os.path.join(temp_save_dir, os.path.basename(file_path)))
-                if not (len(processed_file_paths) < self.merge_chunk or used_ram < self.ram_limit) or (f == len(self.file_paths) - 1):
-                    # process what we have so far and dump processed lazy frames
-                    if f == (len(self.file_paths) - 1):
-                        logging.info(f"Used RAM = {used_ram}%. Pause for FINAL merge/sort/resample/fill of {len(processed_file_paths)} files read so far.")
-                    else:
-                        logging.info(f"Used RAM = {used_ram}%. Pause to merge/sort/resample/fill {len(processed_file_paths)} files read so far.")
-                    
-                    merged_paths.append(self.merge_multiple_files( processed_file_paths, merge_idx, temp_save_dir))
-                    merge_idx += 1
-                    processed_file_paths = []
+            for file_set_idx in range(len(self.file_paths)):
+                for f, file_path in enumerate(self.file_paths[file_set_idx]):
+                    used_ram = virtual_memory().percent
+                    if (len(processed_file_paths) < self.merge_chunk and used_ram < self.ram_limit):
+                        logging.info(f"Used RAM = {used_ram}%. Continue adding to buffer of {len(processed_file_paths)} processed single files.")
+                        res = self._read_single_file(file_set_idx, f, file_path, 
+                                                    os.path.join(temp_save_dir, os.path.basename(file_path)))
+                        if res is not None:
+                            processed_file_paths.append(os.path.join(temp_save_dir, os.path.basename(file_path)))
+                    if not (len(processed_file_paths) < self.merge_chunk and used_ram < self.ram_limit) \
+                        or (f == len(self.file_paths[file_set_idx]) - 1):
+                        # process what we have so far and dump processed lazy frames
+                        if f == (len(self.file_paths[file_set_idx]) - 1):
+                            logging.info(f"Used RAM = {used_ram}%. Pause for FINAL merge/sort/resample/fill of {len(processed_file_paths)} files read so far.")
+                        else:
+                            logging.info(f"Used RAM = {used_ram}%. Pause to merge/sort/resample/fill {len(processed_file_paths)} files read so far.")
+                        
+                        merged_paths.append(self.merge_multiple_files( file_set_idx, processed_file_paths, merge_idx, temp_save_dir))
+                        merge_idx += 1
+                        processed_file_paths = []
             
+            # TODO convert to common turbine_id over multiple filetypes 
+            # TODO can we merge files from multiple file types here?
             if len(merged_paths):    
                 logging.info(f"🔗 Finished reading files. Time elapsed: {time.time() - read_start:.2f} s")
                 if len(merged_paths) > 1: 
@@ -238,7 +257,7 @@ class DataLoader:
                     df_query = pl.scan_parquet(self.save_path)
                 
                 # turbine ids found in all files so far
-                self.turbine_ids = self.get_turbine_ids(df_query, sort=True)
+                self.turbine_ids = self.get_turbine_ids(file_set_idx, df_query, sort=True)
                  
                 logging.info(f"Final Parquet file saved into {self.save_path}")
                 
@@ -255,7 +274,7 @@ class DataLoader:
                 logging.info(f"Removed temporary storage directory {temp_save_dir}")
                 return None
    
-    
+    @profile
     def sort_resample_refill(self, df_query):
         
         logging.info(f"Started sorting.")
@@ -271,7 +290,7 @@ class DataLoader:
                                         end=bounds.select("last").item(),
                                         interval=f"{self.dt}s", time_unit=df_query.collect_schema()["time"].time_unit).alias("time"))\
                                 .join(df_query, on="time", how="left")
-            del bounds 
+            
             # df_query = full_datetime_range.join(df_query, on="time", how="left")
             logging.info(f"Finished resampling.") 
 
@@ -281,67 +300,82 @@ class DataLoader:
         
         return df_query
     
-    # @profile 
-    def merge_multiple_files(self, processed_file_paths, i, temp_save_dir):
+    @profile 
+    def merge_multiple_files(self, file_set_idx, processed_file_paths, i, temp_save_dir):
         # INFO: @Juan 11/13/24 Added check for data patterns in the names and also added a check for single files
         # if len(processed_file_paths) == 1:
         #     df_queries = [pl.scan_parquet(fp) for fp in processed_file_paths]
         #     df_queries = self.sort_resample_refill(df_queries)
         #     return processed_file_paths[0]
         
-        join_start = time.time()
+        # join_start = time.time()
         logging.info(f"✅ Started join of {len(processed_file_paths)} files.")
         df_queries = [pl.scan_parquet(fp) for fp in processed_file_paths]
         
         # Check if files have date patterns in their names
-        has_date_pattern = self.datetime_signature is not None and all(re.search(self.datetime_signature[0], os.path.basename(fp)) for fp in processed_file_paths)
-        unique_file_timestamps = sorted(set(re.findall(self.datetime_signature[0], fp)[0] for fp in processed_file_paths 
-                                                if re.search(self.datetime_signature[0], fp))) if has_date_pattern else None
+        # has_date_pattern = self.datetime_signature[file_set_idx] is not None and all(re.search(self.datetime_signature[file_set_idx][0], os.path.basename(fp)) for fp in processed_file_paths)
+        # unique_file_timestamps = sorted(set(re.findall(self.datetime_signature[file_set_idx][0], fp)[0] for fp in processed_file_paths 
+        #                                         if re.search(self.datetime_signature[file_set_idx][0], fp))) if has_date_pattern else None
         
-        if has_date_pattern and (len(processed_file_paths) > len(unique_file_timestamps)):
-            # selectively join dataframes for same timestamps but different turbines, then concatenate different time stamps (more efficient less joins)
+        # if has_date_pattern and (len(processed_file_paths) > len(unique_file_timestamps)):
+        #     # selectively join dataframes for same timestamps but different turbines, then concatenate different time stamps (more efficient less joins)
             
-            df_queries = [self._join_dfs(ts, [df for filepath, df in df_queries if ts in filepath]) 
-                        for ts in unique_file_timestamps]
+        #     df_queries = [self._join_dfs(ts, [df for filepath, df in zip(processed_file_paths, df_queries) if ts in filepath]) 
+        #                 for ts in unique_file_timestamps]
 
-            for ts, df in zip(unique_file_timestamps, df_queries):
-                df.collect().write_parquet(self.save_path.replace(".parquet", f"_{ts}.parquet"), statistics=False)
-                logging.info(f"Finished writing parquet {ts}")
+        #     pl.concat(df_queries, how="diagonal").group_by("time").agg(cs.numeric().mean())
             
-            logging.info(f"🔗 Finished join. Time elapsed: {time.time() - join_start:.2f} s")
+        #     for ts in unique_file_timestamps:
+        #         df_queries.pop(0).collect().write_parquet(os.path.join(temp_save_dir, os.path.basename(self.save_path).replace(".parquet", f"_{ts}.parquet")), statistics=False)
+        #         logging.info(f"Finished writing parquet {ts}")
+        #     # del df_queries
+            
+        #     logging.info(f"🔗 Finished join. Time elapsed: {time.time() - join_start:.2f} s")
 
-            concat_start = time.time()
-            df_queries = [pl.scan_parquet(self.save_path.replace(".parquet", f"_{ts}.parquet")) 
-                                for ts in unique_file_timestamps]
-            df_queries = pl.concat(df_queries, how="diagonal").group_by("time").agg(cs.numeric().mean())
-            logging.info(f"🔗 Finished concat. Time elapsed: {time.time() - concat_start:.2f} s")
+        #     concat_start = time.time()
+        #     df_queries = [pl.scan_parquet(os.path.join(temp_save_dir, os.path.basename(self.save_path).replace(".parquet", f"_{ts}.parquet"))) 
+        #                         for ts in unique_file_timestamps]
+        #     df_queries = pl.concat(df_queries, how="diagonal").group_by("time").agg(cs.numeric().mean())
+        #     logging.info(f"🔗 Finished concat. Time elapsed: {time.time() - concat_start:.2f} s")
 
-            for ts in unique_file_timestamps:
-                os.remove(self.save_path.replace(".parquet", f"_{ts}.parquet"))
+        # else:
+        
+        # For single file or files without timestamps, just get the dataframes
+        if len(df_queries) == 1:
+            df_queries = df_queries[0]  # If single file, no need to join
         else:
-            # For single file or files without timestamps, just get the dataframes
-            if len(df_queries) == 1:
-                df_queries = df_queries[0]  # If single file, no need to join
-            else:
-                df_queries = pl.concat(df_queries, how="diagonal").group_by("time").agg(cs.numeric().mean())
+            df_queries = pl.concat(df_queries, how="diagonal").group_by("time").agg(cs.numeric().mean())
+        
         logging.info(f"Finished join of {len(processed_file_paths)} files.")
-       
-        df_queries = self.sort_resample_refill(df_queries) 
-        merged_path = os.path.join(temp_save_dir, f"df{i}.parquet")
-        df_queries.collect().write_parquet(merged_path, statistics=False)
+        
+        # convert to common turbine_id over multiple filetypes
+        if self.turbine_mapping is not None:
+            turbine_ids = self.get_turbine_ids(file_set_idx, df_queries, sort=True) # turbine ids available in this collection of file paths (may not represent all)
+            assert all(tid in self.turbine_mapping[file_set_idx] for tid in turbine_ids), "check turbine_mapping in parameter, should have n_turbines length of distinct turbine ids, all of which are found in the data" # make sure that turbine mapping accounts for all turbine ids found in files
+            df_queries = df_queries.rename({
+                col: 
+                re.sub(pattern=self.turbine_signature[file_set_idx], 
+                    repl=str(self.turbine_mapping[file_set_idx][re.search(self.turbine_signature[file_set_idx], col).group(0)]), 
+                    string=col) for col in df_queries.collect_schema().names() if col != "time"})
+        
+        merged_path = os.path.join(temp_save_dir, f"df_{file_set_idx}_{i}.parquet") 
+        self.sort_resample_refill(df_queries).sink_parquet(merged_path, statistics=False)
         return merged_path 
 
+    @profile
     def _join_dfs(self, file_suffix, dfs):
         # logging.info(f"✅ Started joins for {file_suffix}-th collection of files.") 
         all_cols = set()
         first_df = True
         for d, df in enumerate(dfs):
             # df = df.collect()
-            new_cols = [col for col in df.collect_schema().names() if col != "time"]
+            new_cols = df.collect_schema().names()
+            
             if first_df:
                 df_query = df
                 first_df = False
             else:
+                # existing_cols = list(all_cols.intersection(new_cols))
                 existing_cols = list(all_cols.intersection(new_cols))
                 if existing_cols:
                     # data for the turbine contained in this frame has already been added, albeit from another day
@@ -352,6 +386,7 @@ class DataLoader:
                     df_query = df_query.join(df, on="time", how="full", coalesce=True)
 
             all_cols.update(new_cols)
+            all_cols.remove("time")
         
         logging.info(f"🔗 Finished joins for {file_suffix}-th collection of files.")
         return df_query
@@ -396,40 +431,40 @@ class DataLoader:
             os.makedirs(directory)
             logging.info(f"📁 Created directory: {directory}")
 
-    def get_turbine_ids(self, df_query, sort=False):
+    def get_turbine_ids(self, file_set_idx, df_query, sort=False):
         turbine_ids = set()
-        for col in df_query.collect_schema().names():
-            match = re.search(self.turbine_signature, col)
-            if match:
-                turbine_ids.add(match.group())
-
+        if "turbine_id" in df_query.collect_schema().names():
+            turbine_ids.update(df_query.select("turbine_id").collect().to_series().unique())
+        else:
+            for col in df_query.collect_schema().names():
+                match = re.search(self.turbine_signature[file_set_idx], col)
+                if match:
+                    turbine_ids.add(match.group())
         if sort:
             return sorted(turbine_ids)
         else:
             return turbine_ids
 
     # @profile
-    def _read_single_file(self, file_number:int, raw_file_path: str, processed_file_path: str) -> pl.LazyFrame:
+    def _read_single_file(self, file_set_idx: int, file_number:int, raw_file_path: str, processed_file_path: str) -> pl.LazyFrame:
         
         try:
             start_time = time.time()
-            if self.data_format == "netcdf":
+            if self.data_format[file_set_idx] == "netcdf":
                 with nc.Dataset(raw_file_path, 'r') as dataset:
-                    time_var = dataset.variables[self.feature_mapping["time"]]
+                    time_var = dataset.variables[self.feature_mapping[file_set_idx]["time"]]
                     time_var = nc.num2date(times=time_var[:], 
                                     units=time_var.units, 
                                     calendar=time_var.calendar, 
                                     only_use_cftime_datetimes=False, 
                                     only_use_python_datetimes=True)
-                    
+                     
                     data = {
-                        'turbine_id': [os.path.basename(raw_file_path).split('.')[-2]] * len(time_var),
-                        'time': time_var.tolist(),  # Convert to Polars datetime
-                        'turbine_status': dataset.variables[self.feature_mapping["turbine_status"]][:],
-                        'wind_direction': dataset.variables[self.feature_mapping["wind_direction"]][:],
-                        'wind_speed': dataset.variables[self.feature_mapping["wind_speed"]][:],
-                        'power_output': dataset.variables[self.feature_mapping["power_output"]][:],
-                        'nacelle_direction': dataset.variables[self.feature_mapping["nacelle_direction"]][:]
+                        **{
+                            'turbine_id': re.findall(self.turbine_signature[file_set_idx], os.path.basename(raw_file_path)) * len(time_var),
+                            'time': time_var.tolist(),  # Convert to Polars datetime
+                        },
+                        **{k: dataset.variables[v][:] for k, v in self.feature_mapping[file_set_idx].items() if k not in ["time", "turbine_id"] and v in dataset.variables}
                     }
 
                     # self.turbine_ids = self.turbine_ids.union(set(data["turbine_id"]))
@@ -437,38 +472,42 @@ class DataLoader:
                     # remove the rows with all nans (corresponding to rows where excluded columns would have had a value)
                     # and bundle all values corresponding to identical time stamps together
                     # forward fill missing values
+                    
+                    available_columns = list(data.keys()) 
+                    target_features = list(self.feature_mapping[file_set_idx])
                     df_query = pl.LazyFrame(data).fill_nan(None)\
-                                                    .with_columns(pl.col("time").dt.round(f"{self.dt}s").alias("time"))\
-                                                    .select([cs.contains(feat) for feat in self.target_feature_types])\
+                                                    .with_columns(pl.col("time").dt.round(f"{self.dt}s").alias("time").cast(pl.Datetime(time_unit="us")))\
+                                                    .select([cs.contains(feat) for feat in target_features])\
                                                     .filter(pl.any_horizontal(cs.numeric().is_not_null()))
-                                                    
-                    del data  # Free up memory
-            elif self.data_format in ["csv", "parquet"]:
-                if self.data_format == "csv":
+                    # just the turbine ids found in this file
+                    turbine_ids = self.get_turbine_ids(file_set_idx, df_query)
+                    
+            elif self.data_format[file_set_idx] in ["csv", "parquet"]:
+                if self.data_format[file_set_idx] == "csv":
                     df_query = pl.scan_csv(raw_file_path, low_memory=False)
-                elif self.data_format == "parquet":
+                elif self.data_format[file_set_idx] == "parquet":
                     df_query = pl.scan_parquet(raw_file_path) 
                 
                 available_columns = df_query.collect_schema().names()
-                assert all(any(bool(re.search(feat, col)) for col in available_columns) for feat in self.source_features), "All values in feature_mapping must exist in data columns."
+                assert all(any(bool(re.search(feat, col)) for col in available_columns) for feat in self.source_features[file_set_idx]), "All values in feature_mapping must exist in data columns."
 
                 # Select only relevant columns and handle missing values
                 # df_query = df_query.select(self.source_features)\
-                df_query = df_query.select(*[cs.matches(feat) for feat in self.source_features])
+                df_query = df_query.select(*[cs.matches(feat) for feat in self.source_features[file_set_idx]])
                 source_features = df_query.collect_schema().names()
                 
                 # just the turbine ids found in this file
-                turbine_ids = self.get_turbine_ids(df_query)
+                turbine_ids = self.get_turbine_ids(file_set_idx, df_query)
                 
                 # Apply column mapping after selecting relevant columns
                 rename_dict = {}
                 for src in source_features:
                     feature_type = None
                     tid = None
-                    for src_signature in self.source_features:
+                    for src_signature in self.source_features[file_set_idx]:
                         if re.search(src_signature, src):
-                            feature_type = self.reverse_feature_mapping[src_signature]
-                            tid = re.search(self.turbine_signature, src)
+                            feature_type = self.reverse_feature_mapping[file_set_idx][src_signature]
+                            tid = re.search(self.turbine_signature[file_set_idx], src)
                             if tid:
                                 tid = tid.group()
                     if feature_type and tid:
@@ -481,7 +520,8 @@ class DataLoader:
                 df_query = df_query.with_columns([pl.col(col).cast(pl.Float64) for col in df_query.collect_schema().names() if any(feat_type in col and feat_type != "time" for feat_type in self.target_features)])
                 df_query = df_query.with_columns(cs.numeric().fill_nan(None))
                 
-                target_features = list(self.target_features)
+                # target_features = list(self.target_features)
+                target_features = list(self.feature_mapping[file_set_idx])
                 if "wind_direction" not in target_features:
                     if "nacelle_direction" in target_features:
                         if "yaw_offset_cw" in target_features:
@@ -499,6 +539,8 @@ class DataLoader:
                         df_query = df_query.select(pl.exclude("^yaw_offset_.*$"))
                         del target_features[target_features.index(f"yaw_offset_{direc}")]
                         target_features.append("wind_direction")
+                        # del self.feature_mapping[file_set_idx][f"yaw_offset_{direc}"]
+                        # self.feature_mapping[file_set_idx]["wind_direction"] = ""
                 
                 time_type = df_query.collect_schema()["time"]
                 if time_type == pl.datatypes.String:
@@ -509,18 +551,16 @@ class DataLoader:
                 else:
                     if time_type.time_zone is None:
                         df_query = df_query.with_columns(
-                            time=pl.col("time").cast(pl.Datetime(time_unit=time_type.time_unit))
+                            time=pl.col("time").cast(pl.Datetime(time_unit="us"))
                         )
                     else:
                         df_query = df_query.with_columns(
-                            time=pl.col("time").dt.convert_time_zone("UTC").cast(pl.Datetime(time_unit=time_type.time_unit))
+                            time=pl.col("time").dt.convert_time_zone("UTC").cast(pl.Datetime(time_unit="us"))
                         )
                 
                 # Check if data is already in wide format
                 available_columns = df_query.collect_schema().names()
-                is_already_wide = all(any(f"{feature}_{tid}" in col for col in available_columns) 
-                    for feature in target_features for tid in turbine_ids if feature != "time")
-
+                
                 # remove the rows with all nans (corresponding to rows where excluded columns would have had a value)
                 # and bundle all values corresponding to identical time stamps together
                 # forward fill missing values
@@ -528,23 +568,22 @@ class DataLoader:
                                     .select([cs.contains(feat) for feat in target_features])\
                                     .filter(pl.any_horizontal(cs.numeric().is_not_null()))
                 
-                # pivot table to have columns for each turbine and measurement if not originally in wide format
-                if not is_already_wide:
-                    pivot_features = [col for col in available_columns if col not in ['time', 'turbine_id']]
-                    df_query = df_query.pivot(
-                        index="time",
-                        on="turbine_id",
-                        values=pivot_features,
-                        aggregate_function=pl.element().drop_nulls().first(),
-                        sort_columns=True
-                    ).sort("time")
-                else:
-                    df_query = df_query
-            
+            # pivot table to have columns for each turbine and measurement if not originally in wide format
+            is_already_wide = all(f"{feature}_{tid}" in available_columns 
+                for feature in target_features for tid in turbine_ids if feature != "time")
+            if not is_already_wide:
+                pivot_features = [col for col in available_columns if col not in ['time', 'turbine_id']]
+                df_query = df_query.collect().pivot(
+                    index="time",
+                    on="turbine_id",
+                    values=pivot_features,
+                    aggregate_function=pl.element().drop_nulls().first(),
+                    sort_columns=True
+                ).lazy().sort("time")
+                
             df_query.collect().write_parquet(processed_file_path, statistics=False)
             logging.info(f"✅ Processed {file_number + 1}-th {raw_file_path} and saved to {processed_file_path}. Time: {time.time() - start_time:.2f} s")
             return processed_file_path
-            # return df_query.collect().lazy()
         
         except Exception as e:
             logging.error(f"❌ Error processing file {raw_file_path}: {str(e)}")
