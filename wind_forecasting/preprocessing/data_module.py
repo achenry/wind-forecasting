@@ -140,7 +140,7 @@ class DataModule():
         # dataset.target_cols = self.target_cols 
         
         logging.info(f"Writing resampled/sorted parquet to {self.train_ready_data_path}.") 
-        dataset.collect().write_parquet(self.train_ready_data_path, statistics=False)
+        dataset.sink_parquet(self.train_ready_data_path, statistics=False)
         logging.info(f"Saved resampled/sorted parquet to {self.train_ready_data_path}.")
         # dataset = IterableLazyFrame(data_path=train_ready_data_path)
         # univariate=ListDataset of multiple dictionaires each corresponding to measurements from a single turbine, to implicitly capture correlations
