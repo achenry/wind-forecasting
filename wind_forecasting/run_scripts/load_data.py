@@ -44,7 +44,6 @@ def main():
     # %% CREATE DATASET
     logging.info("Creating datasets")
     data_module = DataModule(data_path=config["dataset"]["data_path"], 
-                             save_data_path=config["dataset"]["save_data_path"] if "save_data_path" in config["dataset"] else None, 
                              n_splits=config["dataset"]["n_splits"],
                             continuity_groups=None, train_split=(1.0 - config["dataset"]["val_split"] - config["dataset"]["test_split"]),
                                 val_split=config["dataset"]["val_split"], test_split=config["dataset"]["test_split"], 

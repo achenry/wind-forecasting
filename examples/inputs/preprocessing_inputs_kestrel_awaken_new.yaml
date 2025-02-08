@@ -236,7 +236,7 @@ raw_data_directory:
   - /projects/ssc/ahenry/wind_forecasting/awaken_data/00_engie_scada/
   - /projects/ssc/ahenry/wind_forecasting/awaken_data/kp.turbine.z02.b0
 # raw_data_directory: /projects/ssc/ahenry/wind_forecasting/awaken_data/00_engie_scada_test/
-processed_data_path: /projects/ssc/ahenry/wind_forecasting/awaken_data/awaken_processed.parquet
+processed_data_path: /tmp/scratch/$SLURM_JOB_ID/awaken_processed.parquet
 
 # processed_data_path: /tmp/scratch/$SLURM_JOB_ID/00_engie_scada_processed.parquet
 # processed_data_path: /srv/data/nfs/ahenry/preprocessed_awaken_data/00_engie_scada_processed.parquet
