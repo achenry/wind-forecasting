@@ -61,6 +61,7 @@ ROW_LIMIT = 1000
 # %%
 # @profile
 def main():
+    logging.info("Parsing arguments...")
     parser = argparse.ArgumentParser(prog="WindFarmForecasting")
     parser.add_argument("-cnf", "--config", type=str)
     parser.add_argument("-m", "--multiprocessor", type=str, choices=["cf", "mpi"], required=False, default=None)
@@ -123,9 +124,12 @@ def main():
         config["turbine_mapping"] = None
     else:
         assert all(isinstance(tm, dict) for tm in config["turbine_mapping"])
+    
+    logging.info("Parsed arguments successfully")
 
     RUN_ONCE = (args.multiprocessor == "mpi" and mpi_exists and (MPI.COMM_WORLD.Get_rank()) == 0) or (args.multiprocessor != "mpi") or (args.multiprocessor is None)
      
+    logging.info("Instantiating DataLoader")
     data_loader = DataLoader(
         data_dir=config["raw_data_directory"],
         file_signature=config["raw_data_file_signature"],
@@ -141,6 +145,7 @@ def main():
         merge_chunk=config["merge_chunk"],
         ram_limit=config["ram_limit"]
     )
+    logging.info("Instantiated DataLoader successfully")
 
     # %%
     # INFO: Print netcdf structure
