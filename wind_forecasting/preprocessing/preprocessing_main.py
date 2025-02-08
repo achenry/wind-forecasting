@@ -61,6 +61,7 @@ ROW_LIMIT = 1000
 # %%
 # @profile
 def main():
+    logging.info("Parsing arguments...")
     parser = argparse.ArgumentParser(prog="WindFarmForecasting")
     parser.add_argument("-cnf", "--config", type=str)
     parser.add_argument("-m", "--multiprocessor", type=str, choices=["cf", "mpi"], required=False, default=None)
@@ -123,9 +124,12 @@ def main():
         config["turbine_mapping"] = None
     else:
         assert all(isinstance(tm, dict) for tm in config["turbine_mapping"])
+    
+    logging.info("Parsed arguments successfully")
 
     RUN_ONCE = (args.multiprocessor == "mpi" and mpi_exists and (MPI.COMM_WORLD.Get_rank()) == 0) or (args.multiprocessor != "mpi") or (args.multiprocessor is None)
      
+    logging.info("Instantiating DataLoader")
     data_loader = DataLoader(
         data_dir=config["raw_data_directory"],
         file_signature=config["raw_data_file_signature"],
@@ -141,6 +145,7 @@ def main():
         merge_chunk=config["merge_chunk"],
         ram_limit=config["ram_limit"]
     )
+    logging.info("Instantiated DataLoader successfully")
 
     # %%
     # INFO: Print netcdf structure
@@ -156,7 +161,7 @@ def main():
             df_query = pl.scan_parquet(source=data_loader.save_path)
             if data_loader.turbine_mapping is not None:
                 # if this data was pulled from multiple files, the turbine ids have all been mapped to integers
-                data_loader.turbine_signature = "\\d" 
+                data_loader.turbine_signature = "\\d+$" 
             # generate turbine ids
             data_loader.turbine_ids = data_loader.get_turbine_ids(data_loader.turbine_signature, df_query, sort=True)
 
@@ -355,7 +360,7 @@ def main():
                 ) 
             del df_query_10min
             df_query = df_query2
-            del df_query2
+            
             df_query.collect().write_parquet(config["processed_data_path"].replace(".parquet", "_calibrated.parquet"), statistics=False)
         else:
             df_query = pl.scan_parquet(config["processed_data_path"].replace(".parquet", "_calibrated.parquet"))
@@ -835,7 +840,7 @@ def main():
             # x = df_query.collect().partition_by("continuity_group")
             # x[0].select(pl.any_horizontal(cs.numeric().is_not_null().sum() < 2)).item()
             
-            # filter out the continuity groups for which any measurement has 0 non-null values, can't impute then
+            # filter out the continuity groups for which any measurement has 0 non-null values, can't impute then # TODO check that this matches turbine signature
             df_query_not_missing = df_query_not_missing.select(pl.col("duration"), pl.col("start_time"), pl.col("end_time"), pl.col("continuity_group"), 
                                         cs.starts_with("is_missing") & cs.matches(data_loader.turbine_signature))\
                                 .filter(pl.all_horizontal(cs.starts_with("is_missing") 
