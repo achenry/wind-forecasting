@@ -43,8 +43,8 @@ def main():
     # parse training/test booleans and config file from command line
     logging.info("Parsing configuration from yaml and command line arguments")
     parser = argparse.ArgumentParser(prog="WindFarmForecasting")
-    parser.add_argument("-cnf", "--config", type=str)
-    parser.add_argument("-tr", "--train", action="store_true")
+    parser.add_argument("-cnf", "--config", type=str, required=True)
+    parser.add_argument("-md", "--mode", choices=["tune", "train", "test"], required=True)
     parser.add_argument("-chk", "--checkpoint", type=str, required=False, default=None)
     parser.add_argument("-m", "--model", type=str, choices=["informer", "autoformer", "spacetimeformer", "tactis"], required=True)
     # pretrained_filename = "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/logging/wf_forecasting/lznjshyo/checkpoints/epoch=0-step=50.ckpt"
@@ -53,23 +53,18 @@ def main():
     with open(args.config, 'r') as file:
         config  = yaml.safe_load(file)
         
-    # TODO set number of devices/number of nodes based on environment variables
-
     # TODO create function to check config params and set defaults
-    # if config["trainer"]["n_workers"] == "auto":
-    #     if "SLURM_GPUS_ON_NODE" in os.environ:
-    #         config["trainer"]["n_workers"] = int(os.environ["SLURM_GPUS_ON_NODE"])
-    #     else:
-    #         config["trainer"]["n_workers"] = mp.cpu_count()
-    
-    # config["trainer"]["devices"] = 'auto'
-    # config["trainer"]["accelerator"] = 'auto'
+    # set number of devices/number of nodes based on environment variables
+    if "SLURM_NTASKS_PER_NODE" in os.environ:
+        config["trainer"]["devices"] = int(os.environ["SLURM_NTASKS_PER_NODE"])
+    if "SLURM_NNODES" in os.environ:
+        config["trainer"]["num_nodes"] = int(os.environ["SLURM_NNODES"])
     
     if (type(config["dataset"]["target_turbine_ids"]) is str) and (
         (config["dataset"]["target_turbine_ids"].lower() == "none") or (config["dataset"]["target_turbine_ids"].lower() == "all")):
         config["dataset"]["target_turbine_ids"] = None # select all turbines
 
-    # %% SETUP LOGGING
+    # %% TODO SETUP LOGGING
     # logging.info("Setting up logging")
     # if not os.path.exists(config["experiment"]["log_dir"]):
     #     os.makedirs(config["experiment"]["log_dir"])
@@ -119,15 +114,38 @@ def main():
         **config["model"][args.model]
     )
 
-    # %% TRAIN MODEL
-    logging.info("Training model")    
-    predictor = estimator.train(
-        training_data=data_module.train_dataset,
-        validation_data=data_module.val_dataset,
-        forecast_generator=DistributionForecastGenerator(estimator.distr_output),
-        ckpt_path=args.checkpoint if ((not args.train) and (args.checkpoint is not None) and (os.path.exists(args.checkpoint))) else None
-        # shuffle_buffer_length=1024
-    )
+    if args.mode == "tune":
+        from wind_forecasting.run_scripts.tuning import tune_model
+        tune_model(model=args.model, config=config, 
+                   estimator_class=globals()[f"{args.model.capitalize()}Estimator"], 
+                   data_module=data_module, 
+                   evaluator=evaluator, 
+                   metric_type=metric_type,
+                   context_length_choices=[int(data_module.prediction_horizon * i) for i in [1, 1.5, 2]])
+        
+    elif args.mode == "train":
+        # %% TRAIN MODEL
+        logging.info("Training model")    
+        predictor = estimator.train(
+            training_data=data_module.train_dataset,
+            validation_data=data_module.val_dataset,
+            forecast_generator=DistributionForecastGenerator(estimator.distr_output),
+            ckpt_path=args.checkpoint if ((not args.train) and (args.checkpoint is not None) and (os.path.exists(args.checkpoint))) else None
+            # shuffle_buffer_length=1024
+        )
+    elif args.mode == "test":
+        # %% TEST MODEL
+        from wind_forecasting.run_scripts.testing import test_model
+        if os.path.exists(args.checkpoint):
+            test_model(data_module=data_module,
+                       checkpoint=args.checkpoint,
+                       lightning_module_class=globals()[f"{args.model.capitalize()}LightningModule"], 
+                       estimator=estimator, 
+                       normalization_consts_path=config["dataset"]["normalization_consts_path"])
+            logging.info("Found pretrained model, loading...")
+        else:
+            raise TypeError("Must provide a --checkpoint argument to load from.")
+        
     
 if __name__ == "__main__":
     main()
