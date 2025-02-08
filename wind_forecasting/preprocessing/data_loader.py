@@ -203,7 +203,7 @@ class DataLoader:
                         processed_file_paths = []
             
         if self.turbine_mapping: # if not none, ie there are multiple filetypes being processed
-            self.turbine_signature = "\\d"
+            self.turbine_signature = "\\d+$"
                 
         if len(merged_paths):    
             logging.info(f"🔗 Finished reading files. Time elapsed: {time.time() - read_start:.2f} s")
