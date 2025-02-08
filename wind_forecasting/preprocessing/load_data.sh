@@ -26,4 +26,4 @@ export LD_LIBRARy_PATH=$CONDA_PREFIX/lib
 
 mpirun -np $SLURM_NTASKS python preprocessing_main.py --config /$HOME/toolboxes/wind_forecasting_env/wind-forecasting/examples/inputs/preprocessing_inputs_kestrel_awaken_new.yaml --reload_data --multiprocessor mpi
 
-# mv /tmp/scratch/$SLURM_JOB_ID/00_engie_scada_processed.parquet /projects/ssc/ahenry/wind_forecasting/awaken_data/ 
+mv /tmp/scratch/$SLURM_JOB_ID/*.parquet /projects/ssc/ahenry/wind_forecasting/awaken_data/ 
