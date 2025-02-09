@@ -243,5 +243,6 @@ processed_data_path: /tmp/scratch/$SLURM_JOB_ID/awaken_processed.parquet
 raw_data_file_signature: 
   - ./**/KP_SCADA_*.*.parquet
   - kp.turbine.z02.b0.*.*.*.nc
+  
 turbine_input_path: /home/ahenry/toolboxes/wind_forecasting_env/wind-forecasting/examples/inputs/turbine_library/ge_282_127.yaml
 farm_input_path: /home/ahenry/toolboxes/wind_forecasting_env/wind-forecasting/examples/inputs/gch_KP_v4.yaml
