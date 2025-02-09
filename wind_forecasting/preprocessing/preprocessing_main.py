@@ -26,13 +26,6 @@ sys.path.insert(0, parent_dir)
 # print(f"Current working directory inside script: {os.getcwd()}")
 # print("sys.path inside script:", sys.path)
 
-mpi_exists = False
-try:
-    from mpi4py import MPI
-    mpi_exists = True
-except:
-    print("No MPI available on system.")
-
 import multiprocessing
 
 from wind_forecasting.preprocessing.data_loader import DataLoader
@@ -61,6 +54,7 @@ ROW_LIMIT = 1000
 # %%
 # @profile
 def main():
+            
     logging.info("Parsing arguments...")
     parser = argparse.ArgumentParser(prog="WindFarmForecasting")
     parser.add_argument("-cnf", "--config", type=str)
@@ -71,6 +65,16 @@ def main():
     parser.add_argument("-p", "--plot", action="store_true")
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args()
+    
+    RUN_ONCE = (args.multiprocessor == "mpi" and mpi_exists and (MPI.COMM_WORLD.Get_rank()) == 0) or (args.multiprocessor != "mpi") or (args.multiprocessor is None)
+    
+    mpi_exists = False
+    try:
+        from mpi4py import MPI
+        mpi_exists = True
+    except:
+        if RUN_ONCE:
+            print("No MPI available on system.")
 
     with open(args.config, 'r') as file:
         config  = yaml.safe_load(file)
@@ -80,11 +84,12 @@ def main():
     config["turbine_input_path"] = os.path.expanduser(config["turbine_input_path"]) 
     config["farm_input_path"] = os.path.expanduser(config["farm_input_path"])
     
-    for path_key in ["raw_data_directory", "turbine_input_path", "farm_input_path"]:
-        if isinstance(config[path_key], list):
-            assert all(os.path.exists(fp) for fp in config[path_key]), f"One of {config[path_key]} doesn't exist."
-        else:
-            assert os.path.exists(config[path_key]), f"{config[path_key]} doesn't exist."
+    if RUN_ONCE:
+        for path_key in ["raw_data_directory", "turbine_input_path", "farm_input_path"]:
+            if isinstance(config[path_key], list):
+                assert all(os.path.exists(fp) for fp in config[path_key]), f"One of {config[path_key]} doesn't exist."
+            else:
+                assert os.path.exists(config[path_key]), f"{config[path_key]} doesn't exist."
              
     for path_key in ["raw_data_directory", "processed_data_path", "turbine_input_path", "farm_input_path"]:
         if isinstance(config[path_key], list):
@@ -100,7 +105,8 @@ def main():
     # config["filters"] = ["nacelle_calibration", "unresponsive_sensor", "range_flag", "bin_filter", "std_range_flag", "impute_missing_data", "split", "normalize"]
     # config["filters"] = ["split", "impute_missing_data", "normalize"]
             #    ["unresponsive_sensor", "inoperational", "range_flag", "window_range_flag", "bin_filter", "std_range_flag", "split", "impute_missing_data", "normalize"]
-    assert all(filt in ["nacelle_calibration", "unresponsive_sensor", "inoperational", "range_flag", "window_range_flag", "bin_filter", "std_range_flag", "split", "impute_missing_data", "normalize"] for filt in config["filters"])
+    if RUN_ONCE:
+        assert all(filt in ["nacelle_calibration", "unresponsive_sensor", "inoperational", "range_flag", "window_range_flag", "bin_filter", "std_range_flag", "split", "impute_missing_data", "normalize"] for filt in config["filters"])
 
     config["data_format"] = []
     for fp in config["raw_data_file_signature"]:
@@ -122,13 +128,11 @@ def main():
     # if we are only processing one file type, there is no need to transform all turbine ids to a common list
     if "turbine_mapping" not in config or (len(config["raw_data_directory"]) == 1):
         config["turbine_mapping"] = None
-    else:
+    elif RUN_ONCE:
         assert all(isinstance(tm, dict) for tm in config["turbine_mapping"])
     
     logging.info("Parsed arguments successfully")
-
-    RUN_ONCE = (args.multiprocessor == "mpi" and mpi_exists and (MPI.COMM_WORLD.Get_rank()) == 0) or (args.multiprocessor != "mpi") or (args.multiprocessor is None)
-     
+    
     logging.info("Instantiating DataLoader")
     data_loader = DataLoader(
         data_dir=config["raw_data_directory"],
