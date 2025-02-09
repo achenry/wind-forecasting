@@ -132,8 +132,8 @@ def main():
     
     if RUN_ONCE:
         logging.info("Parsed arguments successfully")
-    
-    logging.info("Instantiating DataLoader")
+        logging.info("Instantiating DataLoader")
+        
     data_loader = DataLoader(
         data_dir=config["raw_data_directory"],
         file_signature=config["raw_data_file_signature"],
