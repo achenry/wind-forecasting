@@ -66,16 +66,15 @@ def main():
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args()
     
-    RUN_ONCE = (args.multiprocessor == "mpi" and mpi_exists and (MPI.COMM_WORLD.Get_rank()) == 0) or (args.multiprocessor != "mpi") or (args.multiprocessor is None)
-    
     mpi_exists = False
     try:
         from mpi4py import MPI
         mpi_exists = True
     except:
-        if RUN_ONCE:
-            print("No MPI available on system.")
-
+        print("No MPI available on system.")
+            
+    RUN_ONCE = (args.multiprocessor == "mpi" and mpi_exists and (MPI.COMM_WORLD.Get_rank()) == 0) or (args.multiprocessor != "mpi") or (args.multiprocessor is None)
+    
     with open(args.config, 'r') as file:
         config  = yaml.safe_load(file)
 
@@ -131,7 +130,8 @@ def main():
     elif RUN_ONCE:
         assert all(isinstance(tm, dict) for tm in config["turbine_mapping"])
     
-    logging.info("Parsed arguments successfully")
+    if RUN_ONCE:
+        logging.info("Parsed arguments successfully")
     
     logging.info("Instantiating DataLoader")
     data_loader = DataLoader(
@@ -149,11 +149,12 @@ def main():
         merge_chunk=config["merge_chunk"],
         ram_limit=config["ram_limit"]
     )
-    logging.info("Instantiated DataLoader successfully")
+    if RUN_ONCE:
+        logging.info("Instantiated DataLoader successfully")
 
     # %%
     # INFO: Print netcdf structure
-    if config["data_format"] == "netcdf":
+    if config["data_format"] == "netcdf" and RUN_ONCE:
         data_loader.print_netcdf_structure(data_loader.file_paths[0])
 
     # %%
@@ -187,7 +188,6 @@ def main():
         df_query = data_loader.read_multi_files()
     
     if RUN_ONCE:
-        
         if processing_started:
             logging.info("✅ Finished reading individual files. Time elapsed: %.2f s", time.time() - start_time)
             logging.info("Parquet file saved into %s", data_loader.save_path)
@@ -198,10 +198,10 @@ def main():
         return
 
     # df_query = df_query.select(pl.all().slice(0, 9000000))  # remove any empty columns
-    
-    assert all(any(prefix in col for col in df_query.collect_schema().names()) for prefix in ["time", "wind_speed_", "wind_direction_", "nacelle_direction_", "power_output_"]), "DataFrame must contain columns 'time', then columns with prefixes 'wind_speed_', 'wind_direction_', 'power_output_', 'nacelle_direction_'"
-    assert df_query.select("time").collect().to_series().is_sorted(), "Loaded data should be sorted by time!"
-    assert all(any(f"{prefix}{tid}" in col for col in df_query.collect_schema().names() if col != "time") for prefix in ["wind_speed_", "wind_direction_", "nacelle_direction_", "power_output_"] for tid in data_loader.turbine_ids), "DataFrame must contain columns with prefixes 'wind_speed_', 'wind_direction_', 'power_output_', 'nacelle_direction_' and suffixes for each turbine id" 
+    if RUN_ONCE:
+        assert all(any(prefix in col for col in df_query.collect_schema().names()) for prefix in ["time", "wind_speed_", "wind_direction_", "nacelle_direction_", "power_output_"]), "DataFrame must contain columns 'time', then columns with prefixes 'wind_speed_', 'wind_direction_', 'power_output_', 'nacelle_direction_'"
+        assert df_query.select("time").collect().to_series().is_sorted(), "Loaded data should be sorted by time!"
+        assert all(any(f"{prefix}{tid}" in col for col in df_query.collect_schema().names() if col != "time") for prefix in ["wind_speed_", "wind_direction_", "nacelle_direction_", "power_output_"] for tid in data_loader.turbine_ids), "DataFrame must contain columns with prefixes 'wind_speed_', 'wind_direction_', 'power_output_', 'nacelle_direction_' and suffixes for each turbine id" 
 
     # df_query = df_query.group_by("time").agg(cs.numeric().mean())
     # df_query.collect().write_parquet(config["processed_data_path"], statistics=False)
