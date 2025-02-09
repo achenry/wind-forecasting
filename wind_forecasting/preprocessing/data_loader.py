@@ -318,7 +318,12 @@ class DataLoader:
         # convert to common turbine_id over multiple filetypes
         if self.turbine_mapping is not None:
             turbine_ids = self.get_turbine_ids(self.turbine_signature[file_set_idx], df_queries, sort=True) # turbine ids available in this collection of file paths (may not represent all)
-            assert all(tid in self.turbine_mapping[file_set_idx] for tid in turbine_ids), "check turbine_mapping in parameter, should have n_turbines length of distinct turbine ids, all of which are found in the data" # make sure that turbine mapping accounts for all turbine ids found in files
+            
+            # make sure that turbine mapping accounts for all turbine ids found in files
+            assert all(tid in self.turbine_mapping[file_set_idx] for tid in turbine_ids), \
+                f"""check turbine_mapping in yaml config, should have n_turbines length of distinct turbine ids, 
+                and all ids found in the data, {turbine_ids}, should be included in the keys""" 
+                
             df_queries = df_queries.rename({
                 col: 
                 re.sub(pattern=self.turbine_signature[file_set_idx], 
