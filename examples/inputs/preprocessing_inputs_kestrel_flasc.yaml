@@ -41,5 +41,5 @@ processed_data_path: /tmp/scratch/$SLURM_JOB_ID/flasc_processed.parquet
 raw_data_file_signature: 
   - SMARTEOLE_WakeSteering_SCADA_1minData.csv
   
-turbine_input_path: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/inputs/turbine_library/mm82.yaml
-farm_input_path: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/inputs/smarteole_farm.yaml
+turbine_input_path: /home/ahenry/toolboxes/wind_forecasting_env/wind-forecasting/examples/inputs/turbine_library/mm82.yaml
+farm_input_path: /home/ahenry/toolboxes/wind_forecasting_env/wind-forecasting/examples/inputs/smarteole_farm.yaml
