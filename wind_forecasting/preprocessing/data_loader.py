@@ -136,7 +136,6 @@ class DataLoader:
                     
                     # futures = [ex.submit(self._read_single_file, f, file_path) for f, file_path in enumerate(self.file_paths)]
                     
-                    processed_file_paths = []
                     merge_idx = 0
                     merged_paths = []
                     # init_used_ram = virtual_memory().percent 
@@ -147,6 +146,7 @@ class DataLoader:
                                     for file_set_idx in range(len(self.file_paths)) for f, file_path in enumerate(self.file_paths[file_set_idx])] #4% increase in mem
                     
                     for file_set_idx in range(len(self.file_paths)):
+                        processed_file_paths = []
                         for f, file_path in enumerate(self.file_paths[file_set_idx]):
                             used_ram = virtual_memory().percent 
                             
@@ -182,10 +182,10 @@ class DataLoader:
             # df_query = [self._read_single_file(f, file_path) for f, file_path in enumerate(self.file_paths)]
             # df_query = [(self.file_paths[d], df) for d, df in enumerate(df_query) if df is not None]
 
-            processed_file_paths = []
             merge_idx = 0
             merged_paths = []
             for file_set_idx in range(len(self.file_paths)):
+                processed_file_paths = []
                 for f, file_path in enumerate(self.file_paths[file_set_idx]):
                     used_ram = virtual_memory().percent
                     if (len(processed_file_paths) < self.merge_chunk or used_ram < self.ram_limit):
