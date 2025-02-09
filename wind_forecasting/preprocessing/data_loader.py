@@ -98,6 +98,23 @@ class DataLoader:
         # Get all the wts in the folder @Juan 10/16/24 used os.path.join for OS compatibility
         self.file_paths = [sorted(glob.glob(os.path.join(dd, fs), recursive=True)) for dd, fs in zip(data_dir, file_signature)]
     
+    def make_paths(self):
+        self.temp_save_dir = os.path.join(os.path.dirname(self.save_path), os.path.basename(self.save_path).replace(".parquet", "_temp"))
+        logging.info(f"Making temporary directory {self.temp_save_dir}")
+        if os.path.exists(self.temp_save_dir):
+            rmtree(self.temp_save_dir)
+            # raise Exception(f"Temporary saving directory {temp_save_dir} already exists! Please remove or rename it.")
+        os.makedirs(self.temp_save_dir)
+    
+        if not os.path.exists(os.path.dirname(self.save_path)):
+            logging.info(f"Making directory to save_path {os.path.dirname(self.save_path)}")
+            os.makedirs(os.path.dirname(self.save_path))
+    
+    def remove_paths(self):
+        logging.info(f"Removing temporary storage directory {self.temp_save_dir}")
+        rmtree(self.temp_save_dir)
+        logging.info(f"Removed temporary storage directory {self.temp_save_dir}")
+        
     # @profile 
     def read_multi_files(self) -> pl.LazyFrame | None:
         read_start = time.time()
@@ -110,20 +127,7 @@ class DataLoader:
             with executor as ex:
    
                 if ex is not None:
-                    RUN_ONCE = MPI.COMM_WORLD.Get_rank() == 0
-    
-                    temp_save_dir = os.path.join(os.path.dirname(self.save_path), os.path.basename(self.save_path).replace(".parquet", "_temp"))
-                    if RUN_ONCE:
-                        logging.info(f"Making temporary directory {temp_save_dir}")
-                        if os.path.exists(temp_save_dir):
-                            rmtree(temp_save_dir)
-                            # raise Exception(f"Temporary saving directory {temp_save_dir} already exists! Please remove or rename it.")
-                        os.makedirs(temp_save_dir)
                     
-                        if not os.path.exists(os.path.dirname(self.save_path)):
-                            logging.info(f"Making directory to save_path {os.path.dirname(self.save_path)}")
-                            os.makedirs(os.path.dirname(self.save_path))
-                        
                     logging.info(f"✅ Started reading {sum(len(fp) for fp in self.file_paths)} files.")
                     
                     for file_set_idx, fp in enumerate(self.file_paths):
@@ -137,7 +141,7 @@ class DataLoader:
                     merged_paths = []
                     # init_used_ram = virtual_memory().percent 
                      
-                    file_futures = [ex.submit(self._read_single_file, file_set_idx, f, file_path, os.path.join(temp_save_dir, os.path.basename(file_path))) 
+                    file_futures = [ex.submit(self._read_single_file, file_set_idx, f, file_path, os.path.join(self.temp_save_dir, os.path.basename(file_path))) 
                                     for file_set_idx in range(len(self.file_paths)) for f, file_path in enumerate(self.file_paths[file_set_idx])] #4% increase in mem
                     
                     for file_set_idx in range(len(self.file_paths)):
@@ -168,13 +172,6 @@ class DataLoader:
                     # merged_paths = [fut.result() for fut in merged_paths]
                     
         else:
-            temp_save_dir = os.path.join(os.path.dirname(self.save_path), os.path.basename(self.save_path).replace(".parquet", "_temp"))
-            if os.path.exists(temp_save_dir):
-                rmtree(temp_save_dir)
-            if not os.path.exists(os.path.dirname(self.save_path)):
-                os.makedirs(os.path.dirname(self.save_path))
-                # raise Exception(f"Temporary saving directory {temp_save_dir} already exists! Please remove or rename it.")
-            os.makedirs(temp_save_dir)
             logging.info(f"✅ Started reading {sum(len(fp) for fp in self.file_paths)} files.")
             logging.info(f"🔧 Using single process executor.")
             if not self.file_paths:
@@ -192,9 +189,9 @@ class DataLoader:
                     if (len(processed_file_paths) < self.merge_chunk and used_ram < self.ram_limit):
                         logging.info(f"Used RAM = {used_ram}%. Continue adding to buffer of {len(processed_file_paths)} processed single files.")
                         res = self._read_single_file(file_set_idx, f, file_path, 
-                                                    os.path.join(temp_save_dir, os.path.basename(file_path)))
+                                                    os.path.join(self.temp_save_dir, os.path.basename(file_path)))
                         if res is not None:
-                            processed_file_paths.append(os.path.join(temp_save_dir, os.path.basename(file_path)))
+                            processed_file_paths.append(os.path.join(self.temp_save_dir, os.path.basename(file_path)))
                     if not (len(processed_file_paths) < self.merge_chunk and used_ram < self.ram_limit) \
                         or (f == len(self.file_paths[file_set_idx]) - 1):
                         # process what we have so far and dump processed lazy frames
@@ -231,16 +228,9 @@ class DataLoader:
                 
             logging.info(f"Final Parquet file saved into {self.save_path}")
             
-            logging.info(f"Removing temporary storage directory {temp_save_dir}")
-            rmtree(temp_save_dir)
-            logging.info(f"Removed temporary storage directory {temp_save_dir}")
-            
             return df_query
         else:
             logging.error("No data successfully processed by read_multi_files.")
-            logging.info(f"Removing temporary storage directory {temp_save_dir}")
-            rmtree(temp_save_dir)
-            logging.info(f"Removed temporary storage directory {temp_save_dir}")
             return None
    
     # @profile
