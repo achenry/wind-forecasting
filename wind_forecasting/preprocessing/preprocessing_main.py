@@ -61,8 +61,8 @@ ROW_LIMIT = 1000
 # %%
 # @profile
 def main():
-            
-    logging.info("Parsing arguments...")
+    if MPI.COMM_WORLD.Get_rank() == 0: 
+     logging.info("Parsing arguments...")
     parser = argparse.ArgumentParser(prog="WindFarmForecasting")
     parser.add_argument("-cnf", "--config", type=str)
     parser.add_argument("-m", "--multiprocessor", type=str, choices=["cf", "mpi"], required=False, default=None)
