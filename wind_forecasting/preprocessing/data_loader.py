@@ -322,7 +322,8 @@ class DataLoader:
             # make sure that turbine mapping accounts for all turbine ids found in files
             assert all(tid in self.turbine_mapping[file_set_idx] for tid in turbine_ids), \
                 f"""check turbine_mapping in yaml config, should have n_turbines length of distinct turbine ids, 
-                and all ids found in the data, {turbine_ids}, should be included in the keys""" 
+                and all ids found in the data, {turbine_ids}, should be included in the keys, {self.turbine_mapping[file_set_idx]}, 
+                for the set of processed file paths, {processed_file_paths}""" 
                 
             df_queries = df_queries.rename({
                 col: 
