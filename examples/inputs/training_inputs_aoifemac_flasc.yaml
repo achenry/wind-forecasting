@@ -10,6 +10,8 @@ optuna:
   n_trials: 2
   metric: mean_wQuantileLoss
   direction: minimize
+  max_epochs: 3
+  limit_train_batches: 100
   context_length_choice_factors:
     - 1
     - 1.5
