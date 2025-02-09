@@ -164,7 +164,7 @@ class DataLoader:
                                 else:
                                     logging.info(f"Used RAM = {used_ram}%. Pause to merge/sort/resample/fill {len(processed_file_paths)} files read so far.")
                                 
-                                merged_paths.append(ex.submit(self.merge_multiple_files, file_set_idx, processed_file_paths, merge_idx, temp_save_dir).result())
+                                merged_paths.append(ex.submit(self.merge_multiple_files, file_set_idx, processed_file_paths, merge_idx, self.temp_save_dir).result())
                                 # merged_paths.append(self.merge_multiple_files(file_set_idx, processed_file_paths, merge_idx, temp_save_dir))
                                 merge_idx += 1
                                 processed_file_paths = []
@@ -200,38 +200,41 @@ class DataLoader:
                         else:
                             logging.info(f"Used RAM = {used_ram}%. Pause to merge/sort/resample/fill {len(processed_file_paths)} files read so far.")
                         
-                        merged_paths.append(self.merge_multiple_files( file_set_idx, processed_file_paths, merge_idx, temp_save_dir))
+                        merged_paths.append(self.merge_multiple_files( file_set_idx, processed_file_paths, merge_idx, self.temp_save_dir))
                         merge_idx += 1
                         processed_file_paths = []
             
         if self.turbine_mapping: # if not none, ie there are multiple filetypes being processed
             self.turbine_signature = "\\d+$"
+        
+        RUN_ONCE = (self.multiprocessor == "mpi" and mpi_exists and (MPI.COMM_WORLD.Get_rank()) == 0) or (self.multiprocessor != "mpi") or (self.multiprocessor is None)
+
+        if RUN_ONCE:
+            if len(merged_paths):    
+                logging.info(f"🔗 Finished reading files. Time elapsed: {time.time() - read_start:.2f} s")
+                if len(merged_paths) > 1: 
+                    logging.info(f"Concatenating and running final sort/resample/fill.")
+                    # concatenate intermediary dataframes
+                    df_query = pl.concat([pl.scan_parquet(bp) for bp in merged_paths], how="diagonal")
+                    df_query = self.sort_resample_refill(df_query)
+                    # Write to final parquet
+                    logging.info(f"Saving final Parquet file into {self.save_path}")
+                    df_query.sink_parquet(self.save_path, statistics=False)
+                    
+                else:
+                    logging.info(f"Moving only batch to {self.save_path}.")
+                    move(merged_paths[0], self.save_path)
+                    df_query = pl.scan_parquet(self.save_path)
                 
-        if len(merged_paths):    
-            logging.info(f"🔗 Finished reading files. Time elapsed: {time.time() - read_start:.2f} s")
-            if len(merged_paths) > 1: 
-                logging.info(f"Concatenating and running final sort/resample/fill.")
-                # concatenate intermediary dataframes
-                df_query = pl.concat([pl.scan_parquet(bp) for bp in merged_paths], how="diagonal")
-                df_query = self.sort_resample_refill(df_query)
-                # Write to final parquet
-                logging.info(f"Saving final Parquet file into {self.save_path}")
-                df_query.sink_parquet(self.save_path, statistics=False)
+                # turbine ids found in all files so far
+                self.turbine_ids = self.get_turbine_ids(self.turbine_signature, df_query, sort=True)
+                    
+                logging.info(f"Final Parquet file saved into {self.save_path}")
                 
+                return df_query
             else:
-                logging.info(f"Moving only batch to {self.save_path}.")
-                move(merged_paths[0], self.save_path)
-                df_query = pl.scan_parquet(self.save_path)
-            
-            # turbine ids found in all files so far
-            self.turbine_ids = self.get_turbine_ids(self.turbine_signature, df_query, sort=True)
-                
-            logging.info(f"Final Parquet file saved into {self.save_path}")
-            
-            return df_query
-        else:
-            logging.error("No data successfully processed by read_multi_files.")
-            return None
+                logging.error("No data successfully processed by read_multi_files.")
+                return None
    
     # @profile
     def sort_resample_refill(self, df_query):
