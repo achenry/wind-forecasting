@@ -20,6 +20,13 @@ import time
 import re
 from memory_profiler import profile
 
+mpi_exists = False
+try:
+    from mpi4py import MPI
+    mpi_exists = True
+except:
+    print("No MPI available on system.")
+
 parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 sys.path.insert(0, parent_dir)
 
@@ -65,14 +72,7 @@ def main():
     parser.add_argument("-p", "--plot", action="store_true")
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args()
-    
-    mpi_exists = False
-    try:
-        from mpi4py import MPI
-        mpi_exists = True
-    except:
-        print("No MPI available on system.")
-            
+     
     RUN_ONCE = (args.multiprocessor == "mpi" and mpi_exists and (MPI.COMM_WORLD.Get_rank()) == 0) or (args.multiprocessor != "mpi") or (args.multiprocessor is None)
     
     with open(args.config, 'r') as file:
