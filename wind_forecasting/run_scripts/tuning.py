@@ -14,7 +14,7 @@ from optuna.storages.journal import JournalFileBackend
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 class MLTuningObjective:
-    def __init__(self, *, model, config, lightning_module_class, estimator_class, distr_output_class, data_module, metric, context_length_choices):
+    def __init__(self, *, model, config, lightning_module_class, estimator_class, distr_output_class, max_epochs, limit_train_batches, data_module, metric, context_length_choices):
         self.model = model
         self.config = config
         self.lightning_module_class = lightning_module_class
@@ -25,6 +25,9 @@ class MLTuningObjective:
         self.evaluator = MultivariateEvaluator(num_workers=None, custom_eval_fn=None)
         self.context_length_choices = context_length_choices
         self.metrics = []
+
+        self.config["trainer"]["max_epochs"] = max_epochs
+        self.config["trainer"]["limit_train_batches"] = limit_train_batches
     
     # def get_params(self, trial) -> dict:
     #     return {
@@ -54,7 +57,7 @@ class MLTuningObjective:
             scaling=False,
             
             batch_size=self.config["dataset"].setdefault("batch_size", 128),
-            # num_batches_per_epoch=self.config["trainer"].setdefault("limit_train_batches", 50), # or in params
+            num_batches_per_epoch=self.config["trainer"]["limit_train_batches"],
             train_sampler=ExpectedNumInstanceSampler(num_instances=1.0, min_past=self.config["dataset"]["context_length"], min_future=self.data_module.prediction_length),
             validation_sampler=ValidationSplitSampler(min_past=self.config["dataset"]["context_length"], min_future=self.data_module.prediction_length),
             time_features=[second_of_minute, minute_of_hour, hour_of_day, day_of_year],
@@ -116,7 +119,9 @@ def get_tuned_params(use_rdb, study_name):
     # estimato = self.create_model(**storage.get_best_trial(study_id).params)
     return storage.get_best_trial(study_id).params 
 
-def tune_model(model, config, lightning_module_class, estimator_class, distr_output_class, data_module, context_length_choices, 
+def tune_model(model, config, lightning_module_class, estimator_class, 
+               max_epochs, limit_train_batches, 
+               distr_output_class, data_module, context_length_choices, 
                journal_storage_dir, use_rdb=False, restart_study=False, metric="mean_wQuantileLoss", 
                direction="minimize", n_trials=10):
     
@@ -139,6 +144,8 @@ def tune_model(model, config, lightning_module_class, estimator_class, distr_out
                                         lightning_module_class=lightning_module_class,
                                         estimator_class=estimator_class, 
                                         distr_output_class=distr_output_class,
+                                        max_epochs=max_epochs,
+                                        limit_train_batches=limit_train_batches,
                                         data_module=data_module, 
                                         context_length_choices=context_length_choices, 
                                         metric=metric)

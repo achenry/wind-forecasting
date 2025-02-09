@@ -5,6 +5,8 @@ import os
 
 import polars as pl
 import wandb
+wandb.login()
+# wandb.login(relogin=True)
 import yaml
 
 from gluonts.torch.distributions import LowRankMultivariateNormalOutput
@@ -56,7 +58,7 @@ def main():
         config  = yaml.safe_load(file)
         
     # TODO create function to check config params and set defaults
-    assert args.checkpoint is None or args.checkpoint in ["best", "last"] or os.path.exists(args.checkpoint), "Checkpoint argument, if provided, must equal 'best', 'last', or an existing checkpoint path."
+    assert args.checkpoint is None or args.checkpoint in ["best", "latest"] or os.path.exists(args.checkpoint), "Checkpoint argument, if provided, must equal 'best', 'latest', or an existing checkpoint path."
     # set number of devices/number of nodes based on environment variables
     if "SLURM_NTASKS_PER_NODE" in os.environ:
         config["trainer"]["devices"] = int(os.environ["SLURM_NTASKS_PER_NODE"])
@@ -68,17 +70,19 @@ def main():
         config["dataset"]["target_turbine_ids"] = None # select all turbines
 
     # %% TODO SETUP LOGGING
-    # logging.info("Setting up logging")
-    # if not os.path.exists(config["experiment"]["log_dir"]):
-    #     os.makedirs(config["experiment"]["log_dir"])
-    # wandb_logger = WandbLogger(
-    #     project="wf_forecasting",
-    #     name=config["experiment"]["run_name"],
-    #     log_model=True,
-    #     save_dir=config["experiment"]["log_dir"],
-    #     config=config
-    # )
-    # config["trainer"]["logger"] = wandb_logger
+    logging.info("Setting up logging")
+    if not os.path.exists(config["experiment"]["log_dir"]):
+        os.makedirs(config["experiment"]["log_dir"])
+    wandb_logger = WandbLogger(
+        project="wind_forecasting",
+        name=config["experiment"]["run_name"],
+        log_model="all",
+        # offline=True,
+        save_dir=config["experiment"]["log_dir"],
+    )
+    wandb_logger.experiment.config.update(config)
+    config["trainer"]["logger"] = wandb_logger
+
 
     # %% CREATE DATASET
     logging.info("Creating datasets")
@@ -142,6 +146,8 @@ def main():
                     estimator_class=globals()[f"{args.model.capitalize()}Estimator"],
                     distr_output_class=globals()[config["model"]["distr_output"]["class"]], 
                     data_module=data_module, 
+                    max_epochs=config["optuna"]["max_epochs"],
+                    limit_train_batches=config["optuna"]["limit_train_batches"],
                     metric=config["optuna"]["metric"],
                     direction=config["optuna"]["direction"],
                     context_length_choices=[int(data_module.prediction_length * i) for i in config["optuna"]["context_length_choice_factors"]],
@@ -172,7 +178,7 @@ def main():
         metric = "val_loss_epoch"
         mode = "min"
         
-        if args.checkpoint in ["best", "last"]:
+        if args.checkpoint in ["best", "latest"]:
             version_dirs = glob(os.path.join(config["trainer"]["default_root_dir"], "lightning_logs", "version_*"))
             if not version_dirs:
                 raise TypeError("Must provide a valid --checkpoint argument to load from.")
@@ -201,8 +207,8 @@ def main():
             else:
                 raise FileNotFoundError(f"Best checkpoint {checkpoint} does not exist.")
                 
-        elif args.checkpoint == "last":
-            logging.info("Fetching last pretrained model...")
+        elif args.checkpoint == "latest":
+            logging.info("Fetching latest pretrained model...")
             version_dir = os.path.join(config["trainer"]["default_root_dir"], "lightning_logs",
                                 f"version_{max([int(re.search(r'(?<=version_)\d+', vd).group(0)) for vd in version_dirs])}")
             
@@ -212,7 +218,7 @@ def main():
             checkpoint = checkpoint_paths[checkpoint_stats.index(sorted(checkpoint_stats)[-1])]
             
             if os.path.exists(checkpoint):
-                logging.info(f"Found last pretrained model: {checkpoint}")
+                logging.info(f"Found latest pretrained model: {checkpoint}")
             else:
                 raise FileNotFoundError(f"Last checkpoint {checkpoint} does not exist.")
              
@@ -226,6 +232,23 @@ def main():
                     lightning_module_class=globals()[f"{args.model.capitalize()}LightningModule"], 
                     estimator=estimator, 
                     normalization_consts_path=config["dataset"]["normalization_consts_path"])
+        
+        # %% EXPORT LOGGING DATA
+        # api = wandb.Api()
+        # run is specified by <entity>/<project>/<run_id>
+        # run = api.run("aoife-henry-university-of-colorado-boulder/wind_forecasting/<run_id>")
+        
+        # save the metrics for the run to a csv file
+        # metrics_df = run.history()
+        # metrics_df.to_csv("metrics.csv")
+        
+        # Pull down the accuracy and timestamps for logged metric data  
+        # if run.state == "finished":
+        #     for i, row in metrics_df.iterrows():
+        #     print(row["_timestamp"], row["accuracy"])
+        
+        # get unsampled metric data
+        # history = run.scan_history()
     
 if __name__ == "__main__":
     main()
