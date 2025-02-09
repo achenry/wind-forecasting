@@ -185,7 +185,13 @@ def main():
             start_time = time.time()
     
     if args.reload_data or not os.path.exists(data_loader.save_path):
+        if RUN_ONCE:
+            data_loader.make_paths()
+                        
         df_query = data_loader.read_multi_files()
+        
+        if RUN_ONCE:
+            data_loader.remove_paths()
     
     if RUN_ONCE:
         if processing_started:
