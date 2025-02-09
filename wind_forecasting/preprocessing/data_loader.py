@@ -163,9 +163,9 @@ class DataLoader:
                                 or (f == len(self.file_paths[file_set_idx]) - 1):
                                 # process what we have so far and dump processed lazy frames
                                 if f == (len(self.file_paths[file_set_idx]) - 1):
-                                    logging.info(f"Used RAM = {used_ram}%. Pause for FINAL merge/sort/resample/fill of {len(processed_file_paths)} files read so far.")
+                                    logging.info(f"Used RAM = {used_ram}%. Pause for FINAL merge/sort/resample/fill of {len(processed_file_paths)} files read so far from file set {file_set_idx}.")
                                 else:
-                                    logging.info(f"Used RAM = {used_ram}%. Pause to merge/sort/resample/fill {len(processed_file_paths)} files read so far.")
+                                    logging.info(f"Used RAM = {used_ram}%. Pause to merge/sort/resample/fill {len(processed_file_paths)} files read so far from file set {file_set_idx}.")
                                 
                                 merged_paths.append(ex.submit(self.merge_multiple_files, file_set_idx, processed_file_paths, merge_idx, self.temp_save_dir).result())
                                 # merged_paths.append(self.merge_multiple_files(file_set_idx, processed_file_paths, merge_idx, temp_save_dir))
@@ -200,9 +200,9 @@ class DataLoader:
                         or (f == len(self.file_paths[file_set_idx]) - 1):
                         # process what we have so far and dump processed lazy frames
                         if f == (len(self.file_paths[file_set_idx]) - 1):
-                            logging.info(f"Used RAM = {used_ram}%. Pause for FINAL merge/sort/resample/fill of {len(processed_file_paths)} files read so far.")
+                            logging.info(f"Used RAM = {used_ram}%. Pause for FINAL merge/sort/resample/fill of {len(processed_file_paths)} files read so far from file set {file_set_idx}.")
                         else:
-                            logging.info(f"Used RAM = {used_ram}%. Pause to merge/sort/resample/fill {len(processed_file_paths)} files read so far.")
+                            logging.info(f"Used RAM = {used_ram}%. Pause to merge/sort/resample/fill {len(processed_file_paths)} files read so far from file set {file_set_idx}.")
                         
                         merged_paths.append(self.merge_multiple_files( file_set_idx, processed_file_paths, merge_idx, self.temp_save_dir))
                         merge_idx += 1
@@ -323,7 +323,7 @@ class DataLoader:
             assert all(tid in self.turbine_mapping[file_set_idx] for tid in turbine_ids), \
                 f"""check turbine_mapping in yaml config, should have n_turbines length of distinct turbine ids, 
                 and all ids found in the data, {turbine_ids}, should be included in the keys, {self.turbine_mapping[file_set_idx]}, 
-                for the set of processed file paths, {processed_file_paths}""" 
+                for the set of processed file paths, {[os.path.basename(fp) for fp in processed_file_paths]} for file set {file_set_idx}""" 
                 
             df_queries = df_queries.rename({
                 col: 
