@@ -168,12 +168,12 @@ class DataLoader:
                                 else:
                                     logging.info(f"Used RAM = {used_ram}%. Pause to merge/sort/resample/fill {len(processed_file_paths)} files read so far from file set {file_set_idx}.")
                                 
-                                merged_paths.append(ex.submit(self.merge_multiple_files, file_set_idx, processed_file_paths, merge_idx, self.temp_save_dir))
+                                merged_paths.append(ex.submit(self.merge_multiple_files, file_set_idx, processed_file_paths, merge_idx, self.temp_save_dir).result())
                                 # merged_paths.append(self.merge_multiple_files(file_set_idx, processed_file_paths, merge_idx, temp_save_dir))
                                 merge_idx += 1
                                 processed_file_paths = []
                     
-                    merged_paths = [fut.result() for fut in merged_paths]
+                    # merged_paths = [fut.result() for fut in merged_paths]
                     
         else:
             logging.info(f"✅ Started reading {sum(len(fp) for fp in self.file_paths)} files.")
