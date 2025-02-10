@@ -228,7 +228,7 @@ class DataLoader:
                     df_query = self.sort_resample_refill(df_query)
                     # Write to final parquet
                     logging.info(f"Saving final Parquet file into {self.save_path}")
-                    df_query.sink_parquet(self.save_path, statistics=False)
+                    df_query.collect().write_parquet(self.save_path, statistics=False)
                     
                 else:
                     logging.info(f"Moving only batch to {self.save_path}.")
@@ -380,7 +380,7 @@ class DataLoader:
             self._ensure_dir_exists(self.save_path)
 
             # df_query.sink_ipc(self.save_path)
-            df_query.sink_parquet(self.save_path, statistics=False)
+            df_query.collect.write_parquet(self.save_path, statistics=False)
 
             # df = pl.scan_parquet(self.save_path)
             logging.info(f"✅ Finished writing Parquet. Time elapsed: {time.time() - write_start:.2f} s")
