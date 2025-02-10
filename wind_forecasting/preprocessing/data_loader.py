@@ -155,7 +155,7 @@ class DataLoader:
                             if (len(processed_file_paths) < self.merge_chunk and used_ram < self.ram_limit):
                                 logging.info(f"Used RAM = {used_ram}%. Continue adding to buffer of {len(processed_file_paths)} processed single files.")
                                 # res = ex.submit(self._read_single_file, f, file_path).result()
-                                res = file_futures[f].result() #.5% increase in mem
+                                res = file_futures[f] #.5% increase in mem
                                 if res is not None: 
                                     processed_file_paths.append(os.path.join(self.temp_save_dir, 
                                                            f"{os.path.splitext(os.path.basename(file_path))[0]}.parquet"))
