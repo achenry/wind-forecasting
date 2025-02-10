@@ -504,7 +504,8 @@ def merge_adjacent_periods(agg_df, dt):
 def gauss_corr(gauss_params, power_ratio):
     xs = np.arange(-int((len(power_ratio) - 1) / 2), int((len(power_ratio) + 1) / 2), 1)
     gauss = -1 * gauss_params[2] * np.exp(-0.5 * ((xs - gauss_params[0]) / gauss_params[1])**2) + 1.
-    return -1 * np.corrcoef(gauss, power_ratio)[0, 1]
+    # maximize the correlation between the gaussian curve parameterized here and the power_ratio i.e. fit the gaussian curve to the power ratio
+    return -1 * np.corrcoef(gauss, power_ratio)[0, 1] 
 
 def compute_offsets(df, fi, turbine_ids, turbine_pairs:list[tuple[int, int]]=None, plot=False):
     p_min = 100
@@ -519,22 +520,26 @@ def compute_offsets(df, fi, turbine_ids, turbine_pairs:list[tuple[int, int]]=Non
         i_up = prat_turbine_pairs[i][0]
         i_down = prat_turbine_pairs[i][1]
 
+        # compute the angle of the vector pointing from the downstream turbine to the upstream turbine (CW from north)
         dir_align = np.degrees(np.arctan2(fi.layout_x[i_up] - fi.layout_x[i_down], fi.layout_y[i_up] - fi.layout_y[i_down])) % 360
 
         tid_up = turbine_ids[i_up]
         tid_down = turbine_ids[i_down]
 
+        # get the subset of power outputs and wind directions for which the downstream power is positive and the upstream power is within a given range
         df_sub = df.filter((pl.col(f"power_output_{tid_up}") >= p_min) 
                                 & (pl.col(f"power_output_{tid_up}") <= p_max) 
                                 & (pl.col(f"power_output_{tid_down}") >= 0))\
                                 .select(f"power_output_{tid_up}", f"power_output_{tid_down}", f"wind_direction_{tid_up}", f"wind_direction_{tid_down}")
-        
+                                
+        # average the turbine powers by the upstream wind direction nearest integer
         df_sub = df_sub.with_columns(pl.when((pl.col(f"wind_direction_{tid_up}") >= 359.5))\
                                         .then(pl.col(f"wind_direction_{tid_up}") - 360.0)\
                                         .otherwise(pl.col(f"wind_direction_{tid_up}")),
                                         pl.col(f"wind_direction_{tid_up}").round().alias(f"wd_round"))\
                         .group_by(f"wd_round").agg(pl.all().mean()).sort("wd_round").collect()
 
+        # compute the power ratio downstream power to upstream power for each integer wind direction
         p_ratio = df_sub.select(pl.col(f"wd_round"), (pl.col(f"power_output_{tid_down}") / pl.col(f"power_output_{tid_up}")).alias("p_ratio"))
 
         if plot:
@@ -543,18 +548,28 @@ def compute_offsets(df, fi, turbine_ids, turbine_pairs:list[tuple[int, int]]=Non
             ax.plot(dir_align * np.ones(2),[0, 1.25], 'k--', label="Direction of Alignment")
             ax.grid()
 
+        # get the range of wind directions around that of alignment (according to turbine layout), when the nadir should occur
         wd_idx = np.arange(int(np.round(dir_align)) - prat_hfwdth,int(np.round(dir_align)) + prat_hfwdth + 1) % 360
         if len(set(wd_idx) & set(p_ratio.select(f"wd_round").to_numpy().flatten())) != len(wd_idx):
             logging.info(f"Cannot compute nadir for turbine pair {turbine_ids[i_up]}, {turbine_ids[i_down]}")
             continue
         
-        nadir = p_ratio.filter(pl.col("wd_round").is_in(wd_idx)).select("p_ratio").to_series().arg_min() \
-                       + int(np.round(dir_align)) - prat_hfwdth 
-
+        # get the power ratios that occur in the range around the aligned wind direction, 
+        # get the rounded wind direction corresponding to the power nadir, then add the direction of alignment and subtract the prat halfwidth
+        nadir = p_ratio.filter(pl.col("wd_round").is_in(wd_idx)) \
+                        .filter(pl.col("p_ratio") == pl.col("p_ratio").min()) \
+                        .select(pl.col("wd_round")).item() \
+                            + (int(np.round(dir_align)) - prat_hfwdth) # TODO why add this ASK ERIC??
+        
+        # wind dir of minimum power ratio + dir_align = what should be wind dir of maximum power ratio
+        # ... - prat_hwwdth?
+        
+        # get parameters of gaussian trough that fits power ratio for wind direction approx perpendicular to dir_align?
         opt_gauss_params = minimize(gauss_corr, [0, 5.0, 1.0], 
                                     args=(p_ratio.filter(pl.col("wd_round").is_in(np.arange(nadir - prat_hfwdth, nadir + prat_hfwdth + 1) % 360))\
                                                .select("p_ratio").to_numpy().flatten()), method='SLSQP')
 
+        # range around -/+ 30 degrees
         xs = np.arange(-int((60 - 1) / 2),int((60 + 1) / 2),1)
         gauss = -1 * opt_gauss_params.x[2] * np.exp(-0.5 * ((xs - opt_gauss_params.x[0]) / opt_gauss_params.x[1])**2) + 1.
 
