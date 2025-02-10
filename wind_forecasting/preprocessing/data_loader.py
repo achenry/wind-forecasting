@@ -111,9 +111,9 @@ class DataLoader:
             os.makedirs(os.path.dirname(self.save_path))
     
     def remove_paths(self):
-        logging.info(f"Removing temporary storage directory {self.temp_save_dir}")
-        rmtree(self.temp_save_dir)
-        logging.info(f"Removed temporary storage directory {self.temp_save_dir}")
+        logging.info(f"Removing temporary storage directory {temp_save_dir}")
+        rmtree(temp_save_dir)
+        logging.info(f"Removed temporary storage directory {temp_save_dir}")
         
     # @profile 
     def read_multi_files(self, temp_save_dir) -> pl.LazyFrame | None:
