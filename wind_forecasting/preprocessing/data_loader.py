@@ -99,12 +99,12 @@ class DataLoader:
         self.file_paths = [sorted(glob.glob(os.path.join(dd, fs), recursive=True)) for dd, fs in zip(data_dir, file_signature)]
     
     def make_paths(self):
-        self.temp_save_dir = os.path.join(os.path.dirname(self.save_path), os.path.basename(self.save_path).replace(".parquet", "_temp"))
-        logging.info(f"Making temporary directory {self.temp_save_dir}")
-        if os.path.exists(self.temp_save_dir):
-            rmtree(self.temp_save_dir)
+        temp_save_dir = os.path.join(os.path.dirname(self.save_path), os.path.basename(self.save_path).replace(".parquet", "_temp"))
+        logging.info(f"Making temporary directory {temp_save_dir}")
+        if os.path.exists(temp_save_dir):
+            rmtree(temp_save_dir)
             # raise Exception(f"Temporary saving directory {temp_save_dir} already exists! Please remove or rename it.")
-        os.makedirs(self.temp_save_dir)
+        os.makedirs(temp_save_dir)
     
         if not os.path.exists(os.path.dirname(self.save_path)):
             logging.info(f"Making directory to save_path {os.path.dirname(self.save_path)}")
@@ -116,7 +116,7 @@ class DataLoader:
         logging.info(f"Removed temporary storage directory {self.temp_save_dir}")
         
     # @profile 
-    def read_multi_files(self) -> pl.LazyFrame | None:
+    def read_multi_files(self, temp_save_dir) -> pl.LazyFrame | None:
         read_start = time.time()
         
         if self.multiprocessor is not None:
@@ -142,7 +142,7 @@ class DataLoader:
                     assert init_used_ram < self.ram_limit - 5, f"RAM limit in yaml config must be at least 5% greater than initial ram value of {init_used_ram}%."
                      
                     file_futures = [ex.submit(self._read_single_file, file_set_idx, f, file_path, 
-                                              os.path.join(self.temp_save_dir, 
+                                              os.path.join(temp_save_dir, 
                                                            f"{os.path.splitext(os.path.basename(file_path))[0]}.parquet")) 
                                     for file_set_idx in range(len(self.file_paths)) for f, file_path in enumerate(self.file_paths[file_set_idx])] #4% increase in mem
                     # file_futures = [fut.result() for fut in file_futures] 
@@ -158,7 +158,7 @@ class DataLoader:
                                 # res = ex.submit(self._read_single_file, f, file_path).result()
                                 res = file_futures[f].result() #.5% increase in mem
                                 if res is not None: 
-                                    processed_file_paths.append(os.path.join(self.temp_save_dir, 
+                                    processed_file_paths.append(os.path.join(temp_save_dir, 
                                                            f"{os.path.splitext(os.path.basename(file_path))[0]}.parquet"))
                             
                             if not (len(processed_file_paths) < self.merge_chunk and used_ram < self.ram_limit) \
@@ -170,7 +170,7 @@ class DataLoader:
                                 else:
                                     logging.info(f"Used RAM = {used_ram}%. Pause to merge/sort/resample/fill {len(processed_file_paths)} files read so far from file set {file_set_idx} for a total of {n_files_merged} processed files.")
                                 
-                                merged_paths.append(ex.submit(self.merge_multiple_files, file_set_idx, processed_file_paths, merge_idx, self.temp_save_dir).result())
+                                merged_paths.append(ex.submit(self.merge_multiple_files, file_set_idx, processed_file_paths, merge_idx, temp_save_dir).result())
                                 # merged_paths.append(self.merge_multiple_files(file_set_idx, processed_file_paths, merge_idx, temp_save_dir))
                                 merge_idx += 1
                                 processed_file_paths = []
@@ -194,7 +194,7 @@ class DataLoader:
                     used_ram = virtual_memory().percent
                     if (len(processed_file_paths) < self.merge_chunk and used_ram < self.ram_limit):
                         logging.info(f"Used RAM = {used_ram}%. Continue adding to buffer of {len(processed_file_paths)} processed single files.")
-                        processed_fp = os.path.join(self.temp_save_dir, 
+                        processed_fp = os.path.join(temp_save_dir, 
                                                            f"{os.path.splitext(os.path.basename(file_path))[0]}.parquet")
                         res = self._read_single_file(file_set_idx, f, file_path, 
                                                     processed_fp)
@@ -209,7 +209,7 @@ class DataLoader:
                         else:
                             logging.info(f"Used RAM = {used_ram}%. Pause to merge/sort/resample/fill {len(processed_file_paths)} files read so far from file set {file_set_idx} for a total of {n_files_merged} processed files.")
                         
-                        merged_paths.append(self.merge_multiple_files( file_set_idx, processed_file_paths, merge_idx, self.temp_save_dir))
+                        merged_paths.append(self.merge_multiple_files( file_set_idx, processed_file_paths, merge_idx, temp_save_dir))
                         merge_idx += 1
                         processed_file_paths = []
             
@@ -430,6 +430,7 @@ class DataLoader:
             start_time = time.time()
             if self.data_format[file_set_idx] == "netcdf":
                 with nc.Dataset(raw_file_path, 'r') as dataset:
+                    logging.info(f"✅ Scanned {file_number + 1}-th {raw_file_path}")
                     time_var = dataset.variables[self.feature_mapping[file_set_idx]["time"]]
                     time_var = nc.num2date(times=time_var[:], 
                                     units=time_var.units, 
@@ -464,7 +465,9 @@ class DataLoader:
                 if self.data_format[file_set_idx] == "csv":
                     df_query = pl.scan_csv(raw_file_path, low_memory=False)
                 elif self.data_format[file_set_idx] == "parquet":
-                    df_query = pl.scan_parquet(raw_file_path) 
+                    df_query = pl.scan_parquet(raw_file_path)
+                    
+                logging.info(f"✅ Scanned {file_number + 1}-th {raw_file_path}") 
                 
                 available_columns = df_query.collect_schema().names()
                 assert all(any(bool(re.search(feat, col)) for col in available_columns) for feat in self.source_features[file_set_idx]), "All values in feature_mapping must exist in data columns."
