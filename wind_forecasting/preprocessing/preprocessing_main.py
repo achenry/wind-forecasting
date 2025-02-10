@@ -279,7 +279,7 @@ def main():
 
             # remove biases from median direction
 
-            df_offsets = {"turbine_id": [], "northing_bias": []}
+            # df_offsets = {"turbine_id": [], "northing_bias": []}
             for turbine_id in data_loader.turbine_ids:
                 
                 bias = df_query_10min\
@@ -292,12 +292,11 @@ def main():
                                     yaw_bias=pl.arctan2("yaw_bias_sin", "yaw_bias_cos").degrees().mod(360))\
                             .select(pl.when(pl.all() > 180.0).then(pl.all() - 360.0).otherwise(pl.all()))
 
-                df_offsets["turbine_id"].append(turbine_id)
+                # df_offsets["turbine_id"].append(turbine_id)
                 wd_bias = bias.select('wd_bias').collect().item()
                 yaw_bias = bias.select("yaw_bias").collect().item()
-                bias = (wd_bias or 0) + (yaw_bias or 0)
-                bias = 0.5 * bias
-                df_offsets["northing_bias"].append(np.round(bias, 2))
+                bias = 0.5 * ((wd_bias or 0) + (yaw_bias or 0))
+                # df_offsets["northing_bias"].append(np.round(bias, 2))
                 
                 df_query_10min = df_query_10min.with_columns((pl.col(f"wind_direction_{turbine_id}") - bias).mod(360.0).alias(f"wind_direction_{turbine_id}"), 
                                                             (pl.col(f"nacelle_direction_{turbine_id}") - bias).mod(360.0).alias(f"nacelle_direction_{turbine_id}"))
@@ -306,7 +305,7 @@ def main():
 
                 print(f"Turbine {turbine_id} bias from median wind direction: {bias} deg")
 
-            df_offsets = pl.DataFrame(df_offsets)
+            # df_offsets = pl.DataFrame(df_offsets)
 
             if args.plot:
                 data_inspector.plot_wind_offset(df_query_10min, "Corrected", data_loader.turbine_ids)

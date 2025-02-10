@@ -138,7 +138,8 @@ class DataLoader:
                     
                     merge_idx = 0
                     merged_paths = []
-                    # init_used_ram = virtual_memory().percent 
+                    init_used_ram = virtual_memory().percent 
+                    assert init_used_ram < self.ram_limit, f"RAM limit in yaml config must be greater than initial ram value of {init_used_ram}" 
                      
                     file_futures = [ex.submit(self._read_single_file, file_set_idx, f, file_path, 
                                               os.path.join(self.temp_save_dir, 
@@ -151,7 +152,7 @@ class DataLoader:
                             used_ram = virtual_memory().percent 
                             
                             # if we have enough ram to continue to process files AND we still have files to process
-                            if (len(processed_file_paths) < self.merge_chunk or used_ram < self.ram_limit):
+                            if (len(processed_file_paths) < self.merge_chunk and used_ram < self.ram_limit):
                                 logging.info(f"Used RAM = {used_ram}%. Continue adding to buffer of {len(processed_file_paths)} processed single files.")
                                 # res = ex.submit(self._read_single_file, f, file_path).result()
                                 res = file_futures[f].result() #.5% increase in mem
@@ -159,7 +160,7 @@ class DataLoader:
                                     processed_file_paths.append(os.path.join(self.temp_save_dir, 
                                                            f"{os.path.splitext(os.path.basename(file_path))[0]}.parquet"))
                             
-                            if not (len(processed_file_paths) < self.merge_chunk or used_ram < self.ram_limit) \
+                            if not (len(processed_file_paths) < self.merge_chunk and used_ram < self.ram_limit) \
                                 or (f == len(self.file_paths[file_set_idx]) - 1):
                                 # process what we have so far and dump processed lazy frames
                                 if f == (len(self.file_paths[file_set_idx]) - 1):
@@ -188,7 +189,7 @@ class DataLoader:
                 processed_file_paths = []
                 for f, file_path in enumerate(self.file_paths[file_set_idx]):
                     used_ram = virtual_memory().percent
-                    if (len(processed_file_paths) < self.merge_chunk or used_ram < self.ram_limit):
+                    if (len(processed_file_paths) < self.merge_chunk and used_ram < self.ram_limit):
                         logging.info(f"Used RAM = {used_ram}%. Continue adding to buffer of {len(processed_file_paths)} processed single files.")
                         processed_fp = os.path.join(self.temp_save_dir, 
                                                            f"{os.path.splitext(os.path.basename(file_path))[0]}.parquet")
@@ -196,7 +197,7 @@ class DataLoader:
                                                     processed_fp)
                         if res is not None:
                             processed_file_paths.append(processed_fp)
-                    if not (len(processed_file_paths) < self.merge_chunk or used_ram < self.ram_limit) \
+                    if not (len(processed_file_paths) < self.merge_chunk and used_ram < self.ram_limit) \
                         or (f == len(self.file_paths[file_set_idx]) - 1):
                         # process what we have so far and dump processed lazy frames
                         if f == (len(self.file_paths[file_set_idx]) - 1):
