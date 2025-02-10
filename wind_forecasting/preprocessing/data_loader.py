@@ -139,13 +139,13 @@ class DataLoader:
                     merge_idx = 0
                     merged_paths = []
                     init_used_ram = virtual_memory().percent 
-                    assert init_used_ram < self.ram_limit, f"RAM limit in yaml config must be greater than initial ram value of {init_used_ram}" 
+                    assert init_used_ram < self.ram_limit - 5, f"RAM limit in yaml config must be at least 5% greater than initial ram value of {init_used_ram}%."
                      
                     file_futures = [ex.submit(self._read_single_file, file_set_idx, f, file_path, 
                                               os.path.join(self.temp_save_dir, 
                                                            f"{os.path.splitext(os.path.basename(file_path))[0]}.parquet")) 
                                     for file_set_idx in range(len(self.file_paths)) for f, file_path in enumerate(self.file_paths[file_set_idx])] #4% increase in mem
-                    
+                    file_futures = [fut.result() for fut in file_futures] 
                     for file_set_idx in range(len(self.file_paths)):
                         processed_file_paths = []
                         for f, file_path in enumerate(self.file_paths[file_set_idx]):
@@ -168,12 +168,12 @@ class DataLoader:
                                 else:
                                     logging.info(f"Used RAM = {used_ram}%. Pause to merge/sort/resample/fill {len(processed_file_paths)} files read so far from file set {file_set_idx}.")
                                 
-                                merged_paths.append(ex.submit(self.merge_multiple_files, file_set_idx, processed_file_paths, merge_idx, self.temp_save_dir).result())
+                                merged_paths.append(ex.submit(self.merge_multiple_files, file_set_idx, processed_file_paths, merge_idx, self.temp_save_dir))
                                 # merged_paths.append(self.merge_multiple_files(file_set_idx, processed_file_paths, merge_idx, temp_save_dir))
                                 merge_idx += 1
                                 processed_file_paths = []
                     
-                    # merged_paths = [fut.result() for fut in merged_paths]
+                    merged_paths = [fut.result() for fut in merged_paths]
                     
         else:
             logging.info(f"✅ Started reading {sum(len(fp) for fp in self.file_paths)} files.")
