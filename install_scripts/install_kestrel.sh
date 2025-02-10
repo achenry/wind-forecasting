@@ -38,7 +38,7 @@ mamba create --prefix=/projects/ssc/ahenry/conda/envs/wind_forecasting --y
 mamba activate wind_forecasting
 mamba install conda-forge::cuda-version=12.4 nvidia/label/cuda-12.4.0::cuda-toolkit performer-pytorch pytorch torchvision torchaudio torchmetrics pytorch-cuda=12.4 lightning -c pytorch -c nvidia --y
 mamba install polars windrose statsmodels scikit-learn jupyterlab nb_conda_kernels pyyaml matplotlib numpy seaborn opt_einsum netcdf4 scipy h5pyd pyarrow wandb einops --y 
-pip install mpi4py impi_rt opencv-python floris memory_profiler optuna mysqlclient mysql-connector-python filterpy
+pip install openmpi mpi4py impi_rt opencv-python floris memory_profiler optuna mysqlclient mysql-connector-python filterpy
 
 brew install mysql  && brew services start mysql
 
