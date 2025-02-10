@@ -19,6 +19,7 @@ import yaml
 import time
 import re
 from memory_profiler import profile
+from shutil import rmtree
 
 mpi_exists = False
 try:
@@ -200,7 +201,9 @@ def main():
         df_query = data_loader.read_multi_files(temp_save_dir)
         
         if RUN_ONCE:
-            data_loader.remove_paths()
+            logging.info(f"Removing temporary storage directory {temp_save_dir}")
+            rmtree(temp_save_dir)
+            logging.info(f"Removed temporary storage directory {temp_save_dir}")
     
     if RUN_ONCE:
         if processing_started:
