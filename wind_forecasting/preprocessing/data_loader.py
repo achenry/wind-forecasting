@@ -146,6 +146,7 @@ class DataLoader:
                                                            f"{os.path.splitext(os.path.basename(file_path))[0]}.parquet")) 
                                     for file_set_idx in range(len(self.file_paths)) for f, file_path in enumerate(self.file_paths[file_set_idx])] #4% increase in mem
                     # file_futures = [fut.result() for fut in file_futures] 
+                    n_files_merged = 0
                     for file_set_idx in range(len(self.file_paths)):
                         processed_file_paths = []
                         for f, file_path in enumerate(self.file_paths[file_set_idx]):
@@ -163,10 +164,11 @@ class DataLoader:
                             if not (len(processed_file_paths) < self.merge_chunk and used_ram < self.ram_limit) \
                                 or (f == len(self.file_paths[file_set_idx]) - 1):
                                 # process what we have so far and dump processed lazy frames
+                                n_files_merged += len(processed_file_paths)
                                 if f == (len(self.file_paths[file_set_idx]) - 1):
-                                    logging.info(f"Used RAM = {used_ram}%. Pause for FINAL merge/sort/resample/fill of {len(processed_file_paths)} files read so far from file set {file_set_idx}.")
+                                    logging.info(f"Used RAM = {used_ram}%. Pause for FINAL merge/sort/resample/fill of {len(processed_file_paths)} files read so far from file set {file_set_idx} for a total of {n_files_merged} processed files.")
                                 else:
-                                    logging.info(f"Used RAM = {used_ram}%. Pause to merge/sort/resample/fill {len(processed_file_paths)} files read so far from file set {file_set_idx}.")
+                                    logging.info(f"Used RAM = {used_ram}%. Pause to merge/sort/resample/fill {len(processed_file_paths)} files read so far from file set {file_set_idx} for a total of {n_files_merged} processed files.")
                                 
                                 merged_paths.append(ex.submit(self.merge_multiple_files, file_set_idx, processed_file_paths, merge_idx, self.temp_save_dir).result())
                                 # merged_paths.append(self.merge_multiple_files(file_set_idx, processed_file_paths, merge_idx, temp_save_dir))
@@ -184,6 +186,7 @@ class DataLoader:
             # df_query = [(self.file_paths[d], df) for d, df in enumerate(df_query) if df is not None]
 
             merge_idx = 0
+            n_files_merged = 0
             merged_paths = []
             for file_set_idx in range(len(self.file_paths)):
                 processed_file_paths = []
@@ -200,10 +203,11 @@ class DataLoader:
                     if not (len(processed_file_paths) < self.merge_chunk and used_ram < self.ram_limit) \
                         or (f == len(self.file_paths[file_set_idx]) - 1):
                         # process what we have so far and dump processed lazy frames
+                        n_files_merged += len(processed_file_paths)
                         if f == (len(self.file_paths[file_set_idx]) - 1):
-                            logging.info(f"Used RAM = {used_ram}%. Pause for FINAL merge/sort/resample/fill of {len(processed_file_paths)} files read so far from file set {file_set_idx}.")
+                            logging.info(f"Used RAM = {used_ram}%. Pause for FINAL merge/sort/resample/fill of {len(processed_file_paths)} files read so far from file set {file_set_idx} for a total of {n_files_merged} processed files.")
                         else:
-                            logging.info(f"Used RAM = {used_ram}%. Pause to merge/sort/resample/fill {len(processed_file_paths)} files read so far from file set {file_set_idx}.")
+                            logging.info(f"Used RAM = {used_ram}%. Pause to merge/sort/resample/fill {len(processed_file_paths)} files read so far from file set {file_set_idx} for a total of {n_files_merged} processed files.")
                         
                         merged_paths.append(self.merge_multiple_files( file_set_idx, processed_file_paths, merge_idx, self.temp_save_dir))
                         merge_idx += 1
