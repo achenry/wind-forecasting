@@ -69,7 +69,7 @@ def main():
         (config["dataset"]["target_turbine_ids"].lower() == "none") or (config["dataset"]["target_turbine_ids"].lower() == "all")):
         config["dataset"]["target_turbine_ids"] = None # select all turbines
 
-    # %% TODO SETUP LOGGING
+    # %% SETUP LOGGING
     logging.info("Setting up logging")
     if not os.path.exists(config["experiment"]["log_dir"]):
         os.makedirs(config["experiment"]["log_dir"])
