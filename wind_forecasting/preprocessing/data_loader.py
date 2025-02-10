@@ -262,7 +262,7 @@ class DataLoader:
             logging.info(f"Finished resampling.") 
 
         logging.info(f"Started forward/backward fill.") 
-        df_query = df_query.fill_null(strategy="forward").fill_null(strategy="backward").collect().lazy() # NOTE: @Aoife for KP data, need to fill forward null gaps, don't know about Juan's data
+        df_query = df_query.fill_null(strategy="forward").fill_null(strategy="backward") # NOTE: @Aoife for KP data, need to fill forward null gaps, don't know about Juan's data
         logging.info(f"Finished forward/backward fill.") 
         
         return df_query
@@ -333,7 +333,7 @@ class DataLoader:
         
         merged_path = os.path.join(temp_save_dir, f"df_{file_set_idx}_{i}.parquet") 
         self.sort_resample_refill(df_queries).collect().write_parquet(merged_path, statistics=False)
-        return merged_path 
+        return merged_path
 
     # @profile
     def _join_dfs(self, file_suffix, dfs):
