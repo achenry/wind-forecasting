@@ -9,7 +9,7 @@ import os
 from typing import List, Optional
 import logging
 import re
-from shutil import rmtree, move
+from shutil import move
 from psutil import virtual_memory
 # from datetime.datetime import strptime
 from memory_profiler import profile
@@ -97,23 +97,6 @@ class DataLoader:
             
         # Get all the wts in the folder @Juan 10/16/24 used os.path.join for OS compatibility
         self.file_paths = [sorted(glob.glob(os.path.join(dd, fs), recursive=True)) for dd, fs in zip(data_dir, file_signature)]
-    
-    # def make_paths(self):
-    #     temp_save_dir = os.path.join(os.path.dirname(self.save_path), os.path.basename(self.save_path).replace(".parquet", "_temp"))
-    #     logging.info(f"Making temporary directory {temp_save_dir}")
-    #     if os.path.exists(temp_save_dir):
-    #         rmtree(temp_save_dir)
-    #         # raise Exception(f"Temporary saving directory {temp_save_dir} already exists! Please remove or rename it.")
-    #     os.makedirs(temp_save_dir)
-    
-    #     if not os.path.exists(os.path.dirname(self.save_path)):
-    #         logging.info(f"Making directory to save_path {os.path.dirname(self.save_path)}")
-    #         os.makedirs(os.path.dirname(self.save_path))
-    
-    # def remove_paths(self):
-    #     logging.info(f"Removing temporary storage directory {temp_save_dir}")
-    #     rmtree(temp_save_dir)
-    #     logging.info(f"Removed temporary storage directory {temp_save_dir}")
         
     # @profile 
     def read_multi_files(self, temp_save_dir) -> pl.LazyFrame | None:
@@ -275,43 +258,9 @@ class DataLoader:
     
     # @profile 
     def merge_multiple_files(self, file_set_idx, processed_file_paths, i, temp_save_dir):
-        # INFO: @Juan 11/13/24 Added check for data patterns in the names and also added a check for single files
-        # if len(processed_file_paths) == 1:
-        #     df_queries = [pl.scan_parquet(fp) for fp in processed_file_paths]
-        #     df_queries = self.sort_resample_refill(df_queries)
-        #     return processed_file_paths[0]
         
-        # join_start = time.time()
         logging.info(f"✅ Started join of {len(processed_file_paths)} files.")
         df_queries = [pl.scan_parquet(fp) for fp in processed_file_paths]
-        
-        # Check if files have date patterns in their names
-        # has_date_pattern = self.datetime_signature[file_set_idx] is not None and all(re.search(self.datetime_signature[file_set_idx][0], os.path.basename(fp)) for fp in processed_file_paths)
-        # unique_file_timestamps = sorted(set(re.findall(self.datetime_signature[file_set_idx][0], fp)[0] for fp in processed_file_paths 
-        #                                         if re.search(self.datetime_signature[file_set_idx][0], fp))) if has_date_pattern else None
-        
-        # if has_date_pattern and (len(processed_file_paths) > len(unique_file_timestamps)):
-        #     # selectively join dataframes for same timestamps but different turbines, then concatenate different time stamps (more efficient less joins)
-            
-        #     df_queries = [self._join_dfs(ts, [df for filepath, df in zip(processed_file_paths, df_queries) if ts in filepath]) 
-        #                 for ts in unique_file_timestamps]
-
-        #     pl.concat(df_queries, how="diagonal").group_by("time").agg(cs.numeric().mean())
-            
-        #     for ts in unique_file_timestamps:
-        #         df_queries.pop(0).collect().write_parquet(os.path.join(temp_save_dir, os.path.basename(self.save_path).replace(".parquet", f"_{ts}.parquet")), statistics=False)
-        #         logging.info(f"Finished writing parquet {ts}")
-        #     # del df_queries
-            
-        #     logging.info(f"🔗 Finished join. Time elapsed: {time.time() - join_start:.2f} s")
-
-        #     concat_start = time.time()
-        #     df_queries = [pl.scan_parquet(os.path.join(temp_save_dir, os.path.basename(self.save_path).replace(".parquet", f"_{ts}.parquet"))) 
-        #                         for ts in unique_file_timestamps]
-        #     df_queries = pl.concat(df_queries, how="diagonal").group_by("time").agg(cs.numeric().mean())
-        #     logging.info(f"🔗 Finished concat. Time elapsed: {time.time() - concat_start:.2f} s")
-
-        # else:
         
         # For single file or files without timestamps, just get the dataframes
         if len(df_queries) == 1:
