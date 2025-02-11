@@ -329,15 +329,19 @@ class DataLoader:
                 f"""check turbine_mapping in yaml config, should have n_turbines length of distinct turbine ids, 
                 and all ids found in the data, {turbine_ids}, should be included in the keys, {self.turbine_mapping[file_set_idx]}, 
                 for the set of processed file paths, {[os.path.basename(fp) for fp in processed_file_paths]} for file set {file_set_idx}""" 
-                
+            
+            logging.info(f"Renaming DataFrame to common turbine_signature.") 
             df_queries = df_queries.rename({
                 col: 
                 re.sub(pattern=self.turbine_signature[file_set_idx], 
                     repl=str(self.turbine_mapping[file_set_idx][re.search(self.turbine_signature[file_set_idx], col).group(0)]), 
                     string=col) for col in df_queries.collect_schema().names() if col != "time"})
         
-        merged_path = os.path.join(temp_save_dir, f"df_{file_set_idx}_{i}.parquet") 
-        self.sort_resample_refill(df_queries).collect().write_parquet(merged_path, statistics=False)
+        assert os.path.exists(temp_save_dir), f"temp_save_dir={temp_save_dir} is not available for file set {files_set_idx}, merge index {i}"
+        merged_path = os.path.join(temp_save_dir, f"df_{file_set_idx}_{i}.parquet")
+        df_queries = self.sort_resample_refill(df_queries)
+        logging.info(f"Renaming DataFrame to common turbine_signature.")  
+        df_queries = self.sort_resample_refill(df_queries).collect().write_parquet(merged_path, statistics=False)
         return merged_path
 
     # @profile
