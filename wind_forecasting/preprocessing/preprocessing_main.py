@@ -187,23 +187,23 @@ def main():
     
     if args.reload_data or not os.path.exists(data_loader.save_path):
         temp_save_dir = os.path.join(os.path.dirname(data_loader.save_path), os.path.basename(data_loader.save_path).replace(".parquet", "_temp"))
-        if RUN_ONCE:
-            logging.info(f"Making temporary directory {temp_save_dir}")
-            if os.path.exists(temp_save_dir):
-                rmtree(temp_save_dir)
-                # raise Exception(f"Temporary saving directory {temp_save_dir} already exists! Please remove or rename it.")
-            os.makedirs(temp_save_dir)
         
-            if not os.path.exists(os.path.dirname(data_loader.save_path)):
-                logging.info(f"Making directory to save_path {os.path.dirname(data_loader.save_path)}")
-                os.makedirs(os.path.dirname(data_loader.save_path))
+        # if os.path.exists(temp_save_dir):
+        #     rmtree(temp_save_dir)
+            # raise Exception(f"Temporary saving directory {temp_save_dir} already exists! Please remove or rename it.")
+        if not os.path.exists(temp_save_dir):
+            logging.info(f"Making temporary directory {temp_save_dir}")
+            os.makedirs(temp_save_dir)
+    
+        if not os.path.exists(os.path.dirname(data_loader.save_path)):
+            logging.info(f"Making directory to save_path {os.path.dirname(data_loader.save_path)}")
+            os.makedirs(os.path.dirname(data_loader.save_path))
                         
         df_query = data_loader.read_multi_files(temp_save_dir)
         
-        if RUN_ONCE:
+        if RUN_ONCE and os.path.exists(temp_save_dir):
             logging.info(f"Removing temporary storage directory {temp_save_dir}")
             rmtree(temp_save_dir)
-            logging.info(f"Removed temporary storage directory {temp_save_dir}")
     
     if RUN_ONCE:
         if processing_started:
