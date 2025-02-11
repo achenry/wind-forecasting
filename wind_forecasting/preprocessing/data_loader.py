@@ -98,22 +98,22 @@ class DataLoader:
         # Get all the wts in the folder @Juan 10/16/24 used os.path.join for OS compatibility
         self.file_paths = [sorted(glob.glob(os.path.join(dd, fs), recursive=True)) for dd, fs in zip(data_dir, file_signature)]
     
-    def make_paths(self):
-        temp_save_dir = os.path.join(os.path.dirname(self.save_path), os.path.basename(self.save_path).replace(".parquet", "_temp"))
-        logging.info(f"Making temporary directory {temp_save_dir}")
-        if os.path.exists(temp_save_dir):
-            rmtree(temp_save_dir)
-            # raise Exception(f"Temporary saving directory {temp_save_dir} already exists! Please remove or rename it.")
-        os.makedirs(temp_save_dir)
+    # def make_paths(self):
+    #     temp_save_dir = os.path.join(os.path.dirname(self.save_path), os.path.basename(self.save_path).replace(".parquet", "_temp"))
+    #     logging.info(f"Making temporary directory {temp_save_dir}")
+    #     if os.path.exists(temp_save_dir):
+    #         rmtree(temp_save_dir)
+    #         # raise Exception(f"Temporary saving directory {temp_save_dir} already exists! Please remove or rename it.")
+    #     os.makedirs(temp_save_dir)
     
-        if not os.path.exists(os.path.dirname(self.save_path)):
-            logging.info(f"Making directory to save_path {os.path.dirname(self.save_path)}")
-            os.makedirs(os.path.dirname(self.save_path))
+    #     if not os.path.exists(os.path.dirname(self.save_path)):
+    #         logging.info(f"Making directory to save_path {os.path.dirname(self.save_path)}")
+    #         os.makedirs(os.path.dirname(self.save_path))
     
-    def remove_paths(self):
-        logging.info(f"Removing temporary storage directory {temp_save_dir}")
-        rmtree(temp_save_dir)
-        logging.info(f"Removed temporary storage directory {temp_save_dir}")
+    # def remove_paths(self):
+    #     logging.info(f"Removing temporary storage directory {temp_save_dir}")
+    #     rmtree(temp_save_dir)
+    #     logging.info(f"Removed temporary storage directory {temp_save_dir}")
         
     # @profile 
     def read_multi_files(self, temp_save_dir) -> pl.LazyFrame | None:
@@ -158,7 +158,8 @@ class DataLoader:
                                 # res = ex.submit(self._read_single_file, f, file_path).result()
                                 res = file_futures[f].result() #.5% increase in mem
                                 if res is not None: 
-                                    processed_file_paths.append(os.path.join(temp_save_dir, 
+                                    processed_file_paths.append(
+                                        os.path.join(temp_save_dir, 
                                                            f"{os.path.splitext(os.path.basename(file_path))[0]}.parquet"))
                             
                             if not (len(processed_file_paths) < self.merge_chunk and used_ram < self.ram_limit) \
