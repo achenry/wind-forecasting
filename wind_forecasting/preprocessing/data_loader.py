@@ -565,13 +565,14 @@ class DataLoader:
                     aggregate_function=pl.element().drop_nulls().first(),
                     sort_columns=True
                 ).lazy().sort("time")
-                
+            
+            assert os.path.exists(os.path.dirname(processed_file_path)), f"Temporary save directory {os.path.dirname(processed_file_path)} does not exist." 
             df_query.collect().write_parquet(processed_file_path, statistics=False)
             logging.info(f"✅ Processed {file_number + 1}-th {raw_file_path} and saved to {processed_file_path}. Time: {time.time() - start_time:.2f} s")
             return processed_file_path
         
         except Exception as e:
-            logging.error(f"❌ Error processing file {raw_file_path}: {str(e)}")
+            logging.error(f"❌ Error processing file {raw_file_path} and saving to {processed_file_path}: {str(e)}")
             return None
 
     # INFO: @Juan 10/16/24 Added method to convert to long format. May need refining!!! #UNTESTED
