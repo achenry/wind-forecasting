@@ -121,7 +121,7 @@ class DataLoader:
                     
                     merge_idx = 0
                     merged_paths = []
-                    init_used_ram = virtual_memory().percent 
+                    init_used_ram = virtual_memory().percent
                     assert init_used_ram < self.ram_limit - 5, f"RAM limit in yaml config must be at least 5% greater than initial ram value of {init_used_ram}%."
                      
                     file_futures = [ex.submit(self._read_single_file, file_set_idx, f, file_path, 
@@ -133,7 +133,7 @@ class DataLoader:
                     for file_set_idx in range(len(self.file_paths)):
                         processed_file_paths = []
                         for f, file_path in enumerate(self.file_paths[file_set_idx]):
-                            used_ram = virtual_memory().percent 
+                            used_ram = virtual_memory().percent
                             
                             # if we have enough ram to continue to process files AND we still have files to process
                             if (len(processed_file_paths) < self.merge_chunk and used_ram < self.ram_limit):
@@ -207,9 +207,31 @@ class DataLoader:
                 logging.info(f"🔗 Finished reading files. Time elapsed: {time.time() - read_start:.2f} s")
                 if len(merged_paths) > 1: 
                     logging.info(f"Concatenating and running final sort/resample/fill.")
+                    
+                    # df_query = sorted([pl.scan_parquet(bp) for bp in merged_paths], 
+                    #                   key=lambda df: 
+                    #                       df.select(pl.col("time").first()).collect().item())
+                    
+                    # for i in range(len(df_query) - 1):
+                    #     start_time_1 = df_query[i].select(pl.col("time").first()).collect().item() 
+                    #     end_time_1 = df_query[i].select(pl.col("time").last()).collect().item() 
+                    #     start_time_2 = df_query[i + 1].select(pl.col("time").first()).collect().item()
+                    #     if (start_time_2 - end_time_1 != np.timedelta64(self.dt, 's')) \
+                    #         and (start_time_1 != start_time_2):
+                    #         bounds = df_query.select(pl.col("time").first().alias("first"),
+                    #                  pl.col("time").last().alias("last")).collect()
+                    #         pl.datetime_range(
+                    #                     start=bounds.select("first").item(),
+                    #                     end=bounds.select("last").item(),
+                    #                     interval=f"{self.dt}s", time_unit=df_query[i].collect_schema()["time"].time_unit).alias("time") 
+                    
+                    # df_query = pl.concat(df_query, how="diagonal")
+                    # df_query = df_query.sort("time")
+                    # df_query = df_query.fill_null(strategy="forward").fill_null(strategy="backward") 
+                    
                     # concatenate intermediary dataframes
                     df_query = pl.concat([pl.scan_parquet(bp) for bp in merged_paths], how="diagonal")
-                    df_query = self.sort_resample_refill(df_query)
+                    df_query = self.sort_resample_refill(df_query).fill_null(strategy="backward")
                     # Write to final parquet
                     logging.info(f"Saving final Parquet file into {self.save_path}")
                     df_query.collect().write_parquet(self.save_path, statistics=False)
@@ -221,7 +243,7 @@ class DataLoader:
                 
                 # turbine ids found in all files so far
                 self.turbine_ids = self.get_turbine_ids(self.turbine_signature, df_query, sort=True)
-                    
+                
                 logging.info(f"Final Parquet file saved into {self.save_path}")
                 
                 return df_query
@@ -237,7 +259,7 @@ class DataLoader:
         logging.info(f"Finished sorting.")
         
         # if df_query.select(pl.col("time").diff().slice(1).n_unique()).collect().item() > 1:
-        if df_query.select((pl.col("time").diff().slice(1) == pl.col("time").diff().last()).all()).collect().item():
+        if not df_query.select((pl.col("time").diff().slice(1) == pl.col("time").diff().last()).all()).collect().item():
             logging.info(f"Started resampling.") 
             bounds = df_query.select(pl.col("time").first().alias("first"),
                                      pl.col("time").last().alias("last")).collect()
@@ -250,9 +272,9 @@ class DataLoader:
             # df_query = full_datetime_range.join(df_query, on="time", how="left")
             logging.info(f"Finished resampling.") 
 
-        logging.info(f"Started forward/backward fill.") 
-        df_query = df_query.fill_null(strategy="forward").fill_null(strategy="backward") # NOTE: @Aoife for KP data, need to fill forward null gaps, don't know about Juan's data
-        logging.info(f"Finished forward/backward fill.") 
+        logging.info(f"Started forward fill.") 
+        df_query = df_query.fill_null(strategy="forward") #.fill_null(strategy="backward") # NOTE: @Aoife for KP data, need to fill forward null gaps, don't know about Juan's data
+        logging.info(f"Finished forward fill.") 
         
         return df_query
     

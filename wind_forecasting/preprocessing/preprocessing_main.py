@@ -272,9 +272,10 @@ def main():
 
             wd_median = df_query_10min.select(cs.starts_with("wind_direction").radians().sin().name.suffix("_sin"),
                                             cs.starts_with("wind_direction").radians().cos().name.suffix("_cos"))
+            # TODO must swap the ratio??
             wd_median = wd_median.select(wind_direction_sin_median=np.nanmedian(wd_median.select(cs.ends_with("_sin")).collect().to_numpy(), axis=1), 
                                         wind_direction_cos_median=np.nanmedian(wd_median.select(cs.ends_with("_cos")).collect().to_numpy(), axis=1))\
-                                .select(pl.arctan2(pl.col("wind_direction_sin_median"), pl.col("wind_direction_cos_median")).degrees().alias("wind_direction_median"))\
+                                .select(pl.arctan2(pl.col("wind_direction_cos_median"), pl.col("wind_direction_sin_median")).degrees().alias("wind_direction_median"))\
                                 .collect().to_numpy().flatten()
             
             yaw_median = df_query_10min.select(cs.starts_with("nacelle_direction").radians().sin().name.suffix("_sin"),
@@ -300,7 +301,7 @@ def main():
                             .select(wd_bias=(pl.col(f"wind_direction_{turbine_id}") - pl.col("wd_median")), 
                                     yaw_bias=(pl.col(f"nacelle_direction_{turbine_id}") - pl.col("yaw_median")))\
                             .select(pl.all().radians().sin().mean().name.suffix("_sin"), pl.all().radians().cos().mean().name.suffix("_cos"))\
-                            .select(wd_bias=pl.arctan2("wd_bias_sin", "wd_bias_cos").degrees().mod(360),
+                            .select(wd_bias=pl.arctan2("wd_bias_cos", "wd_bias_sin").degrees().mod(360),
                                     yaw_bias=pl.arctan2("yaw_bias_sin", "yaw_bias_cos").degrees().mod(360))\
                             .select(pl.when(pl.all() > 180.0).then(pl.all() - 360.0).otherwise(pl.all()))
 
@@ -329,7 +330,7 @@ def main():
                                 .select("time", f"wind_direction_{turbine_id}", f"nacelle_direction_{turbine_id}")\
                                 .select(bias=(pl.col(f"wind_direction_{turbine_id}") - pl.col(f"nacelle_direction_{turbine_id}")))\
                                 .select(sin=pl.all().radians().sin().mean(), cos=pl.all().radians().cos().mean())\
-                                .select(pl.arctan2("sin", "cos").degrees().mod(360).alias("bias"))\
+                                .select(pl.arctan2(pl.col("sin"), pl.col("cos")).degrees().mod(360).alias("bias"))\
                                 .select(pl.when(pl.all() > 180.0).then(pl.all() - 360.0).otherwise(pl.all()))\
                                 .collect().item() or 0
                 bias += turbine_bias
@@ -358,20 +359,21 @@ def main():
             
             if dir_offsets:
                 # Apply Northing offset to each turbine
+                dir_offsets = np.mean(dir_offsets)
                 for turbine_id in data_loader.turbine_ids:
-                    df_query_10min = df_query_10min.with_columns((pl.col(f"wind_direction_{turbine_id}") - np.mean(dir_offsets)).mod(360).alias(f"wind_direction_{turbine_id}"),
-                                                                (pl.col(f"nacelle_direction_{turbine_id}") - np.mean(dir_offsets)).mod(360).alias(f"nacelle_direction_{turbine_id}"))
+                    df_query_10min = df_query_10min.with_columns((pl.col(f"wind_direction_{turbine_id}") - dir_offsets).mod(360).alias(f"wind_direction_{turbine_id}"),
+                                                                 (pl.col(f"nacelle_direction_{turbine_id}") - dir_offsets).mod(360).alias(f"nacelle_direction_{turbine_id}"))
                     
-                    df_query2 = df_query2.with_columns((pl.col(f"wind_direction_{turbine_id}") - np.mean(dir_offsets)).mod(360).alias(f"wind_direction_{turbine_id}"),
-                                                    (pl.col(f"nacelle_direction_{turbine_id}") - np.mean(dir_offsets)).mod(360).alias(f"nacelle_direction_{turbine_id}"))
+                    df_query2 = df_query2.with_columns((pl.col(f"wind_direction_{turbine_id}") - dir_offsets).mod(360).alias(f"wind_direction_{turbine_id}"),
+                                                       (pl.col(f"nacelle_direction_{turbine_id}") - dir_offsets).mod(360).alias(f"nacelle_direction_{turbine_id}"))
 
                 # Determine final wind direction correction for each turbine
-                df_offsets = df_offsets.with_columns(
-                    northing_bias=(pl.col("northing_bias") + np.mean(dir_offsets)))\
-                    .with_columns(northing_bias=pl.when(pl.col("northing_bias") > 180.0)\
-                            .then(pl.col("northing_bias") - 360.0)\
-                            .otherwise(pl.col("northing_bias"))\
-                            .round(2))
+                # df_offsets = df_offsets.with_columns(
+                #     northing_bias=(pl.col("northing_bias") + np.mean(dir_offsets)))\
+                #     .with_columns(northing_bias=pl.when(pl.col("northing_bias") > 180.0)\
+                #             .then(pl.col("northing_bias") - 360.0)\
+                #             .otherwise(pl.col("northing_bias"))\
+                #             .round(2))
                 
                 # verify that Northing calibration worked properly
                 new_dir_offsets = compute_offsets(df_query_10min, fi, turbine_ids=data_loader.turbine_ids,
