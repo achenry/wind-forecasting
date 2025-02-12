@@ -129,8 +129,7 @@ class DataLoader:
                         
                         # futures = [ex.submit(self._read_single_file, f, file_path) for f, file_path in enumerate(self.file_paths)]
                         
-                        merge_idx = 0
-                        merged_paths = []
+                       
                         init_used_ram = virtual_memory().percent
                         assert init_used_ram < self.ram_limit - 5, f"RAM limit in yaml config must be at least 5% greater than initial ram value of {init_used_ram}%."
                         
@@ -138,7 +137,9 @@ class DataLoader:
                                                 os.path.join(temp_save_dir, 
                                                             f"{os.path.splitext(os.path.basename(file_path))[0]}.parquet")) 
                                         for file_set_idx in range(len(self.file_paths)) for f, file_path in enumerate(self.file_paths[file_set_idx])] #4% increase in mem
-                    # file_futures = [fut.result() for fut in file_futures] 
+                    # file_futures = [fut.result() for fut in file_futures]
+                    merge_idx = 0
+                    merged_paths = [] 
                     n_files_merged = 0
                     for file_set_idx in range(len(self.file_paths)):
                         processed_file_paths = []
@@ -242,8 +243,8 @@ class DataLoader:
                             start_time_2 = df_query[i + 1].select(pl.col("time").first()).collect().item()
                             end_time_2 = df_query[i + 1].select(pl.col("time").last()).collect().item()
                             
-                            logging.info(f"Time bounds of merged df {i}: ({start_time_1}, {end_time_1})")
-                            logging.info(f"Time bounds of merged df {i + 1}: ({start_time_2}, {end_time_2})")
+                            logging.info(f"Time bounds of merged df {i} before time col expansion: ({start_time_1}, {end_time_1})")
+                            logging.info(f"Time bounds of merged df {i + 1} before time col expansion: ({start_time_2}, {end_time_2})")
                             
                             if (start_time_2 - end_time_1 != np.timedelta64(self.dt, 's')) \
                                 and (start_time_1 != start_time_2):
@@ -254,7 +255,13 @@ class DataLoader:
                                             interval=f"{self.dt}s", 
                                             closed="none",
                                             time_unit=df_query[i].collect_schema()["time"].time_unit).alias("time"))], how="diagonal")
-                        
+                            
+                            start_time_1 = df_query[i].select(pl.col("time").first()).collect().item() 
+                            end_time_1 = df_query[i].select(pl.col("time").last()).collect().item() 
+                            
+                            logging.info(f"Time bounds of merged df {i} after time col expansion: ({start_time_1}, {end_time_1})")
+                            logging.info(f"Time bounds of merged df {i + 1} after time col expansion: ({start_time_2}, {end_time_2})")
+                             
                         # concatenate intermediary dataframes
                         logging.info(f"Concatenating final")
                         df_query = pl.concat(df_query, how="diagonal")
