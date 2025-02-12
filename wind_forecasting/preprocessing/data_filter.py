@@ -558,19 +558,15 @@ def compute_offsets(df, fi, turbine_ids, turbine_pairs:list[tuple[int, int]]=Non
         # get the rounded wind direction corresponding to the power nadir, then add the direction of alignment and subtract the prat halfwidth
         nadir = p_ratio.filter(pl.col("wd_round").is_in(wd_idx)) \
                         .filter(pl.col("p_ratio") == pl.col("p_ratio").min()) \
-                        .select(pl.col("wd_round")).item() \
-                            + (int(np.round(dir_align)) - prat_hfwdth) # TODO why add this ASK ERIC??
+                        .select(pl.col("wd_round")).item()
         
-        # wind dir of minimum power ratio + dir_align = what should be wind dir of maximum power ratio
-        # ... - prat_hwwdth?
-        
-        # get parameters of gaussian trough that fits power ratio for wind direction approx perpendicular to dir_align?
+        # get parameters of gaussian trough that fits power ratio for wind direction approx perpendicular to dir_align TODO?
         opt_gauss_params = minimize(gauss_corr, [0, 5.0, 1.0], 
                                     args=(p_ratio.filter(pl.col("wd_round").is_in(np.arange(nadir - prat_hfwdth, nadir + prat_hfwdth + 1) % 360))\
                                                .select("p_ratio").to_numpy().flatten()), method='SLSQP')
 
         # range around -/+ 30 degrees
-        xs = np.arange(-int((60 - 1) / 2),int((60 + 1) / 2),1)
+        xs = np.arange(-int((2*prat_hfwdth - 1) / 2),int((2*prat_hfwdth + 1) / 2),1)
         gauss = -1 * opt_gauss_params.x[2] * np.exp(-0.5 * ((xs - opt_gauss_params.x[0]) / opt_gauss_params.x[1])**2) + 1.
 
         if plot:
