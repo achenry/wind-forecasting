@@ -11,6 +11,7 @@ import logging
 import re
 from shutil import move
 from psutil import virtual_memory
+from datetime import datetime
 # from datetime.datetime import strptime
 from memory_profiler import profile
 
@@ -94,10 +95,18 @@ class DataLoader:
             # check for no duplicates in target turbine ids, also check that values are the same for every element in mapping and only check if not None
             assert all(len(set(self.turbine_mapping[0].values()).difference(set(tm.values()))) == 0 for tm in self.turbine_mapping[1:]), "target integer turbine ids must match for each file type in turbine mapping"
             assert all(isinstance(v, int) for tm in self.turbine_mapping for v in tm.values()), "if using turbine_mapping, must map each turbine id to unique integer"
-            
-        # Get all the wts in the folder @Juan 10/16/24 used os.path.join for OS compatibility
-        self.file_paths = [sorted(glob.glob(os.path.join(dd, fs), recursive=True)) for dd, fs in zip(data_dir, file_signature)]
         
+        for dd, fs, ts, tm in zip(data_dir, file_signature, self.turbine_signature, self.turbine_mapping):
+            if all(len(re.findall(ts, os.path.basename(fp))) 
+                   for fp in glob.glob(os.path.join(dd, fs), recursive=True)):
+                assert merge_chunk % len(tm) == 0, "merge_chunk in yaml config must be a multiple of the number of turbines in turbine_signature, for file formats with files for each turbine id"
+        
+        # Get all the wts in the folder @Juan 10/16/24 used os.path.join for OS compatibility
+        self.file_paths = [sorted(glob.glob(os.path.join(dd, fs), recursive=True),
+                                  key = lambda fp: (datetime.strptime(re.search(ds[0], os.path.basename(fp)).group(0), ds[1]),
+                                                    re.search(ts, os.path.basename(fp)).group(0) if len(re.findall(ts, os.path.basename(fp))) else 0)) 
+                           for dd, fs, ds, ts in zip(data_dir, file_signature, self.datetime_signature, self.turbine_signature)]
+         
     # @profile 
     def read_multi_files(self, temp_save_dir) -> pl.LazyFrame | None:
         read_start = time.time()
@@ -208,30 +217,35 @@ class DataLoader:
                 if len(merged_paths) > 1: 
                     logging.info(f"Concatenating and running final sort/resample/fill.")
                     
-                    # df_query = sorted([pl.scan_parquet(bp) for bp in merged_paths], 
-                    #                   key=lambda df: 
-                    #                       df.select(pl.col("time").first()).collect().item())
+                    df_query = sorted([pl.scan_parquet(bp) for bp in merged_paths], 
+                                      key=lambda df: 
+                                          df.select(pl.col("time").first()).collect().item())
                     
-                    # for i in range(len(df_query) - 1):
-                    #     start_time_1 = df_query[i].select(pl.col("time").first()).collect().item() 
-                    #     end_time_1 = df_query[i].select(pl.col("time").last()).collect().item() 
-                    #     start_time_2 = df_query[i + 1].select(pl.col("time").first()).collect().item()
-                    #     if (start_time_2 - end_time_1 != np.timedelta64(self.dt, 's')) \
-                    #         and (start_time_1 != start_time_2):
-                    #         bounds = df_query.select(pl.col("time").first().alias("first"),
-                    #                  pl.col("time").last().alias("last")).collect()
-                    #         pl.datetime_range(
-                    #                     start=bounds.select("first").item(),
-                    #                     end=bounds.select("last").item(),
-                    #                     interval=f"{self.dt}s", time_unit=df_query[i].collect_schema()["time"].time_unit).alias("time") 
-                    
-                    # df_query = pl.concat(df_query, how="diagonal")
-                    # df_query = df_query.sort("time")
-                    # df_query = df_query.fill_null(strategy="forward").fill_null(strategy="backward") 
+                    for i in range(len(df_query) - 1):
+                        start_time_1 = df_query[i].select(pl.col("time").first()).collect().item() 
+                        end_time_1 = df_query[i].select(pl.col("time").last()).collect().item() 
+                        start_time_2 = df_query[i + 1].select(pl.col("time").first()).collect().item()
+                        if (start_time_2 - end_time_1 != np.timedelta64(self.dt, 's')) \
+                            and (start_time_1 != start_time_2):
+                            
+                            df_query[i] = pl.concat([df_query[i],
+                                       df_query[i].select(pl.datetime_range(
+                                        start=end_time_1,
+                                        end=start_time_2,
+                                        interval=f"{self.dt}s", 
+                                        closed="none",
+                                        time_unit=df_query[i].collect_schema()["time"].time_unit).alias("time"))], how="diagonal")
                     
                     # concatenate intermediary dataframes
-                    df_query = pl.concat([pl.scan_parquet(bp) for bp in merged_paths], how="diagonal")
-                    df_query = self.sort_resample_refill(df_query).fill_null(strategy="backward")
+                    logging.info(f"Concatenating final")
+                    df_query = pl.concat(df_query, how="diagonal")
+                    logging.info(f"Sorting final")
+                    df_query = df_query.sort("time")
+                    assert df_query.select((pl.col("time").diff().slice(1) == pl.col("time").diff().last()).all()).collect().item() 
+                    
+                    logging.info(f"Filling final")
+                    df_query = df_query.fill_null(strategy="forward").fill_null(strategy="backward")
+                    # df_query = self.sort_resample_refill(df_query).fill_null(strategy="backward")
                     # Write to final parquet
                     logging.info(f"Saving final Parquet file into {self.save_path}")
                     df_query.collect().write_parquet(self.save_path, statistics=False)
