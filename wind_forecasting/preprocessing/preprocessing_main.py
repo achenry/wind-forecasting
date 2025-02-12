@@ -199,7 +199,7 @@ def main():
             logging.info(f"Making directory to save_path {os.path.dirname(data_loader.save_path)}")
             os.makedirs(os.path.dirname(data_loader.save_path))
                         
-        df_query = data_loader.read_multi_files(temp_save_dir)
+        df_query = data_loader.read_multi_files(temp_save_dir, read_single_files=False, first_merge=False, second_merge=True)
         
         if RUN_ONCE and os.path.exists(temp_save_dir):
             logging.info(f"Removing temporary storage directory {temp_save_dir}")
