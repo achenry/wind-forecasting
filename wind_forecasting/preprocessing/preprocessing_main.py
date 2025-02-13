@@ -199,18 +199,19 @@ def main():
             logging.info(f"Making directory to save_path {os.path.dirname(data_loader.save_path)}")
             os.makedirs(os.path.dirname(data_loader.save_path))
                         
-        df_query = data_loader.read_multi_files(temp_save_dir, read_single_files=False, first_merge=True, second_merge=True)
+        df_query = data_loader.read_multi_files(temp_save_dir, read_single_files=True, first_merge=True, second_merge=True)
         
-        if RUN_ONCE and os.path.exists(temp_save_dir):
-            logging.info(f"Removing temporary storage directory {temp_save_dir}")
-            rmtree(temp_save_dir)
-    
     if RUN_ONCE:
+
         if processing_started:
             logging.info("✅ Finished reading individual files. Time elapsed: %.2f s", time.time() - start_time)
             logging.info("Parquet file saved into %s", data_loader.save_path)
         else:
             logging.info("✅ Loaded existing Parquet file.")
+            
+        if os.path.exists(temp_save_dir):
+            logging.info(f"Removing temporary storage directory {temp_save_dir}")
+            rmtree(temp_save_dir)
 
     if not args.preprocess_data:
         return
