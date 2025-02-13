@@ -263,16 +263,16 @@ class DataLoader:
                             logging.info(f"Time bounds of merged df {i + 1} after time col expansion: ({start_time_2}, {end_time_2})")
                              
                         # concatenate intermediary dataframes
-                        logging.info(f"Concatenating final")
-                        df_query = pl.concat(df_query, how="diagonal")
-                        logging.info(f"Sorting final")
-                        df_query = df_query.sort("time")
+                        logging.info(f"Concatenating final, used ram = {virtual_memory().percent}%")
+                        df_query = pl.concat(df_query, how="vertical").collect().lazy()
+                        logging.info(f"Sorting final, used ram = {virtual_memory().percent}%")
+                        df_query = df_query.sort("time").collect().lazy()
                         
-                        logging.info(f"Filling final")
-                        df_query = df_query.fill_null(strategy="forward").fill_null(strategy="backward")
+                        logging.info(f"Filling final, used ram = {virtual_memory().percent}%")
+                        df_query = df_query.fill_null(strategy="forward").fill_null(strategy="backward").collect().lazy()
                         # df_query = self.sort_resample_refill(df_query).fill_null(strategy="backward")
                         # Write to final parquet
-                        logging.info(f"Saving final Parquet file into {self.save_path}")
+                        logging.info(f"Saving final Parquet file into {self.save_path}, used ram = {virtual_memory().percent}%")
                         df_query.collect().write_parquet(self.save_path, statistics=False)
                         assert df_query.select((pl.col("time").diff().slice(1) == pl.col("time").diff().last()).all()).collect().item() 
                         
