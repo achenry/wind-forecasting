@@ -191,11 +191,11 @@ def main():
         # if os.path.exists(temp_save_dir):
         #     rmtree(temp_save_dir)
             # raise Exception(f"Temporary saving directory {temp_save_dir} already exists! Please remove or rename it.")
-        if not os.path.exists(temp_save_dir):
+        if not os.path.exists(temp_save_dir) and RUN_ONCE:
             logging.info(f"Making temporary directory {temp_save_dir}")
             os.makedirs(temp_save_dir)
     
-        if not os.path.exists(os.path.dirname(data_loader.save_path)):
+        if not os.path.exists(os.path.dirname(data_loader.save_path)) and RUN_ONCE:
             logging.info(f"Making directory to save_path {os.path.dirname(data_loader.save_path)}")
             os.makedirs(os.path.dirname(data_loader.save_path))
                         
