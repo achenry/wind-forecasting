@@ -199,7 +199,7 @@ def main():
             logging.info(f"Making directory to save_path {os.path.dirname(data_loader.save_path)}")
             os.makedirs(os.path.dirname(data_loader.save_path))
                         
-        df_query = data_loader.read_multi_files(temp_save_dir, read_single_files=True, first_merge=True, second_merge=True)
+        df_query = data_loader.read_multi_files(temp_save_dir, read_single_files=False, first_merge=True, second_merge=True)
         
     if RUN_ONCE:
 
