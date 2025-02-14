@@ -144,17 +144,32 @@ class DataLoader:
                     n_files_merged = 0
                     for file_set_idx in range(len(self.file_paths)):
                         processed_file_paths = []
+                        # last_turbine_idx = len(self.turbine_mapping[file_set_idx]) - 1
                         for f, file_path in enumerate(self.file_paths[file_set_idx]):
                             used_ram = virtual_memory().percent
-                            # TODO ensure no intersection in time between different merged dataframes/sets of processed_file_paths
+                            # ensure no intersection in time between different merged dataframes/sets of processed_file_paths
                             # if we have enough ram to continue to process files AND we still have files to process
                             # keep adding new files to processed_file_paths if the turbine signature is in the title, and it does not correspond to the last turbine
-                            if (len(processed_file_paths) < self.merge_chunk and used_ram < self.ram_limit) \
-                                or (len(processed_file_paths) == 0) \
-                                or (len(re.findall(self.turbine_signature[file_set_idx], os.path.basename(file_path))) 
-                                    and list(self.turbine_mapping[file_set_idx]).index(
-                                        re.search(self.turbine_signature[file_set_idx], os.path.basename(file_path)).group(0)) 
-                                    != (len(self.turbine_mapping[file_set_idx]) - 1)): 
+                            num_files_to_merge = len(processed_file_paths)
+                            is_file_per_turbine = len(re.findall(self.turbine_signature[file_set_idx], os.path.basename(file_path)))
+                            # turbine_idx = list(self.turbine_mapping[file_set_idx]).index(
+                            #             re.search(self.turbine_signature[file_set_idx], os.path.basename(file_path)).group(0))
+                            
+                            if is_file_per_turbine:
+                                datetime_id = re.search(self.datetime_signature[file_set_idx][0], os.path.basename(file_path)).group(0)
+                                turbine_id = re.search(self.turbine_signature[file_set_idx], os.path.basename(file_path)).group(0)
+                                available_turbine_ids = sorted(
+                                    [re.search(self.turbine_signature[file_set_idx], os.path.basename(fp)).group(0) 
+                                     for fp in self.file_paths[file_set_idx] 
+                                        if datetime_id == re.search(self.datetime_signature[file_set_idx][0], os.path.basename(fp)).group(0)])
+                              
+                             # if we have not processed enough files to merge and we have sufficient ram, 
+                             # or if we haven't processed any files yet 
+                             # or if this file type is per turbine and we haven't processed a complete set
+                             # continue adding to processed_file_paths
+                            if (num_files_to_merge < self.merge_chunk and used_ram < self.ram_limit) \
+                                or (num_files_to_merge == 0) \
+                                or (is_file_per_turbine and (turbine_id != available_turbine_ids[-1])): 
                                 logging.info(f"Used RAM = {used_ram}%. Continue adding to buffer of {len(processed_file_paths)} processed single files.")
                                 # res = ex.submit(self._read_single_file, f, file_path).result()
                                 if read_single_files:
@@ -166,16 +181,18 @@ class DataLoader:
                                         os.path.join(temp_save_dir, 
                                                            f"{os.path.splitext(os.path.basename(file_path))[0]}.parquet"))
                             
-                            if first_merge and len(processed_file_paths) \
-                                and (len(re.findall(self.turbine_signature[file_set_idx], os.path.basename(file_path))) == 0
-                                    or list(self.turbine_mapping[file_set_idx]).index(
-                                        re.search(self.turbine_signature[file_set_idx], os.path.basename(file_path)).group(0)) 
-                                    == (len(self.turbine_mapping[file_set_idx]) - 1)) \
-                                and (not (len(processed_file_paths) < self.merge_chunk and used_ram < self.ram_limit) \
-                                or (f == len(self.file_paths[file_set_idx]) - 1)):
+                            num_files_to_merge = len(processed_file_paths) 
+                             # if we have processed enough files to merge or we don't have sufficient ram to process more, or the last file of the set has been processed
+                             # and if this file type is either not per turbine or it is and we have processed a complete set
+                             # continue adding to processed_file_paths 
+                            if first_merge and num_files_to_merge\
+                                and (((num_files_to_merge >= self.merge_chunk) \
+                                      or (used_ram >= self.ram_limit) \
+                                       or (f == len(self.file_paths[file_set_idx]) - 1))) \
+                                and (not is_file_per_turbine or (turbine_id == available_turbine_ids[-1])):
                                 # process what we have so far and dump processed lazy frames
-                                n_files_merged += len(processed_file_paths)
-                                if f == (len(self.file_paths[file_set_idx]) - 1):
+                                n_files_merged += num_files_to_merge
+                                if f == len(self.file_paths[file_set_idx]) - 1:
                                     logging.info(f"Used RAM = {used_ram}%. Pause for FINAL merge/sort/resample/fill of {len(processed_file_paths)} files read so far from file set {file_set_idx} for a total of {n_files_merged} processed files.")
                                 else:
                                     logging.info(f"Used RAM = {used_ram}%. Pause to merge/sort/resample/fill {len(processed_file_paths)} files read so far from file set {file_set_idx} for a total of {n_files_merged} processed files.")
@@ -205,12 +222,23 @@ class DataLoader:
                 processed_file_paths = []
                 for f, file_path in enumerate(self.file_paths[file_set_idx]):
                     used_ram = virtual_memory().percent
-                    if (len(processed_file_paths) < self.merge_chunk and used_ram < self.ram_limit) \
-                        or (len(processed_file_paths) == 0) \
-                        or (len(re.findall(self.turbine_signature[file_set_idx], os.path.basename(file_path))) 
-                                    and list(self.turbine_mapping[file_set_idx]).index(
-                                        re.search(self.turbine_signature[file_set_idx], os.path.basename(file_path)).group(0)) 
-                                    != (len(self.turbine_mapping[file_set_idx]) - 1)):
+                    
+                    num_files_to_merge = len(processed_file_paths)
+                    is_file_per_turbine = len(re.findall(self.turbine_signature[file_set_idx], os.path.basename(file_path)))
+                    # turbine_idx = list(self.turbine_mapping[file_set_idx]).index(
+                    #             re.search(self.turbine_signature[file_set_idx], os.path.basename(file_path)).group(0))
+                    
+                    if is_file_per_turbine:
+                        datetime_id = re.search(self.datetime_signature[file_set_idx][0], os.path.basename(file_path)).group(0)
+                        turbine_id = re.search(self.turbine_signature[file_set_idx], os.path.basename(file_path)).group(0)
+                        available_turbine_ids = sorted(
+                            [re.search(self.turbine_signature[file_set_idx], os.path.basename(fp)).group(0) 
+                                for fp in self.file_paths[file_set_idx] 
+                                if datetime_id == re.search(self.datetime_signature[file_set_idx][0], os.path.basename(fp)).group(0)])
+                    
+                    if (num_files_to_merge < self.merge_chunk and used_ram < self.ram_limit) \
+                                or (num_files_to_merge == 0) \
+                                or (is_file_per_turbine and (turbine_id != available_turbine_ids[-1])):
                         logging.info(f"Used RAM = {used_ram}%. Continue adding to buffer of {len(processed_file_paths)} processed single files.")
                         processed_fp = os.path.join(temp_save_dir, 
                                                            f"{os.path.splitext(os.path.basename(file_path))[0]}.parquet")
@@ -222,15 +250,17 @@ class DataLoader:
                         if res is not None:
                             processed_file_paths.append(processed_fp)
                     
-                    if first_merge and len(processed_file_paths) \
-                        and (len(re.findall(self.turbine_signature[file_set_idx], os.path.basename(file_path))) == 0
-                                    or list(self.turbine_mapping[file_set_idx]).index(
-                                        re.search(self.turbine_signature[file_set_idx], os.path.basename(file_path)).group(0)) 
-                                    == (len(self.turbine_mapping[file_set_idx]) - 1)) \
-                        and (not (len(processed_file_paths) < self.merge_chunk and used_ram < self.ram_limit) \
-                        or (f == len(self.file_paths[file_set_idx]) - 1)):
+                    num_files_to_merge = len(processed_file_paths) 
+                    # if we have processed enough files to merge or we don't have sufficient ram to process more, or the last file of the set has been processed
+                    # and if this file type is either not per turbine or it is and we have processed a complete set
+                    # continue adding to processed_file_paths 
+                    if first_merge and num_files_to_merge\
+                        and (((num_files_to_merge >= self.merge_chunk) \
+                                or (used_ram >= self.ram_limit) \
+                                or (f == len(self.file_paths[file_set_idx]) - 1))) \
+                        and (not is_file_per_turbine or (turbine_id == available_turbine_ids[-1])):
                         # process what we have so far and dump processed lazy frames
-                        n_files_merged += len(processed_file_paths)
+                        n_files_merged += num_files_to_merge
                         if f == (len(self.file_paths[file_set_idx]) - 1):
                             logging.info(f"Used RAM = {used_ram}%. Pause for FINAL merge/sort/resample/fill of {len(processed_file_paths)} files read so far from file set {file_set_idx} for a total of {n_files_merged} processed files.")
                         else:
