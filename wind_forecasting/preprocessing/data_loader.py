@@ -237,14 +237,16 @@ class DataLoader:
                                         key=lambda df: 
                                             df.select(pl.col("time").first()).collect().item())
                         
+                        start_time_1 = df_query[0].select(pl.col("time").first()).collect().item() 
+                        end_time_1 = df_query[0].select(pl.col("time").last()).collect().item()
                         for i in range(len(df_query) - 1):
-                            start_time_1 = df_query[i].select(pl.col("time").first()).collect().item() 
-                            end_time_1 = df_query[i].select(pl.col("time").last()).collect().item() 
+                             
                             start_time_2 = df_query[i + 1].select(pl.col("time").first()).collect().item()
                             end_time_2 = df_query[i + 1].select(pl.col("time").last()).collect().item()
                             
+                            logging.info(f"Number of columns of merged df {i} = {len(df_query[i].collect_schema().names())}")
                             logging.info(f"Time bounds of merged df {i} before time col expansion: ({start_time_1}, {end_time_1})")
-                            logging.info(f"Time bounds of merged df {i + 1} before time col expansion: ({start_time_2}, {end_time_2})")
+                            logging.info(f"Time bounds of merged df {i + 1}: ({start_time_2}, {end_time_2})")
                             
                             if (start_time_2 - end_time_1 != np.timedelta64(self.dt, 's')) \
                                 and (start_time_1 != start_time_2):
@@ -261,6 +263,9 @@ class DataLoader:
                             
                             logging.info(f"Time bounds of merged df {i} after time col expansion: ({start_time_1}, {end_time_1})")
                             logging.info(f"Time bounds of merged df {i + 1} after time col expansion: ({start_time_2}, {end_time_2})")
+                            
+                            start_time_1 = start_time_2
+                            end_time_1 = end_time_2
                              
                         # concatenate intermediary dataframes
                         logging.info(f"Concatenating final, used ram = {virtual_memory().percent}%")
