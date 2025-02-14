@@ -264,7 +264,7 @@ class DataLoader:
                              
                         # concatenate intermediary dataframes
                         logging.info(f"Concatenating final, used ram = {virtual_memory().percent}%")
-                        df_query = pl.concat(df_query, how="vertical").collect().lazy()
+                        df_query = pl.concat(df_query, how="diagonal").collect().lazy()
                         logging.info(f"Sorting final, used ram = {virtual_memory().percent}%")
                         df_query = df_query.sort("time").collect().lazy()
                         
