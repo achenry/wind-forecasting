@@ -89,17 +89,18 @@ class DataLoader:
         self.turbine_signature = turbine_signature
         self.datetime_signature = [list(ds.items())[0] if ds else None for ds in datetime_signature] # mapping from a regex expression to a datetime format to capture datetime from filepaths
         self.turbine_ids = set()
-        self.turbine_mapping = turbine_mapping
         
+        self.turbine_mapping = turbine_mapping 
         if self.turbine_mapping is not None:
             # check for no duplicates in target turbine ids, also check that values are the same for every element in mapping and only check if not None
             assert all(len(set(self.turbine_mapping[0].values()).difference(set(tm.values()))) == 0 for tm in self.turbine_mapping[1:]), "target integer turbine ids must match for each file type in turbine mapping"
             assert all(isinstance(v, int) for tm in self.turbine_mapping for v in tm.values()), "if using turbine_mapping, must map each turbine id to unique integer"
+            self.turbine_mapping = [dict((k, tm[k]) for k in sorted(tm)) for tm in self.turbine_mapping]
         
-        for dd, fs, ts, tm in zip(data_dir, file_signature, self.turbine_signature, self.turbine_mapping):
-            if all(len(re.findall(ts, os.path.basename(fp))) 
-                   for fp in glob.glob(os.path.join(dd, fs), recursive=True)):
-                assert merge_chunk % len(tm) == 0, "merge_chunk in yaml config must be a multiple of the number of turbines in turbine_signature, for file formats with files for each turbine id"
+        # for dd, fs, ts, tm in zip(data_dir, file_signature, self.turbine_signature, self.turbine_mapping):
+        #     if all(len(re.findall(ts, os.path.basename(fp))) 
+        #            for fp in glob.glob(os.path.join(dd, fs), recursive=True)):
+                # assert merge_chunk % len(tm) == 0, "merge_chunk in yaml config must be a multiple of the number of turbines in turbine_signature, for file formats with files for each turbine id"
         
         # Get all the wts in the folder @Juan 10/16/24 used os.path.join for OS compatibility
         self.file_paths = [sorted(glob.glob(os.path.join(dd, fs), recursive=True),
@@ -145,9 +146,15 @@ class DataLoader:
                         processed_file_paths = []
                         for f, file_path in enumerate(self.file_paths[file_set_idx]):
                             used_ram = virtual_memory().percent
-                            
+                            # TODO ensure no intersection in time between different merged dataframes/sets of processed_file_paths
                             # if we have enough ram to continue to process files AND we still have files to process
-                            if (len(processed_file_paths) < self.merge_chunk and used_ram < self.ram_limit) or (len(processed_file_paths) == 0):
+                            # keep adding new files to processed_file_paths if the turbine signature is in the title, and it does not correspond to the last turbine
+                            if (len(processed_file_paths) < self.merge_chunk and used_ram < self.ram_limit) \
+                                or (len(processed_file_paths) == 0) \
+                                or (len(re.findall(self.turbine_signature[file_set_idx], os.path.basename(file_path))) 
+                                    and list(self.turbine_mapping[file_set_idx]).index(
+                                        re.search(self.turbine_signature[file_set_idx], os.path.basename(file_path)).group(0)) 
+                                    != (len(self.turbine_mapping[file_set_idx]) - 1)): 
                                 logging.info(f"Used RAM = {used_ram}%. Continue adding to buffer of {len(processed_file_paths)} processed single files.")
                                 # res = ex.submit(self._read_single_file, f, file_path).result()
                                 if read_single_files:
@@ -159,7 +166,12 @@ class DataLoader:
                                         os.path.join(temp_save_dir, 
                                                            f"{os.path.splitext(os.path.basename(file_path))[0]}.parquet"))
                             
-                            if first_merge and len(processed_file_paths) and (not (len(processed_file_paths) < self.merge_chunk and used_ram < self.ram_limit) \
+                            if first_merge and len(processed_file_paths) \
+                                and (len(re.findall(self.turbine_signature[file_set_idx], os.path.basename(file_path))) == 0
+                                    or list(self.turbine_mapping[file_set_idx]).index(
+                                        re.search(self.turbine_signature[file_set_idx], os.path.basename(file_path)).group(0)) 
+                                    == (len(self.turbine_mapping[file_set_idx]) - 1)) \
+                                and (not (len(processed_file_paths) < self.merge_chunk and used_ram < self.ram_limit) \
                                 or (f == len(self.file_paths[file_set_idx]) - 1)):
                                 # process what we have so far and dump processed lazy frames
                                 n_files_merged += len(processed_file_paths)
@@ -193,7 +205,12 @@ class DataLoader:
                 processed_file_paths = []
                 for f, file_path in enumerate(self.file_paths[file_set_idx]):
                     used_ram = virtual_memory().percent
-                    if (len(processed_file_paths) < self.merge_chunk and used_ram < self.ram_limit) or (len(processed_file_paths) == 0):
+                    if (len(processed_file_paths) < self.merge_chunk and used_ram < self.ram_limit) \
+                        or (len(processed_file_paths) == 0) \
+                        or (len(re.findall(self.turbine_signature[file_set_idx], os.path.basename(file_path))) 
+                                    and list(self.turbine_mapping[file_set_idx]).index(
+                                        re.search(self.turbine_signature[file_set_idx], os.path.basename(file_path)).group(0)) 
+                                    != (len(self.turbine_mapping[file_set_idx]) - 1)):
                         logging.info(f"Used RAM = {used_ram}%. Continue adding to buffer of {len(processed_file_paths)} processed single files.")
                         processed_fp = os.path.join(temp_save_dir, 
                                                            f"{os.path.splitext(os.path.basename(file_path))[0]}.parquet")
@@ -205,7 +222,12 @@ class DataLoader:
                         if res is not None:
                             processed_file_paths.append(processed_fp)
                     
-                    if first_merge and len(processed_file_paths) and (not (len(processed_file_paths) < self.merge_chunk and used_ram < self.ram_limit) \
+                    if first_merge and len(processed_file_paths) \
+                        and (len(re.findall(self.turbine_signature[file_set_idx], os.path.basename(file_path))) == 0
+                                    or list(self.turbine_mapping[file_set_idx]).index(
+                                        re.search(self.turbine_signature[file_set_idx], os.path.basename(file_path)).group(0)) 
+                                    == (len(self.turbine_mapping[file_set_idx]) - 1)) \
+                        and (not (len(processed_file_paths) < self.merge_chunk and used_ram < self.ram_limit) \
                         or (f == len(self.file_paths[file_set_idx]) - 1)):
                         # process what we have so far and dump processed lazy frames
                         n_files_merged += len(processed_file_paths)
@@ -248,8 +270,11 @@ class DataLoader:
                             logging.info(f"Time bounds of merged df {i} before time col expansion: ({start_time_1}, {end_time_1})")
                             logging.info(f"Time bounds of merged df {i + 1}: ({start_time_2}, {end_time_2})")
                             
-                            if (start_time_2 - end_time_1 != np.timedelta64(self.dt, 's')) \
-                                and (start_time_1 != start_time_2):
+                            if start_time_2 == end_time_1:
+                                df_query[i] = pl.concat([df_query[i], df_query[i + 1].slice(0, 1)], how="diagonal")\
+                                                .group_by("time").agg(cs.numeric().mean()).sort(by="time")
+                                df_query[i + 1] = df_query[i + 1].slice(1)
+                            elif (start_time_2 - end_time_1 != np.timedelta64(self.dt, 's')):
                                 df_query[i] = pl.concat([df_query[i],
                                         df_query[i].select(pl.datetime_range(
                                             start=end_time_1,
@@ -257,6 +282,9 @@ class DataLoader:
                                             interval=f"{self.dt}s", 
                                             closed="none",
                                             time_unit=df_query[i].collect_schema()["time"].time_unit).alias("time"))], how="diagonal")
+                            
+                            assert df_query[i].select((pl.col("time").diff().slice(1) == pl.col("time").diff().last()).all()).collect().item() and \
+                                 (df_query[i + 1].select(pl.col("time").first()).collect().item() - df_query[i].select(pl.col("time").last()).collect().item() == np.timedelta64(self.dt, 's'))
                             
                             start_time_1 = df_query[i].select(pl.col("time").first()).collect().item() 
                             end_time_1 = df_query[i].select(pl.col("time").last()).collect().item() 
@@ -340,10 +368,13 @@ class DataLoader:
         
         logging.info(f"Finished join of {len(processed_file_paths)} files for file set {file_set_idx}, merge index {i}.")
         
+       
+        # assert all(any(tid in col for col in df_queries.collect_schema().names() if col != "time") for tid in turbine_ids), \
+            # f"merge_multiple_files should only merge collections of files that include every turbine's data, these file paths include:\n {'\n'.join(processed_file_paths)}"
+        
         # convert to common turbine_id over multiple filetypes
         if self.turbine_mapping is not None:
-            turbine_ids = self.get_turbine_ids(self.turbine_signature[file_set_idx], df_queries, sort=True) # turbine ids available in this collection of file paths (may not represent all)
-            
+            turbine_ids = self.get_turbine_ids(self.turbine_signature[file_set_idx], df_queries, sort=True) # turbine ids available in this collection of file paths (may not represent all) 
             # make sure that turbine mapping accounts for all turbine ids found in files
             assert all(tid in self.turbine_mapping[file_set_idx] for tid in turbine_ids), \
                 f"""check turbine_mapping in yaml config, should have n_turbines length of distinct turbine ids, 
@@ -360,7 +391,9 @@ class DataLoader:
         assert os.path.exists(temp_save_dir), f"temp_save_dir={temp_save_dir} is not available for file set {file_set_idx}, merge index {i}"
         merged_path = os.path.join(temp_save_dir, f"df_{file_set_idx}_{i}.parquet")
         df_queries = self.sort_resample_refill(df_queries)
+        assert df_queries.select((pl.col("time").diff().slice(1) == pl.col("time").diff().last()).all()).collect().item() 
         df_queries = df_queries.collect().write_parquet(merged_path, statistics=False)
+        
         return merged_path
 
     # @profile
