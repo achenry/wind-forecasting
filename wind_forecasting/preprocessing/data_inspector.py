@@ -87,7 +87,10 @@ class DataInspector:
             print("Available turbine IDs:", available_turbines)
             return []
         
-        return valid_turbines
+        if len(re.findall("\\d+", valid_turbines[0])):
+            return sorted(valid_turbines, key=lambda tid: int(re.search("\\d+", tid).group(0)))
+        else:
+            return valid_turbines
     
     def _validate_input_data(self, *, X=None, y=None, features=None, sequence_length=None, prediction_horizon=None,
                              turbine_input_filepath=None, farm_input_filepath=None):
@@ -421,9 +424,9 @@ class DataInspector:
         for turbine_id in valid_turbines:
             # Select and cast data types in Polars
             turbine_data = df.select([
-                pl.col("time").cast(pl.Datetime),
-                pl.col(f"wind_speed_{turbine_id}").cast(pl.Float64),
-                pl.col(f"wind_direction_{turbine_id}").cast(pl.Float64)
+                pl.col("time"),
+                pl.col(f"wind_speed_{turbine_id}"),
+                pl.col(f"wind_direction_{turbine_id}")
             ])\
             .filter(
                 pl.any_horizontal([
@@ -437,9 +440,9 @@ class DataInspector:
             .collect()\
             .to_pandas()
             
-            turbine_data['hour'] = turbine_data['hour'].astype('int32')
-            turbine_data[f"wind_speed_{turbine_id}"] = turbine_data[f"wind_speed_{turbine_id}"].astype('float64')
-            turbine_data[f"wind_direction_{turbine_id}"] = turbine_data[f"wind_direction_{turbine_id}"].astype('float64')
+            # turbine_data['hour'] = turbine_data['hour'].astype('int32')
+            # turbine_data[f"wind_speed_{turbine_id}"] = turbine_data[f"wind_speed_{turbine_id}"].astype('float64')
+            # turbine_data[f"wind_direction_{turbine_id}"] = turbine_data[f"wind_direction_{turbine_id}"].astype('float64')
             
             # Create plots
             fig, ax = plt.subplots(2, 1, figsize=(12, 6))
@@ -452,7 +455,7 @@ class DataInspector:
             ax[0].set_ylabel("Wind Speed (m/s)")
             ax[1].set_ylabel("Wind Direction ($^\\circ$)")
             fig.tight_layout()
-            # plt.show()
+            plt.show()
             plt.savefig('boxplot_wind_speed_direction.png')
             plt.close()
 
@@ -639,7 +642,7 @@ class DataInspector:
         
         # Adjust layout and display the plot
         plt.tight_layout()
-        # plt.show()
+        plt.show()
         plt.savefig('wind_farm.png')
         plt.close()
         
@@ -726,7 +729,11 @@ class DataInspector:
                     new_cols = [col for col in cols if any(col == f"{feature_type}_{tid}" for tid in turbine_ids)]
                 matching_cols.extend(new_cols)
             
-            return sorted(matching_cols)
+            if len(re.findall("\\d+", matching_cols[0])):
+                 return sorted(matching_cols, 
+                               key=lambda col: (re.search(".*?(?=\\d+)", col).group(0), int(re.search("\\d+", col).group(0))))
+            else:
+                return sorted(matching_cols)
         else:  # long format
             return sorted([col for col in cols if col in feature_types])
 

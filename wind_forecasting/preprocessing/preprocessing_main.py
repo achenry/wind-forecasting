@@ -160,7 +160,6 @@ def main():
 
     # %%
     if RUN_ONCE:
-        processing_started = False  # Flag to indicate if processing started
         if not args.reload_data and os.path.exists(data_loader.save_path):
             # Note that the order of the columns in the provided schema must match the order of the columns in the CSV being read.
             logging.info("🔄 Loading existing Parquet file")
@@ -168,6 +167,12 @@ def main():
             if data_loader.turbine_mapping is not None:
                 # if this data was pulled from multiple files, the turbine ids have all been mapped to integers
                 data_loader.turbine_signature = "\\d+$" 
+                
+            df_query = df_query.select([pl.col("time")] 
+                                       + [pl.col(c) for c in 
+                                          sorted(df_query.select(cs.numeric()).collect_schema().names(), 
+                                                 key=lambda col: (re.search(f".*?(?={data_loader.turbine_signature})", col).group(0), 
+                                                                  int(re.search(data_loader.turbine_signature, col).group(0))))])
             # generate turbine ids
             data_loader.turbine_ids = data_loader.get_turbine_ids(data_loader.turbine_signature, df_query, sort=True)
 
@@ -182,7 +187,6 @@ def main():
                 logging.info("🚀  Using single process executor.")
 
             logging.info("🔄 Processing new data files with %d files", sum(len(fp) for fp in data_loader.file_paths))
-            processing_started = True
             start_time = time.time()
     
     if args.reload_data or not os.path.exists(data_loader.save_path):
@@ -201,18 +205,16 @@ def main():
                         
         df_query = data_loader.read_multi_files(temp_save_dir, read_single_files=True, first_merge=True, second_merge=True)
         
-    if RUN_ONCE:
-
-        if processing_started:
+        if RUN_ONCE:
             logging.info("✅ Finished reading individual files. Time elapsed: %.2f s", time.time() - start_time)
             logging.info("Parquet file saved into %s", data_loader.save_path)
-        else:
-            logging.info("✅ Loaded existing Parquet file.")
             
-        if os.path.exists(temp_save_dir):
-            logging.info(f"Removing temporary storage directory {temp_save_dir}")
-            rmtree(temp_save_dir)
-
+            if os.path.exists(temp_save_dir):
+                logging.info(f"Removing temporary storage directory {temp_save_dir}")
+                rmtree(temp_save_dir)
+    elif RUN_ONCE:
+        logging.info("✅ Loaded existing Parquet file.")
+        
     if not args.preprocess_data:
         return
 
@@ -235,26 +237,26 @@ def main():
     # %% Plot Wind Farm, Data Distributions
     if args.plot:
         logging.info("🔄 Generating plots.")
-        data_inspector.plot_wind_rose(df_query, turbine_ids="all")
+        data_inspector.plot_wind_rose(df_query.slice(0, ROW_LIMIT), turbine_ids="all")
         data_inspector.plot_wind_farm()
-        data_inspector.plot_wind_speed_power(df_query, turbine_ids=data_loader.turbine_ids)
-        data_inspector.plot_wind_speed_weibull(df_query, turbine_ids="all")
-        data_inspector.plot_correlation(df_query, 
-        data_inspector.get_features(df_query, feature_types=["wind_speed", "wind_direction", "nacelle_direction"], 
+        data_inspector.plot_wind_speed_power(df_query.slice(0, ROW_LIMIT), turbine_ids=data_loader.turbine_ids)
+        data_inspector.plot_wind_speed_weibull(df_query.slice(0, ROW_LIMIT), turbine_ids="all")
+        data_inspector.plot_correlation(df_query.slice(0, ROW_LIMIT), 
+        data_inspector.get_features(df_query.slice(0, ROW_LIMIT), feature_types=["wind_speed", "wind_direction", "nacelle_direction"], 
                                     turbine_ids=data_loader.turbine_ids))
-        data_inspector.plot_boxplot_wind_speed_direction(df_query, 
+        data_inspector.plot_boxplot_wind_speed_direction(df_query.slice(0, ROW_LIMIT), 
                                                          turbine_ids=data_loader.turbine_ids)
-        data_inspector.plot_time_series(df_query, 
+        data_inspector.plot_time_series(df_query.slice(0, ROW_LIMIT), 
                                         turbine_ids=data_loader.turbine_ids)
-        plot.column_histograms(data_inspector.collect_data(df=df_query, 
-                                    feature_types=data_inspector.get_features(df_query, ["wind_speed", "wind_direction"])))
+        plot.column_histograms(data_inspector.collect_data(df=df_query.slice(0, ROW_LIMIT), 
+                               feature_types=["wind_speed", "wind_direction"]))
         logging.info("✅ Generated plots.")
 
     # %% check time series
     if args.verbose:
         DataInspector.print_df_state(df_query, ["wind_speed", "wind_direction", "nacelle_direction"])
     if args.plot:
-        data_inspector.plot_time_series(df_query, feature_types=["wind_speed", "wind_direction"], turbine_ids=data_loader.turbine_ids, continuity_groups=None, label="original")
+        data_inspector.plot_time_series(df_query.slice(0, ROW_LIMIT), feature_types=["wind_speed", "wind_direction"], turbine_ids=data_loader.turbine_ids, continuity_groups=None, label="original")
     
     # df_query.filter(df_query.select("time").collect().to_numpy().flatten() >= datetime.datetime(2022, 3, 2, 0, 0)).head(10).collect()
     # %%
@@ -273,10 +275,10 @@ def main():
 
             wd_median = df_query_10min.select(cs.starts_with("wind_direction").radians().sin().name.suffix("_sin"),
                                             cs.starts_with("wind_direction").radians().cos().name.suffix("_cos"))
-            # TODO must swap the ratio??
+            
             wd_median = wd_median.select(wind_direction_sin_median=np.nanmedian(wd_median.select(cs.ends_with("_sin")).collect().to_numpy(), axis=1), 
                                         wind_direction_cos_median=np.nanmedian(wd_median.select(cs.ends_with("_cos")).collect().to_numpy(), axis=1))\
-                                .select(pl.arctan2(pl.col("wind_direction_cos_median"), pl.col("wind_direction_sin_median")).degrees().alias("wind_direction_median"))\
+                                .select(pl.arctan2(pl.col("wind_direction_sin_median"), pl.col("wind_direction_cos_median")).degrees().alias("wind_direction_median"))\
                                 .collect().to_numpy().flatten()
             
             yaw_median = df_query_10min.select(cs.starts_with("nacelle_direction").radians().sin().name.suffix("_sin"),
@@ -354,7 +356,8 @@ def main():
             dir_offsets = compute_offsets(df_query_10min, fi, turbine_ids=data_loader.turbine_ids,
                                         turbine_pairs=config["nacelle_calibration_turbine_pairs"],
                                         # turbine_pairs=[(51,50),(43,42),(41,40),(18,19),(34,33),(22,21),(87,86),(62,63),(33,32),(59,60),(43,42)],
-                                        plot=args.plot
+                                        plot=args.plot,
+                                        save_path=os.path.join(os.path.dirname(config["processed_data_path"]), "pre_correction.png")
                                         #   turbine_pairs=[(61,60),(51,50),(43,42),(41,40),(18,19),(34,33),(17,16),(21,22),(87,86),(62,63),(32,33),(59,60),(42,43)]
                                         )
             
@@ -380,7 +383,8 @@ def main():
                 new_dir_offsets = compute_offsets(df_query_10min, fi, turbine_ids=data_loader.turbine_ids,
                                                 turbine_pairs=config["nacelle_calibration_turbine_pairs"],
                                                 # turbine_pairs=[(51,50),(43,42),(41,40),(18,19),(34,33),(22,21),(87,86),(62,63),(33,32),(59,60),(43,42)],
-                                                plot=args.plot
+                                                plot=args.plot,
+                                                save_path=os.path.join(os.path.dirname(config["processed_data_path"]), "post_correction.png")
                 ) 
             del df_query_10min
             df_query = df_query2
@@ -393,7 +397,7 @@ def main():
         if args.verbose:
             DataInspector.print_df_state(df_query, ["wind_speed", "wind_direction", "nacelle_direction"])
         if args.plot:
-            data_inspector.plot_time_series(df_query, feature_types=["wind_speed", "wind_direction"], turbine_ids=data_loader.turbine_ids, continuity_groups=None, label="after_nacelle_calibration")
+            data_inspector.plot_time_series(df_query.slice(0, ROW_LIMIT), feature_types=["wind_speed", "wind_direction"], turbine_ids=data_loader.turbine_ids, continuity_groups=None, label="after_nacelle_calibration")
 
     # %% [markdown]
     # ## OpenOA Data Preparation & Inspection
@@ -454,12 +458,12 @@ def main():
                 #     )
                 
                 
-                DataInspector.plot_nulled_vs_remaining(df_query, mask,
+                DataInspector.plot_nulled_vs_remaining(df_query.slice(0, ROW_LIMIT), mask,
                                                       mask_input_features=ws_cols,
                                                       output_features=ws_cols, 
                                                       feature_types=["wind_speed"], 
                                                       feature_labels=["Wind Speed [m/s]"])
-                DataInspector.plot_nulled_vs_remaining(df_query, mask,
+                DataInspector.plot_nulled_vs_remaining(df_query.slice(0, ROW_LIMIT), mask,
                                                       mask_input_features=wd_cols,
                                                       output_features=wd_cols, 
                                                       feature_types=["wind_direction"], 
@@ -486,7 +490,7 @@ def main():
                 DataInspector.print_df_state(df_query, ["wind_speed", "wind_direction", "nacelle_direction"])
                 
             if args.plot:
-                data_inspector.plot_time_series(df_query, feature_types=["wind_speed", "wind_direction"], turbine_ids=data_loader.turbine_ids, continuity_groups=None, label="after_frozen_sensor") 
+                data_inspector.plot_time_series(df_query.slice(0, ROW_LIMIT), feature_types=["wind_speed", "wind_direction"], turbine_ids=data_loader.turbine_ids, continuity_groups=None, label="after_frozen_sensor") 
 
         
         # %%
@@ -502,7 +506,7 @@ def main():
                                                       mask_input_features=sorted(list(data_loader.turbine_ids)) * 2,
                                                       output_features=ws_cols+wd_cols)
             if args.plot:
-                DataInspector.plot_nulled_vs_remaining(df_query, mask, 
+                DataInspector.plot_nulled_vs_remaining(df_query.slice(0, ROW_LIMIT), mask, 
                                                        mask_input_features=sorted(list(data_loader.turbine_ids)) * 2,
                                                       output_features=ws_cols+wd_cols, 
                                                       feature_types=["wind_speed", "wind_direction"], 
@@ -520,7 +524,7 @@ def main():
             if args.verbose:
                 DataInspector.print_df_state(df_query, ["wind_speed", "wind_direction", "nacelle_direction"])
             if args.plot:
-                data_inspector.plot_time_series(df_query, feature_types=["wind_speed", "wind_direction"], turbine_ids=data_loader.turbine_ids, continuity_groups=None, label="after_inoperational")
+                data_inspector.plot_time_series(df_query.slice(0, ROW_LIMIT), feature_types=["wind_speed", "wind_direction"], turbine_ids=data_loader.turbine_ids, continuity_groups=None, label="after_inoperational")
 
         # %%
         if "range_flag" in config["filters"]:
@@ -546,7 +550,7 @@ def main():
                                                       mask_input_features=sorted(data_loader.turbine_ids),
                                                       output_features=ws_cols)
             if args.plot:
-                DataInspector.plot_nulled_vs_remaining(df_query, mask, 
+                DataInspector.plot_nulled_vs_remaining(df_query.slice(0, ROW_LIMIT), mask, 
                                                        mask_input_features=sorted(data_loader.turbine_ids),
                                                       output_features=ws_cols, 
                                                       feature_types=["wind_speed"], 
@@ -565,7 +569,7 @@ def main():
                 DataInspector.print_df_state(df_query, ["wind_speed", "wind_direction", "nacelle_direction"])
                 
             if args.plot:
-                data_inspector.plot_time_series(df_query, feature_types=["wind_speed", "wind_direction"], turbine_ids=data_loader.turbine_ids, continuity_groups=None, label="after_out_of_range")
+                data_inspector.plot_time_series(df_query.slice(0, ROW_LIMIT), feature_types=["wind_speed", "wind_direction"], turbine_ids=data_loader.turbine_ids, continuity_groups=None, label="after_out_of_range")
         
         # %%
         if "window_range_flag" in config["filters"]:
@@ -591,7 +595,7 @@ def main():
                                                       output_features=ws_cols)
                 
             if args.plot:
-                DataInspector.plot_nulled_vs_remaining(df_query, mask,
+                DataInspector.plot_nulled_vs_remaining(df_query.slice(0, ROW_LIMIT), mask,
                                                       mask_input_features=sorted(data_loader.turbine_ids),
                                                       output_features=ws_cols, 
                                                       feature_types=["wind_speed"], 
@@ -622,7 +626,7 @@ def main():
                 DataInspector.print_df_state(df_query, ["wind_speed", "wind_direction", "nacelle_direction"])
                 
             if args.plot:
-                data_inspector.plot_time_series(df_query, feature_types=["wind_speed", "wind_direction"], turbine_ids=data_loader.turbine_ids, continuity_groups=None, label="after_out_of_window")
+                data_inspector.plot_time_series(df_query.slice(0, ROW_LIMIT), feature_types=["wind_speed", "wind_direction"], turbine_ids=data_loader.turbine_ids, continuity_groups=None, label="after_out_of_window")
             
 
         if "bin_filter" in config["filters"]:
@@ -650,7 +654,7 @@ def main():
                                                       output_features=ws_cols)
                 
             if args.plot:
-                DataInspector.plot_nulled_vs_remaining(df_query, mask, 
+                DataInspector.plot_nulled_vs_remaining(df_query.slice(0, ROW_LIMIT), mask, 
                                                        mask_input_features=sorted(data_loader.turbine_ids),
                                                        output_features=ws_cols, 
                                                        feature_types=["wind_speed"], 
@@ -682,7 +686,7 @@ def main():
                 DataInspector.print_df_state(df_query, ["wind_speed", "wind_direction", "nacelle_direction"])
                 
             if args.plot:
-                data_inspector.plot_time_series(df_query, feature_types=["wind_speed", "wind_direction"], turbine_ids=data_loader.turbine_ids, continuity_groups=None, label="after_bin_outlier")
+                data_inspector.plot_time_series(df_query.slice(0, ROW_LIMIT), feature_types=["wind_speed", "wind_direction"], turbine_ids=data_loader.turbine_ids, continuity_groups=None, label="after_bin_outlier")
 
         # %%
         if "std_range_flag" in config["filters"]:
@@ -720,13 +724,13 @@ def main():
                                                       output_features=wd_cols)
                 
             if args.plot:
-                DataInspector.plot_nulled_vs_remaining(df_query, ws_mask,
+                DataInspector.plot_nulled_vs_remaining(df_query.slice(0, ROW_LIMIT), ws_mask,
                                                       mask_input_features=sorted(data_loader.turbine_ids),
                                                       output_features=ws_cols, 
                                                       feature_types=["wind_speed"], 
                                                       feature_labels=["Wind Speed [m/s]"])
 
-                DataInspector.plot_nulled_vs_remaining(df_query, wd_mask,
+                DataInspector.plot_nulled_vs_remaining(df_query.slice(0, ROW_LIMIT), wd_mask,
                                                       mask_input_features=sorted(data_loader.turbine_ids),
                                                       output_features=wd_cols,
                                                       feature_types=["wind_direction"], 
@@ -749,7 +753,7 @@ def main():
                 DataInspector.print_df_state(df_query, ["wind_speed", "wind_direction", "nacelle_direction"])
                 
             if args.plot:
-                data_inspector.plot_time_series(df_query, feature_types=["wind_speed", "wind_direction"], turbine_ids=data_loader.turbine_ids, continuity_groups=None, label="after_std_dev")
+                data_inspector.plot_time_series(df_query.slice(0, ROW_LIMIT), feature_types=["wind_speed", "wind_direction"], turbine_ids=data_loader.turbine_ids, continuity_groups=None, label="after_std_dev")
 
 
         df_query.collect().write_parquet(config["processed_data_path"].replace(".parquet", "_filtered.parquet"), statistics=False)
@@ -761,7 +765,7 @@ def main():
         DataInspector.print_df_state(df_query, ["wind_speed", "wind_direction", "nacelle_direction"])
 
     if args.plot:
-        data_inspector.plot_time_series(df_query, feature_types=["wind_speed", "wind_direction"], turbine_ids=data_loader.turbine_ids, continuity_groups=None, label="after_filtering")
+        data_inspector.plot_time_series(df_query.slice(0, ROW_LIMIT), feature_types=["wind_speed", "wind_direction"], turbine_ids=data_loader.turbine_ids, continuity_groups=None, label="after_filtering")
     
     # %%
     if "split" in config["filters"]:
@@ -897,7 +901,11 @@ def main():
         
     if args.plot:
         continuity_groups = df_query.select("continuity_group").unique().collect().to_numpy().flatten()
-        data_inspector.plot_time_series(df_query, feature_types=["wind_speed", "wind_direction"], turbine_ids=data_loader.turbine_ids, continuity_groups=continuity_groups, label="after_split")
+        data_inspector.plot_time_series(pl.concat([df.slice(0, ROW_LIMIT) for df in df_query.partition_by("continuity_group")], how="vertical"), 
+                                        feature_types=["wind_speed", "wind_direction"], 
+                                        turbine_ids=data_loader.turbine_ids, 
+                                        continuity_groups=continuity_groups, 
+                                        label="after_split")
     
     # %% 
     if "impute_missing_data" in config["filters"]:
@@ -922,7 +930,11 @@ def main():
         
     if args.plot:
         continuity_groups = df_query.select("continuity_group").unique().collect().to_numpy().flatten()
-        data_inspector.plot_time_series(df_query, feature_types=["wind_speed", "wind_direction"], turbine_ids=data_loader, continuity_groups=continuity_groups, label="after_impute")
+        data_inspector.plot_time_series(pl.concat([df.slice(0, ROW_LIMIT) for df in df_query.partition_by("continuity_group")], how="vertical"), 
+                                        feature_types=["wind_speed", "wind_direction"], 
+                                        turbine_ids=data_loader, 
+                                        continuity_groups=continuity_groups, 
+                                        label="after_impute")
 
     # %%
     # Feature Selection
@@ -952,22 +964,26 @@ def main():
     else:
         time_cols = [pl.col("time")]
                 
-    # %% TODO sanity check 2020-02-21 -> 2020-02-27
+    # %%
     if args.plot:
         logging.info("Plotting time series.")
         feature_types = ["nd_cos", "nd_sin", "ws_horz", "ws_vert"]
         if "continuity_group" in df_query.collect_schema().names():
             continuity_groups = df_query.select(pl.col("continuity_group")).unique().collect().to_numpy().flatten()
              
-            data_inspector.plot_time_series(df_query, feature_types=["ws_horz", "ws_vert"], 
+            data_inspector.plot_time_series(pl.concat([df.slice(0, ROW_LIMIT) for df in df_query.partition_by("continuity_group")], how="vertical"), 
+                                            feature_types=["ws_horz", "ws_vert"], 
                                             turbine_ids=data_loader.turbine_ids, 
                                             continuity_groups=continuity_groups,
                                             label="after_feat_select"
                                             # continuity_groups=continuity_groups
                                             )
         else:
-            data_inspector.plot_time_series(df_query, feature_types=["ws_horz", "ws_vert"],
-                                            turbine_ids=data_loader.turbine_ids, continuity_groups=None, label="after_feat_select")
+            data_inspector.plot_time_series(df_query.slice(0, ROW_LIMIT), 
+                                            feature_types=["ws_horz", "ws_vert"],
+                                            turbine_ids=data_loader.turbine_ids, 
+                                            continuity_groups=None, 
+                                            label="after_feat_select")
 
         logging.info("Plotting and fitting target value distribution.")
         data_inspector.plot_data_distribution(df_query, feature_types=["ws_horz", "ws_vert"], turbine_ids=data_loader.turbine_ids, distribution=norm)
