@@ -272,7 +272,9 @@ def main():
             df_query_10min = df_query2\
                                 .with_columns(pl.col("time").dt.round(f"{10}m").alias("time"))\
                                 .group_by("time").agg(cs.numeric().mean()).sort("time")
-
+                                
+            # df_query_10min = df_query_10min.slice(0, int(6*24*365*1.5)) 
+            
             wd_median = df_query_10min.select(cs.starts_with("wind_direction").radians().sin().name.suffix("_sin"),
                                             cs.starts_with("wind_direction").radians().cos().name.suffix("_cos"))
             
