@@ -273,8 +273,10 @@ class DataLoader:
             if not first_merge:
                 merged_paths = glob.glob(os.path.join(temp_save_dir, f"df_*_*.parquet"))
             
-        if self.turbine_mapping or len(self.turbine_signature) == 1: # if not none, ie there are multiple filetypes being processed
+        if self.turbine_mapping: # if not none, all turbine signatures have been transformed
             self.turbine_signature = "\\d+$"
+        else:
+            self.turbine_signature = self.turbine_signature[0]
         
         RUN_ONCE = (self.multiprocessor == "mpi" and mpi_exists and (MPI.COMM_WORLD.Get_rank()) == 0) or (self.multiprocessor != "mpi") or (self.multiprocessor is None)
 
@@ -333,6 +335,14 @@ class DataLoader:
                         
                         logging.info(f"Filling final, used ram = {virtual_memory().percent}%")
                         df_query = df_query.fill_null(strategy="forward").fill_null(strategy="backward").collect().lazy()
+                        # TODO check definition of turbine_signature here 
+                        logging.info(f"Sorting columns, used ram = {virtual_memory().percent}%") 
+                        df_query = df_query.select([pl.col("time")] 
+                                       + [pl.col(c) for c in 
+                                          sorted(df_query.select(cs.numeric()).collect_schema().names(), 
+                                                 key=lambda col: (re.search(f".*?(?={self.turbine_signature})", col).group(0), 
+                                                                  int(re.search(self.turbine_signature, col).group(0))))])
+                        
                         # df_query = self.sort_resample_refill(df_query).fill_null(strategy="backward")
                         # Write to final parquet
                         logging.info(f"Saving final Parquet file into {self.save_path}, used ram = {virtual_memory().percent}%")
@@ -505,7 +515,10 @@ class DataLoader:
                 if match:
                     turbine_ids.add(match.group())
         if sort:
-            return sorted(turbine_ids)
+            if len(re.findall("\\d+", list(turbine_ids)[0])):
+                return sorted(turbine_ids, key=lambda tid: int(re.search("\\d+", tid).group(0)))
+            else:
+                return sorted(turbine_ids)
         else:
             return turbine_ids
 
