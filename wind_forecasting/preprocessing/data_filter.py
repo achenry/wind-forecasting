@@ -6,6 +6,7 @@ Returns:
 
 import logging
 from datetime import timedelta
+import os
 
 import numpy as np
 import polars as pl
@@ -507,7 +508,7 @@ def gauss_corr(gauss_params, power_ratio):
     # maximize the correlation between the gaussian curve parameterized here and the power_ratio i.e. fit the gaussian curve to the power ratio
     return -1 * np.corrcoef(gauss, power_ratio)[0, 1] 
 
-def compute_offsets(df, fi, turbine_ids, turbine_pairs:list[tuple[int, int]]=None, plot=False):
+def compute_offsets(df, fi, turbine_ids, turbine_pairs:list[tuple[int, int]]=None, plot=False, save_path=None):
     p_min = 100
     p_max = 2500
     prat_hfwdth = 30
@@ -576,6 +577,7 @@ def compute_offsets(df, fi, turbine_ids, turbine_pairs:list[tuple[int, int]]=Non
             ax.legend()
             ax.set_xlabel("Rounded Wind Direction [deg]")
             ax.set_ylabel("Power Ratio [-]")
+            fig.savefig(save_path.replace(".png", f"_{i_up}_{i_down}.png"))
         
         dir_offset = DataFilter.wrap_180(nadir + opt_gauss_params.x[0] - dir_align)
         print(f"Direction offset for turbine pair ({tid_up}, {tid_down}) = {dir_offset}")

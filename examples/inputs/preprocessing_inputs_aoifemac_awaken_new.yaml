@@ -218,17 +218,19 @@ minimum_not_missing_duration: 1200 # minimum duration that any retained continuo
 impute_r2_threshold: 0.7
 
 nacelle_calibration_turbine_pairs:
+- [61,60]
 - [51,50]
 - [43,42]
 - [41,40]
 - [18,19]
 - [34,33]
-- [22,21]
+- [17,16]
+- [21,22]
 - [87,86]
 - [62,63]
-- [33,32]
+- [32,33]
 - [59,60]
-- [43,42]
+- [42,43]
 
 dt: 1
 
