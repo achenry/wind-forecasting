@@ -254,6 +254,7 @@ def main():
 
     # %% check time series
     if args.verbose:
+        # df_query = df_query.slice(0, int(3600*24*30*6))
         DataInspector.print_df_state(df_query, ["wind_speed", "wind_direction", "nacelle_direction"])
     if args.plot:
         data_inspector.plot_time_series(df_query.slice(0, ROW_LIMIT), feature_types=["wind_speed", "wind_direction"], turbine_ids=data_loader.turbine_ids, continuity_groups=None, label="original")
