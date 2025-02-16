@@ -331,10 +331,11 @@ class DataLoader:
                         logging.info(f"Concatenating final, used ram = {virtual_memory().percent}%")
                         df_query = pl.concat(df_query, how="diagonal").collect().lazy()
                         logging.info(f"Sorting final, used ram = {virtual_memory().percent}%")
-                        df_query = df_query.sort("time").collect().lazy()
+                        df_query = df_query.sort(by="time").collect().lazy()
                         
                         logging.info(f"Filling final, used ram = {virtual_memory().percent}%")
                         df_query = df_query.fill_null(strategy="forward").fill_null(strategy="backward").collect().lazy()
+                        assert df_query.select(pl.all_horizontal((cs.numeric().is_null() | cs.numeric().is_nan()).sum() == 0)).collect().item()
                         # TODO check definition of turbine_signature here 
                         logging.info(f"Sorting columns, used ram = {virtual_memory().percent}%") 
                         df_query = df_query.select([pl.col("time")] 
