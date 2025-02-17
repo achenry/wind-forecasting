@@ -217,8 +217,9 @@ def main():
         
     if not args.preprocess_data:
         return
-
-    # df_query = df_query.select(pl.all().slice(0, 9000000))  # remove any empty columns
+    
+    df_query = df_query.slice(0, int(3600*24*30*18)) # REMOVE TODO
+    
     if RUN_ONCE:
         assert all(any(prefix in col for col in df_query.collect_schema().names()) for prefix in ["time", "wind_speed_", "wind_direction_", "nacelle_direction_", "power_output_"]), "DataFrame must contain columns 'time', then columns with prefixes 'wind_speed_', 'wind_direction_', 'power_output_', 'nacelle_direction_'"
         assert df_query.select("time").collect().to_series().is_sorted(), "Loaded data should be sorted by time!"
@@ -254,7 +255,6 @@ def main():
 
     # %% check time series
     if args.verbose:
-        # df_query = df_query.slice(0, int(3600*24*30*6))
         DataInspector.print_df_state(df_query, ["wind_speed", "wind_direction", "nacelle_direction"])
     if args.plot:
         data_inspector.plot_time_series(df_query.slice(0, ROW_LIMIT), feature_types=["wind_speed", "wind_direction"], turbine_ids=data_loader.turbine_ids, continuity_groups=None, label="original")
@@ -293,7 +293,7 @@ def main():
 
             df_query_10min = df_query_10min.with_columns(wd_median=wd_median, yaw_median=yaw_median).collect().lazy()
             del wd_median, yaw_median
-            if args.plot:
+            if args.plot or True:
                 data_inspector.plot_wind_offset(df_query_10min, "Original", data_loader.turbine_ids)
 
             # remove biases from median direction
@@ -307,7 +307,7 @@ def main():
                             .select(wd_bias=(pl.col(f"wind_direction_{turbine_id}") - pl.col("wd_median")), 
                                     yaw_bias=(pl.col(f"nacelle_direction_{turbine_id}") - pl.col("yaw_median")))\
                             .select(pl.all().radians().sin().mean().name.suffix("_sin"), pl.all().radians().cos().mean().name.suffix("_cos"))\
-                            .select(wd_bias=pl.arctan2("wd_bias_cos", "wd_bias_sin").degrees().mod(360),
+                            .select(wd_bias=pl.arctan2("wd_bias_sin", "wd_bias_cos").degrees().mod(360),
                                     yaw_bias=pl.arctan2("yaw_bias_sin", "yaw_bias_cos").degrees().mod(360))\
                             .select(pl.when(pl.all() > 180.0).then(pl.all() - 360.0).otherwise(pl.all()))
 
@@ -326,7 +326,7 @@ def main():
 
             # df_offsets = pl.DataFrame(df_offsets)
 
-            if args.plot:
+            if args.plot or True:
                 data_inspector.plot_wind_offset(df_query_10min, "Corrected", data_loader.turbine_ids)
                 
             # make sure we have corrected the bias between wind direction and yaw position by adding 3 deg. to the wind direction
