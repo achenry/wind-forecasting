@@ -548,22 +548,30 @@ def compute_offsets(df, fi, turbine_ids, turbine_pairs:list[tuple[int, int]]=Non
             ax.plot(p_ratio.select("wd_round").to_numpy().flatten(), p_ratio.select("p_ratio").to_numpy().flatten(), label="_nolegend_")
             ax.plot(dir_align * np.ones(2),[0, 1.25], 'k--', label="Direction of Alignment")
             ax.grid()
+            ax.set_title(f"Turbine Pair: ({turbine_ids[i_up]}, {turbine_ids[i_down]})")
+            ax.set_xlabel("Rounded Wind Direction [deg]")
+            ax.set_ylabel("Power Ratio [-]")
 
         # get the range of wind directions around that of alignment (according to turbine layout), when the nadir should occur
-        wd_idx = np.arange(int(np.round(dir_align)) - prat_hfwdth,int(np.round(dir_align)) + prat_hfwdth + 1) % 360
-        if len(set(wd_idx) & set(p_ratio.select(f"wd_round").to_numpy().flatten())) != len(wd_idx):
+        wd_range = np.arange(int(np.round(dir_align)) - prat_hfwdth,int(np.round(dir_align)) + prat_hfwdth + 1) % 360
+        if len(set(wd_range) & set(p_ratio.select(f"wd_round").to_numpy().flatten())) != len(wd_range):
             logging.info(f"Cannot compute nadir for turbine pair {turbine_ids[i_up]}, {turbine_ids[i_down]}")
             continue
         
         # get the power ratios that occur in the range around the aligned wind direction, 
         # get the rounded wind direction corresponding to the power nadir, then add the direction of alignment and subtract the prat halfwidth
-        nadir = p_ratio.filter(pl.col("wd_round").is_in(wd_idx)) \
+        nadir = p_ratio.filter(pl.col("wd_round").is_in(wd_range)) \
                         .filter(pl.col("p_ratio") == pl.col("p_ratio").min()) \
                         .select(pl.col("wd_round")).item()
         
+        wd_range = np.arange(nadir - prat_hfwdth, nadir + prat_hfwdth + 1) % 360
+        if len(set(wd_range) & set(p_ratio.select(f"wd_round").to_numpy().flatten())) != len(wd_range):
+            logging.info(f"Cannot compute nadir for turbine pair {turbine_ids[i_up]}, {turbine_ids[i_down]}")
+            continue
+        
         # get parameters of gaussian trough that fits power ratio for wind direction approx perpendicular to dir_align TODO?
         opt_gauss_params = minimize(gauss_corr, [0, 5.0, 1.0], 
-                                    args=(p_ratio.filter(pl.col("wd_round").is_in(np.arange(nadir - prat_hfwdth, nadir + prat_hfwdth + 1) % 360))\
+                                    args=(p_ratio.filter(pl.col("wd_round").is_in(wd_range))\
                                                .select("p_ratio").to_numpy().flatten()), method='SLSQP')
 
         # range around -/+ 30 degrees
@@ -573,10 +581,7 @@ def compute_offsets(df, fi, turbine_ids, turbine_pairs:list[tuple[int, int]]=Non
         if plot or True:
             ax.plot(xs + nadir, gauss,'k',label="_nolegend_")
             ax.plot(2 * [nadir + opt_gauss_params.x[0]], [0, 1.25], 'r--',label="Direction of Measured Wake Center")
-            ax.set_title(f"Turbine Pair: ({turbine_ids[i_up]}, {turbine_ids[i_down]})")
             ax.legend()
-            ax.set_xlabel("Rounded Wind Direction [deg]")
-            ax.set_ylabel("Power Ratio [-]")
             fig.savefig(save_path.replace(".png", f"_{i_up}_{i_down}.png"))
         
         dir_offset = DataFilter.wrap_180(nadir + opt_gauss_params.x[0] - dir_align)
