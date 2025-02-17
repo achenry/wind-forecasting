@@ -218,7 +218,7 @@ def main():
     if not args.preprocess_data:
         return
     
-    df_query = df_query.slice(0, int(3600*24*30*18)) # REMOVE TODO
+    # df_query = df_query.slice(0, int(3600*24*30*18)) # REMOVE TODO
     
     if RUN_ONCE:
         assert all(any(prefix in col for col in df_query.collect_schema().names()) for prefix in ["time", "wind_speed_", "wind_direction_", "nacelle_direction_", "power_output_"]), "DataFrame must contain columns 'time', then columns with prefixes 'wind_speed_', 'wind_direction_', 'power_output_', 'nacelle_direction_'"
