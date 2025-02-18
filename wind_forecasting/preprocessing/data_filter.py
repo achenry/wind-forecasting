@@ -6,10 +6,9 @@ Returns:
 
 import logging
 from datetime import timedelta
-import re
+import os
 
 import numpy as np
-import numpy.ma as ma
 import polars as pl
 import polars.selectors as cs
 # from scipy.stats import entropy
@@ -179,7 +178,7 @@ class DataFilter:
                     
             return np.stack(res, axis=1)
 
-    def fill_multi_missing_datasets(self, dfs, impute_missing_features, interpolate_missing_features):
+    def fill_multi_missing_datasets(self, dfs, impute_missing_features, interpolate_missing_features, r2_threshold):
         if self.multiprocessor:
             if self.multiprocessor == "mpi" and mpi_exists:
                 executor = MPICommExecutor(MPI.COMM_WORLD, root=0)
@@ -191,17 +190,17 @@ class DataFilter:
             
             with executor as ex:
                 futures = [ex.submit(self._fill_single_missing_dataset, df_idx=df_idx, df=df, 
-                impute_missing_features=impute_missing_features, interpolate_missing_features=interpolate_missing_features
-                , parallel="turbine_id") 
+                impute_missing_features=impute_missing_features, interpolate_missing_features=interpolate_missing_features,
+                parallel="turbine_id", r2_threshold=r2_threshold) 
                 for df_idx, df in enumerate(dfs)]
                 return [fut.result() for fut in futures if fut.result() is not None]
         else:
             logging.info("🔧 Using single process executor")
             return [self._fill_single_missing_dataset(df_idx=df_idx, df=df, impute_missing_features=impute_missing_features, 
-            interpolate_missing_features=interpolate_missing_features, parallel="turbine_id") 
+            interpolate_missing_features=interpolate_missing_features, parallel="turbine_id", r2_threshold=r2_threshold) 
             for df_idx, df in enumerate(dfs)]
     
-    def _impute_single_missing_dataset(self, df_idx, df, impute_missing_features, parallel=False):
+    def _impute_single_missing_dataset(self, df_idx, df, impute_missing_features, r2_threshold, parallel=False):
 
         if parallel == "feature":
             if self.multiprocessor == "mpi" and mpi_exists:
@@ -217,7 +216,7 @@ class DataFilter:
                                               data_pl=df.select("time", cs.starts_with(feature)), data_pd=None, 
                                     #  data_pd=unpivot_df.select(["time", "turbine_id", feature]).collect().to_pandas().set_index(["time", "turbine_id"]),
                                      impute_col=feature, reference_col=feature,
-                                     asset_id_col="turbine_id", method="linear") for feature in impute_missing_features}
+                                     asset_id_col="turbine_id", method="linear", r2_threshold=r2_threshold) for feature in impute_missing_features}
                 
                 for k, v in futures.items():
                     df = df.update(v, on="time")
@@ -230,7 +229,8 @@ class DataFilter:
                     data_pl=df.select(features_pl), data_pd=None,
                                                             impute_col=feature, reference_col=feature,
                                                             asset_id_col="turbine_id", method="linear", 
-                                                            multiprocessor=self.multiprocessor)
+                                                            multiprocessor=self.multiprocessor,
+                                                            r2_threshold=r2_threshold)
                 
                 df = df.update(imputed_vals, on="time")
                 logging.info(f"Imputed feature {feature} in DataFrame {df_idx}.")
@@ -241,15 +241,16 @@ class DataFilter:
                 imputed_vals = imputing.impute_all_assets_by_correlation(
                                                             data_pl=df.select(features_pl), data_pd=None,
                                                             impute_col=feature, reference_col=feature,
-                                                            asset_id_col="turbine_id", method="linear", multiprocessor=None)
+                                                            asset_id_col="turbine_id", method="linear", multiprocessor=None,
+                                                            r2_threshold=r2_threshold)
                 
                 df = df.update(imputed_vals, on="time")
                 logging.info(f"Imputed feature {feature} in DataFrame {df_idx}.") 
-        return df 
+        return df
 
-    def _fill_single_missing_dataset(self, df_idx, df, impute_missing_features, interpolate_missing_features, parallel=None):
+    def _fill_single_missing_dataset(self, df_idx, df, impute_missing_features, interpolate_missing_features, r2_threshold, parallel=None):
         
-        df = self._impute_single_missing_dataset(df_idx, df, impute_missing_features, parallel=parallel)
+        df = self._impute_single_missing_dataset(df_idx, df, impute_missing_features, r2_threshold=r2_threshold, parallel=parallel)
 
         # if any column is all nulls ... can't be imputed
         df = df.with_columns([cs.starts_with(feat).interpolate().fill_null(strategy="forward").fill_null(strategy="backward") for feat in interpolate_missing_features])
@@ -504,9 +505,10 @@ def merge_adjacent_periods(agg_df, dt):
 def gauss_corr(gauss_params, power_ratio):
     xs = np.arange(-int((len(power_ratio) - 1) / 2), int((len(power_ratio) + 1) / 2), 1)
     gauss = -1 * gauss_params[2] * np.exp(-0.5 * ((xs - gauss_params[0]) / gauss_params[1])**2) + 1.
-    return -1 * np.corrcoef(gauss, power_ratio)[0, 1]
+    # maximize the correlation between the gaussian curve parameterized here and the power_ratio i.e. fit the gaussian curve to the power ratio
+    return -1 * np.corrcoef(gauss, power_ratio)[0, 1] 
 
-def compute_offsets(df, fi, turbine_ids, turbine_pairs:list[tuple[int, int]]=None, plot=False):
+def compute_offsets(df, fi, turbine_ids, turbine_pairs:list[tuple[int, int]]=None, plot=False, save_path=None):
     p_min = 100
     p_max = 2500
     prat_hfwdth = 30
@@ -519,52 +521,68 @@ def compute_offsets(df, fi, turbine_ids, turbine_pairs:list[tuple[int, int]]=Non
         i_up = prat_turbine_pairs[i][0]
         i_down = prat_turbine_pairs[i][1]
 
+        # compute the angle of the vector pointing from the downstream turbine to the upstream turbine (CW from north)
         dir_align = np.degrees(np.arctan2(fi.layout_x[i_up] - fi.layout_x[i_down], fi.layout_y[i_up] - fi.layout_y[i_down])) % 360
 
         tid_up = turbine_ids[i_up]
         tid_down = turbine_ids[i_down]
 
+        # get the subset of power outputs and wind directions for which the downstream power is positive and the upstream power is within a given range
         df_sub = df.filter((pl.col(f"power_output_{tid_up}") >= p_min) 
                                 & (pl.col(f"power_output_{tid_up}") <= p_max) 
                                 & (pl.col(f"power_output_{tid_down}") >= 0))\
                                 .select(f"power_output_{tid_up}", f"power_output_{tid_down}", f"wind_direction_{tid_up}", f"wind_direction_{tid_down}")
-        
+                                
+        # average the turbine powers by the upstream wind direction nearest integer
         df_sub = df_sub.with_columns(pl.when((pl.col(f"wind_direction_{tid_up}") >= 359.5))\
                                         .then(pl.col(f"wind_direction_{tid_up}") - 360.0)\
                                         .otherwise(pl.col(f"wind_direction_{tid_up}")),
                                         pl.col(f"wind_direction_{tid_up}").round().alias(f"wd_round"))\
                         .group_by(f"wd_round").agg(pl.all().mean()).sort("wd_round").collect()
 
+        # compute the power ratio downstream power to upstream power for each integer wind direction
         p_ratio = df_sub.select(pl.col(f"wd_round"), (pl.col(f"power_output_{tid_down}") / pl.col(f"power_output_{tid_up}")).alias("p_ratio"))
 
-        if plot:
+        if plot or True:
             fig, ax = plt.subplots(1,1)
             ax.plot(p_ratio.select("wd_round").to_numpy().flatten(), p_ratio.select("p_ratio").to_numpy().flatten(), label="_nolegend_")
             ax.plot(dir_align * np.ones(2),[0, 1.25], 'k--', label="Direction of Alignment")
             ax.grid()
+            ax.set_title(f"Turbine Pair: ({turbine_ids[i_up]}, {turbine_ids[i_down]})")
+            ax.set_xlabel("Rounded Wind Direction [deg]")
+            ax.set_ylabel("Power Ratio [-]")
 
-        wd_idx = np.arange(int(np.round(dir_align)) - prat_hfwdth,int(np.round(dir_align)) + prat_hfwdth + 1) % 360
-        if len(set(wd_idx) & set(p_ratio.select(f"wd_round").to_numpy().flatten())) != len(wd_idx):
+        # get the range of wind directions around that of alignment (according to turbine layout), when the nadir should occur
+        wd_range = np.arange(int(np.round(dir_align)) - prat_hfwdth,int(np.round(dir_align)) + prat_hfwdth + 1) % 360
+        if len(set(wd_range) & set(p_ratio.select(f"wd_round").to_numpy().flatten())) != len(wd_range):
             logging.info(f"Cannot compute nadir for turbine pair {turbine_ids[i_up]}, {turbine_ids[i_down]}")
             continue
         
-        nadir = p_ratio.filter(pl.col("wd_round").is_in(wd_idx)).select("p_ratio").to_series().arg_min() \
-                       + int(np.round(dir_align)) - prat_hfwdth 
-
+        # get the power ratios that occur in the range around the aligned wind direction, 
+        # get the rounded wind direction corresponding to the power nadir, then add the direction of alignment and subtract the prat halfwidth
+        nadir = p_ratio.filter(pl.col("wd_round").is_in(wd_range)) \
+                        .filter(pl.col("p_ratio") == pl.col("p_ratio").min()) \
+                        .select(pl.col("wd_round")).item()
+        
+        wd_range = np.arange(nadir - prat_hfwdth, nadir + prat_hfwdth + 1) % 360
+        if len(set(wd_range) & set(p_ratio.select(f"wd_round").to_numpy().flatten())) != len(wd_range):
+            logging.info(f"Cannot compute nadir for turbine pair {turbine_ids[i_up]}, {turbine_ids[i_down]}")
+            continue
+        
+        # get parameters of gaussian trough that fits power ratio for wind direction approx perpendicular to dir_align TODO?
         opt_gauss_params = minimize(gauss_corr, [0, 5.0, 1.0], 
-                                    args=(p_ratio.filter(pl.col("wd_round").is_in(np.arange(nadir - prat_hfwdth, nadir + prat_hfwdth + 1) % 360))\
+                                    args=(p_ratio.filter(pl.col("wd_round").is_in(wd_range))\
                                                .select("p_ratio").to_numpy().flatten()), method='SLSQP')
 
-        xs = np.arange(-int((60 - 1) / 2),int((60 + 1) / 2),1)
+        # range around -/+ 30 degrees
+        xs = np.arange(-int((2*prat_hfwdth - 1) / 2),int((2*prat_hfwdth + 1) / 2),1)
         gauss = -1 * opt_gauss_params.x[2] * np.exp(-0.5 * ((xs - opt_gauss_params.x[0]) / opt_gauss_params.x[1])**2) + 1.
 
-        if plot:
+        if plot or True:
             ax.plot(xs + nadir, gauss,'k',label="_nolegend_")
             ax.plot(2 * [nadir + opt_gauss_params.x[0]], [0, 1.25], 'r--',label="Direction of Measured Wake Center")
-            ax.set_title(f"Turbine Pair: ({turbine_ids[i_up]}, {turbine_ids[i_down]})")
             ax.legend()
-            ax.set_xlabel("Rounded Wind Direction [deg]")
-            ax.set_ylabel("Power Ratio [-]")
+            fig.savefig(save_path.replace(".png", f"_{i_up}_{i_down}.png"))
         
         dir_offset = DataFilter.wrap_180(nadir + opt_gauss_params.x[0] - dir_align)
         print(f"Direction offset for turbine pair ({tid_up}, {tid_down}) = {dir_offset}")
