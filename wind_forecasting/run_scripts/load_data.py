@@ -22,7 +22,7 @@ try:
 except:
     print("No MPI available on system.")
 
-@profile
+# @profile
 def main():
     
     # %% PARSE CONFIGURATION
@@ -43,7 +43,8 @@ def main():
 
     # %% CREATE DATASET
     logging.info("Creating datasets")
-    data_module = DataModule(data_path=config["dataset"]["data_path"], n_splits=config["dataset"]["n_splits"],
+    data_module = DataModule(data_path=config["dataset"]["data_path"], 
+                             n_splits=config["dataset"]["n_splits"],
                             continuity_groups=None, train_split=(1.0 - config["dataset"]["val_split"] - config["dataset"]["test_split"]),
                                 val_split=config["dataset"]["val_split"], test_split=config["dataset"]["test_split"], 
                                 prediction_length=config["dataset"]["prediction_length"], context_length=config["dataset"]["context_length"],

@@ -87,7 +87,10 @@ class DataInspector:
             print("Available turbine IDs:", available_turbines)
             return []
         
-        return valid_turbines
+        if len(re.findall("\\d+", valid_turbines[0])):
+            return sorted(valid_turbines, key=lambda tid: int(re.search("\\d+", tid).group(0)))
+        else:
+            return valid_turbines
     
     def _validate_input_data(self, *, X=None, y=None, features=None, sequence_length=None, prediction_horizon=None,
                              turbine_input_filepath=None, farm_input_filepath=None):
@@ -107,7 +110,7 @@ class DataInspector:
             raise FileNotFoundError(f"Farm input file not found: {farm_input_filepath}")
 
 
-    def plot_time_series(self, df_query, turbine_ids: list[str], feature_types:Optional[list] = None, feature_labels:Optional[list] = None, continuity_groups: Optional[list] = None, scatter = False) -> None:
+    def plot_time_series(self, df_query, turbine_ids: list[str], feature_types:Optional[list] = None, feature_labels:Optional[list] = None, continuity_groups: Optional[list] = None, label="", scatter = False) -> None:
         # Use provided feature mapping or fall back to instance default
         # current_mapping = feature_mapping or self.feature_mapping
         
@@ -157,6 +160,7 @@ class DataInspector:
                     ax[f].set_xlabel("Time [s]")
                     ax[f].set_ylabel(feature_labels[f])
                     ax[f].legend([], [], frameon=False)
+                ax[-1].legend(bbox_to_anchor=(0.95, 1), loc="upper left", ncol=2)
         else:
             fig, ax = plt.subplots(len(feature_types), 1, figsize=(12, 10), sharex=True)
             if not hasattr(ax, "__len__"):
@@ -185,14 +189,15 @@ class DataInspector:
                 ax[f].set_xlabel("Time [s]")
                 ax[f].set_ylabel(feature_labels[f])
                 ax[f].legend([], [], frameon=False)
+            ax[-1].legend(bbox_to_anchor=(0.95, 1), loc="upper left", ncol=2)
                 
         fig.suptitle(f'Time Series for Turbines: {", ".join(valid_turbines)}', fontsize=16)
         ax[0].legend(loc='upper left', bbox_to_anchor=(1, 1))
         
         plt.tight_layout()
-        # plt.show()
-        plt.savefig('time_series.png')
-        plt.close()
+        plt.show()
+        plt.savefig(f'time_series_{label}.png')
+        # plt.close()
 
     def plot_wind_speed_power(self, df: pl.LazyFrame, turbine_ids: list[str]) -> None:
         """Plot wind speed vs power output scatter plot for specified turbines.
@@ -256,9 +261,9 @@ class DataInspector:
         plt.grid(True, alpha=0.3)
         sns.despine()
         plt.tight_layout()
-        # plt.show()
+        plt.show()
         plt.savefig('wind_speed_power.png')
-        plt.close()
+        # plt.close()
 
     # DEBUG: @Juan 10/18/24 Added method to plot wind rose for both wide and long formats [CHECK]
     def plot_wind_rose(self, df, turbine_ids: list[str] | str) -> None:
@@ -300,7 +305,7 @@ class DataInspector:
                 ax.bar(wind_dir, wind_spd, normed=True, opening=0.8, edgecolor='white')
                 ax.set_legend()
                 plt.title('Wind Rose for all Turbines')
-                # plt.show()
+                plt.show()
                 plt.savefig('wind_rose.png')
                 plt.close()
             else:
@@ -419,9 +424,9 @@ class DataInspector:
         for turbine_id in valid_turbines:
             # Select and cast data types in Polars
             turbine_data = df.select([
-                pl.col("time").cast(pl.Datetime),
-                pl.col(f"wind_speed_{turbine_id}").cast(pl.Float64),
-                pl.col(f"wind_direction_{turbine_id}").cast(pl.Float64)
+                pl.col("time"),
+                pl.col(f"wind_speed_{turbine_id}"),
+                pl.col(f"wind_direction_{turbine_id}")
             ])\
             .filter(
                 pl.any_horizontal([
@@ -435,9 +440,9 @@ class DataInspector:
             .collect()\
             .to_pandas()
             
-            turbine_data['hour'] = turbine_data['hour'].astype('int32')
-            turbine_data[f"wind_speed_{turbine_id}"] = turbine_data[f"wind_speed_{turbine_id}"].astype('float64')
-            turbine_data[f"wind_direction_{turbine_id}"] = turbine_data[f"wind_direction_{turbine_id}"].astype('float64')
+            # turbine_data['hour'] = turbine_data['hour'].astype('int32')
+            # turbine_data[f"wind_speed_{turbine_id}"] = turbine_data[f"wind_speed_{turbine_id}"].astype('float64')
+            # turbine_data[f"wind_direction_{turbine_id}"] = turbine_data[f"wind_direction_{turbine_id}"].astype('float64')
             
             # Create plots
             fig, ax = plt.subplots(2, 1, figsize=(12, 6))
@@ -450,7 +455,7 @@ class DataInspector:
             ax[0].set_ylabel("Wind Speed (m/s)")
             ax[1].set_ylabel("Wind Direction ($^\\circ$)")
             fig.tight_layout()
-            # plt.show()
+            plt.show()
             plt.savefig('boxplot_wind_speed_direction.png')
             plt.close()
 
@@ -637,7 +642,7 @@ class DataInspector:
         
         # Adjust layout and display the plot
         plt.tight_layout()
-        # plt.show()
+        plt.show()
         plt.savefig('wind_farm.png')
         plt.close()
         
@@ -724,7 +729,11 @@ class DataInspector:
                     new_cols = [col for col in cols if any(col == f"{feature_type}_{tid}" for tid in turbine_ids)]
                 matching_cols.extend(new_cols)
             
-            return sorted(matching_cols)
+            if len(re.findall("\\d+", matching_cols[0])):
+                 return sorted(matching_cols, 
+                               key=lambda col: (re.search(".*?(?=\\d+)", col).group(0), int(re.search("\\d+", col).group(0))))
+            else:
+                return sorted(matching_cols)
         else:  # long format
             return sorted([col for col in cols if col in feature_types])
 
