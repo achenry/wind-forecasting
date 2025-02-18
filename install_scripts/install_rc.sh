@@ -5,7 +5,7 @@ mamba activate wind_forecasting
 
 # mamba install conda-forge::cuda-version=12.4 nvidia/label/cuda-12.4.0::cuda-toolkit performer-pytorch pytorch torchvision torchaudio torchmetrics pytorch-cuda=12.4 lightning -c pytorch -c nvidia --y
 mamba install polars windrose statsmodels scikit-learn jupyterlab nb_conda_kernels pyyaml matplotlib numpy seaborn opt_einsum netcdf4 scipy h5pyd wandb einops --y 
-python -m pip install opencv-python floris performer-pytorch psutil memory_profiler optuna mysqlclient mysql-connector-python filterpy
+python -m openmpi pip install opencv-python floris performer-pytorch psutil memory_profiler optuna mysqlclient mysql-connector-python filterpy
 
 brew install mysql  && brew services start mysql
 
@@ -41,6 +41,17 @@ git checkout mv_prob
 python -m pip install -e .
 cd ..
 
+git clone https://github.com/achenry/floris.git
+cd floris
+git checkout feature/mpc
+pip install -e .
+cd ..
+
+git clone https://github.com/achenry/wind-hybrid-open-controller.git
+cd wind-hybrid-open-controller
+git checkout feature/wind_preview
+pip install -e .
+cd ..
 
 # git clone https://github.com/achenry/OpenOA
 # cd OpenOA

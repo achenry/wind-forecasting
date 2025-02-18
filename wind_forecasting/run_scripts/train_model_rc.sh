@@ -24,7 +24,7 @@ echo "SLURM_GPUS_ON_NODE=${SLURM_GPUS_ON_NODE}"
 echo "SLURM_JOB_GPUS=${SLURM_JOB_GPUS}"
 echo "SLURM_JOB_GRES=${SLURM_JOB_GRES}"
 
-srun python train_model.py --config ../../examples/inputs/training_inputs_rc.yaml --model $1 
+srun python train_model.py --config ../../examples/inputs/training_inputs_rc_awaken.yaml --mode train --model $1 
 # srun python informer.py
 #python train_spacetimeformer.py spacetimeformer windfarm --debug --run_name spacetimeformer_windfarm_debug --context_points 600 --target_points 600
 

@@ -2,22 +2,18 @@
 
 experiment:
   run_name: windfarm_debug
-  log_dir: /projects/ssc/ahenry/wind_forecasting/logging/
+  log_dir: /home/aohe7145/toolboxes/wind_forecasting/examples/logging/
 
 optuna:
-  journal_dir: /projects/ssc/ahenry/wind_forecasting/optuna
+  journal_dir: /scratch/alpine/aohe7145/optuna
   use_rdb: False
   n_trials: 100
 
 dataset: 
-    # data_path: /projects/ssc/ahenry/wind_forecasting/awaken_data/filled_data_normalized.parquet
-    # normalization_consts_path: /projects/ssc/ahenry/wind_forecasting/awaken_data/filled_data_normalization_consts.csv
-    data_path: /projects/ssc/ahenry/wind_forecasting/awaken_data/SMARTEOLE_WakeSteering_SCADA_1minData_normalized.parquet
-    # data_path: /projects/ssc/ahenry/wind_forecasting/awaken_data/00_engie_scada_processed.parquet
-    normalization_consts_path: /projects/ssc/ahenry/wind_forecasting/awaken_data/SMARTEOLE_WakeSteering_SCADA_1minData_normalization_consts.csv 
-    # normalization_consts_path: /projects/ssc/ahenry/wind_forecasting/awaken_data/SMARTEOLE_WakeSteering_SCADA_1minData_normalization_consts.csv 
-    context_length: 9 # 120=10 minutes for 5 sec sample size
-    prediction_length: 3 # 120=10 minutes for 5 sec sample size
+    data_path: /scratch/alpine/aohe7145/awaken_data/awaken_processed_normalized.parquet
+    normalization_consts_path: /scratch/alpine/aohe7145/awaken_data/awaken_processed_normalization_consts.csv
+    context_length: 20 # 120=10 minutes for 5 sec sample size
+    prediction_length: 20 # 120=10 minutes for 5 sec sample size
     target_turbine_ids: # or leave blank to capture all
     normalize: False 
     batch_size: 128
@@ -25,10 +21,9 @@ dataset:
     overfit: False
     test_split: 0.20
     val_split: 0.1
-    resample_freq: 30s
+    resample_freq: 5s
     n_splits: 1 # how many divisions of each continuity group to make which is further subdivided into training test and validation data
     per_turbine_target: False
-
 
 model:
   distr_output: 
@@ -54,7 +49,7 @@ model:
     # embedding_dimension: 32 # Determines dimension of the embedding space
     num_encoder_layers: 3 # Number of transformer blocks stacked
     num_decoder_layers: 3 # Number of transformer blocks stacked
-    n_heads: 3 # Number of heads for spatio-temporal attention
+    n_heads: 4 # Number of heads for spatio-temporal attention
     d_model: 64
     dim_feedforward: 64
     d_queries_keys: 64
@@ -64,6 +59,7 @@ model:
     dropout_attn_out: 0.0
     dropout_ff: 0.3
     dropout_qkv: 0.0
+    max_seq_len: 14
     start_token_len: 0
     performer_redraw_interval: 100
     use_shifted_time_windows: False
@@ -87,13 +83,13 @@ trainer:
     accelerator: gpu
     devices: auto
     num_nodes: 1
-    strategy: ddp
+    strategy: auto
     # n_workers: auto
     # debug: False 
     # accumulate: 1.0
-    max_epochs: 5 # Maximum number of epochs to train 100
-    limit_train_batches: 100
-    default_root_dir: /projects/ssc/ahenry/wind_forecasting/checkpoints
+    max_epochs: 100 # Maximum number of epochs to train 100
+    # limit_train_batches: 100
+    default_root_dir: /home/aohe7145/toolboxes/wind-forecasting/examples/checkpoints
     # precision: 32-true # 16-mixed enables mixed precision training 32-true is full precision
     # batch_size: 32 # larger = more stable gradients
     # lr: 0.0001 # Step size
