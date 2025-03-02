@@ -7,6 +7,7 @@
 import glob
 import os
 from typing import List, Optional
+from pathlib import Path
 import logging
 import re
 from shutil import move
@@ -50,9 +51,9 @@ class DataLoader:
        - normalize data 
     """
     def __init__(self, 
-                 data_dir: List[str],
+                 data_dir: List[Path],
                  file_signature: List[str],
-                 save_path: str,
+                 save_path: Path,
                  multiprocessor: str | None,
                  dt: int,
                  feature_mapping: List[dict],
@@ -104,7 +105,7 @@ class DataLoader:
         
         # Get all the wts in the folder @Juan 10/16/24 used os.path.join for OS compatibility
         self.file_paths = [sorted(glob.glob(os.path.join(dd, fs), recursive=True),
-                                  key = lambda fp: (datetime.strptime(re.search(ds[0], os.path.basename(fp)).group(0), ds[1]),
+                                  key=lambda fp: (datetime.strptime(re.search(ds[0], os.path.basename(fp)).group(0), ds[1]) if ds is not None else 0,
                                                     re.search(ts, os.path.basename(fp)).group(0) if len(re.findall(ts, os.path.basename(fp))) else 0)) 
                            for dd, fs, ds, ts in zip(data_dir, file_signature, self.datetime_signature, self.turbine_signature)]
          
@@ -151,7 +152,7 @@ class DataLoader:
                             # if we have enough ram to continue to process files AND we still have files to process
                             # keep adding new files to processed_file_paths if the turbine signature is in the title, and it does not correspond to the last turbine
                             num_files_to_merge = len(processed_file_paths)
-                            is_file_per_turbine = len(re.findall(self.turbine_signature[file_set_idx], os.path.basename(file_path)))
+                            is_file_per_turbine = self.datetime_signature[file_set_idx] is not None and len(re.findall(self.datetime_signature[file_set_idx][0], os.path.basename(file_path))) and len(re.findall(self.turbine_signature[file_set_idx], os.path.basename(file_path)))
                             # turbine_idx = list(self.turbine_mapping[file_set_idx]).index(
                             #             re.search(self.turbine_signature[file_set_idx], os.path.basename(file_path)).group(0))
                             
@@ -329,7 +330,7 @@ class DataLoader:
                              
                         # concatenate intermediary dataframes
                         logging.info(f"Concatenating final, used ram = {virtual_memory().percent}%")
-                        df_query = pl.concat(df_query, how="diagonal").collect().lazy()
+                        df_query = pl.concat(df_query, how="diagonal_relaxed").collect().lazy()
                         logging.info(f"Sorting final, used ram = {virtual_memory().percent}%")
                         df_query = df_query.sort(by="time").collect().lazy()
                         assert df_query.select((pl.col("time").diff().slice(1) == pl.col("time").diff().last()).all()).collect().item() 
@@ -433,6 +434,7 @@ class DataLoader:
         merged_path = os.path.join(temp_save_dir, f"df_{file_set_idx}_{i}.parquet")
         df_queries = self.sort_resample_refill(df_queries)
         assert df_queries.select((pl.col("time").diff().slice(1) == pl.col("time").diff().last()).all()).collect().item() 
+        df_queries = df_queries.with_columns(file_set_idx=pl.lit(file_set_idx))
         df_queries = df_queries.collect().write_parquet(merged_path, statistics=False)
         
         return merged_path
@@ -554,6 +556,7 @@ class DataLoader:
                     
                     available_columns = list(data.keys()) 
                     target_features = list(self.feature_mapping[file_set_idx])
+                    # TODO upsampling or downsampling here?
                     df_query = pl.LazyFrame(data).fill_nan(None)\
                                                     .with_columns(pl.col("time").dt.round(f"{self.dt}s").alias("time").cast(pl.Datetime(time_unit="us")))\
                                                     .select([cs.contains(feat) for feat in target_features])\
