@@ -133,8 +133,15 @@ def main():
             batch_size=config["dataset"].setdefault("batch_size", 128),
             num_batches_per_epoch=config["trainer"].setdefault("limit_train_batches", 50), # TODO set this to be arbitrarily high st limit train_batches dominates
             context_length=config["dataset"]["context_length"],
-            train_sampler=ExpectedNumInstanceSampler(num_instances=1.0, min_past=config["dataset"]["context_length"], min_future=data_module.prediction_length), # TODO should be context_len + max(seq_len) to avoid padding..
-            validation_sampler=ValidationSplitSampler(min_past=config["dataset"]["context_length"], min_future=data_module.prediction_length),
+            train_sampler=ExpectedNumInstanceSampler(
+                num_instances=1.0, 
+                min_past=config["dataset"]["context_length"], 
+                min_future=data_module.prediction_length
+            ),
+            validation_sampler=ValidationSplitSampler(
+                min_past=config["dataset"]["context_length"], 
+                min_future=data_module.prediction_length
+            ),
             trainer_kwargs=config["trainer"],
             **config["model"][args.model]
         )
