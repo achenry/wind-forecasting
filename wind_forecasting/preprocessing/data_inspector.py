@@ -271,31 +271,30 @@ class DataInspector:
         # plt.close()
 
     # DEBUG: @Juan 10/18/24 Added method to plot wind rose for both wide and long formats [CHECK]
-    def plot_wind_rose(self, df, turbine_ids: list[str] | str, fig_label: str="") -> None:
+    def plot_wind_rose(self, df, turbine_ids: list[str] | str, feature_type: str, fig_label: str="") -> None:
         data_format = self.detect_data_format(df)
         # file_set_indices = df.select("file_set_idx").unique().collect().to_numpy().flatten()
         if data_format == 'wide':
             if turbine_ids == "all":
                 # Get all wind direction and speed columns
                 columns = df.collect_schema().names()
-                wind_dir_cols = [col for col in columns if "wind_direction" in col]
+                dir_cols = [col for col in columns if feature_type in col]
                 wind_spd_cols = [col for col in columns if "wind_speed" in col]
                 
                 # Filter and collect data all at once
                 filtered_data = df.select([
-                    "file_set_idx",
-                    *wind_dir_cols,
+                    *dir_cols,
                     *wind_spd_cols
                 ])\
-                .filter(pl.all_horizontal(pl.col(wind_dir_cols + wind_spd_cols).is_not_null()))
+                .filter(pl.all_horizontal(pl.col(dir_cols + wind_spd_cols).is_not_null()))
                 
                 # Combine all turbine data
-                wind_dir = filtered_data.select(wind_dir_cols).collect().to_numpy().flatten()
+                direc = filtered_data.select(dir_cols).collect().to_numpy().flatten()
                 wind_spd = filtered_data.select(wind_spd_cols).collect().to_numpy().flatten()
                 
                 # Double check arrays have same length and are not empty
-                if len(wind_dir) != len(wind_spd) or len(wind_dir) == 0:
-                    print(f"Mismatch in data lengths or empty data: dir={len(wind_dir)}, spd={len(wind_spd)}")
+                if len(direc) != len(wind_spd) or len(direc) == 0:
+                    print(f"Mismatch in data lengths or empty data: dir={len(direc)}, spd={len(wind_spd)}")
                     return
                 
                 # Create the windrose plot directly without creating a separate figure first
@@ -304,13 +303,13 @@ class DataInspector:
                 ax = WindroseAxes(fig, rect)
                 fig.add_axes(ax)
                 
-                ax.bar(wind_dir, wind_spd, normed=True, opening=0.8, edgecolor='white')
+                ax.bar(direc, wind_spd, normed=True, opening=0.8, edgecolor='white')
                 ax.set_legend()
                 # ax.set_xlim((0, 6))
                 ax.set_ylim((0, 25))
-                ax.set_title('Wind Rose for all Turbines')
+                ax.set_title(f"{' '.join(feature_type.split('_')).capitalize()} Rose all Turbines")
                 plt.show()
-                fig.savefig(os.path.join(self.save_dir, f'wind_rose{fig_label}.png'))
+                fig.savefig(os.path.join(self.save_dir, f'{fig_label}.png'))
             else:
                 valid_turbines = self._get_valid_turbine_ids(df, turbine_ids=turbine_ids)
 
@@ -321,40 +320,40 @@ class DataInspector:
                     # Filter out NaN values for specific turbine
                     turbine_data = df.select([
                         pl.col(f"wind_speed_{turbine_id}"), 
-                        pl.col(f"wind_direction_{turbine_id}")
+                        pl.col(f"{feature_type}_{turbine_id}")
                     ])\
                     .filter(pl.all_horizontal(
                         pl.col(f"wind_speed_{turbine_id}").is_not_null(), 
-                        pl.col(f"wind_direction_{turbine_id}").is_not_null()
+                        pl.col(f"{feature_type}_{turbine_id}").is_not_null()
                     ))
                     
-                    wind_dir = turbine_data.select(f"wind_direction_{turbine_id}").collect().to_numpy().flatten()
+                    direc = turbine_data.select(f"{feature_type}_{turbine_id}").collect().to_numpy().flatten()
                     wind_spd = turbine_data.select(f"wind_speed_{turbine_id}").collect().to_numpy().flatten()
 
                     # Verify data lengths match
-                    if len(wind_dir) != len(wind_spd) or len(wind_dir) == 0:
+                    if len(direc) != len(wind_spd) or len(direc) == 0:
                         print(f"Mismatch in data lengths or empty data for turbine {turbine_id}")
                         continue
 
                     fig = plt.figure(figsize=(10, 10))
                     ax = WindroseAxes.from_ax()
-                    ax.bar(wind_dir, wind_spd, normed=True, opening=0.8, edgecolor='white')
+                    ax.bar(direc, wind_spd, normed=True, opening=0.8, edgecolor='white')
                     ax.set_legend()
-                    ax.set_title(f'Wind Rose for Turbine {turbine_id}')
+                    ax.set_title(f"{' '.join(feature_type.split('_')).capitalize()} Rose for Turbine {turbine_id}")
                     plt.show()
-                    fig.savefig(os.path.join(self.save_dir, f'wind_rose{fig_label}_{turbine_id}.png'))
+                    fig.savefig(os.path.join(self.save_dir, f'{fig_label}_{turbine_id}.png'))
                     
         else:  # long format
             if turbine_ids == "all":
                 fig = plt.figure(figsize=(10, 10))
                 ax = WindroseAxes.from_ax()
-                ax.bar(df.select("wind_direction").collect().to_numpy()[:, 0], 
+                ax.bar(df.select(feature_type).collect().to_numpy()[:, 0], 
                         df.select("wind_speed").collect().to_numpy()[:, 0], 
                         normed=True, opening=0.8, edgecolor='white')
                 ax.set_legend()
-                ax.set_title('Wind Rose for all Turbines')
+                ax.set_title(f"{' '.join(feature_type.split('_')).capitalize()} Rose for all Turbines")
                 plt.show()
-                fig.savefig(os.path.join(self.save_dir, f'wind_rose{fig_label}.png'))
+                fig.savefig(os.path.join(self.save_dir, f'{fig_label}.png'))
             else:
                 valid_turbines = self._get_valid_turbine_ids(df, turbine_ids=turbine_ids)
             
@@ -363,17 +362,17 @@ class DataInspector:
 
                 for turbine_id in valid_turbines:
                     turbine_data = df.filter(pl.col("turbine_id") == turbine_id)\
-                        .select(["wind_speed", "wind_direction"])\
-                        .filter(pl.all_horizontal(pl.col("wind_speed").is_not_null(), pl.col("wind_direction").is_not_null()))
+                        .select(["wind_speed", feature_type])\
+                        .filter(pl.all_horizontal(pl.col("wind_speed").is_not_null(), pl.col(feature_type).is_not_null()))
                     
                     fig, ax = plt.subplot(1, 1, figsize=(10, 10))
                     ax = WindroseAxes.from_ax()
-                    ax.bar(turbine_data.select("wind_direction").collect().to_numpy()[:, 0], 
+                    ax.bar(turbine_data.select(feature_type).collect().to_numpy()[:, 0], 
                             turbine_data.select("wind_speed").collect().to_numpy()[:, 0], normed=True, opening=0.8, edgecolor='white')
                     ax.set_legend()
-                    ax.set_title(f'Wind Rose for Turbine {turbine_id}')
+                    ax.set_title(f"{' '.join(feature_type.split('_')).capitalize()} Rose for Turbine {turbine_id}")
                     plt.show()
-                    fig.savefig(os.path.join(self.save_dir, f'wind_rose{fig_label}_{turbine_id}.png'))
+                    fig.savefig(os.path.join(self.save_dir, f"{fig_label}_{turbine_id}.png"))
         # plt.close()
 
     def plot_temperature_distribution(self, df) -> None:
