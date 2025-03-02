@@ -239,7 +239,7 @@ def main():
     
     # %% Plot Wind Farm, Data Distributions
     # df_query.select("time", "wind_direction_1").filter((pl.col("time") > datetime(2020, 5, 24, 4, 30)) & (pl.col("time") < datetime(2020, 5, 24, 6, 30))).collect().to_numpy()[:, 1].flatten() 
-    if True or args.plot:
+    if args.plot:
         from datetime import datetime
         df_query = df_query.with_columns(file_set_idx=pl.when(pl.col("time") < pl.lit(datetime(2024,2,20))).then(0).otherwise(1))
         file_set_indices = df_query.select("file_set_idx").unique().collect().to_numpy().flatten()
@@ -252,7 +252,10 @@ def main():
         # data_inspector.plot_wind_farm()
          
         for file_set_idx in file_set_indices:
-            data_inspector.plot_wind_rose(df_query2.filter(pl.col("file_set_idx") == file_set_idx).slice(0, int(ROW_LIMIT)), turbine_ids="all", fig_label=file_set_idx)
+            data_inspector.plot_wind_rose(df_query2.filter(pl.col("file_set_idx") == file_set_idx).slice(0, int(ROW_LIMIT)), 
+                                          feature_type="wind_direction", turbine_ids="all", fig_label=f"wind_rose_{file_set_idx}")
+            data_inspector.plot_wind_rose(df_query2.filter(pl.col("file_set_idx") == file_set_idx).slice(0, int(ROW_LIMIT)), 
+                                          feature_type="nacelle_direction", turbine_ids="all", fig_label=f"nacelle_rose_{file_set_idx}")
         
         for file_set_idx in file_set_indices:
             data_inspector.plot_wind_speed_power(df_query2.filter(pl.col("file_set_idx") == file_set_idx).slice(0, ROW_LIMIT), turbine_ids=data_loader.turbine_ids, fig_label=file_set_idx)
@@ -271,11 +274,11 @@ def main():
             fig, _ = plot.column_histograms(data_inspector.collect_data(
                 df=df_query2.filter(pl.col("file_set_idx") == file_set_idx).slice(0, ROW_LIMIT), feature_types=["wind_speed"]), 
                                    return_fig=True)
-            fig.save_fig(os.path.join(data_inspector.save_path, f"wind_speed_histogram_{file_set_idx}.png"))
+            fig.savefig(os.path.join(data_inspector.save_path, f"wind_speed_histogram_{file_set_idx}.png"))
             fig, _ = plot.column_histograms(data_inspector.collect_data(
                 df=df_query2.filter(pl.col("file_set_idx") == file_set_idx).slice(0, ROW_LIMIT), feature_types=["wind_direction"]), 
                                    return_fig=True)
-            fig.save_fig(os.path.join(data_inspector.save_path, f"wind_dir_histogram_{file_set_idx}.png"))
+            fig.savefig(os.path.join(data_inspector.save_path, f"wind_dir_histogram_{file_set_idx}.png"))
         logging.info("✅ Generated plots.")
 
     # %% check time series
@@ -302,8 +305,10 @@ def main():
 
     if args.regenerate_filters or args.reload_data or not os.path.exists(config["processed_data_path"].replace(".parquet", "_filtered.parquet")):
         # %% # first filter because need to catch frozen measurements before others are nulled from repeated value.
+        applied_filter = False
         if "unresponsive_sensor" in config["filters"]:
             logging.info("Nullifying unresponsive sensor cells.")
+            applied_filter = True
             # find stuck sensor measurements for each turbine and set them to null
             # NOTE: this filter must be applied before any cells are nullified st null values aren't considered repeated values
             # find values of wind speed/direction, where there are duplicate values with nulls inbetween
@@ -379,10 +384,10 @@ def main():
             if args.plot:
                 data_inspector.plot_time_series(df_query.slice(0, ROW_LIMIT), feature_types=["wind_speed", "wind_direction"], turbine_ids=data_loader.turbine_ids, continuity_groups=None, label="after_frozen_sensor") 
 
-        
         # %%
         if "inoperational" in config["filters"] and any(col.startswith("turbine_status") for col in df_query.collect_schema()["names"]): # TODO 10 is normal operation for AWAKEN
             logging.info("Nullifying inoperational turbine cells.")
+            applied_filter = True
             # check if wind speed/dir measurements from inoperational turbines differ from fully operational
             status_codes = [1]
             mask = lambda tid: ~pl.col(f"turbine_status_{tid}").is_in(status_codes) & pl.col(f"turbine_status_{tid}").is_not_null()
@@ -418,7 +423,7 @@ def main():
         # %%
         if "range_flag" in config["filters"]:
             logging.info("Nullifying wind speed out-of-range cells.")
-
+            applied_filter = True
             # check for wind speed values that are outside of the acceptable range
             if args.regenerate_filters or not os.path.exists(config["processed_data_path"].replace(".parquet", "_out_of_range.npy")):
                 # Generate out_of_range array
@@ -463,6 +468,7 @@ def main():
         # %%
         if "window_range_flag" in config["filters"]:
             logging.info("Nullifying wind speed-power curve out-of-window cells.")
+            applied_filter = True
             # apply a window range filter to remove data with power values outside of the window from 20 to 3000 kW for wind speeds between 5 and 40 m/s.
             # identifies when turbine is shut down, filtering for normal turbine operation
             if args.regenerate_filters or not os.path.exists(config["processed_data_path"].replace(".parquet", "_out_of_window.npy")):
@@ -520,6 +526,7 @@ def main():
 
         if "bin_filter" in config["filters"]:
             logging.info("Nullifying wind speed-power curve bin-outlier cells.")
+            applied_filter = True
             # apply a bin filter to remove data with power values outside of an envelope around median power curve at each wind speed
             if args.regenerate_filters or not os.path.exists(config["processed_data_path"].replace(".parquet", "_bin_outliers.npy")):
                 data_filter.multiprocessor = None
@@ -577,7 +584,8 @@ def main():
             if args.plot:
                 data_inspector.plot_time_series(df_query.slice(0, ROW_LIMIT), feature_types=["wind_speed", "wind_direction"], turbine_ids=data_loader.turbine_ids, continuity_groups=None, label="after_bin_outlier")
 
-        df_query.collect().write_parquet(config["processed_data_path"].replace(".parquet", "_filtered.parquet"), statistics=False)
+        if applied_filter:
+            df_query.collect().write_parquet(config["processed_data_path"].replace(".parquet", "_filtered.parquet"), statistics=False)
     else:
         df_query = pl.scan_parquet(config["processed_data_path"].replace(".parquet", "_filtered.parquet"))
 
@@ -594,7 +602,7 @@ def main():
                                 .with_columns(pl.col("time").dt.round(f"{10}m").alias("time"))\
                                 .group_by("time").agg(cs.numeric().mean()).sort("time")
                                 
-            df_query_10min = df_query_10min.slice(0, int(6*24*365*1.5)) 
+            df_query_10min = df_query_10min.slice(0, int(6*24*365*0.5)) # TODO
             
             wd_median = df_query_10min.select(cs.starts_with("wind_direction").radians().sin().name.suffix("_sin"),
                                             cs.starts_with("wind_direction").radians().cos().name.suffix("_cos"))
@@ -605,9 +613,9 @@ def main():
                                 .collect().to_numpy().flatten()
             
             yaw_median = df_query_10min.select(cs.starts_with("nacelle_direction").radians().sin().name.suffix("_sin"),
-                                            cs.starts_with("nacelle_direction").radians().cos().name.suffix("_cos"))
+                                               cs.starts_with("nacelle_direction").radians().cos().name.suffix("_cos"))
             yaw_median = yaw_median.select(nacelle_direction_sin_median=np.nanmedian(yaw_median.select(cs.ends_with("_sin")).collect().to_numpy(), axis=1), 
-                                        nacelle_direction_cos_median=np.nanmedian(yaw_median.select(cs.ends_with("_cos")).collect().to_numpy(), axis=1))\
+                                           nacelle_direction_cos_median=np.nanmedian(yaw_median.select(cs.ends_with("_cos")).collect().to_numpy(), axis=1))\
                                 .select(pl.arctan2(pl.col("nacelle_direction_sin_median"), pl.col("nacelle_direction_cos_median")).degrees().alias("nacelle_direction_median"))\
                                 .collect().to_numpy().flatten()
 

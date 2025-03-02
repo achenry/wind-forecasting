@@ -1,12 +1,12 @@
 filters:
   - nacelle_calibration
-  - unresponsive_sensor
-  - range_flag
-  - bin_filter
-  - std_range_flag
-  - split
-  - impute_missing_data
-  - normalize
+  # - unresponsive_sensor
+  # - range_flag
+  # - bin_filter
+  # - std_range_flag
+  # - split
+  # - impute_missing_data
+  # - normalize
 
 feature_mapping:
 - time: date
