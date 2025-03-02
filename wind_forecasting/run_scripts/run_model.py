@@ -93,7 +93,9 @@ def main():
                                 target_prefixes=["ws_horz", "ws_vert"], feat_dynamic_real_prefixes=["nd_cos", "nd_sin"],
                                 freq=config["dataset"]["resample_freq"], target_suffixes=config["dataset"]["target_turbine_ids"],
                                     per_turbine_target=config["dataset"]["per_turbine_target"], dtype=pl.Float32)
-    # if RUN_ONCE:
+    logging.info("Generating datasets from raw data")
+    data_module.generate_datasets()
+    logging.info("Generating train/val/test splits")
     data_module.generate_splits()
 
     # %% DEFINE ESTIMATOR
