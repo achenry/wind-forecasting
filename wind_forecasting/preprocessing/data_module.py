@@ -249,7 +249,7 @@ class DataModule():
         return dataset.select(pl.col("time"), *[col for col in (self.feat_dynamic_real_cols + self.target_cols) if turbine_id in col])\
                         .rename(mapping={**{f"{tgt_col}_{turbine_id}": tgt_col for tgt_col in self.target_prefixes},
                                         **{f"{feat_col}_{turbine_id}": feat_col for feat_col in self.feat_dynamic_real_prefixes}})\
-                        .collect()
+                        # .collect() # <- Removed .collect() here, keep it as LazyFrame
 
     def split_datasets_by_turbine(self, datasets):
          
@@ -262,8 +262,8 @@ class DataModule():
 
     def split_dataset(self, dataset):
         train_datasets = []
-        test_datasets = []
         val_datasets = []
+        test_datasets = []
         
         # TODO total past length may also have to supercede context_len + max(self.lags_seq)
         for cg, ds in enumerate(dataset):
@@ -274,7 +274,7 @@ class DataModule():
                 if self.train_split * self.rows_per_split[cg] * self.n_splits >= self.context_length + self.prediction_length:
                     logging.info(f"Adding dataset corresponding to continuity group {cg} to training data, since it can't be split")
                     # Make sure to collect the dataset before adding it
-                    train_datasets += [ds.collect()]  # <- Add .collect() here
+                    train_datasets += [ds] # <- Removed .collect() here, keep it as LazyFrame
                 
                 continue
             
@@ -288,11 +288,11 @@ class DataModule():
                 
                 if round(min(self.train_split, self.val_split, self.test_split) * (slc.stop - slc.start)) >= self.context_length + self.prediction_length: 
                     # Collect the dataset to materialize it
-                    collected_dataset = ds.select(pl.exclude("continuity_group")).slice(slc.start, slc.stop - slc.start).collect()  # <- Add .collect() here
+                    collected_dataset = ds.select(pl.exclude("continuity_group")).slice(slc.start, slc.stop - slc.start) # <- Removed .collect() here, keep it as LazyFrame
                     datasets.append(collected_dataset)
                     
-                    start_time = collected_dataset.select(pl.col("time").first()).item()
-                    end_time = collected_dataset.select(pl.col("time").last()).item()
+                    start_time = collected_dataset.select(pl.col("time").first()).collect().item()
+                    end_time = collected_dataset.select(pl.col("time").last()).collect().item()
                     duration = end_time - start_time
                     logging.info(f"full dataset cg {cg} split {split_idx}, start time = {start_time}, end time = {end_time}, duration = {duration}")
                 else:
@@ -300,7 +300,7 @@ class DataModule():
                     # split_dataset = [ds]
                     self.rows_per_split[cg] *= self.n_splits
                     # Collect the dataset to materialize it
-                    datasets.append(ds.select(pl.exclude("continuity_group")).collect())  # <- Add .collect() here
+                    datasets.append(ds.select(pl.exclude("continuity_group"))) # <- Removed .collect() here, keep it as LazyFrame
                     break
             
             train_offset = round(self.train_split * self.rows_per_split[cg])
@@ -308,19 +308,19 @@ class DataModule():
             test_offset = round(self.test_split * self.rows_per_split[cg])
 
             # TODO shouldn't test data include history, and just the labels be unseen by training data?
-            train_datasets.append(ds.slice(0, train_offset).collect())  # <- Add .collect() here
-            val_datasets.append(ds.slice(train_offset, val_offset).collect())  # <- Add .collect() here
-            test_datasets.append(ds.slice(train_offset + val_offset, test_offset).collect())  # <- Add .collect() here
+            train_datasets.append(ds.slice(0, train_offset)) # <- Removed .collect() here, keep it as LazyFrame
+            val_datasets.append(ds.slice(train_offset, val_offset)) # <- Removed .collect() here, keep it as LazyFrame
+            test_datasets.append(ds.slice(train_offset + val_offset, test_offset)) # <- Removed .collect() here, keep it as LazyFrame
             
             if self.verbose:
-                for t, train_entry in enumerate(iter(train_datasets[-1])):
-                    logging.info(f"training dataset cg {cg}, split {t} start time = {train_entry['start']}, end time = {train_entry['start'] + train_entry['target'].shape[1]}, duration = {train_entry['target'].shape[1] * pd.Timedelta(train_entry['start'].freq)}\n")
+                for t, train_entry in enumerate(iter(ListDataset([{"item_id":0, "start":0, "target": train_datasets[-1].collect()}]))): # collect here to iterate
+                    logging.info(f"training dataset cg {cg}, split {t} start time = {train_entry['start']}, end time = {train_entry['start'] + train_entry['target'].shape[1]}, duration = {train_entry['target'].shape[1] * pd.Timedelta(self.freq)}\n")
 
-                for v, val_entry in enumerate(iter(val_datasets[-1])):
-                    logging.info(f"validation dataset cg {cg}, split {v} start time = {val_entry['start']}, end time = {val_entry['start'] + val_entry['target'].shape[1]}, duration = {val_entry['target'].shape[1] * pd.Timedelta(val_entry['start'].freq)}\n")
+                for v, val_entry in enumerate(iter(ListDataset([{"item_id":0, "start":0, "target": val_datasets[-1].collect()}]))): # collect here to iterate
+                    logging.info(f"validation dataset cg {cg}, split {v} start time = {val_entry['start']}, end time = {val_entry['start'] + val_entry['target'].shape[1]}, duration = {val_entry['target'].shape[1] * pd.Timedelta(self.freq)}\n")
 
-                for t, test_entry in enumerate(iter(test_datasets[-1])):
-                    logging.info(f"test dataset cg {cg}, split {t} start time = {test_entry['start']}, end time = {test_entry['start'] + test_entry['target'].shape[1]}, duration = {test_entry['target'].shape[1] * pd.Timedelta(test_entry['start'].freq)}\n")
+                for t, test_entry in enumerate(iter(ListDataset([{"item_id":0, "start":0, "target": test_datasets[-1].collect()}]))): # collect here to iterate
+                    logging.info(f"test dataset cg {cg}, split {t} start time = {test_entry['start']}, end time = {test_entry['start'] + test_entry['target'].shape[1]}, duration = {test_entry['target'].shape[1] * pd.Timedelta(self.freq)}\n")
             
             # n_test_windows = int((self.test_split * self.rows_per_split[cg]) / self.prediction_length)
             # test_dataset = test_gen.generate_instances(prediction_length=self.prediction_length, windows=n_test_windows)
