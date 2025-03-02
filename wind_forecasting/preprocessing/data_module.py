@@ -73,7 +73,8 @@ class DataModule():
                 self.continuity_groups = [0]
                 # dataset = dataset[[col for col in dataset.columns if any(col.__contains__(tid) for tid in self.target_suffixes)]]
                 # dataset.loc[:, "continuity_group"] = 0
-                dataset = dataset.select(pl.col("time"), *[cs.ends_with(sfx) for sfx in self.target_suffixes])
+                if self.target_suffixes is not None:
+                    dataset = dataset.select(pl.col("time"), *[cs.ends_with(sfx) for sfx in self.target_suffixes])
                 dataset = dataset.with_columns(continuity_group=pl.lit(0))
         else:
             dataset = dataset.filter(pl.col("continuity_group").is_in(self.continuity_groups))\
@@ -84,6 +85,8 @@ class DataModule():
         logging.info(f"Writing resampled/sorted parquet to {self.train_ready_data_path}.") 
         dataset.collect().write_parquet(self.train_ready_data_path, statistics=False)
         logging.info(f"Saved resampled/sorted parquet to {self.train_ready_data_path}.")
+        
+        self.get_dataset_info(dataset)
         # dataset = IterableLazyFrame(data_path=train_ready_data_path)
         # univariate=ListDataset of multiple dictionaires each corresponding to measurements from a single turbine, to implicitly capture correlations
         # or multivariate=multivariate dictionary for all measurements, to explicity capture all correlations
@@ -343,7 +346,19 @@ class DataModule():
         fig, axs = plt.subplots(self.num_target_vars, 1, sharex=True)
         for d, ds in enumerate([self.train_dataset, self.val_dataset, self.test_dataset]): 
             for entry in ds:
-                df = to_pandas(entry, is_multivariate=True).reset_index(names="time")
+                # df = to_pandas(entry, is_multivariate=True).reset_index(names="time")
+                # pd.DataFrame(
+                #     data=entry[FieldName.TARGET].T,
+                #     index=period_index(entry, freq=freq),
+                # )
+                df = pd.DataFrame(
+                    data=entry[FieldName.TARGET].collect().to_numpy(),
+                    index=pd.period_range(
+                        start=entry[FieldName.START],
+                        periods=entry[FieldName.TARGET].select(pl.len()).collect().item(),
+                        freq=entry[FieldName.START].freq,
+                    )
+                ).reset_index(names="time")
                 df["time"] = df["time"].dt.to_timestamp()
                 df = df.rename(columns={col: f"{tgt}_{entry['item_id']}" for col, tgt in zip(df.columns[1:], self.target_cols)})
                 
