@@ -527,7 +527,8 @@ class DataLoader:
 
     # @profile
     def _read_single_file(self, file_set_idx: int, file_number:int, raw_file_path: str, processed_file_path: str) -> pl.LazyFrame:
-        
+        if file_set_idx == 1:
+            print("hi")
         try:
             start_time = time.time()
             if self.data_format[file_set_idx] == "netcdf":
@@ -557,6 +558,7 @@ class DataLoader:
                     available_columns = list(data.keys()) 
                     target_features = list(self.feature_mapping[file_set_idx])
                     # TODO upsampling or downsampling here?
+                    # counts, bins = np.histogram(x.select(pl.col("time").dt.round(f"{self.dt}s").alias("time").cast(pl.Datetime(time_unit="us")).unique()).sort("time").select(pl.all().diff()).to_pandas()["time"].astype('timedelta64[s]').astype('int').iloc[1:])
                     df_query = pl.LazyFrame(data).fill_nan(None)\
                                                     .with_columns(pl.col("time").dt.round(f"{self.dt}s").alias("time").cast(pl.Datetime(time_unit="us")))\
                                                     .select([cs.contains(feat) for feat in target_features])\
@@ -648,6 +650,7 @@ class DataLoader:
                 # remove the rows with all nans (corresponding to rows where excluded columns would have had a value)
                 # and bundle all values corresponding to identical time stamps together
                 # forward fill missing values
+                # counts, bins = np.histogram(df_query.collect().select(pl.col("time").dt.round(f"{self.dt}s").alias("time").cast(pl.Datetime(time_unit="us")).unique()).sort("time").select(pl.all().diff()).to_pandas()["time"].astype('timedelta64[s]').astype('int').iloc[1:])
                 df_query = df_query.with_columns(pl.col("time").dt.round(f"{self.dt}s").alias("time"))\
                                     .select([cs.contains(feat) for feat in target_features])\
                                     .filter(pl.any_horizontal(cs.numeric().is_not_null()))
