@@ -117,6 +117,10 @@ def main():
         else:
             logging.info(f"Declaring estimator {args.model.capitalize()} with default parameters")
          
+        # Add this line to create an alias
+        TactisEstimator = TACTiS2Estimator
+        TactisLightningModule = TACTiS2LightningModule
+        
         estimator = globals()[f"{args.model.capitalize()}Estimator"](
             freq=data_module.freq, 
             prediction_length=data_module.prediction_length,
