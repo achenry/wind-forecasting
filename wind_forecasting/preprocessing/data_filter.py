@@ -583,6 +583,7 @@ def compute_offsets(df, fi, turbine_ids, turbine_pairs:list[tuple[int, int]]=Non
             ax.plot(2 * [nadir + opt_gauss_params.x[0]], [0, 1.25], 'r--',label="Direction of Measured Wake Center")
             ax.legend()
             fig.savefig(save_path.replace(".png", f"_{i_up}_{i_down}.png"))
+            plt.close()
         
         dir_offset = DataFilter.wrap_180(nadir + opt_gauss_params.x[0] - dir_align)
         print(f"Direction offset for turbine pair ({tid_up}, {tid_down}) = {dir_offset}")

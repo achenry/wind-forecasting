@@ -53,7 +53,10 @@ def main():
                                 per_turbine_target=config["dataset"]["per_turbine_target"], dtype=pl.Float32)
     # if RUN_ONCE:
     data_module.generate_datasets()
+    logging.info("Finished generating train/val/test datasets.")
+    # data_module.generate_splits()
     # data_module.plot_dataset_splitting()
+    # logging.info("Finished plotting train/val/test datasets.")
 
 if __name__ == "__main__":
     main()
