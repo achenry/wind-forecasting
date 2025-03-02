@@ -24,8 +24,8 @@ from pytorch_transformer_ts.autoformer.estimator import AutoformerEstimator
 from pytorch_transformer_ts.autoformer.lightning_module import AutoformerLightningModule
 from pytorch_transformer_ts.spacetimeformer.estimator import SpacetimeformerEstimator
 from pytorch_transformer_ts.spacetimeformer.lightning_module import SpacetimeformerLightningModule
-from pytorch_transformer_ts.tactis_2.lightning_module import TACTiS2LightningModule
-from pytorch_transformer_ts.tactis_2.estimator import TACTiS2Estimator
+from pytorch_transformer_ts.tactis_2.estimator import TACTiS2Estimator as TactisEstimator
+from pytorch_transformer_ts.tactis_2.lightning_module import TACTiS2LightningModule as TactisLightningModule
 from wind_forecasting.preprocessing.data_module import DataModule
 
 # Configure logging and matplotlib backend
@@ -117,10 +117,6 @@ def main():
         else:
             logging.info(f"Declaring estimator {args.model.capitalize()} with default parameters")
          
-        # Add this line to create an alias
-        TactisEstimator = TACTiS2Estimator
-        TactisLightningModule = TACTiS2LightningModule
-        
         estimator = globals()[f"{args.model.capitalize()}Estimator"](
             freq=data_module.freq, 
             prediction_length=data_module.prediction_length,
