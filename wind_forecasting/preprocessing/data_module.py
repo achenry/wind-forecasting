@@ -272,7 +272,8 @@ class DataModule():
                 
                 if self.train_split * self.rows_per_split[cg] * self.n_splits >= self.context_length + self.prediction_length:
                     logging.info(f"Adding dataset corresponding to continuity group {cg} to training data, since it can't be split")
-                    train_datasets += [ds] 
+                    # Make sure to collect the dataset before adding it
+                    train_datasets += [ds.collect()]  # <- Add .collect() here
                 
                 continue
             
@@ -285,22 +286,20 @@ class DataModule():
                 # if slc.stop - slc.start >= self.context_length + self.prediction_length:
                 
                 if round(min(self.train_split, self.val_split, self.test_split) * (slc.stop - slc.start)) >= self.context_length + self.prediction_length: 
-                    # split_dataset.append(slice_data_entry(ds, slice_=slc))
-                    # logging.info(f"full dataset cg {cg} split {split_idx} 
-                    #                 start time = {split_dataset[-1]['start']}, 
-                    #                 end time = {split_dataset[-1]['start'] + split_dataset[-1]['target'].shape[1]}, 
-                    #                 duration = {split_dataset[-1]['target'].shape[1] * pd.Timedelta(split_dataset[-1]['start'].freq)}")
-
-                    datasets.append(ds.select(pl.exclude("continuity_group")).slice(slc.start, slc.stop - slc.start))
-                    start_time = datasets[-1].select(pl.col("time").first()).collect().item()
-                    end_time = datasets[-1].select(pl.col("time").last()).collect().item()
+                    # Collect the dataset to materialize it
+                    collected_dataset = ds.select(pl.exclude("continuity_group")).slice(slc.start, slc.stop - slc.start).collect()  # <- Add .collect() here
+                    datasets.append(collected_dataset)
+                    
+                    start_time = collected_dataset.select(pl.col("time").first()).item()
+                    end_time = collected_dataset.select(pl.col("time").last()).item()
                     duration = end_time - start_time
                     logging.info(f"full dataset cg {cg} split {split_idx}, start time = {start_time}, end time = {end_time}, duration = {duration}")
                 else:
                     logging.info(f"Can't split dataset {cg} into {self.n_splits} , not enough data points, returning whole.")
                     # split_dataset = [ds]
                     self.rows_per_split[cg] *= self.n_splits
-                    datasets.append(ds.select(pl.exclude("continuity_group")))
+                    # Collect the dataset to materialize it
+                    datasets.append(ds.select(pl.exclude("continuity_group")).collect())  # <- Add .collect() here
                     break
             
             train_offset = round(self.train_split * self.rows_per_split[cg])
@@ -308,9 +307,9 @@ class DataModule():
             test_offset = round(self.test_split * self.rows_per_split[cg])
 
             # TODO shouldn't test data include history, and just the labels be unseen by training data?
-            train_datasets.append(ds.slice(0, train_offset))
-            val_datasets.append(ds.slice(train_offset, val_offset))
-            test_datasets.append(ds.slice(train_offset + val_offset, test_offset))
+            train_datasets.append(ds.slice(0, train_offset).collect())  # <- Add .collect() here
+            val_datasets.append(ds.slice(train_offset, val_offset).collect())  # <- Add .collect() here
+            test_datasets.append(ds.slice(train_offset + val_offset, test_offset).collect())  # <- Add .collect() here
             
             if self.verbose:
                 for t, train_entry in enumerate(iter(train_datasets[-1])):
