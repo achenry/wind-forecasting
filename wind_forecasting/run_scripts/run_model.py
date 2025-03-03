@@ -266,8 +266,8 @@ def main():
                 
         elif args.checkpoint == "latest":
             logging.info("Fetching latest pretrained model...")
-            version_dir = os.path.join(config["trainer"]["default_root_dir"], "lightning_logs",
-                                f"version_{max([int(re.search(r'(?<=version_)\d+', vd).group(0)) for vd in version_dirs])}")
+            pattern = r'(?<=version_)\d+'
+            version_dir = f"version_{max([int(re.search(pattern, vd).group(0)) for vd in version_dirs])}"
             
             checkpoint_paths = glob(os.path.join(version_dir, "checkpoints", f"*.ckpt"))
             checkpoint_stats = [(int(re.search(r'(?<=epoch=)(\d+)', cp).group(0)),
