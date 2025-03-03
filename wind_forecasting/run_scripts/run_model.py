@@ -25,8 +25,8 @@ from pytorch_transformer_ts.autoformer.estimator import AutoformerEstimator
 from pytorch_transformer_ts.autoformer.lightning_module import AutoformerLightningModule
 from pytorch_transformer_ts.spacetimeformer.estimator import SpacetimeformerEstimator
 from pytorch_transformer_ts.spacetimeformer.lightning_module import SpacetimeformerLightningModule
-from pytorch_transformer_ts.tactis_2.estimator import TACTiS2Estimator
-from pytorch_transformer_ts.tactis_2.lightning_module import TACTiS2LightningModule
+from pytorch_transformer_ts.tactis_2.estimator import TACTiS2Estimator as TactisEstimator
+from pytorch_transformer_ts.tactis_2.lightning_module import TACTiS2LightningModule as TactisLightningModule
 from wind_forecasting.preprocessing.data_module import DataModule
 
 # Configure logging and matplotlib backend
@@ -47,12 +47,13 @@ def main():
     # Parse arguments
     parser = argparse.ArgumentParser(description="Run a model on a dataset")
     parser.add_argument("--config", type=str, help="Path to config file", default="examples/inputs/training_inputs_aoifemac_flasc.yaml")
-    parser.add_argument("--model", type=str, help="Model to run", default="informer", 
-                       choices=["informer", "autoformer", "spacetimeformer", "tactis"])
-    parser.add_argument("--mode", type=str, help="Mode to run", default="train", choices=["train", "test", "tune"])
-    parser.add_argument("--checkpoint", type=str, help="Path to model checkpoint for resuming training", default=None)
+    parser.add_argument("-md", "--mode", choices=["tune", "train", "test"], required=True,
+                        help="Mode to run: 'tune' for hyperparameter optimization with Optuna, 'train' to train a model, 'test' to evaluate a model")
+    parser.add_argument("-chk", "--checkpoint", type=str, required=False, default=None)
+    parser.add_argument("-m", "--model", type=str, choices=["informer", "autoformer", "spacetimeformer", "tactis"], required=True)
+    parser.add_argument("-rt", "--restart_tuning", action="store_true")
+    parser.add_argument("-tp", "--use_tuned_parameters", action="store_true")
     parser.add_argument("--tune_first", action="store_true", help="Whether to use tuned parameters", default=False)
-    parser.add_argument("--restart_tuning", action="store_true", help="Whether to restart tuning", default=False)
     parser.add_argument("--model_path", type=str, help="Path to a saved model checkpoint to load from", default=None)
     parser.add_argument("--predictor_path", type=str, help="Path to a saved predictor for evaluation", default=None)
     parser.add_argument("--seed", type=int, help="Seed for random number generator", default=42)
@@ -105,65 +106,60 @@ def main():
     data_module.generate_splits()
 
     # %% DEFINE ESTIMATOR
-    if args.mode != "tune":  # Only create estimator for training or testing, not for tuning
-        # If using a trained model, load from checkpoint
-        if args.model_path is not None and os.path.exists(args.model_path) and args.mode == "train":
-            logging.info(f"Loading model from checkpoint {args.model_path}")
-            if args.model == "tactis":
-                estimator = TACTiS2Estimator.load_from_checkpoint(args.model_path)
-            elif args.model == "informer":
-                estimator = InformerEstimator.load_from_checkpoint(args.model_path)
-            elif args.model == "autoformer":
-                estimator = AutoformerEstimator.load_from_checkpoint(args.model_path)
-            elif args.model == "spacetimeformer":
-                estimator = SpacetimeformerEstimator.load_from_checkpoint(args.model_path)
-        # Otherwise create a new estimator
+    if args.mode in ["train", "test"]:
+        from wind_forecasting.run_scripts.tuning import get_tuned_params
+        if args.use_tuned_parameters:
+            try:
+                logging.info("Getting tuned parameters")
+                tuned_params = get_tuned_params(use_rdb=config["optuna"]["use_rdb"], study_name=f"tuning_{args.model}")
+                logging.info(f"Declaring estimator {args.model.capitalize()} with tuned parameters")
+                config["dataset"].update({k: v for k, v in tuned_params.items() if k in config["dataset"]})
+                config["model"][args.model].update({k: v for k, v in tuned_params.items() if k in config["model"][args.model]})
+                config["trainer"].update({k: v for k, v in tuned_params.items() if k in config["trainer"]})
+            except FileNotFoundError as e:
+                logging.warning(e)
+                logging.info(f"Declaring estimator {args.model.capitalize()} with default parameters")
         else:
-            # Try to use tuned parameters if requested
-            if args.tune_first:
-                logging.info(f"Looking for tuned parameters for model {args.model}")
-                try:
-                    tuned_params = json.load(open(os.path.join(config["optuna"]["journal_dir"], f"{args.model}_best_params.json")))
-                    logging.info(f"Declaring estimator {args.model} with tuned parameters")
-                    config["dataset"].update({k: v for k, v in tuned_params.items() if k in config["dataset"]})
-                    config["model"][args.model].update({k: v for k, v in tuned_params.items() if k in config["model"][args.model]})
-                    config["trainer"].update({k: v for k, v in tuned_params.items() if k in config["trainer"]})
-                except FileNotFoundError as e:
-                    logging.warning(e)
-                    logging.info(f"Declaring estimator {args.model} with default parameters")
-            else:
-                logging.info(f"Declaring estimator {args.model} with default parameters")
+            logging.info(f"Declaring estimator {args.model.capitalize()} with default parameters")
+        
+        # Use globals() to fetch the estimator class dynamically (Aoife comment #2)
+        EstimatorClass = globals()[f"{args.model.capitalize()}Estimator"]
+        estimator = EstimatorClass(
+            freq=data_module.freq, 
+            prediction_length=data_module.prediction_length,
+            num_feat_dynamic_real=data_module.num_feat_dynamic_real, 
+            num_feat_static_cat=data_module.num_feat_static_cat,
+            cardinality=data_module.cardinality,
+            num_feat_static_real=data_module.num_feat_static_real,
+            input_size=data_module.num_target_vars,
+            scaling=False,
+            time_features=[second_of_minute, minute_of_hour, hour_of_day, day_of_year],
+            distr_output=globals()[config["model"]["distr_output"]["class"]](dim=data_module.num_target_vars, **config["model"]["distr_output"]["kwargs"]),
             
-            estimator = globals()[f"{args.model.capitalize()}Estimator"](
-                freq=data_module.freq,
-                prediction_length=data_module.prediction_length,
-                num_feat_dynamic_real=data_module.num_feat_dynamic_real,
-                num_feat_static_cat=data_module.num_feat_static_cat,
-                cardinality=data_module.cardinality,
-                num_feat_static_real=data_module.num_feat_static_real,
-                input_size=data_module.num_target_vars,
-                scaling=False,
-                time_features=[second_of_minute, minute_of_hour, hour_of_day, day_of_year],
-                distr_output=globals()[config["model"]["distr_output"]["class"]](dim=data_module.num_target_vars, **config["model"]["distr_output"]["kwargs"]),
-                batch_size=config["dataset"].setdefault("batch_size", 128),
-                num_batches_per_epoch=config["trainer"].setdefault("limit_train_batches", 50),
-                context_length=config["dataset"]["context_length"],
-                train_sampler=ExpectedNumInstanceSampler(num_instances=1.0, min_past=config["dataset"]["context_length"], min_future=data_module.prediction_length),
-                validation_sampler=ValidationSplitSampler(min_past=config["dataset"]["context_length"], min_future=data_module.prediction_length),
-                trainer_kwargs=config["trainer"],
-                **config["model"][args.model]  # Model-specific parameters from config
-            )
+            batch_size=config["dataset"].setdefault("batch_size", 128),
+            num_batches_per_epoch=config["trainer"].setdefault("limit_train_batches", 50),
+            context_length=config["dataset"]["context_length"],
+            train_sampler=ExpectedNumInstanceSampler(num_instances=1.0, min_past=config["dataset"]["context_length"], min_future=data_module.prediction_length),
+            validation_sampler=ValidationSplitSampler(min_past=config["dataset"]["context_length"], min_future=data_module.prediction_length),
+            trainer_kwargs=config["trainer"],
+            **config["model"][args.model]
+        )
 
-    if args.model == "tune":
+    if args.mode == "tune":
         # %% TUNE MODEL WITH OPTUNA
         from wind_forecasting.run_scripts.tuning import tune_model
         if not os.path.exists(config["optuna"]["journal_dir"]):
             os.makedirs(config["optuna"]["journal_dir"]) 
     
+        # Use globals() to fetch the module and estimator classes dynamically (Aoife comment #3)
+        LightningModuleClass = globals()[f"{args.model.capitalize()}LightningModule"]
+        EstimatorClass = globals()[f"{args.model.capitalize()}Estimator"]
+        DistrOutputClass = globals()[config["model"]["distr_output"]["class"]]
+        
         tune_model(model=args.model, config=config, 
-                    lightning_module_class=globals()[f"{args.model.capitalize()}LightningModule"], 
-                    estimator_class=globals()[f"{args.model.capitalize()}Estimator"],
-                    distr_output_class=globals()[config["model"]["distr_output"]["class"]], 
+                    lightning_module_class=LightningModuleClass, 
+                    estimator_class=EstimatorClass,
+                    distr_output_class=DistrOutputClass, 
                     data_module=data_module, 
                     max_epochs=config["optuna"]["max_epochs"],
                     limit_train_batches=config["optuna"]["limit_train_batches"],
