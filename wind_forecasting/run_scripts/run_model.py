@@ -2,6 +2,7 @@ import argparse
 import logging
 from memory_profiler import profile
 import os
+import json
 
 import polars as pl
 import wandb
@@ -9,7 +10,7 @@ wandb.login()
 # wandb.login(relogin=True)
 import yaml
 
-from gluonts.torch.distributions import LowRankMultivariateNormalOutput
+from gluonts.torch.distributions import LowRankMultivariateNormalOutput, StudentTOutput
 from gluonts.model.forecast_generator import DistributionForecastGenerator
 from gluonts.time_feature._base import second_of_minute, minute_of_hour, hour_of_day, day_of_year
 from gluonts.transform import ExpectedNumInstanceSampler, ValidationSplitSampler, SequentialSampler
@@ -24,6 +25,8 @@ from pytorch_transformer_ts.autoformer.estimator import AutoformerEstimator
 from pytorch_transformer_ts.autoformer.lightning_module import AutoformerLightningModule
 from pytorch_transformer_ts.spacetimeformer.estimator import SpacetimeformerEstimator
 from pytorch_transformer_ts.spacetimeformer.lightning_module import SpacetimeformerLightningModule
+from pytorch_transformer_ts.tactis_2.estimator import TACTiS2Estimator
+from pytorch_transformer_ts.tactis_2.lightning_module import TACTiS2LightningModule
 from wind_forecasting.preprocessing.data_module import DataModule
 
 # Configure logging and matplotlib backend
@@ -41,21 +44,26 @@ def main():
     
     RUN_ONCE = (mpi_exists and (MPI.COMM_WORLD.Get_rank()) == 0)
     
-    # %% PARSE CONFIGURATION
-    # parse training/test booleans and config file from command line
-    logging.info("Parsing configuration from yaml and command line arguments")
-    parser = argparse.ArgumentParser(prog="WindFarmForecasting")
-    parser.add_argument("-cnf", "--config", type=str, required=True)
-    parser.add_argument("-md", "--mode", choices=["tune", "train", "test"], required=True)
-    parser.add_argument("-chk", "--checkpoint", type=str, required=False, default=None)
-    parser.add_argument("-m", "--model", type=str, choices=["informer", "autoformer", "spacetimeformer", "tactis"], required=True)
-    parser.add_argument("-rt", "--restart_tuning", action="store_true")
-    parser.add_argument("-tp", "--use_tuned_parameters", action="store_true")
-    # pretrained_filename = "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/logging/wf_forecasting/lznjshyo/checkpoints/epoch=0-step=50.ckpt"
-    args = parser.parse_args()
+    # Parse arguments
+    parser = argparse.ArgumentParser(description="Run a model on a dataset")
+    parser.add_argument("--config", type=str, help="Path to config file", default="examples/inputs/training_inputs_aoifemac_flasc.yaml")
+    parser.add_argument("--model", type=str, help="Model to run", default="informer", 
+                       choices=["informer", "autoformer", "spacetimeformer", "tactis", "tune"])
+    parser.add_argument("--mode", type=str, help="Mode to run", default="train", choices=["train", "test", "tune"])
+    parser.add_argument("--checkpoint", type=str, help="Path to model checkpoint for resuming training", default=None)
+    parser.add_argument("--tune_first", action="store_true", help="Whether to use tuned parameters", default=False)
+    parser.add_argument("--restart_tuning", action="store_true", help="Whether to restart tuning", default=False)
+    parser.add_argument("--model_path", type=str, help="Path to a saved model checkpoint to load from", default=None)
+    parser.add_argument("--predictor_path", type=str, help="Path to a saved predictor for evaluation", default=None)
+    parser.add_argument("--seed", type=int, help="Seed for random number generator", default=42)
+    parser.add_argument("--save_to", type=str, help="Path to save the predicted output", default=None)
 
-    with open(args.config, 'r') as file:
-        config  = yaml.safe_load(file)
+    args = parser.parse_args()
+    
+    # %% PARSE CONFIG
+    logging.info(f"Parsing configuration from yaml and command line arguments")
+    with open(args.config, "r") as f:
+        config = yaml.safe_load(f)
         
     # TODO create function to check config params and set defaults
     assert args.checkpoint is None or args.checkpoint in ["best", "latest"] or os.path.exists(args.checkpoint), "Checkpoint argument, if provided, must equal 'best', 'latest', or an existing checkpoint path."
@@ -97,45 +105,94 @@ def main():
     data_module.generate_splits()
 
     # %% DEFINE ESTIMATOR
-    if args.mode in ["train", "test"]:
-        from wind_forecasting.run_scripts.tuning import get_tuned_params
-        if args.use_tuned_parameters:
-            try:
-                logging.info("Getting tuned parameters")
-                tuned_params = get_tuned_params(use_rdb=config["optuna"]["use_rdb"], study_name=f"tuning_{args.model}")
-                logging.info(f"Declaring estimator {args.model.capitalize()} with tuned parameters")
-                config["dataset"].update({k: v for k, v in tuned_params.items() if k in config["dataset"]})
-                config["model"][args.model].update({k: v for k, v in tuned_params.items() if k in config["model"][args.model]})
-                config["trainer"].update({k: v for k, v in tuned_params.items() if k in config["trainer"]})
-            except FileNotFoundError as e:
-                logging.warning(e)
-                logging.info(f"Declaring estimator {args.model.capitalize()} with default parameters")
+    if args.mode != "tune":  # Only create estimator for training or testing, not for tuning
+        # If using a trained model, load from checkpoint
+        if args.model_path is not None and os.path.exists(args.model_path) and args.mode == "train":
+            logging.info(f"Loading model from checkpoint {args.model_path}")
+            if args.model == "tactis":
+                estimator = TACTiS2Estimator.load_from_checkpoint(args.model_path)
+            elif args.model == "informer":
+                estimator = InformerEstimator.load_from_checkpoint(args.model_path)
+            elif args.model == "autoformer":
+                estimator = AutoformerEstimator.load_from_checkpoint(args.model_path)
+            elif args.model == "spacetimeformer":
+                estimator = SpacetimeformerEstimator.load_from_checkpoint(args.model_path)
+        # Otherwise create a new estimator
         else:
-            logging.info(f"Declaring estimator {args.model.capitalize()} with default parameters")
-         
-        estimator = globals()[f"{args.model.capitalize()}Estimator"](
-            freq=data_module.freq, 
-            prediction_length=data_module.prediction_length,
-            num_feat_dynamic_real=data_module.num_feat_dynamic_real, 
-            num_feat_static_cat=data_module.num_feat_static_cat,
-            cardinality=data_module.cardinality,
-            num_feat_static_real=data_module.num_feat_static_real,
-            input_size=data_module.num_target_vars,
-            scaling=False,
-            # lags_seq=[0, 1],
-            time_features=[second_of_minute, minute_of_hour, hour_of_day, day_of_year],
-            distr_output=globals()[config["model"]["distr_output"]["class"]](dim=data_module.num_target_vars, **config["model"]["distr_output"]["kwargs"]),
+            # Try to use tuned parameters if requested
+            if args.tune_first:
+                logging.info(f"Looking for tuned parameters for model {args.model}")
+                try:
+                    tuned_params = json.load(open(os.path.join(config["optuna"]["journal_dir"], f"{args.model}_best_params.json")))
+                    logging.info(f"Declaring estimator {args.model} with tuned parameters")
+                    config["dataset"].update({k: v for k, v in tuned_params.items() if k in config["dataset"]})
+                    config["model"][args.model].update({k: v for k, v in tuned_params.items() if k in config["model"][args.model]})
+                    config["trainer"].update({k: v for k, v in tuned_params.items() if k in config["trainer"]})
+                except FileNotFoundError as e:
+                    logging.warning(e)
+                    logging.info(f"Declaring estimator {args.model} with default parameters")
+            else:
+                logging.info(f"Declaring estimator {args.model} with default parameters")
             
-            batch_size=config["dataset"].setdefault("batch_size", 128),
-            num_batches_per_epoch=config["trainer"].setdefault("limit_train_batches", 50), # TODO set this to be arbitrarily high st limit train_batches dominates
-            context_length=config["dataset"]["context_length"],
-            train_sampler=ExpectedNumInstanceSampler(num_instances=1.0, min_past=config["dataset"]["context_length"], min_future=data_module.prediction_length), # TODO should be context_len + max(seq_len) to avoid padding..
-            validation_sampler=ValidationSplitSampler(min_past=config["dataset"]["context_length"], min_future=data_module.prediction_length),
-            trainer_kwargs=config["trainer"],
-            **config["model"][args.model]
-        )
+            # Create the appropriate estimator based on the model name
+            if args.model == "tactis":
+                estimator = TACTiS2Estimator(
+                    freq=data_module.freq, 
+                    prediction_length=data_module.prediction_length,
+                    num_feat_dynamic_real=data_module.num_feat_dynamic_real, 
+                    num_feat_static_cat=data_module.num_feat_static_cat,
+                    cardinality=data_module.cardinality,
+                    num_feat_static_real=data_module.num_feat_static_real,
+                    input_size=data_module.num_target_vars,
+                    scaling=False if config["dataset"].get("normalize", False) else "std",
+                    time_features=[second_of_minute, minute_of_hour, hour_of_day, day_of_year],
+                    distr_output=globals()[config["model"]["distr_output"]["class"]](dim=data_module.num_target_vars, **config["model"]["distr_output"]["kwargs"]),
+                    
+                    batch_size=config["dataset"].setdefault("batch_size", 128),
+                    num_batches_per_epoch=config["trainer"].setdefault("limit_train_batches", 50), 
+                    context_length=config["dataset"]["context_length"],
+                    train_sampler=ExpectedNumInstanceSampler(num_instances=1.0, min_past=config["dataset"]["context_length"], min_future=data_module.prediction_length),
+                    validation_sampler=ValidationSplitSampler(min_past=config["dataset"]["context_length"], min_future=data_module.prediction_length),
+                    trainer_kwargs=config["trainer"],
+                    
+                    # TACTiS-specific parameters
+                    flow_series_embedding_dim=config["model"]["tactis"].get("flow_series_embedding_dim", 32),
+                    copula_series_embedding_dim=config["model"]["tactis"].get("copula_series_embedding_dim", 32),
+                    flow_input_encoder_layers=config["model"]["tactis"].get("flow_input_encoder_layers", 2),
+                    copula_input_encoder_layers=config["model"]["tactis"].get("copula_input_encoder_layers", 2),
+                    bagging_size=config["model"]["tactis"].get("bagging_size", None),
+                    input_encoding_normalization=config["model"]["tactis"].get("input_encoding_normalization", True),
+                    data_normalization=config["model"]["tactis"].get("data_normalization", "series"),
+                    loss_normalization=config["model"]["tactis"].get("loss_normalization", "series"),
+                    initial_stage=config["model"]["tactis"].get("initial_stage", 1),
+                    stage2_start_epoch=config["model"]["tactis"].get("stage2_start_epoch", 10),
+                )
+            elif args.model in ["informer", "autoformer", "spacetimeformer"]:
+                estimator_class = globals()[f"{args.model.capitalize()}Estimator"]
+                estimator = estimator_class(
+                    freq=data_module.freq, 
+                    prediction_length=data_module.prediction_length,
+                    num_feat_dynamic_real=data_module.num_feat_dynamic_real, 
+                    num_feat_static_cat=data_module.num_feat_static_cat,
+                    cardinality=data_module.cardinality,
+                    num_feat_static_real=data_module.num_feat_static_real,
+                    input_size=data_module.num_target_vars,
+                    scaling=False if config["dataset"].get("normalize", False) else "std",
+                    time_features=[second_of_minute, minute_of_hour, hour_of_day, day_of_year],
+                    distr_output=globals()[config["model"]["distr_output"]["class"]](dim=data_module.num_target_vars, **config["model"]["distr_output"]["kwargs"]),
+                    
+                    batch_size=config["dataset"].setdefault("batch_size", 128),
+                    num_batches_per_epoch=config["trainer"].setdefault("limit_train_batches", 50), 
+                    context_length=config["dataset"]["context_length"],
+                    train_sampler=ExpectedNumInstanceSampler(num_instances=1.0, min_past=config["dataset"]["context_length"], min_future=data_module.prediction_length),
+                    validation_sampler=ValidationSplitSampler(min_past=config["dataset"]["context_length"], min_future=data_module.prediction_length),
+                    trainer_kwargs=config["trainer"],
+                    **config["model"][args.model]
+                )
+            else:
+                raise ValueError(f"Unknown model: {args.model}")
 
-    if args.mode == "tune":
+    if args.model == "tune":
         # %% TUNE MODEL WITH OPTUNA
         from wind_forecasting.run_scripts.tuning import tune_model
         if not os.path.exists(config["optuna"]["journal_dir"]):
@@ -163,7 +220,7 @@ def main():
             training_data=data_module.train_dataset,
             validation_data=data_module.val_dataset,
             forecast_generator=DistributionForecastGenerator(estimator.distr_output),
-            ckpt_path=args.checkpoint if ((args.checkpoint is not None) and (os.path.exists(args.checkpoint))) else None
+            ckpt_path=(args.checkpoint if (args.checkpoint is not None and os.path.exists(args.checkpoint)) else None)
             # shuffle_buffer_length=1024
         )
         # train_output.trainer.checkpoint_callback.best_model_path
