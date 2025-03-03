@@ -48,7 +48,7 @@ def main():
     parser = argparse.ArgumentParser(description="Run a model on a dataset")
     parser.add_argument("--config", type=str, help="Path to config file", default="examples/inputs/training_inputs_aoifemac_flasc.yaml")
     parser.add_argument("--model", type=str, help="Model to run", default="informer", 
-                       choices=["informer", "autoformer", "spacetimeformer", "tactis", "tune"])
+                       choices=["informer", "autoformer", "spacetimeformer", "tactis"])
     parser.add_argument("--mode", type=str, help="Mode to run", default="train", choices=["train", "test", "tune"])
     parser.add_argument("--checkpoint", type=str, help="Path to model checkpoint for resuming training", default=None)
     parser.add_argument("--tune_first", action="store_true", help="Whether to use tuned parameters", default=False)
@@ -134,63 +134,25 @@ def main():
             else:
                 logging.info(f"Declaring estimator {args.model} with default parameters")
             
-            # Create the appropriate estimator based on the model name
-            if args.model == "tactis":
-                estimator = TACTiS2Estimator(
-                    freq=data_module.freq, 
-                    prediction_length=data_module.prediction_length,
-                    num_feat_dynamic_real=data_module.num_feat_dynamic_real, 
-                    num_feat_static_cat=data_module.num_feat_static_cat,
-                    cardinality=data_module.cardinality,
-                    num_feat_static_real=data_module.num_feat_static_real,
-                    input_size=data_module.num_target_vars,
-                    scaling=False if config["dataset"].get("normalize", False) else "std",
-                    time_features=[second_of_minute, minute_of_hour, hour_of_day, day_of_year],
-                    distr_output=globals()[config["model"]["distr_output"]["class"]](dim=data_module.num_target_vars, **config["model"]["distr_output"]["kwargs"]),
-                    
-                    batch_size=config["dataset"].setdefault("batch_size", 128),
-                    num_batches_per_epoch=config["trainer"].setdefault("limit_train_batches", 50), 
-                    context_length=config["dataset"]["context_length"],
-                    train_sampler=ExpectedNumInstanceSampler(num_instances=1.0, min_past=config["dataset"]["context_length"], min_future=data_module.prediction_length),
-                    validation_sampler=ValidationSplitSampler(min_past=config["dataset"]["context_length"], min_future=data_module.prediction_length),
-                    trainer_kwargs=config["trainer"],
-                    
-                    # TACTiS-specific parameters
-                    flow_series_embedding_dim=config["model"]["tactis"].get("flow_series_embedding_dim", 32),
-                    copula_series_embedding_dim=config["model"]["tactis"].get("copula_series_embedding_dim", 32),
-                    flow_input_encoder_layers=config["model"]["tactis"].get("flow_input_encoder_layers", 2),
-                    copula_input_encoder_layers=config["model"]["tactis"].get("copula_input_encoder_layers", 2),
-                    bagging_size=config["model"]["tactis"].get("bagging_size", None),
-                    input_encoding_normalization=config["model"]["tactis"].get("input_encoding_normalization", True),
-                    data_normalization=config["model"]["tactis"].get("data_normalization", "series"),
-                    loss_normalization=config["model"]["tactis"].get("loss_normalization", "series"),
-                    initial_stage=config["model"]["tactis"].get("initial_stage", 1),
-                    stage2_start_epoch=config["model"]["tactis"].get("stage2_start_epoch", 10),
-                )
-            elif args.model in ["informer", "autoformer", "spacetimeformer"]:
-                estimator_class = globals()[f"{args.model.capitalize()}Estimator"]
-                estimator = estimator_class(
-                    freq=data_module.freq, 
-                    prediction_length=data_module.prediction_length,
-                    num_feat_dynamic_real=data_module.num_feat_dynamic_real, 
-                    num_feat_static_cat=data_module.num_feat_static_cat,
-                    cardinality=data_module.cardinality,
-                    num_feat_static_real=data_module.num_feat_static_real,
-                    input_size=data_module.num_target_vars,
-                    scaling=False if config["dataset"].get("normalize", False) else "std",
-                    time_features=[second_of_minute, minute_of_hour, hour_of_day, day_of_year],
-                    distr_output=globals()[config["model"]["distr_output"]["class"]](dim=data_module.num_target_vars, **config["model"]["distr_output"]["kwargs"]),
-                    
-                    batch_size=config["dataset"].setdefault("batch_size", 128),
-                    num_batches_per_epoch=config["trainer"].setdefault("limit_train_batches", 50), 
-                    context_length=config["dataset"]["context_length"],
-                    train_sampler=ExpectedNumInstanceSampler(num_instances=1.0, min_past=config["dataset"]["context_length"], min_future=data_module.prediction_length),
-                    validation_sampler=ValidationSplitSampler(min_past=config["dataset"]["context_length"], min_future=data_module.prediction_length),
-                    trainer_kwargs=config["trainer"],
-                    **config["model"][args.model]
-                )
-            else:
-                raise ValueError(f"Unknown model: {args.model}")
+            estimator = globals()[f"{args.model.capitalize()}Estimator"](
+                freq=data_module.freq,
+                prediction_length=data_module.prediction_length,
+                num_feat_dynamic_real=data_module.num_feat_dynamic_real,
+                num_feat_static_cat=data_module.num_feat_static_cat,
+                cardinality=data_module.cardinality,
+                num_feat_static_real=data_module.num_feat_static_real,
+                input_size=data_module.num_target_vars,
+                scaling=False,
+                time_features=[second_of_minute, minute_of_hour, hour_of_day, day_of_year],
+                distr_output=globals()[config["model"]["distr_output"]["class"]](dim=data_module.num_target_vars, **config["model"]["distr_output"]["kwargs"]),
+                batch_size=config["dataset"].setdefault("batch_size", 128),
+                num_batches_per_epoch=config["trainer"].setdefault("limit_train_batches", 50),
+                context_length=config["dataset"]["context_length"],
+                train_sampler=ExpectedNumInstanceSampler(num_instances=1.0, min_past=config["dataset"]["context_length"], min_future=data_module.prediction_length),
+                validation_sampler=ValidationSplitSampler(min_past=config["dataset"]["context_length"], min_future=data_module.prediction_length),
+                trainer_kwargs=config["trainer"],
+                **config["model"][args.model]  # Model-specific parameters from config
+            )
 
     if args.model == "tune":
         # %% TUNE MODEL WITH OPTUNA
