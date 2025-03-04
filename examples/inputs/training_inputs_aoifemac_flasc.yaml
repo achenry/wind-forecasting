@@ -1,5 +1,3 @@
-
-
 experiment:
   run_name: windfarm_debug
   log_dir: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/logging/

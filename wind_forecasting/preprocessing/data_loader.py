@@ -288,6 +288,8 @@ class DataLoader:
                     if len(merged_paths) > 1: 
                         logging.info(f"Concatenating and running final sort/resample/fill.")
                         
+                        # Concatenate the different merged and sorted files by ordering them by time, and then finding the missing timestamps between them,
+                        # this is more memory efficient than joining all the files at once by a long time series
                         df_query = sorted([pl.scan_parquet(bp) for bp in merged_paths], 
                                         key=lambda df: 
                                             df.select(pl.col("time").first()).collect().item())
@@ -577,12 +579,11 @@ class DataLoader:
                 available_columns = df_query.collect_schema().names()
                 assert all(any(bool(re.search(feat, col)) for col in available_columns) for feat in self.source_features[file_set_idx]), "All values in feature_mapping must exist in data columns."
 
-                # Select only relevant columns and handle missing values
-                # df_query = df_query.select(self.source_features)\
+                # Select only relevant columns
                 df_query = df_query.select(*[cs.matches(feat) for feat in self.source_features[file_set_idx]])
                 source_features = df_query.collect_schema().names()
                 
-                # just the turbine ids found in this file
+                # Get just the turbine ids found in this file
                 turbine_ids = self.get_turbine_ids(self.turbine_signature[file_set_idx], df_query)
                 
                 # Apply column mapping after selecting relevant columns
@@ -603,12 +604,16 @@ class DataLoader:
 
                 df_query = df_query.rename(rename_dict)
                 
+                # Cast all numeric columns to Float64
                 df_query = df_query.with_columns([pl.col(col).cast(pl.Float64) for col in df_query.collect_schema().names() if any(feat_type in col and feat_type != "time" for feat_type in self.target_features)])
+                
+                # Fill NaN values with None for uniform 'none' denotation
                 df_query = df_query.with_columns(cs.numeric().fill_nan(None))
                 
-                # target_features = list(self.target_features)
+                # If wind_direction variable is not present, calculate it from nacelle_direction and yaw_offset
                 target_features = list(self.feature_mapping[file_set_idx])
                 if "wind_direction" not in target_features:
+                    
                     if "nacelle_direction" in target_features:
                         if "yaw_offset_cw" in target_features:
                             delta = 1
@@ -616,6 +621,8 @@ class DataLoader:
                         elif "yaw_offset_ccw" in target_features:
                             delta = -1
                             direc = "ccw"
+                        else:
+                            raise Exception("No wind_direction or yaw_offset variable found in data.")
                         
                         df_query = df_query\
                             .with_columns([
@@ -627,7 +634,9 @@ class DataLoader:
                         target_features.append("wind_direction")
                         # del self.feature_mapping[file_set_idx][f"yaw_offset_{direc}"]
                         # self.feature_mapping[file_set_idx]["wind_direction"] = ""
-                
+                    else:
+                        raise Exception("No wind direction, or nacelle direction variable found in data.")
+                    
                 time_type = df_query.collect_schema()["time"]
                 if time_type == pl.datatypes.String:
                     df_query = df_query.with_columns([
