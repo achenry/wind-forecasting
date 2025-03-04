@@ -816,21 +816,22 @@ def main():
         ws_horz_cols = [col for col in df_query.collect_schema().names() if col.startswith("ws_horz")]
         ws_vert_cols = [col for col in df_query.collect_schema().names() if col.startswith("ws_vert")]
         # apply a bin filter to remove data with power values outside of an envelope around median power curve at each wind speed
-        if args.regenerate_filters or not os.path.exists(config["processed_data_path"].replace(".parquet", "_std_dev_outliers.npy")):
-            # df_query.select("time", "ws_vert_1").with_row_index().filter(((pl.col("time") > datetime(2020, 5, 23, 20, 45)) & (pl.col("time") < datetime(2020, 5, 23, 21, 45)))).collect().select("index").to_numpy().flatten() 
-            # TODO consider neighboring turbines
-            std_dev_outliers = filters.std_range_flag(
-                data_pl=df_query.select(cs.starts_with("ws_horz"), cs.starts_with("ws_vert")),
-                threshold=1.0, over="asset", feature_types=["ws_horz", "ws_vert"],
-                # asset_coords={tid: (data_inspector.fmodel.layout_x[t], data_inspector.fmodel.layout_y[t]) for t, tid in enumerate(data_loader.turbine_ids)}
-            ) & df_query.select(cs.starts_with("ws_horz").is_not_null(), cs.starts_with("ws_vert").is_not_null()).collect().to_numpy() 
-            
-            std_dev_outliers = {"ws_horz": std_dev_outliers[ws_horz_cols].values,
-                                "ws_vert": std_dev_outliers[ws_vert_cols].values}
-            
-            np.save(config["processed_data_path"].replace(".parquet", "_std_dev_outliers.npy"), std_dev_outliers)
-        else:
-            std_dev_outliers = np.load(config["processed_data_path"].replace(".parquet", "_std_dev_outliers.npy"), allow_pickle=True)[()]
+        # if args.regenerate_filters or not os.path.exists(config["processed_data_path"].replace(".parquet", "_std_dev_outliers.npy")):
+        # df_query.select("time", "ws_vert_1").with_row_index().filter(((pl.col("time") > datetime(2020, 5, 23, 20, 45)) & (pl.col("time") < datetime(2020, 5, 23, 21, 45)))).collect().select("index").to_numpy().flatten() 
+        # TODO consider neighboring turbines
+        std_dev_outliers = filters.std_range_flag(
+            data_pl=df_query.select(cs.starts_with("ws_horz"), cs.starts_with("ws_vert")),
+            threshold=1.0, over="asset", feature_types=["ws_horz", "ws_vert"],
+            # asset_coords={tid: (data_inspector.fmodel.layout_x[t], data_inspector.fmodel.layout_y[t]) for t, tid in enumerate(data_loader.turbine_ids)}
+        ) & df_query.select(cs.starts_with("ws_horz").is_not_null(), cs.starts_with("ws_vert").is_not_null()).collect().to_numpy() 
+        
+        std_dev_outliers = {"ws_horz": std_dev_outliers[ws_horz_cols].values,
+                            "ws_vert": std_dev_outliers[ws_vert_cols].values}
+        
+        # TODO numpy save doesn't work for large files 
+        #     np.save(config["processed_data_path"].replace(".parquet", "_std_dev_outliers.npy"), std_dev_outliers)
+        # else:
+        #     std_dev_outliers = np.load(config["processed_data_path"].replace(".parquet", "_std_dev_outliers.npy"), allow_pickle=True)[()]
 
         # check if wind speed/dir measurements from inoperational turbines differ from fully operational 
         ws_horz_mask = lambda tid: safe_mask(tid, 
