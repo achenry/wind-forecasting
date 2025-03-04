@@ -542,11 +542,11 @@ def main():
                 bin_outliers = data_filter.multi_generate_filter(df_query=df_query, filter_func=data_filter._single_generate_bin_filter,
                                                                   feature_types=["wind_speed", "power_output"], turbine_ids=data_loader.turbine_ids,
                                                                   bin_width=50, 
-                                                                  threshold=2, 
+                                                                  threshold=5, 
                                                                   center_type="median", 
-                                                                  bin_min=80., 
+                                                                  bin_min=50., 
                                                                   bin_max=0.9*(df_query.select(pl.max_horizontal(cs.starts_with(f"power_output").max())).collect().item() or 3000.),
-                                                                  threshold_type="std", # keep cases that are within 3 std deviations of the mean
+                                                                  threshold_type="mad", # keep cases that are within 3 median absolute deviation from the median
                                                                   direction="below"# keep derated cases
                                                                   ) 
                 data_filter.multiprocessor = args.multiprocessor
@@ -625,10 +625,16 @@ def main():
             # add the 3 degrees back to the wind direction signal
             offset = 3.0
             df_query2 = df_query.with_columns((cs.starts_with("wind_direction") + offset).mod(360.0))
-            #  # .slice(0, int(60 * 60 * 24 * 365 * 1))\
-            df_query_10min = df_query2\
+            plot_approx = False
+            if plot_approx:
+                df_query_10min = df_query2\
+                                .slice(0, int(60 * 60 * 24 * 365 * 1))\
                                 .with_columns(pl.col("time").dt.round(f"{10}m").alias("time"))\
                                 .group_by("time").agg(cs.numeric().mean()).sort("time")
+            else:
+                df_query_10min = df_query2\
+                                    .with_columns(pl.col("time").dt.round(f"{10}m").alias("time"))\
+                                    .group_by("time").agg(cs.numeric().mean()).sort("time")
             
             wd_median = df_query_10min.select(cs.starts_with("wind_direction").radians().sin().name.suffix("_sin"),
                                             cs.starts_with("wind_direction").radians().cos().name.suffix("_cos"))
@@ -665,23 +671,7 @@ def main():
                 biases = np.load(config["processed_data_path"].replace(".parquet", "_biases.npy"))
                 
             for bias, turbine_id in zip(biases, data_loader.turbine_ids):
-                
-                # bias = df_query_10min\
-                #             .filter(pl.col(f"power_output_{turbine_id}") >= 0)\
-                #             .select("time", f"wind_direction_{turbine_id}", f"nacelle_direction_{turbine_id}", "wd_median", "nd_median")\
-                #             .select(wd_bias=(pl.col(f"wind_direction_{turbine_id}") - pl.col("wd_median")), 
-                #                     nd_bias=(pl.col(f"nacelle_direction_{turbine_id}") - pl.col("nd_median")))\
-                #             .select(pl.all().radians().sin().mean().name.suffix("_sin"), pl.all().radians().cos().mean().name.suffix("_cos"))\
-                #             .select(wd_bias=pl.arctan2("wd_bias_sin", "wd_bias_cos").degrees().mod(360),
-                #                     nd_bias=pl.arctan2("nd_bias_sin", "nd_bias_cos").degrees().mod(360))\
-                #             .select(pl.when(pl.all() > 180.0).then(pl.all() - 360.0).otherwise(pl.all()))
-
-                # # df_offsets["turbine_id"].append(turbine_id)
-                # wd_bias = bias.select('wd_bias').collect().item()
-                # nd_bias = bias.select("nd_bias").collect().item()
-                # bias = 0.5 * ((wd_bias or 0) + (nd_bias or 0))
-                # df_offsets["northing_bias"].append(np.round(bias, 2))
-                
+                 
                 df_query_10min = df_query_10min.with_columns((pl.col(f"wind_direction_{turbine_id}") - bias).mod(360.0).alias(f"wind_direction_{turbine_id}"), 
                                                             (pl.col(f"nacelle_direction_{turbine_id}") - bias).mod(360.0).alias(f"nacelle_direction_{turbine_id}"))
                 df_query2 = df_query2.with_columns((pl.col(f"wind_direction_{turbine_id}") - bias).mod(360.0).alias(f"wind_direction_{turbine_id}"), 
