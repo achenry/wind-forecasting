@@ -387,7 +387,7 @@ def main():
                 data_inspector.plot_time_series(df_query.slice(0, ROW_LIMIT), feature_types=["wind_speed", "wind_direction"], turbine_ids=data_loader.turbine_ids, continuity_groups=None, label="after_frozen_sensor") 
 
         # %%
-        if "inoperational" in config["filters"] and any(col.startswith("turbine_status") for col in df_query.collect_schema()["names"]): # TODO 10 is normal operation for AWAKEN
+        if "inoperational" in config["filters"] and any(col.startswith("turbine_status") for col in df_query.collect_schema()["names"]): # 10 is normal operation for AWAKEN
             logging.info("Nullifying inoperational turbine cells.")
             applied_filter = True
             # check if wind speed/dir measurements from inoperational turbines differ from fully operational
@@ -533,7 +533,7 @@ def main():
             # apply a bin filter to remove data with power values outside of an envelope around median power curve at each wind speed
             if args.regenerate_filters or not os.path.exists(config["processed_data_path"].replace(".parquet", "_bin_outliers.npy")):
                 data_filter.multiprocessor = None
-                plot_approx = True
+                plot_approx = False
                 if plot_approx:
                     df_query = df_query.slice(0, int(60 * 60 * 24 * 30 * 6))\
                                      .with_columns(pl.col("time").dt.round(f"{1}m").alias("time"))\
@@ -625,9 +625,8 @@ def main():
             # add the 3 degrees back to the wind direction signal
             offset = 3.0
             df_query2 = df_query.with_columns((cs.starts_with("wind_direction") + offset).mod(360.0))
-            # TODO
+            #  # .slice(0, int(60 * 60 * 24 * 365 * 1))\
             df_query_10min = df_query2\
-                                .slice(0, int(60 * 60 * 24 * 365 * 1))\
                                 .with_columns(pl.col("time").dt.round(f"{10}m").alias("time"))\
                                 .group_by("time").agg(cs.numeric().mean()).sort("time")
             
