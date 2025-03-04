@@ -514,6 +514,7 @@ class DataInspector:
         if turbine_ids == "all":
             # Extract wind speed data
             wind_speeds = df.select(cs.contains("wind_speed")).collect().to_numpy().flatten()
+            wind_speeds = wind_speeds[wind_speeds > 0]
             wind_speeds = wind_speeds[np.isfinite(wind_speeds)]  # Remove non-finite values
         
             if len(wind_speeds) == 0:
@@ -533,9 +534,9 @@ class DataInspector:
             ax.plot(x, y, 'r-', lw=2, label=f'Weibull (k={shape:.2f}, λ={scale:.2f})')
             
             # ax.set_title('Wind Speed Distribution with Fitted Weibull', fontsize=16)
-            ax.set_xlabel('Wind Speed (m/s)', fontsize=20)
-            ax.set_ylabel('Density', fontsize=20)
-            ax.legend(fontsize=20)
+            ax.set_xlabel('Wind Speed (m/s)')
+            ax.set_ylabel('Density')
+            ax.legend()
             ax.grid(True, alpha=0.3)
             sns.despine()
             plt.show()
