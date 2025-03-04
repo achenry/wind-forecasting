@@ -34,6 +34,16 @@ import re
 import matplotlib.pyplot as plt
 import seaborn as sns
 
+factor = 1.5
+# factor = 3.0 # single column
+plt.rc('font', size=12*factor)          # controls default text sizes
+plt.rc('axes', titlesize=20*factor)     # fontsize of the axes title
+plt.rc('axes', labelsize=15*factor)     # fontsize of the x and y labels
+plt.rc('xtick', labelsize=12*factor)    # fontsize of the xtick labels
+plt.rc('ytick', labelsize=12*factor)    # fontsize of the ytick labels
+plt.rc('legend', fontsize=12*factor)    # legend fontsize
+plt.rc('legend', title_fontsize=14*factor)  # legend title fontsize
+
 #INFO: TO use MPI, need to run the script with the following command:
 # mpiexec -n <number_of_processes> python your_script.py
 
@@ -158,12 +168,12 @@ class DataInspector:
                             sns.lineplot(data=turbine_df, x='time', y=f'{feat}_{tid}', ax=ax[f], label=f'{tid}')
                         
                     ax[f].set_title(f"{feature_labels[f]} for CG {int(cg)}", fontsize=14)
-                    ax[f].set_xlabel("Time [s]")
+                    ax[f].set_xlabel("Time (s)")
                     ax[f].set_ylabel(feature_labels[f])
                     ax[f].legend([], [], frameon=False)
                 ax[-1].legend(bbox_to_anchor=(0.95, 1), loc="upper left", ncol=2)
         else:
-            fig, ax = plt.subplots(len(feature_types), 1, figsize=(15, 9), sharex=True)
+            fig, ax = plt.subplots(len(feature_types), 1, figsize=(10, 6), sharex=True)
             if not hasattr(ax, "__len__"):
                 ax = [ax]
             for f, feat in enumerate(feature_types):
@@ -187,7 +197,7 @@ class DataInspector:
                         sns.lineplot(data=turbine_df, x='time', y=f'{feat}_{tid}', ax=ax[f], label=f'{tid}')
                 
                 # ax[f].set_title(f"{feature_labels[f]}")
-                ax[f].set_xlabel("Time [s]")
+                ax[f].set_xlabel("Time (s)")
                 ax[f].set_ylabel(feature_labels[f])
                 ax[f].legend([], [], frameon=False)
             # ax[-1].legend(bbox_to_anchor=(0.95, 1), loc="upper left", ncol=2)
@@ -219,7 +229,7 @@ class DataInspector:
         # file_set_indices = df.select("file_set_idx").unique().collect().to_numpy().flatten()
         
         # for file_set_idx in file_set_indices:
-        fig, ax = plt.subplots(1, 1, figsize=(15, 9))
+        fig, ax = plt.subplots(1, 1, figsize=(10, 6))
         
         # Collect all required data at once for better performance
         
@@ -259,8 +269,8 @@ class DataInspector:
             sns.scatterplot(data=all_data, ax=ax, x=ws_col, y=power_col,
                         label=turbine_id, alpha=0.5)
         
-        ax.set_xlabel('Wind Speed [m/s]')
-        ax.set_ylabel('Power Output [kW]')
+        ax.set_xlabel('Wind Speed (m/s)')
+        ax.set_ylabel('Power Output (kW)')
         ax.set_title('Wind Speed vs Power Output')
         ax.legend(title='Turbine ID', loc='upper left', bbox_to_anchor=(1, 1))
         ax.grid(True, alpha=0.3)
@@ -298,16 +308,17 @@ class DataInspector:
                     return
                 
                 # Create the windrose plot directly without creating a separate figure first
-                fig = plt.figure(figsize=(15, 15))
+                fig = plt.figure(figsize=(10, 10))
                 rect = [0.1, 0.1, 0.8, 0.8]
                 ax = WindroseAxes(fig, rect)
                 fig.add_axes(ax)
                 
                 ax.bar(direc, wind_spd, normed=True, opening=0.8, edgecolor='white')
-                ax.set_legend()
+                ax.legend(bbox_to_anchor=(1.05, 0.5), loc="center left")
                 # ax.set_xlim((0, 6))
                 ax.set_ylim((0, 25))
-                ax.set_title(f"{' '.join(feature_type.split('_')).capitalize()} Rose all Turbines")
+                ax.set_title("")
+                # ax.set_title(f"{' '.join(feature_type.split('_')).capitalize()} Rose all Turbines")
                 plt.show()
                 fig.savefig(os.path.join(self.save_dir, f'{fig_label}.png'), dpi=100)
             else:
@@ -335,22 +346,22 @@ class DataInspector:
                         print(f"Mismatch in data lengths or empty data for turbine {turbine_id}")
                         continue
 
-                    fig = plt.figure(figsize=(15, 15))
+                    fig = plt.figure(figsize=(10, 10))
                     ax = WindroseAxes.from_ax()
                     ax.bar(direc, wind_spd, normed=True, opening=0.8, edgecolor='white')
-                    ax.set_legend()
+                    ax.legend(bbox_to_anchor=(1.05, 0.5), loc="center left")
                     ax.set_title(f"{' '.join(feature_type.split('_')).capitalize()} Rose for Turbine {turbine_id}")
                     plt.show()
                     fig.savefig(os.path.join(self.save_dir, f'{fig_label}_{turbine_id}.png'), dpi=100)
                     
         else:  # long format
             if turbine_ids == "all":
-                fig = plt.figure(figsize=(15, 15))
+                fig = plt.figure(figsize=(10, 10))
                 ax = WindroseAxes.from_ax()
                 ax.bar(df.select(feature_type).collect().to_numpy()[:, 0], 
                         df.select("wind_speed").collect().to_numpy()[:, 0], 
                         normed=True, opening=0.8, edgecolor='white')
-                ax.set_legend()
+                ax.legend(bbox_to_anchor=(1.05, 0.5), loc="center left")
                 ax.set_title(f"{' '.join(feature_type.split('_')).capitalize()} Rose for all Turbines")
                 plt.show()
                 fig.savefig(os.path.join(self.save_dir, f'{fig_label}.png'), dpi=100)
@@ -365,11 +376,11 @@ class DataInspector:
                         .select(["wind_speed", feature_type])\
                         .filter(pl.all_horizontal(pl.col("wind_speed").is_not_null(), pl.col(feature_type).is_not_null()))
                     
-                    fig, ax = plt.subplot(1, 1, figsize=(15, 15))
+                    fig, ax = plt.subplot(1, 1, figsize=(10, 10))
                     ax = WindroseAxes.from_ax()
                     ax.bar(turbine_data.select(feature_type).collect().to_numpy()[:, 0], 
                             turbine_data.select("wind_speed").collect().to_numpy()[:, 0], normed=True, opening=0.8, edgecolor='white')
-                    ax.set_legend()
+                    ax.legend(bbox_to_anchor=(1.05, 0.5), loc="center left")
                     ax.set_title(f"{' '.join(feature_type.split('_')).capitalize()} Rose for Turbine {turbine_id}")
                     plt.show()
                     fig.savefig(os.path.join(self.save_dir, f"{fig_label}_{turbine_id}.png"), dpi=100)
@@ -389,7 +400,7 @@ class DataInspector:
             'ambient_temperature'
         ]
         
-        _, ax = plt.subplots(1, 1, figsize=(15, 9))
+        _, ax = plt.subplots(1, 1, figsize=(10, 6))
         for col in temp_columns:
             sns.histplot(df[col], bins=20, kde=True, label=col)
         
@@ -402,7 +413,7 @@ class DataInspector:
     def plot_correlation(self, df, features) -> None:
         """_summary_
         """
-        _, ax = plt.subplots(1, 1, figsize=(15, 9))
+        _, ax = plt.subplots(1, 1, figsize=(10, 6))
         sns.heatmap(df.select(features).collect().to_pandas().corr(), 
                     annot=True, cmap='coolwarm', linewidths=0.5,  vmin=-1, vmax=1, center=0, ax=ax,
                     xticklabels=features, yticklabels=features)
@@ -443,7 +454,7 @@ class DataInspector:
             # turbine_data[f"wind_direction_{turbine_id}"] = turbine_data[f"wind_direction_{turbine_id}"].astype('float64')
             
             # Create plots
-            fig, ax = plt.subplots(2, 1, figsize=(15, 9))
+            fig, ax = plt.subplots(2, 1, figsize=(10, 6))
             sns.boxplot(data=turbine_data, x='hour', y=f"wind_speed_{turbine_id}", ax=ax[0])
             sns.boxplot(data=turbine_data, x='hour', y=f"wind_direction_{turbine_id}", ax=ax[1])
             ax[0].set_title(f'Wind Speed Distribution by Hour for Turbine {turbine_id}')
@@ -464,7 +475,7 @@ class DataInspector:
             df (_type_): _description_
             turbine_ids (list[str]): _description_
         """
-        fig, ax = plt.subplots(1, len(feature_types), figsize=(15, 9))
+        fig, ax = plt.subplots(1, len(feature_types), figsize=(10, 6))
         for ax_idx, feature_type in enumerate(feature_types):
             x = np.linspace(df.select(cs.starts_with(feature_type)).collect().to_numpy().min(), 
                             df.select(cs.starts_with(feature_type)).collect().to_numpy().max(), 1000)
@@ -517,17 +528,18 @@ class DataInspector:
             y = stats.weibull_min.pdf(x, shape, loc, scale)
 
             # Plot
-            fig, ax = plt.subplots(1, 1, figsize=(15, 9))
+            fig, ax = plt.subplots(1, 1, figsize=(10, 6))
             sns.histplot(wind_speeds, stat='density', kde=True, color='skyblue', label='Observed', ax=ax)
             ax.plot(x, y, 'r-', lw=2, label=f'Weibull (k={shape:.2f}, λ={scale:.2f})')
             
-            ax.set_title('Wind Speed Distribution with Fitted Weibull', fontsize=16)
-            ax.set_xlabel('Wind Speed (m/s)', fontsize=12)
-            ax.set_ylabel('Density', fontsize=12)
-            ax.legend(fontsize=10)
+            # ax.set_title('Wind Speed Distribution with Fitted Weibull', fontsize=16)
+            ax.set_xlabel('Wind Speed (m/s)', fontsize=20)
+            ax.set_ylabel('Density', fontsize=20)
+            ax.legend(fontsize=20)
             ax.grid(True, alpha=0.3)
             sns.despine()
             plt.show()
+            plt.tight_layout()
             fig.savefig(os.path.join(self.save_dir, f'wind_speed_weibull{fig_label}.png'), dpi=100)
             # plt.close()
 
@@ -559,7 +571,7 @@ class DataInspector:
                 y = stats.weibull_min.pdf(x, shape, loc, scale)
 
                 # Plot
-                fig, ax = plt.subplots(1, 1, figsize=(15, 9))
+                fig, ax = plt.subplots(1, 1, figsize=(10, 6))
                 sns.histplot(wind_speeds, stat='density', kde=True, color='skyblue', label='Observed', ax=ax)
                 ax.plot(x, y, 'r-', lw=2, label=f'Weibull (k={shape:.2f}, λ={scale:.2f})')
                 
@@ -605,37 +617,39 @@ class DataInspector:
                    wind_directions=wind_directions, wind_speeds=wind_speeds, turbulence_intensities=turbulence_intensities)
         
         # Create the plot
-        _, ax = plt.subplots(figsize=(15, 15))
+        fig, ax = plt.subplots(figsize=(10, 10))
         
         # Plot the turbine layout
         layoutviz.plot_turbine_points(self.fmodel, ax=ax)
         
         # Add turbine labels
-        turbine_names = [f"T{i+1}" for i in range(self.fmodel.n_turbines)]
-        layoutviz.plot_turbine_labels(
-            self.fmodel, ax=ax, turbine_names=turbine_names, show_bbox=True, bbox_dict={"facecolor": "white", "alpha": 0.5}
-        )
+        # turbine_names = [f"T{i+1}" for i in range(self.fmodel.n_turbines)]
+        # layoutviz.plot_turbine_labels(
+        #     self.fmodel, ax=ax, turbine_names=turbine_names, show_bbox=True, bbox_dict={"facecolor": "white", "alpha": 0.5}
+        # )
         
         # Calculate and visualize the flow field
         horizontal_plane = self.fmodel.calculate_horizontal_plane(height=self.fmodel.core.farm.hub_heights[0])
         visualize_cut_plane(horizontal_plane, ax=ax, min_speed=4, max_speed=10, color_bar=True)
         
         # Plot turbine rotors
-        layoutviz.plot_turbine_rotors(self.fmodel, ax=ax)
-
-        ax.set_xlim((self.fmodel.core.farm.layout_x.min(), self.fmodel.core.farm.layout_x.max()))
-        ax.set_ylim((self.fmodel.core.farm.layout_y.min(), self.fmodel.core.farm.layout_y.max()))
+        # layoutviz.plot_turbine_rotors(self.fmodel, ax=ax)
+        
+        ax.set_xlim((horizontal_plane.df.x1.min(), horizontal_plane.df.x1.max()))
+        ax.set_ylim((horizontal_plane.df.x2.min(), horizontal_plane.df.x2.max()))
         
         # Set plot title and labels
-        plt.title('Wind Farm Layout', fontsize=16)
-        plt.xlabel('X coordinate (m)', fontsize=12)
-        plt.ylabel('Y coordinate (m)', fontsize=12)
-        
+        # ax.set_title('Wind Farm Layout', fontsize=16)
+        ax.tick_params(axis='both', which='major', labelsize=20)
+        ax.set_xlabel('X coordinate (m)', fontsize=20)
+        ax.set_ylabel('Y coordinate (m)', fontsize=20)
+        fig.get_axes()[1].yaxis.label.set_text("Wind Speed (m/s)")
+         
         # Adjust layout and display the plot
         plt.tight_layout()
         plt.show()
-        plt.savefig(os.path.join(self.save_dir, 'wind_farm.png'), dpi=100)
-        plt.close()
+        fig.savefig(os.path.join(self.save_dir, 'wind_farm.png'), dpi=100)
+        # plt.close()
         
         # return self.fmodel
 
@@ -644,7 +658,7 @@ class DataInspector:
         
         sns.set(style="whitegrid")
 
-        fig, ax = plt.subplots(len(feature_types), 1, sharex=True, figsize=(15, 9))
+        fig, ax = plt.subplots(len(feature_types), 1, sharex=True, figsize=(10, 6))
         if not isinstance(ax, np.ndarray):
             ax = [ax]
 
@@ -789,7 +803,7 @@ class DataInspector:
         yaw_angle_cols = self.get_features(df, "nacelle_direction", turbine_ids)
 
         for seed in sorted(np.unique(df["WindSeed"])):
-            fig, ax = plt.subplots(int(include_yaw + include_power), 1, sharex=True, figsize=(15, 9))
+            fig, ax = plt.subplots(int(include_yaw + include_power), 1, sharex=True, figsize=(10, 6))
             ax = np.atleast_1d(ax)
 
             seed_df = df.loc[df["WindSeed"] == seed].sort_values(by="time")
@@ -822,14 +836,14 @@ class DataInspector:
         
             if include_yaw:
                 ax_idx = 0
-                ax[ax_idx].set(title="Wind Direction / Yaw Angle [$^\\circ$]", xlim=(0, int((seed_df["time"].max() + seed_df["time"].diff().iloc[1]) // 1)), ylim=(245, 295))
+                ax[ax_idx].set(title="Wind Direction / Nacelle Direction ($^\\circ$)", xlim=(0, int((seed_df["time"].max() + seed_df["time"].diff().iloc[1]) // 1)), ylim=(245, 295))
                 ax[ax_idx].legend(ncols=2, loc="lower right")
                 if not include_power:
-                    ax[ax_idx].set(xlabel="Time [s]", title="Turbine Powers [MW]")
+                    ax[ax_idx].set(xlabel="Time (s)", title="Turbine Powers (MW)")
             
             if include_power:
                 next_ax_idx = (1 if include_yaw else 0)
-                ax[next_ax_idx].set(xlabel="Time [s]", title="Turbine Powers [MW]", ylim=(0, None))
+                ax[next_ax_idx].set(xlabel="Time (s)", title="Turbine Powers (MW)", ylim=(0, None))
                 ax[next_ax_idx].legend(ncols=2, loc="lower right")
 
             fig.suptitle(f"Yaw and Power Time Series for Seed {seed}")
@@ -844,7 +858,7 @@ class DataInspector:
         return fig, ax
 
     def plot_wind_offset(self, full_df, title, turbine_ids):
-        _, ax = plt.subplots(1, 1)
+        fig, ax = plt.subplots(1, 1, figsize=(10, 6))
         for turbine_id in turbine_ids:
             # df = full_df.filter(pl.col(f"power_output_{turbine_id}") >= 0).select("time", f"wind_direction_{turbine_id}").collect()
             df = full_df.filter(pl.col(f"power_output_{turbine_id}") >= 0)\
@@ -857,10 +871,10 @@ class DataInspector:
 
         # ax.legend(ncol=8)
         ax.set_xlabel("Time (s)")
-        ax.set_ylabel("Wind Direction - Median Wind Direction (deg)")
+        ax.set_ylabel("Wind Direction - Median Wind Direction ($^\\circ$)")
 
         ax.set_title(title)
-    
+        fig.savefig(os.path.join(self.save_dir, f"wind_offset_{title}.png"), dpi=100)
     #INFO: @Juan 10/02/24 Added method to calculate wind direction
     @staticmethod
     def calculate_wind_direction(u: np.ndarray, v: np.ndarray) -> np.ndarray:

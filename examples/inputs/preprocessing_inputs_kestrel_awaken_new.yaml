@@ -217,6 +217,7 @@ missing_duration_thr: 1200 # maximum duration for which subsets of data which ha
 minimum_not_missing_duration: 1200 # minimum duration that any retained continuous subset of data must be to be useful, seconds, i.e. should contain at least the intended context length and prediction length
 impute_r2_threshold: 0.7
 
+#  [(61, 60), (51, 50), (43, 42), (41, 40), (18, 19), (34, 33), (17, 16), (22, 21) FLIPPED, (87, 86), (62, 63), (32, 33) POSSIBLY DROP, (59, 60), (43, 42) FLIPPED]
 nacelle_calibration_turbine_pairs:
 - [61,60]
 - [51,50]
@@ -225,12 +226,12 @@ nacelle_calibration_turbine_pairs:
 - [18,19]
 - [34,33]
 - [17,16]
-- [21,22]
+- [22,21]
 - [87,86]
 - [62,63]
 - [32,33]
 - [59,60]
-- [42,43]
+- [43,42]
 
 dt: 1
 

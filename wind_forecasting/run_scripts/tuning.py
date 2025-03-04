@@ -10,6 +10,7 @@ from mysql.connector import connect as sql_connect
 from optuna import create_study
 from optuna.storages import JournalStorage, RDBStorage
 from optuna.storages.journal import JournalFileBackend
+from optuna.samplers import TPESampler
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -137,7 +138,8 @@ def tune_model(model, config, lightning_module_class, estimator_class,
     study = create_study(study_name=study_name,
                          storage=storage,
                          direction=direction,
-                         load_if_exists=True)
+                         load_if_exists=True,
+                         sampler=TPESampler())
     
     logging.info(f"Optimizing Optuna study {study_name}.") 
     tuning_objective = MLTuningObjective(model=model, config=config, 
