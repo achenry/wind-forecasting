@@ -202,7 +202,7 @@ class DataFilter:
 
         # df_offsets["turbine_id"].append(turbine_id)
         # bias = 0.5 * ((bias.select("wd_bias").item() or 0) + (bias.select("nd_bias").item() or 0))
-                         
+         
         logging.info(f"Finished computing wind/nacelle direction bias for turbine {tid}")
         return bias
     
