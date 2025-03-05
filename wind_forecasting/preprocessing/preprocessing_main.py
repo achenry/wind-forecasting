@@ -73,6 +73,7 @@ def main():
     parser.add_argument("-pd", "--preprocess_data", action="store_true")
     parser.add_argument("-p", "--plot", action="store_true")
     parser.add_argument("-v", "--verbose", action="store_true")
+    parser.add_argument("-d", "--debug", action="store_true")
     args = parser.parse_args()
      
     RUN_ONCE = (args.multiprocessor == "mpi" and mpi_exists and (MPI.COMM_WORLD.Get_rank()) == 0) or (args.multiprocessor != "mpi") or (args.multiprocessor is None)
@@ -237,6 +238,13 @@ def main():
         save_dir=os.path.dirname(config["processed_data_path"])
     )
     
+    if args.debug:
+        # .group_by("time", "file_set_idx")\
+        df_query = df_query.head(int(30 * np.timedelta64(1, 'D') / np.timedelta64(data_loader.dt, 's')))\
+                           .with_columns(pl.col("time").dt.round(f"{1}m").alias("time"))\
+                           .group_by("time")\
+                            .agg(cs.numeric().mean()).sort("time")
+    
     # %% Plot Wind Farm, Data Distributions
     # df_query.select("time", "wind_direction_1").filter((pl.col("time") > datetime(2020, 5, 24, 4, 30)) & (pl.col("time") < datetime(2020, 5, 24, 6, 30))).collect().to_numpy()[:, 1].flatten() 
     if args.plot:
@@ -289,9 +297,7 @@ def main():
     if args.plot:
         data_inspector.plot_time_series(df_query.slice(0, ROW_LIMIT), feature_types=["wind_speed", "wind_direction"], turbine_ids=data_loader.turbine_ids, continuity_groups=None, label="original")
     
-    # %%
-    # %% [markdown]
-    # ## OpenOA Data Preparation & Inspection
+    # %% OpenOA Data Preparation & Inspection
 
     # %%
     ws_cols = data_inspector.get_features(df_query, "wind_speed")
