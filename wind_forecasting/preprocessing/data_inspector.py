@@ -71,6 +71,7 @@ class DataInspector:
         except FileNotFoundError:
             raise FileNotFoundError(f"Farm input file not found: {self.farm_input_filepath}")
         
+        self.rated_turbine_power = max(self.fmodel.core.farm.turbine_definitions[0]["power_thrust_table"]["power"])
     # INFO: @Juan 10/18/24 Added method to detect data format automatically (wide or long)
     def detect_data_format(self, df: pl.LazyFrame) -> str:
         if self.data_format == 'auto':
@@ -692,7 +693,7 @@ class DataInspector:
         # plt.close()
 
     @staticmethod
-    def print_pc_remaining_vals(df, mask_func, mask_input_features, output_features):
+    def print_pc_remaining_vals(df, mask_func, mask_input_features, output_features, filter_type):
         out = []
         for inp_feat, opt_feat in zip(mask_input_features, output_features):
             # tid = feature.split("_")[-1]
@@ -708,7 +709,7 @@ class DataInspector:
                     .item()
                     / df.select(pl.len()).collect().item()
                 )
-                print(f"Feature {opt_feat} has {pc_remaining_vals:.2f}% remaining values.")
+                print(f"Feature {opt_feat} has {pc_remaining_vals:.2f}% remaining values after filter {filter_type}.")
                 out.append((opt_feat, pc_remaining_vals))
             except Exception as e:
                 logging.error(f"Error processing feature {opt_feat}: {str(e)}")
