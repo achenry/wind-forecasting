@@ -161,7 +161,7 @@ class DataInspector:
                                  .select(pl.col("time"), cs.starts_with(feat))
                     
                     for tid in valid_turbines:
-                        turbine_df = feature_df.select([pl.col("time"), cs.ends_with(tid)]).collect().to_pandas()
+                        turbine_df = feature_df.select([pl.col("time"), cs.ends_with(f"_{tid}")]).collect().to_pandas()
                         if scatter:
                             sns.scatterplot(data=turbine_df, x='time', y=f'{feat}_{tid}', ax=ax[f], label=f'{tid}')
                         else:
@@ -187,10 +187,10 @@ class DataInspector:
                 #     print(f"No valid data columns found for {valid_turbines}")
                 #     continue
                     
-                feature_df = df_query.select(pl.col("time"), cs.starts_with(feat))
+                feature_df = df_query.select(pl.col("time"), cs.starts_with(f"{feat}_"))
                              
                 for tid in valid_turbines:
-                    turbine_df = feature_df.select([pl.col("time"), cs.ends_with(tid)]).collect().to_pandas()
+                    turbine_df = feature_df.select([pl.col("time"), cs.ends_with(f"_{tid}")]).collect().to_pandas()
                     if scatter:
                         sns.scatterplot(data=turbine_df, x='time', y=f'{feat}_{tid}', ax=ax[f], label=f'{tid}')
                     else:
@@ -477,8 +477,8 @@ class DataInspector:
         """
         fig, ax = plt.subplots(1, len(feature_types), figsize=(10, 6))
         for ax_idx, feature_type in enumerate(feature_types):
-            x = np.linspace(df.select(cs.starts_with(feature_type)).collect().to_numpy().min(), 
-                            df.select(cs.starts_with(feature_type)).collect().to_numpy().max(), 1000)
+            x = np.linspace(df.select(cs.starts_with(f"{feature_type}_")).collect().to_numpy().min(), 
+                            df.select(cs.starts_with(f"{feature_type}_")).collect().to_numpy().max(), 1000)
             for turbine_id in turbine_ids:
                 # Extract data
                 values = df.select(f"{feature_type}_{turbine_id}").collect().to_numpy().flatten()
@@ -772,10 +772,10 @@ class DataInspector:
         if data_format == 'wide':
             # Unpivot wide format to long format
             return pl.concat([
-                df.select(*[pl.col(id_var) for id_var in id_vars], cs.starts_with(feature_type))\
+                df.select(*[pl.col(id_var) for id_var in id_vars], cs.starts_with(f"{feature_type}_"))\
                 .unpivot(index=id_vars, variable_name="feature", value_name=feature_type)\
                 .with_columns(pl.col("feature").str.extract(turbine_signature, group_index=0).alias("turbine_id"))\
-                .drop("feature") for feature_type in value_vars if len(df.select(cs.starts_with(feature_type)).columns)], how="align")\
+                .drop("feature") for feature_type in value_vars if len(df.select(cs.starts_with(f"{feature_type}_")).columns)], how="align")\
                 .group_by("turbine_id", *id_vars).agg(cs.numeric().drop_nulls().first()).sort("turbine_id", "time")
         else:
             # Data is already in long format
@@ -863,7 +863,7 @@ class DataInspector:
         for turbine_id in turbine_ids:
             # df = full_df.filter(pl.col(f"power_output_{turbine_id}") >= 0).select("time", f"wind_direction_{turbine_id}").collect()
             df = full_df.filter(pl.col(f"power_output_{turbine_id}") >= 0)\
-                        .select("time", cs.starts_with("wind_direction"), "wd_median")
+                        .select("time", cs.starts_with("wind_direction_"), "wd_median")
                         
             ax.plot(df.select("time").collect().to_numpy().flatten(),
                     df.select(pl.col(f"wind_direction_{turbine_id}") - pl.col("wd_median"))\
@@ -1018,14 +1018,14 @@ class DataInspector:
         feature_types = set(feat_type for feat_type in feature_types if any(feat_type in col for col in df_query.collect_schema().names()))
         n_unique_expr =  pl.all().drop_nulls().n_unique()
         print("% unique values", pl.concat([
-            df_query.select(cs.starts_with(feat_type))\
+            df_query.select(cs.starts_with(cs.starts_with(f"{feat_type}_")))\
                     .select((100 * pl.min_horizontal(n_unique_expr) / pl.len()).alias(f"{feat_type}_min_n_unique"), 
                             (100 * pl.max_horizontal(n_unique_expr) / pl.len()).alias(f"{feat_type}_max_n_unique"))\
                     .collect() for feat_type in feature_types], how="horizontal"), sep="\n")
         
         n_non_null_expr = pl.all().count()
         print("% non-null values", pl.concat([
-            df_query.select(cs.starts_with(feat_type))\
+            df_query.select(cs.starts_with(cs.starts_with(f"{feat_type}_")))\
                     .select((100 * pl.min_horizontal(n_non_null_expr) / pl.len()).alias(f"{feat_type}_min_non_null"), 
                             (100 * pl.max_horizontal(n_non_null_expr) / pl.len()).alias(f"{feat_type}_max_non_null"))\
                     .collect() for feat_type in feature_types], how="horizontal"), sep="\n")

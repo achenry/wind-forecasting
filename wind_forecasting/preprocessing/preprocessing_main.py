@@ -171,7 +171,7 @@ def main():
                 data_loader.turbine_signature = "\\d+$" 
             else:
                 data_loader.turbine_signature = data_loader.turbine_signature[0]
-                
+            
             df_query = df_query.select([pl.col("time")] 
                                        + [pl.col(c) for c in 
                                           sorted(df_query.select(cs.numeric()).collect_schema().names(), 
@@ -1028,9 +1028,15 @@ def main():
             # else, for each of those split datasets, impute the values using the imputing.impute_all_assets_by_correlation function
             # fill data on single concatenated dataset
 
-            df_query2 = data_filter._fill_single_missing_dataset(df_idx=0, df=df_query, impute_missing_features=["ws_horz", "ws_vert"], 
-                                                    interpolate_missing_features=["ws_horz", "ws_vert", "nd_cos", "nd_sin"], 
-                                                    parallel="turbine_id", r2_threshold=config["impute_r2_threshold"])
+            df_query2 = data_filter._fill_single_missing_dataset(
+                df_idx=0, 
+                df=df_query, 
+                impute_missing_features=["ws_horz", "ws_vert"], 
+                interpolate_missing_features=["ws_horz", "ws_vert", "nd_cos", "nd_sin"], 
+                # parallel="feature",
+                # parallel="turbine_id",
+                parallel=None, # TODO there is an issue with the parallel implementation, doesn't work unless df_query is colllected first, sth to do with lambda function renaming 
+                r2_threshold=config["impute_r2_threshold"])
 
             df_query = df_query.drop([cs.starts_with(feat) for feat in ["ws_horz", "ws_vert", "nd_cos", "nd_sin", "power_output"]]).join(df_query2, on="time", how="left")
             del df_query2
