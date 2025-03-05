@@ -4,7 +4,7 @@ filters:
   - range_flag
   - bin_filter
   - std_range_flag
-  - split
+  # - split
   - impute_missing_data
   - normalize
 
