@@ -158,7 +158,7 @@ class DataInspector:
                     #     continue
                     
                     feature_df = df_query.filter(pl.col("continuity_group") == cg)\
-                                 .select(pl.col("time"), cs.starts_with(feat))
+                                 .select(pl.col("time"), cs.starts_with(f"{feat}_"))
                     
                     for tid in valid_turbines:
                         turbine_df = feature_df.select([pl.col("time"), cs.ends_with(f"_{tid}")]).collect().to_pandas()
@@ -1012,20 +1012,20 @@ class DataInspector:
         df_query = df_query.select(
             [pl.col(col) for col in df_query.collect_schema().names() 
                          if (not df_query.select(pl.col(col).is_null().all()).collect().item() 
-                         and any(col.startswith(feat_type) for feat_type in feature_types))])
+                         and any(col.startswith(f"{feat_type}_") for feat_type in feature_types))])
         
         # TODO not robust way to capture feature... what if one feat_type is a substring of another..
         feature_types = set(feat_type for feat_type in feature_types if any(feat_type in col for col in df_query.collect_schema().names()))
         n_unique_expr =  pl.all().drop_nulls().n_unique()
         print("% unique values", pl.concat([
-            df_query.select(cs.starts_with(cs.starts_with(f"{feat_type}_")))\
+            df_query.select(cs.starts_with(f"{feat_type}_"))\
                     .select((100 * pl.min_horizontal(n_unique_expr) / pl.len()).alias(f"{feat_type}_min_n_unique"), 
                             (100 * pl.max_horizontal(n_unique_expr) / pl.len()).alias(f"{feat_type}_max_n_unique"))\
                     .collect() for feat_type in feature_types], how="horizontal"), sep="\n")
         
         n_non_null_expr = pl.all().count()
         print("% non-null values", pl.concat([
-            df_query.select(cs.starts_with(cs.starts_with(f"{feat_type}_")))\
+            df_query.select(cs.starts_with(f"{feat_type}_"))\
                     .select((100 * pl.min_horizontal(n_non_null_expr) / pl.len()).alias(f"{feat_type}_min_non_null"), 
                             (100 * pl.max_horizontal(n_non_null_expr) / pl.len()).alias(f"{feat_type}_max_non_null"))\
                     .collect() for feat_type in feature_types], how="horizontal"), sep="\n")
