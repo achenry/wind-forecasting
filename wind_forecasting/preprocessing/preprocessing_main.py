@@ -239,7 +239,8 @@ def main():
         data_format='auto',
         save_dir=os.path.dirname(config["processed_data_path"])
     )
-    data_inspector.fmodel.cor 
+    
+    waked_distances = np.array([((data_inspector.fmodel.layout_x[pair[0]] - data_inspector.fmodel.layout_x[pair[1]])**2 + (data_inspector.fmodel.layout_y[pair[0]] - data_inspector.fmodel.layout_y[pair[1]])**2)**0.5 for pair in config["nacelle_calibration_turbine_pairs"]])
     if args.debug:
         # .group_by("time", "file_set_idx")\
         df_query = df_query.slice(0, int(3 * 30 * np.timedelta64(1, 'D') / np.timedelta64(data_loader.dt, 's')))\
@@ -249,32 +250,40 @@ def main():
     
     # %% Plot Wind Farm, Data Distributions
     # df_query.select("time", "wind_direction_1").filter((pl.col("time") > datetime(2020, 5, 24, 4, 30)) & (pl.col("time") < datetime(2020, 5, 24, 6, 30))).collect().to_numpy()[:, 1].flatten() 
-    if args.plot:
+    if True or args.plot:
         from datetime import datetime
         df_query = df_query.with_columns(file_set_idx=pl.when(pl.col("time") < pl.lit(datetime(2024,2,20))).then(0).otherwise(1))
         file_set_indices = df_query.select("file_set_idx").unique().collect().to_numpy().flatten()
         logging.info("🔄 Generating plots.")
         # x = pl.concat([df.slice(0, ROW_LIMIT) for df in df_query.collect().partition_by("file_set_idx")], how="vertical").lazy()
-        df_query2 = df_query.with_columns(pl.col("time").dt.round(f"{1}m").alias("time"))\
-                     .group_by("time", "file_set_idx").agg(cs.numeric().mean()).sort("time")\
-                     .filter(pl.all_horizontal((cs.starts_with("wind_speed") >= 3) & (cs.starts_with("wind_speed") <= 25)))
-        
         # data_inspector.plot_wind_farm()
-        # data_inspector.plot_wind_rose(df_query2, feature_type="wind_direction", turbine_ids="all", fig_label=f"wind_rose_awaken")
-        data_inspector.plot_wind_speed_weibull(df_query2.filter(pl.col("file_set_idx") == 1), turbine_ids="all", fig_label=file_set_idx) 
+        if "file_set_idx" in df_query.collect_schema().names():
+            df_query2 = df_query.with_columns(pl.col("time").dt.round(f"{1}m").alias("time"))\
+                        .group_by("time", "file_set_idx").agg(cs.numeric().mean()).sort("time")\
+                        .filter(pl.all_horizontal((cs.starts_with("wind_speed") >= 3) & (cs.starts_with("wind_speed") <= 25)))
         
-        for file_set_idx in file_set_indices:
-            data_inspector.plot_wind_rose(df_query2.filter(pl.col("file_set_idx") == file_set_idx).slice(0, int(ROW_LIMIT)), 
-                                          feature_type="wind_direction", turbine_ids="all", fig_label=f"wind_rose_{file_set_idx}")
-            # data_inspector.plot_wind_rose(df_query2.filter(pl.col("file_set_idx") == file_set_idx).slice(0, int(ROW_LIMIT)), 
-            #                               feature_type="nacelle_direction", turbine_ids="all", fig_label=f"nacelle_rose_{file_set_idx}")
-        
-        for file_set_idx in file_set_indices:
-            data_inspector.plot_wind_speed_power(df_query2.filter(pl.col("file_set_idx") == file_set_idx).slice(0, ROW_LIMIT), turbine_ids=data_loader.turbine_ids, fig_label=file_set_idx)
-        
-        for file_set_idx in file_set_indices:
-            data_inspector.plot_wind_speed_weibull(df_query2.filter(pl.col("file_set_idx") == file_set_idx).slice(0, ROW_LIMIT), turbine_ids="all", fig_label=file_set_idx)
-        
+            
+            # data_inspector.plot_wind_rose(df_query2, feature_type="wind_direction", turbine_ids="all", fig_label=f"wind_rose_awaken")
+            data_inspector.plot_wind_speed_weibull(df_query2.filter(pl.col("file_set_idx") == 1), turbine_ids="all", fig_label=file_set_idx) 
+            
+            for file_set_idx in file_set_indices:
+                data_inspector.plot_wind_rose(df_query2.filter(pl.col("file_set_idx") == file_set_idx).slice(0, ROW_LIMIT), 
+                                            feature_type="wind_direction", turbine_ids="all", fig_label=f"wind_rose_{file_set_idx}")
+                # data_inspector.plot_wind_rose(df_query2.filter(pl.col("file_set_idx") == file_set_idx).slice(0, ROW_LIMIT), 
+                #                               feature_type="nacelle_direction", turbine_ids="all", fig_label=f"nacelle_rose_{file_set_idx}")
+            
+            for file_set_idx in file_set_indices:
+                data_inspector.plot_wind_speed_power(df_query2.filter(pl.col("file_set_idx") == file_set_idx).slice(0, ROW_LIMIT), turbine_ids=data_loader.turbine_ids, fig_label=file_set_idx)
+            
+            for file_set_idx in file_set_indices:
+                data_inspector.plot_wind_speed_weibull(df_query2.filter(pl.col("file_set_idx") == file_set_idx).slice(0, ROW_LIMIT), turbine_ids="all", fig_label=file_set_idx)
+        else:
+            df_query2 = df_query.with_columns(pl.col("time").dt.round(f"{1}m").alias("time"))\
+                        .group_by("time").agg(cs.numeric().mean()).sort("time")\
+                        .filter(pl.all_horizontal((cs.starts_with("wind_speed") >= 3) & (cs.starts_with("wind_speed") <= 25)))
+            data_inspector.plot_wind_rose(df_query2.slice(0, ROW_LIMIT), 
+                                feature_type="wind_direction", turbine_ids="all", fig_label=f"wind_rose_{file_set_idx}")
+                        
         # data_inspector.plot_correlation(df_query.slice(0, ROW_LIMIT), 
         # data_inspector.get_features(df_query.slice(0, ROW_LIMIT), feature_types=["wind_speed", "wind_direction", "nacelle_direction"], 
         #                             turbine_ids=data_loader.turbine_ids))
