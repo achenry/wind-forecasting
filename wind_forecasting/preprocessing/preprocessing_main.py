@@ -10,7 +10,7 @@
 # ! pip install floris polars windrose netCDF4 statsmodels h5pyd seaborn pyarrow memory_profiler scikit-learn
 # ! python -m ipykernel install --user --name=wind_forecasting_env
 # ./run_jupyter_preprocessing.sh && http://localhost:7878/lab
-
+# TODO save parquet and reload between each step, to avoid BingingsError Recursion Limit Exceeded
 import os
 import sys
 import logging
@@ -532,7 +532,6 @@ def main():
                 data_inspector.plot_time_series(df_query.slice(0, ROW_LIMIT), feature_types=["wind_speed", "wind_direction"], 
                                                 turbine_ids=data_loader.turbine_ids, continuity_groups=None, label="after_out_of_window")
             
-
         if "bin_filter" in config["filters"]:
             logging.info("Nullifying wind speed-power curve bin-outlier cells.")
             applied_filter = True
@@ -764,17 +763,14 @@ def main():
         # %%
     # Feature Selection
     logging.info("Selecting features.")
-    # .with_columns(((cs.starts_with("wind_direction") - 180.0).radians().sin()).name.map(lambda c: "wd_sin_" + re.findall(data_loader.turbine_signature, c)[0]),
-                        # ((cs.starts_with("wind_direction") - 180.0).radians().cos()).name.map(lambda c: "wd_cos_" + re.findall(data_loader.turbine_signature, c)[0]))\ 
     
     df_query2 = df_query\
-            .with_columns(((cs.starts_with("wind_direction_") - 180.0).radians().sin()).name.prefix("sin_"),
-                        ((cs.starts_with("wind_direction_") - 180.0).radians().cos()).name.prefix("cos_"))\
-            .with_columns(**{f"ws_horz_{tid}": (pl.col(f"wind_speed_{tid}") * pl.col(f"sin_wind_direction_{tid}")) for tid in data_loader.turbine_ids})\
-            .with_columns(**{f"ws_vert_{tid}": (pl.col(f"wind_speed_{tid}") * pl.col(f"cos_wind_direction_{tid}")) for tid in data_loader.turbine_ids})\
-            .with_columns(**{f"nd_cos_{tid}": ((pl.col(f"nacelle_direction_{tid}")).radians().cos()) for tid in data_loader.turbine_ids})\
-            .with_columns(**{f"nd_sin_{tid}": ((pl.col(f"nacelle_direction_{tid}")).radians().sin()) for tid in data_loader.turbine_ids})\
-            .select(pl.col("time"), cs.starts_with("ws_horz"), cs.starts_with("ws_vert"), cs.starts_with("nd_sin"), cs.starts_with("nd_cos"), cs.starts_with("power_output"))
+        .with_columns(**{f"ws_horz_{tid}": (pl.col(f"wind_speed_{tid}") * ((pl.col(f"wind_direction_{tid}") - 180.0).radians().sin())) for tid in data_loader.turbine_ids})\
+        .with_columns(**{f"ws_vert_{tid}": (pl.col(f"wind_speed_{tid}") * ((pl.col(f"wind_direction_{tid}") - 180.0).radians().cos())) for tid in data_loader.turbine_ids})\
+        .with_columns(**{f"nd_cos_{tid}": ((pl.col(f"nacelle_direction_{tid}")).radians().cos()) for tid in data_loader.turbine_ids})\
+        .with_columns(**{f"nd_sin_{tid}": ((pl.col(f"nacelle_direction_{tid}")).radians().sin()) for tid in data_loader.turbine_ids})\
+        .select(pl.col("time"), cs.starts_with("ws_horz"), cs.starts_with("ws_vert"), cs.starts_with("nd_sin"), cs.starts_with("nd_cos"), cs.starts_with("power_output"))
+    
     # df_query2.filter(pl.col("continuity_group") == 5).select("time", "ws_horz_1", "ws_vert_1").filter((pl.col("time") > datetime(2020, 5, 24, 4, 30)) & (pl.col("time") < datetime(2020, 5, 24, 6, 30))).collect().to_numpy()[:, 1].flatten() 
     if False:
         wind_dirs = np.arctan2(df_query2.select(cs.starts_with("ws_horz")).collect().to_numpy(), 
@@ -1034,10 +1030,12 @@ def main():
                 df_idx=0, 
                 df=df_query, 
                 impute_missing_features=["ws_horz", "ws_vert"], 
+                # impute_missing_features=["wind_direction", "wind_speed"], 
                 interpolate_missing_features=["ws_horz", "ws_vert", "nd_cos", "nd_sin"], 
+                # interpolate_missing_features=["wind_direction", "wind_speed", "nacelle_direction"], 
                 # parallel="feature",
-                # parallel="turbine_id",
-                parallel=None, # TODO there is an issue with the parallel implementation, doesn't work unless df_query is colllected first, sth to do with lambda function renaming 
+                parallel="turbine_id",
+                # parallel=None, # TODO there is an issue with the parallel implementation, doesn't work unless df_query is colllected first, sth to do with lambda function renaming 
                 r2_threshold=config["impute_r2_threshold"])
 
             df_query = df_query.drop([cs.starts_with(feat) for feat in ["ws_horz", "ws_vert", "nd_cos", "nd_sin", "power_output"]]).join(df_query2, on="time", how="left")
