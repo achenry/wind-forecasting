@@ -764,12 +764,14 @@ def main():
         # %%
     # Feature Selection
     logging.info("Selecting features.")
+    # .with_columns(((cs.starts_with("wind_direction") - 180.0).radians().sin()).name.map(lambda c: "wd_sin_" + re.findall(data_loader.turbine_signature, c)[0]),
+                        # ((cs.starts_with("wind_direction") - 180.0).radians().cos()).name.map(lambda c: "wd_cos_" + re.findall(data_loader.turbine_signature, c)[0]))\ 
     
     df_query2 = df_query\
-            .with_columns(((cs.starts_with("wind_direction") - 180.0).radians().sin()).name.map(lambda c: "wd_sin_" + re.findall(data_loader.turbine_signature, c)[0]),
-                        ((cs.starts_with("wind_direction") - 180.0).radians().cos()).name.map(lambda c: "wd_cos_" + re.findall(data_loader.turbine_signature, c)[0]))\
-            .with_columns(**{f"ws_horz_{tid}": (pl.col(f"wind_speed_{tid}") * pl.col(f"wd_sin_{tid}")) for tid in data_loader.turbine_ids})\
-            .with_columns(**{f"ws_vert_{tid}": (pl.col(f"wind_speed_{tid}") * pl.col(f"wd_cos_{tid}")) for tid in data_loader.turbine_ids})\
+            .with_columns(((cs.starts_with("wind_direction_") - 180.0).radians().sin()).name.prefix("sin_"),
+                        ((cs.starts_with("wind_direction_") - 180.0).radians().cos()).name.prefix("cos_"))\
+            .with_columns(**{f"ws_horz_{tid}": (pl.col(f"wind_speed_{tid}") * pl.col(f"sin_wind_direction_{tid}")) for tid in data_loader.turbine_ids})\
+            .with_columns(**{f"ws_vert_{tid}": (pl.col(f"wind_speed_{tid}") * pl.col(f"cos_wind_direction_{tid}")) for tid in data_loader.turbine_ids})\
             .with_columns(**{f"nd_cos_{tid}": ((pl.col(f"nacelle_direction_{tid}")).radians().cos()) for tid in data_loader.turbine_ids})\
             .with_columns(**{f"nd_sin_{tid}": ((pl.col(f"nacelle_direction_{tid}")).radians().sin()) for tid in data_loader.turbine_ids})\
             .select(pl.col("time"), cs.starts_with("ws_horz"), cs.starts_with("ws_vert"), cs.starts_with("nd_sin"), cs.starts_with("nd_cos"), cs.starts_with("power_output"))
