@@ -537,13 +537,17 @@ def main():
             applied_filter = True
             # apply a bin filter to remove data with power values outside of an envelope around median power curve at each wind speed
             if args.regenerate_filters or not os.path.exists(config["processed_data_path"].replace(".parquet", "_bin_outliers.npy")):
-                data_filter.multiprocessor = None
+                # data_filter.multiprocessor = None
                 plot_approx = False
                 if plot_approx:
                     df_query = df_query.slice(0, int(60 * 60 * 24 * 30 * 6))\
                                      .with_columns(pl.col("time").dt.round(f"{1}m").alias("time"))\
                                      .group_by("time").agg(cs.numeric().mean()).sort("time")
-                                   
+                
+                # need to sink parquet and recollect to avoid recursion limit error
+                df_query.collect().write_parquet(config["processed_data_path"].replace(".parquet", "_filtered.parquet"), statistics=False)
+                df_query = pl.scan_parquet(config["processed_data_path"].replace(".parquet", "_filtered.parquet"))
+                     
                 bin_outliers = data_filter.multi_generate_filter(df_query=df_query, filter_func=data_filter._single_generate_bin_filter,
                                                                   feature_types=["wind_speed", "power_output"], turbine_ids=data_loader.turbine_ids,
                                                                   bin_width=50, 
@@ -554,7 +558,7 @@ def main():
                                                                   threshold_type="mad", # keep cases that are within 3 median absolute deviation from the median
                                                                   direction="below"# keep derated cases
                                                                   ) 
-                data_filter.multiprocessor = args.multiprocessor
+                # data_filter.multiprocessor = args.multiprocessor
 
                 np.save(config["processed_data_path"].replace(".parquet", "_bin_outliers.npy"), bin_outliers)
             else:
@@ -618,6 +622,7 @@ def main():
 
         if applied_filter:
             df_query.collect().write_parquet(config["processed_data_path"].replace(".parquet", "_filtered.parquet"), statistics=False)
+            df_query = pl.scan_parquet(config["processed_data_path"].replace(".parquet", "_filtered.parquet"))
     else:
         df_query = pl.scan_parquet(config["processed_data_path"].replace(".parquet", "_filtered.parquet"))
 
@@ -1026,6 +1031,10 @@ def main():
             # else, for each of those split datasets, impute the values using the imputing.impute_all_assets_by_correlation function
             # fill data on single concatenated dataset
 
+            # need to sink parquet and recollect to avoid recursion limit error
+            df_query.collect().write_parquet(config["processed_data_path"].replace(".parquet", "_imputed.parquet"), statistics=False)
+            df_query = pl.scan_parquet(config["processed_data_path"].replace(".parquet", "_imputed.parquet"))
+            
             df_query2 = data_filter._fill_single_missing_dataset(
                 df_idx=0, 
                 df=df_query, 
@@ -1034,8 +1043,8 @@ def main():
                 interpolate_missing_features=["ws_horz", "ws_vert", "nd_cos", "nd_sin"], 
                 # interpolate_missing_features=["wind_direction", "wind_speed", "nacelle_direction"], 
                 # parallel="feature",
-                # parallel="turbine_id",
-                parallel=None, # TODO there is an issue with the parallel implementation, doesn't work unless df_query is colllected first, sth to do with lambda function renaming 
+                parallel="turbine_id",
+                # parallel=None, # TODO there is an issue with the parallel implementation, doesn't work unless df_query is colllected first, sth to do with lambda function renaming 
                 r2_threshold=config["impute_r2_threshold"])
 
             df_query = df_query.drop([cs.starts_with(feat) for feat in ["ws_horz", "ws_vert", "nd_cos", "nd_sin", "power_output"]]).join(df_query2, on="time", how="left")
