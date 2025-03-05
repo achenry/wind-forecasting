@@ -146,13 +146,13 @@ class DataFilter:
         return mask
 
     def _single_generate_bin_filter(self, df_query, tid, **kwargs):
-        mask = filters.bin_filter(bin_col=f"power_output_{tid}", value_col=f"wind_speed_{tid}", 
+        mask, center = filters.bin_filter(bin_col=f"power_output_{tid}", value_col=f"wind_speed_{tid}", 
                                   data=df_query.select(f"wind_speed_{tid}", f"power_output_{tid}").collect().to_pandas(),
-                                  **kwargs).values
+                                  return_center=True, **kwargs).values
         mask &= df_query.select(pl.all_horizontal(pl.all().is_not_null())).collect().to_numpy().flatten()
                                                 
         logging.info(f"Finished generating wind speed-power curve bin-outlier filter for {df_query.collect_schema().names()}")
-        return mask
+        return mask, center
     
     def _single_generate_std_range_filter(self, df_query, tid, **kwargs):
         mask = filters.std_range_flag(data_pl=df_query.collect().to_pandas(), **kwargs).values
@@ -175,18 +175,25 @@ class DataFilter:
                 futures = [ex.submit(filter_func, 
                                     df_query=df_query.select([pl.col(f"{feat_type}_{tid}") for feat_type in feature_types]), 
                                     tid=tid, **kwargs) for tid in turbine_ids]
-                masks = [fut.result() for fut in futures]
-                
-                return np.stack(masks, axis=1) 
+                results = [fut.result() for fut in futures]
+                if isinstance(results[0], tuple):
+                    return np.stack([res[0] for res in results], axis=1), [res[1:] for res in results]
+                else:
+                    return np.stack(results, axis=1)
         else:
             logging.info("🔧 Using single process executor")
-            res = []
+            masks = []
+            other_outputs = []
             for tid in turbine_ids:
-                mask = filter_func(
+                res = filter_func(
                     df_query=df_query.select([pl.col(f"{feat_type}_{tid}") for feat_type in feature_types]), tid=tid, **kwargs)
-                res.append(mask)
+                if isinstance(res, tuple):
+                    masks.append(res[0])
+                    other_outputs.append(res[1])
+                else:
+                    masks.append(res)
                     
-            return np.stack(res, axis=1)
+            return np.stack(masks, axis=1), other_outputs
 
     def _single_compute_bias(self, df_query, tid):
         bias = df_query\
@@ -381,17 +388,17 @@ class DataFilter:
         
         return __class__._js_divergence(p, q)
 
-    def conditional_filter(self, df, threshold, mask, mask_input_features, output_features, check_js=True):
+    def conditional_filter(self, df, threshold, mask, mask_input_features, output_features, filter_type, check_js=True):
         """
         only applies mask to features if the Jensen-Shannon metric between filtered and unfiltered 
         data exceeds a threshold
         """
         if self.data_format == 'wide':
-            return self._conditional_filter_wide(df, threshold, mask, mask_input_features, output_features, check_js)
+            return self._conditional_filter_wide(df, threshold, mask, mask_input_features, output_features, filter_type, check_js)
         else:
-            return self._conditional_filter_long(df, threshold, mask, mask_input_features, output_features, check_js)
+            return self._conditional_filter_long(df, threshold, mask, mask_input_features, output_features, filter_type, check_js)
 
-    def _conditional_filter_wide(self, df, threshold, mask, mask_input_features, output_features, check_js):
+    def _conditional_filter_wide(self, df, threshold, mask, mask_input_features, output_features, filter_type, check_js):
         if check_js:
             js_scores = []
             for inp_feat, opt_feat in zip(mask_input_features, output_features):
@@ -400,7 +407,7 @@ class DataFilter:
                     train_sample=df.filter(filt_expr).select(opt_feat).drop_nulls().collect().to_numpy().flatten(),
                     test_sample=df.select(opt_feat).drop_nulls().collect().to_numpy().flatten()
                 )
-                logging.info(f"JS Score for feature {opt_feat} = {js_score}")
+                logging.info(f"JS Score for feature {opt_feat} = {js_score} with filter {filter_type}")
                 js_scores.append(js_score)
                 
                 if js_score > threshold:
@@ -409,6 +416,7 @@ class DataFilter:
                     #     ma.filled(ma.array(df.select(pl.col(feat)).collect().to_numpy().flatten(), mask=mask(tid), fill_value=np.nan))
                     #                         }).with_columns(pl.col(feat).fill_nan(None).alias(feat))
                     df = df.with_columns(pl.when(pl.Series(filt_expr)).then(None).otherwise(pl.col(opt_feat)).alias(opt_feat))
+                    logging.info(f"Applied filter {filter_type} to feature {opt_feat}.")
                 
                 # if js_score > threshold:
                     # df = df.with_columns(pl.when(mask(tid)).then(pl.col(feat)).otherwise(None).alias(feat))
@@ -424,11 +432,11 @@ class DataFilter:
                 #     ma.filled(ma.array(df.select(pl.col(feat)).collect().to_numpy().flatten(), mask=filt_expr, fill_value=np.nan))
                 #     }).with_columns(pl.col(feat).fill_nan(None).alias(feat))
                 # df = df.with_columns(pl.when(mask(tid)).then(pl.col(feat)).otherwise(None).alias(feat))
-                logging.info(f"Applied filter to feature {opt_feat}.")
+                logging.info(f"Applied filter {filter_type} to feature {opt_feat}.")
         
         return df
 
-    def _conditional_filter_long(self, df, threshold, mask, mask_input_features, output_features, check_js):
+    def _conditional_filter_long(self, df, threshold, mask, mask_input_features, output_features, filter_type, check_js):
         # TODO test this
         if check_js:
             js_scores = []
@@ -438,7 +446,7 @@ class DataFilter:
                     train_sample=df.filter(pl.Series(filt_expr)).select(opt_feat).drop_nulls().collect().to_numpy().flatten(),
                     test_sample=df.select(opt_feat).drop_nulls().collect().to_numpy().flatten()
                 )
-                logging.info(f"JS Score for feature {feat} = {js_score}")
+                logging.info(f"JS Score for feature {opt_feat} = {js_score} with filter {filter_type}")
                 js_scores.append(js_score)
                 # if js_score > threshold:
                 #     df = df.with_columns(pl.when(mask).then(pl.col(feat)).otherwise(None).alias(feat))
