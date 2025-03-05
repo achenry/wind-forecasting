@@ -631,6 +631,10 @@ def main():
             # Nacelle Calibration 
             # Find and correct wind direction offsets from median wind plant wind direction for each turbine
             logging.info("Subtracting median wind direction from wind direction and nacelle direction measurements.")
+            
+            # need to sink parquet and recollect to avoid recursion limit error
+            df_query.collect().write_parquet(config["processed_data_path"].replace(".parquet", "_calibrated.parquet"), statistics=False)
+            df_query = pl.scan_parquet(config["processed_data_path"].replace(".parquet", "_calibrated.parquet"))
 
             # add the 3 degrees back to the wind direction signal
             offset = 3.0
