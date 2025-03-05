@@ -271,16 +271,16 @@ class DataFilter:
             
             with executor as ex:
                 futures = {feature: ex.submit(imputing.impute_all_assets_by_correlation,
-                                              data_pl=df.select("time", cs.starts_with(feature)), data_pd=None, 
+                                              data_pl=df.select("time", cs.starts_with(f"{feature}_")), data_pd=None, 
                                     #  data_pd=unpivot_df.select(["time", "turbine_id", feature]).collect().to_pandas().set_index(["time", "turbine_id"]),
                                      impute_col=feature, reference_col=feature,
                                      asset_id_col="turbine_id", method="linear", r2_threshold=r2_threshold) for feature in impute_missing_features}
                 
                 for k, v in futures.items():
-                    df = df.update(v, on="time")
+                    df = df.update(v.result(), on="time")
         elif parallel == "turbine_id":
             for feature in impute_missing_features:
-                features_pl = ["time", cs.starts_with(feature)]
+                features_pl = ["time", cs.starts_with(f"{feature}_")]
 
                 imputed_vals = imputing.impute_all_assets_by_correlation(
                     # data_pd=unpivot_df.select(features).collect().to_pandas().set_index(["time", "turbine_id"]),
@@ -294,7 +294,7 @@ class DataFilter:
                 logging.info(f"Imputed feature {feature} in DataFrame {df_idx}.")
         else:
             for feature in impute_missing_features:
-                features_pl = ["time", cs.starts_with(feature)]
+                features_pl = ["time", cs.starts_with(f"{feature}_")]
 
                 imputed_vals = imputing.impute_all_assets_by_correlation(
                                                             data_pl=df.select(features_pl), data_pd=None,
@@ -311,7 +311,7 @@ class DataFilter:
         df = self._impute_single_missing_dataset(df_idx, df, impute_missing_features, r2_threshold=r2_threshold, parallel=parallel)
 
         # if any column is all nulls ... can't be imputed
-        df = df.with_columns([cs.starts_with(feat).interpolate().fill_null(strategy="forward").fill_null(strategy="backward") for feat in interpolate_missing_features])
+        df = df.with_columns([cs.starts_with(f"{feat}_").interpolate().fill_null(strategy="forward").fill_null(strategy="backward") for feat in interpolate_missing_features])
 
         if df.select(pl.any_horizontal(pl.all().is_null().sum())).collect().item():
             missing_columns = df.select(col.name for col in 
@@ -665,7 +665,7 @@ def safe_mask(tid, outlier_flag, turbine_id_to_index, flag_format="numpy"):
             idx = turbine_id_to_index[tid]
             mask_array = outlier_flag[:, idx]
         else:
-            mask_array = outlier_flag.select(cs.ends_with(tid))
+            mask_array = outlier_flag.select(cs.ends_with(f"_{tid}"))
         # logging.info(f"Mask for turbine {tid} includes {np.sum(~mask_array)} out of {len(mask_array)} data points")
         return mask_array
     except KeyError:
