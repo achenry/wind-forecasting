@@ -18,12 +18,11 @@ filters:
     bin_max: 0.95 # factor multiplied by rated power
     threshold_type: scalar
   std_range_flag:
-    threshold: 1.0
-  # split:
-  #   missing_col_thr: 66 # number of missing turbine measurements, from either wind speed or wind direction, (max = n_turbines) above which this subset of data will be omitted, i.e. if many data points are missing omit the data
-  #   missing_duration_thr: 300 # maximum duration for which subsets of data which have missing measurements exceeding missing_col_thr in any feature type will still be included, i.e. if many data points are missing but only for a short time, use the data, seconds
-  #   minimum_not_missing_duration: 1200 # minimum duration that any retained continuous subset of data must be to be useful, seconds, i.e. should contain at least the intended context length and prediction length
-
+    threshold: 2.0
+  split:
+    missing_col_thr: 66 # number of missing turbine measurements, from either wind speed or wind direction, (max = n_turbines) above which this subset of data will be omitted, i.e. if many data points are missing omit the data
+    missing_duration_thr: 300 # maximum duration for which subsets of data which have missing measurements exceeding missing_col_thr in any feature type will still be included, i.e. if many data points are missing but only for a short time, use the data, seconds
+    minimum_not_missing_duration: 1200 # minimum duration that any retained continuous subset of data must be to be useful, seconds, i.e. should contain at least the intended context length and prediction length
   impute_missing_data:
     r2_threshold: 0.7
   normalize:
