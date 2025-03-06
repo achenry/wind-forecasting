@@ -2,11 +2,15 @@ import argparse
 import logging
 from memory_profiler import profile
 import os
-import json
+import torch
+import gc
+import random
+import numpy as np
 
 import polars as pl
-import wandb
-wandb.login()
+# import wandb
+from lightning.pytorch.loggers import WandbLogger
+# wandb.login()
 # wandb.login(relogin=True)
 import yaml
 
@@ -61,6 +65,12 @@ def main():
 
     args = parser.parse_args()
     
+    # %% SETUP SEED
+    logging.info(f"Setting random seed to {args.seed}")
+    torch.manual_seed(args.seed)
+    random.seed(args.seed)
+    np.random.seed(args.seed)
+    
     # %% PARSE CONFIG
     logging.info(f"Parsing configuration from yaml and command line arguments")
     with open(args.config, "r") as f:
@@ -82,6 +92,7 @@ def main():
     logging.info("Setting up logging")
     if not os.path.exists(config["experiment"]["log_dir"]):
         os.makedirs(config["experiment"]["log_dir"])
+        
     wandb_logger = WandbLogger(
         project="wind_forecasting",
         name=config["experiment"]["run_name"],
@@ -89,7 +100,7 @@ def main():
         # offline=True,
         save_dir=config["experiment"]["log_dir"],
     )
-    wandb_logger.experiment.config.update(config)
+    wandb_logger.log_hyperparams(config)
     config["trainer"]["logger"] = wandb_logger
 
 
@@ -146,6 +157,7 @@ def main():
         )
 
     if args.mode == "tune":
+        logging.info("Starting Optuna hyperparameter tuning...")
         # %% TUNE MODEL WITH OPTUNA
         from wind_forecasting.run_scripts.tuning import tune_model
         if not os.path.exists(config["optuna"]["journal_dir"]):
@@ -155,6 +167,9 @@ def main():
         LightningModuleClass = globals()[f"{args.model.capitalize()}LightningModule"]
         EstimatorClass = globals()[f"{args.model.capitalize()}Estimator"]
         DistrOutputClass = globals()[config["model"]["distr_output"]["class"]]
+        
+        # Print available memory before creating model
+        logging.info(f"GPU Memory before model: {torch.cuda.memory_allocated()/1e6:.2f}MB / {torch.cuda.memory_reserved()/1e6:.2f}MB")
         
         tune_model(model=args.model, config=config, 
                     lightning_module_class=LightningModuleClass, 
@@ -171,7 +186,13 @@ def main():
                     use_rdb=config["optuna"]["use_rdb"],
                     restart_study=args.restart_tuning)
         
+        # After training completes
+        torch.cuda.empty_cache()
+        gc.collect()
+        logging.info("Optuna hyperparameter tuning completed.")
+        
     elif args.mode == "train":
+        logging.info("Starting model training...")
         # %% TRAIN MODEL
         logging.info("Training model")
         estimator.train(
@@ -182,7 +203,9 @@ def main():
             # shuffle_buffer_length=1024
         )
         # train_output.trainer.checkpoint_callback.best_model_path
+        logging.info("Model training completed.")
     elif args.mode == "test":
+        logging.info("Starting model testing...")
         # %% TEST MODEL
         from wind_forecasting.run_scripts.testing import test_model
         from glob import glob
@@ -247,6 +270,8 @@ def main():
                     lightning_module_class=globals()[f"{args.model.capitalize()}LightningModule"], 
                     estimator=estimator, 
                     normalization_consts_path=config["dataset"]["normalization_consts_path"])
+        
+        logging.info("Model testing completed.")
         
         # %% EXPORT LOGGING DATA
         # api = wandb.Api()
