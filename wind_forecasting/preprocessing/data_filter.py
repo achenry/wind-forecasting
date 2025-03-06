@@ -146,14 +146,14 @@ class DataFilter:
         return mask
 
     def _single_generate_bin_filter(self, df_query, tid, **kwargs):
-        mask, center = filters.bin_filter(bin_col=f"power_output_{tid}", value_col=f"wind_speed_{tid}", 
+        mask = filters.bin_filter(bin_col=f"power_output_{tid}", value_col=f"wind_speed_{tid}", 
                                   data=df_query.select(f"wind_speed_{tid}", f"power_output_{tid}").collect().to_pandas(),
-                                  return_center=True, **kwargs)
-        mask = mask.values
+                                  return_center=False, **kwargs).values
+        
         mask &= df_query.select(pl.all_horizontal(pl.all().is_not_null())).collect().to_numpy().flatten()
                                                 
         logging.info(f"Finished generating wind speed-power curve bin-outlier filter for {df_query.collect_schema().names()}")
-        return mask, center
+        return mask #, center
     
     def _single_generate_std_range_filter(self, df_query, tid, **kwargs):
         mask = filters.std_range_flag(data_pl=df_query.collect().to_pandas(), **kwargs).values
@@ -168,19 +168,20 @@ class DataFilter:
                 executor = MPICommExecutor(MPI.COMM_WORLD, root=0)
                 logging.info(f"🚀 Using MPI executor with {MPI.COMM_WORLD.Get_size()} processes")
             else:  # "cf" case
+                print(171)  
                 max_workers = multiprocessing.cpu_count()
                 executor = ProcessPoolExecutor(max_workers=max_workers)
                 logging.info(f"🖥️  Using ProcessPoolExecutor with {max_workers} workers")
-            
+            print(175) 
             with executor as ex:
                 futures = [ex.submit(filter_func, 
                                     df_query=df_query.select([pl.col(f"{feat_type}_{tid}") for feat_type in feature_types]), 
                                     tid=tid, **kwargs) for tid in turbine_ids]
                 results = [fut.result() for fut in futures]
-                if isinstance(results[0], tuple):
-                    return np.stack([res[0] for res in results], axis=1), [res[1:] for res in results]
-                else:
-                    return np.stack(results, axis=1), None
+                # if isinstance(results[0], tuple):
+                #     return np.stack([res[0] for res in results], axis=1), [res[1:] for res in results]
+                # else:
+                return np.stack(results, axis=1), None
         else:
             logging.info("🔧 Using single process executor")
             masks = []
@@ -188,13 +189,13 @@ class DataFilter:
             for tid in turbine_ids:
                 res = filter_func(
                     df_query=df_query.select([pl.col(f"{feat_type}_{tid}") for feat_type in feature_types]), tid=tid, **kwargs)
-                if isinstance(res, tuple):
-                    masks.append(res[0])
-                    other_outputs.append(res[1])
-                else:
-                    masks.append(res)
+                # if isinstance(res, tuple):
+                #     masks.append(res[0])
+                #     other_outputs.append(res[1])
+                # else:
+                masks.append(res)
                     
-            return np.stack(masks, axis=1), other_outputs or None
+            return np.stack(masks, axis=1) #, other_outputs or None
 
     def _single_compute_bias(self, df_query, tid):
         bias = df_query\
