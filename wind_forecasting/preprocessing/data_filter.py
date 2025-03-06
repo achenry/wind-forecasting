@@ -148,7 +148,8 @@ class DataFilter:
     def _single_generate_bin_filter(self, df_query, tid, **kwargs):
         mask, center = filters.bin_filter(bin_col=f"power_output_{tid}", value_col=f"wind_speed_{tid}", 
                                   data=df_query.select(f"wind_speed_{tid}", f"power_output_{tid}").collect().to_pandas(),
-                                  return_center=True, **kwargs).values
+                                  return_center=True, **kwargs)
+        mask = mask.values
         mask &= df_query.select(pl.all_horizontal(pl.all().is_not_null())).collect().to_numpy().flatten()
                                                 
         logging.info(f"Finished generating wind speed-power curve bin-outlier filter for {df_query.collect_schema().names()}")
@@ -179,7 +180,7 @@ class DataFilter:
                 if isinstance(results[0], tuple):
                     return np.stack([res[0] for res in results], axis=1), [res[1:] for res in results]
                 else:
-                    return np.stack(results, axis=1)
+                    return np.stack(results, axis=1), None
         else:
             logging.info("🔧 Using single process executor")
             masks = []
@@ -193,7 +194,7 @@ class DataFilter:
                 else:
                     masks.append(res)
                     
-            return np.stack(masks, axis=1), other_outputs
+            return np.stack(masks, axis=1), other_outputs or None
 
     def _single_compute_bias(self, df_query, tid):
         bias = df_query\
