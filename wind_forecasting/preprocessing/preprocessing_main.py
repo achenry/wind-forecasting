@@ -10,7 +10,7 @@
 # ! pip install floris polars windrose netCDF4 statsmodels h5pyd seaborn pyarrow memory_profiler scikit-learn
 # ! python -m ipykernel install --user --name=wind_forecasting_env
 # ./run_jupyter_preprocessing.sh && http://localhost:7878/lab
-# TODO save parquet and reload between each step, to avoid BingingsError Recursion Limit Exceeded
+
 import os
 import sys
 import logging
@@ -20,6 +20,7 @@ import time
 import re
 from memory_profiler import profile
 from shutil import rmtree
+import pickle
 
 mpi_exists = False
 try:
@@ -336,7 +337,8 @@ def main():
         # find stuck sensor measurements for each turbine and set them to null
         # NOTE: this filter must be applied before any cells are nullified st null values aren't considered repeated values
         # find values of wind speed/direction, where there are duplicate values with nulls inbetween
-        if args.reload_data or args.regenerate_filters or not os.path.exists(config["processed_data_path"].replace(".parquet", "_frozen_sensors.npy")):
+        if args.reload_data or args.regenerate_filters \
+            or not all(os.path.exists(config["processed_data_path"].replace(".parquet", "_frozen_sensors_{feat}.npy")) for feat in ws_cols + wd_cols):
             thr = int(np.timedelta64(config["filters"]["unresponsive_sensor"]["frozen_sensor_limit"], 's') / np.timedelta64(data_loader.dt, 's'))
             frozen_sensors = filters.unresponsive_flag(
                 data_pl=df_query.select(cs.starts_with("wind_speed"), cs.starts_with("wind_direction")), 
@@ -347,8 +349,8 @@ def main():
                 np.save(config["processed_data_path"].replace(".parquet", f"_frozen_sensors_{feat}.npy"), 
                             frozen_sensors(feat).collect().to_numpy().flatten())
         else:
-            mask = lambda feat: np.load(config["processed_data_path"].replace(".parquet", f"_frozen_sensors_{feat}.npy"))
-            
+            mask = lambda feat: np.load(config["processed_data_path"].replace(".parquet", f"_frozen_sensors_{feat}.npy")) 
+        
         # check time series
         if args.verbose:
             DataInspector.print_pc_remaining_vals(df_query, mask,
@@ -883,7 +885,7 @@ def main():
         ws_horz_cols = [col for col in df_query.collect_schema().names() if col.startswith("ws_horz")]
         ws_vert_cols = [col for col in df_query.collect_schema().names() if col.startswith("ws_vert")]
         # apply a bin filter to remove data with power values outside of an envelope around median power curve at each wind speed
-        if args.reload_data or args.regenerate_filters or not os.path.exists(config["processed_data_path"].replace(".parquet", "_std_dev_outliers.npy")):
+        if args.reload_data or args.regenerate_filters or not os.path.exists(config["processed_data_path"].replace(".parquet", "_std_dev_outliers.pkl")):
             # df_query.select("time", "ws_vert_1").with_row_index().filter(((pl.col("time") > datetime(2020, 5, 23, 20, 45)) & (pl.col("time") < datetime(2020, 5, 23, 21, 45)))).collect().select("index").to_numpy().flatten() 
             # TODO consider neighboring turbines only
             std_dev_outliers = filters.std_range_flag(
@@ -892,39 +894,24 @@ def main():
                 over="asset", feature_types=["ws_horz", "ws_vert"],
                 # asset_coords={tid: (data_inspector.fmodel.layout_x[t], data_inspector.fmodel.layout_y[t]) for t, tid in enumerate(data_loader.turbine_ids)}
             ) & df_query.select(cs.starts_with("ws_horz").is_not_null(), cs.starts_with("ws_vert").is_not_null()).collect().to_numpy() 
-            
-            # TODO numpy save doesn't work for large files, must set protocol=4 in pickle dum
-            # np.save(config["processed_data_path"].replace(".parquet", "_std_dev_outliers.npy"), std_dev_outliers)
-            for feat in ws_horz_cols + ws_vert_cols:
-                np.save(config["processed_data_path"].replace(".parquet", f"_frozen_sensors_{feat}.npy"), 
-                            std_dev_outliers[feat].values)
-            
-            mask = lambda feat: std_dev_outliers[feat].values
+             
+            with open(config["processed_data_path"].replace(".parquet", "_std_dev_outliers.pkl"), "wb") as f:  
+                pickle.dump(std_dev_outliers.values, f)
 
         else:
             # std_dev_outliers = np.load(config["processed_data_path"].replace(".parquet", "_std_dev_outliers.npy"), allow_pickle=True)[()]
-            mask = lambda feat: np.load(config["processed_data_path"].replace(".parquet", f"_std_dev_outliers_{feat}.npy"))
+            with open(config["processed_data_path"].replace(".parquet", "_std_dev_outliers.pkl"), "rb") as f:  
+                std_dev_outliers = pickle.load(f)
 
-        # check if wind speed/dir measurements from inoperational turbines differ from fully operational 
-        # ws_horz_mask = lambda tid: safe_mask(tid, 
-        #                                 outlier_flag=std_dev_outliers["ws_horz"], 
-        #                                 turbine_id_to_index=turbine_id_to_index)
-        # ws_vert_mask = lambda tid: safe_mask(tid, 
-        #                                 outlier_flag=std_dev_outliers["ws_vert"], 
-        #                                 turbine_id_to_index=turbine_id_to_index)
+        mask = lambda feat: std_dev_outliers[:, (ws_horz_cols + ws_vert_cols).index(feat)]
         
-        # check time series
+        # check if wind speed/dir measurements from inoperational turbines differ from fully operational
         if args.verbose:
             DataInspector.print_pc_remaining_vals(df_query, mask,
-                                                    mask_input_features=ws_horz_cols,
-                                                    output_features=ws_horz_cols,
+                                                    mask_input_features=ws_horz_cols+ws_vert_cols,
+                                                    output_features=ws_horz_cols+ws_vert_cols,
                                                     filter_type="standard deviation")
-            
-            DataInspector.print_pc_remaining_vals(df_query, mask,
-                                                    mask_input_features=ws_vert_cols,
-                                                    output_features=ws_vert_cols,
-                                                    filter_type="standard deviation")
-            
+        
         if args.plot:
             data_inspector.plot_nulled_vs_remaining(df_query.slice(0, ROW_LIMIT), mask,
                                                     mask_input_features=ws_horz_cols,
@@ -969,9 +956,9 @@ def main():
             # if there is a short or long gap for some turbines, impute them using the imputing.impute_all_assets_by_correlation function
             #       else if there is a short or long gap for many turbines, split the dataset
             assert config["filters"]["split"]["missing_col_thr"] <= len(data_loader.turbine_ids) 
-            missing_col_thr = configonfig["filters"]["split"]["missing_col_thr"] 
-            missing_duration_thr = np.timedelta64(configonfig["filters"]["split"]["missing_duration_thr"], "s")
-            minimum_not_missing_duration = np.timedelta64(configonfig["filters"]["split"]["minimum_not_missing_duration"], "s")
+            missing_col_thr = config["filters"]["split"]["missing_col_thr"] 
+            missing_duration_thr = np.timedelta64(config["filters"]["split"]["missing_duration_thr"], "s")
+            minimum_not_missing_duration = np.timedelta64(config["filters"]["split"]["minimum_not_missing_duration"], "s")
             missing_data_cols = ["ws_horz", "ws_vert"]
 
             # check for any periods of time for which more than 'missing_col_thr' features have missing data
@@ -1018,6 +1005,7 @@ def main():
             
             df_query = df_query2.select(*[cs.starts_with(feat_type) for feat_type in ["time", "ws_horz", "ws_vert", "nd_cos", "nd_sin", "power_output"]])
             del df_query2
+            
             if args.plot:
                 # Plot number of missing wind dir/wind speed data for each wind turbine (missing duration on x axis, turbine id on y axis, color for wind direction/wind speed)
                 from matplotlib import colormaps
@@ -1062,7 +1050,7 @@ def main():
             # x = df_query.collect().partition_by("continuity_group")
             # x[0].select(pl.any_horizontal(cs.numeric().is_not_null().sum() < 2)).item()
             
-            # filter out the continuity groups for which any measurement has 0 non-null values, can't impute then # TODO check that this matches turbine signature
+            # filter out the continuity groups for which any measurement has 0 non-null values, can't impute then
             df_query_not_missing = df_query_not_missing.select(pl.col("duration"), pl.col("start_time"), pl.col("end_time"), pl.col("continuity_group"), 
                                         cs.starts_with("is_missing") & cs.matches(data_loader.turbine_signature))\
                                 .filter(pl.all_horizontal(cs.starts_with("is_missing") 
@@ -1123,7 +1111,7 @@ def main():
                 # interpolate_missing_features=["wind_direction", "wind_speed", "nacelle_direction"], 
                 # parallel="feature",
                 parallel="turbine_id",
-                # parallel=None, # TODO there is an issue with the parallel implementation, doesn't work unless df_query is colllected first, sth to do with lambda function renaming 
+                # parallel=None,
                 r2_threshold=config["filters"]["impute_missing_data"]["r2_threshold"])
 
             df_query = df_query.drop([cs.starts_with(feat) for feat in ["ws_horz", "ws_vert", "nd_cos", "nd_sin", "power_output"]]).join(df_query2, on="time", how="left")
