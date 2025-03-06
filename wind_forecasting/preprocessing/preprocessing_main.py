@@ -532,14 +532,14 @@ def main():
         # apply a window range filter to remove data with power values outside of the window from 20 to 3000 kW for wind speeds between 5 and 40 m/s.
         # identifies when turbine is shut down, filtering for normal turbine operation
         if args.reload_data or args.regenerate_filters or not os.path.exists(config["processed_data_path"].replace(".parquet", "_out_of_window.npy")):
-            # data_filter.multiprocessor = None
+            data_filter.multiprocessor = None
             out_of_window, *other_outputs = data_filter.multi_generate_filter(df_query=df_query, filter_func=data_filter._single_generate_window_range_filter,
                                                                 feature_types=["wind_speed", "power_output"], turbine_ids=data_loader.turbine_ids,
                                                                 window_start=config["filters"]["window_range_flag"]["window_start"], 
                                                                 window_end=config["filters"]["window_range_flag"]["window_end"], 
                                                                 value_min=config["filters"]["window_range_flag"]["value_min"] * data_inspector.rated_turbine_power, 
                                                                 value_max=config["filters"]["window_range_flag"]["value_max"] * data_inspector.rated_turbine_power)
-            # data_filter.multiprocessor = args.multiprocessor
+            data_filter.multiprocessor = args.multiprocessor
             np.save(config["processed_data_path"].replace(".parquet", "_out_of_window.npy"), out_of_window)
         else:
             out_of_window = np.load(config["processed_data_path"].replace(".parquet", "_out_of_window.npy"))
