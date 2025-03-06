@@ -528,31 +528,33 @@ def main():
     # %%
     if "window_range_flag" in config["filters"]:
         logging.info("Nullifying wind speed-power curve out-of-window cells.")
-        applied_filter = True
+        # applied_filter = True
         # apply a window range filter to remove data with power values outside of the window from 20 to 3000 kW for wind speeds between 5 and 40 m/s.
         # identifies when turbine is shut down, filtering for normal turbine operation
+        print(534)
         if args.reload_data or args.regenerate_filters or not os.path.exists(config["processed_data_path"].replace(".parquet", "_out_of_window.npy")):
-            data_filter.multiprocessor = None
+            # data_filter.multiprocessor = None
             out_of_window, *other_outputs = data_filter.multi_generate_filter(df_query=df_query, filter_func=data_filter._single_generate_window_range_filter,
                                                                 feature_types=["wind_speed", "power_output"], turbine_ids=data_loader.turbine_ids,
                                                                 window_start=config["filters"]["window_range_flag"]["window_start"], 
                                                                 window_end=config["filters"]["window_range_flag"]["window_end"], 
                                                                 value_min=config["filters"]["window_range_flag"]["value_min"] * data_inspector.rated_turbine_power, 
                                                                 value_max=config["filters"]["window_range_flag"]["value_max"] * data_inspector.rated_turbine_power)
-            data_filter.multiprocessor = args.multiprocessor
+            # data_filter.multiprocessor = args.multiprocessor
             np.save(config["processed_data_path"].replace(".parquet", "_out_of_window.npy"), out_of_window)
         else:
             out_of_window = np.load(config["processed_data_path"].replace(".parquet", "_out_of_window.npy"))
-
+        print(547)
         # check if wind speed/dir measurements from inoperational turbines differ from fully operational 
         mask = lambda tid: safe_mask(tid, outlier_flag=out_of_window, turbine_id_to_index=turbine_id_to_index)
-
+        print(550)
         if args.verbose:
             DataInspector.print_pc_remaining_vals(df_query, mask,
                                                     mask_input_features=sorted(data_loader.turbine_ids),
                                                     output_features=ws_cols,
                                                     filter_type="power-wind speed window range")
-            
+        
+        print(557)
         if args.plot:
             data_inspector.plot_nulled_vs_remaining(df_query.slice(0, ROW_LIMIT), mask,
                                                     mask_input_features=sorted(data_loader.turbine_ids),
@@ -584,7 +586,7 @@ def main():
             plt.tight_layout()
             fig.savefig(os.path.join(data_inspector.save_dir, "power_curve_out_of_window_range.png"), dpi=100)
 
-            
+        print(589)
         # fill cells corresponding to values that are outside of power-wind speed window range with Null st they are marked for interpolation via impute or linear/forward fill interpolation later
         # loop through each turbine's wind speed and wind direction columns, and compare the distribution of data with and without the inoperational turbines
         threshold = 0.01
@@ -593,9 +595,12 @@ def main():
                                                     mask_input_features=sorted(data_loader.turbine_ids),
                                                     output_features=ws_cols, 
                                                     filter_type="power-wind speed window range", check_js=False)
+        print(598)
         del out_of_window, mask
         df_query.collect().write_parquet(config["processed_data_path"].replace(".parquet", "_filtered.parquet"), statistics=False)
+        print(601)
         df_query = pl.scan_parquet(config["processed_data_path"].replace(".parquet", "_filtered.parquet"))
+        print(603)
         logging.info("Finished nullifying wind speed-power curve out-of-window measurements in dataframe.") 
         if args.verbose:
             DataInspector.print_df_state(df_query, ["wind_speed", "wind_direction", "nacelle_direction"])
