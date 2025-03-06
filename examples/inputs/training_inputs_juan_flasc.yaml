@@ -3,9 +3,14 @@ experiment:
   log_dir: /user/taed7566/wind-forecasting/logging/
 
 optuna:
-  journal_dir: ~/wind-forecasting/optuna
-  use_rdb: False
-  n_trials: 100
+  journal_dir: /user/taed7566/wind-forecasting/optuna
+  use_rdb: False               # Whether to use RDB storage for Optuna
+  n_trials: 50                # How many trials to run
+  max_epochs: 3                # How many epochs to run per trial
+  limit_train_batches: 20      # How many batches per epoch during tuning
+  metric: "mean_wQuantileLoss" # The metric to optimize
+  direction: "minimize"        # Whether to minimize or maximize the metric
+  context_length_choice_factors: [1, 2, 3, 4]  # Factors to multiply prediction_length by
 
 dataset: 
     data_path: /user/taed7566/wind-forecasting/examples/inputs/SMARTEOLE-WFC-open-dataset/processed/SMARTEOLE_WakeSteering_SCADA_1minData_normalized.parquet
@@ -14,7 +19,7 @@ dataset:
     prediction_length: 20 # 120=10 minutes for 5 sec sample size
     target_turbine_ids: # or leave blank to capture all
     normalize: False 
-    batch_size: 128
+    batch_size: 32 # Changed from 128 to 32 to avoid OOM error during tuning
     workers: 12
     overfit: False
     test_split: 0.20
@@ -42,9 +47,7 @@ model:
     data_normalization: "series"
     loss_normalization: "series"
     initial_stage: 1
-    stage2_start_epoch: 10
-    # Add other TACTiS-2 specific parameters here
-  
+    stage2_start_epoch: 10  
   informer:
     # embedding_dimension: 32 # Determines dimension of the embedding space
     num_encoder_layers: 3 # Number of transformer blocks stacked
@@ -102,11 +105,12 @@ trainer:
     # debug: False 
     # accumulate: 1.0
     max_epochs: 5 # Maximum number of epochs to train 100
-    limit_train_batches: 100
+    limit_train_batches: 20 # Reduced from 100 during tuning INFO @Juan
     default_root_dir: /user/taed7566/wind-forecasting/checkpoints
-    # precision: 32-true # 16-mixed enables mixed precision training 32-true is full precision
+    # precision: 16-mixed # 16-mixed enables mixed precision training 32-true is full precision
     # batch_size: 32 # larger = more stable gradients
     # lr: 0.0001 # Step size
     # dropout: 0.1 # Regularization parameter (prevents overfitting)
     # patience: 50 # Number of epochs to wait before early stopping
     # accumulate_grad_batches: 2 # Simulates a larger batch size
+    log_every_n_steps: 10  # Or even log_every_n_steps: 1

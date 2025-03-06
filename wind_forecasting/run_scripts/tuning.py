@@ -139,7 +139,10 @@ def tune_model(model, config, lightning_module_class, estimator_class,
                          direction=direction,
                          load_if_exists=True)
     
-    logging.info(f"Optimizing Optuna study {study_name}.") 
+    # Get worker ID for logging
+    worker_id = os.environ.get('SLURM_PROCID', '0')
+    
+    logging.info(f"Worker {worker_id}: Optimizing Optuna study {study_name}.") 
     tuning_objective = MLTuningObjective(model=model, config=config, 
                                         lightning_module_class=lightning_module_class,
                                         estimator_class=estimator_class, 
@@ -149,17 +152,20 @@ def tune_model(model, config, lightning_module_class, estimator_class,
                                         data_module=data_module, 
                                         context_length_choices=context_length_choices, 
                                         metric=metric)
-    study.optimize(tuning_objective, n_trials=n_trials, show_progress_bar=True)
+    
+    # Each worker contributes trials to the shared study
+    n_trials_per_worker = max(1, n_trials // int(os.environ.get('SLURM_NTASKS', '1')))
+    logging.info(f"Worker {worker_id} will run {n_trials_per_worker} trials")
+    
+    study.optimize(tuning_objective, n_trials=n_trials_per_worker, show_progress_bar=True)
 
-    logging.info("Number of finished trials: {}".format(len(study.trials)))
-
-    logging.info("Best trial:")
-    trial = study.best_trial
-
-    logging.info("  Value: {}".format(trial.value))
-
-    logging.info("  Params: ")
-    for key, value in trial.params.items():
-        logging.info("    {}: {}".format(key, value))
+    if worker_id == '0':  # Only the first worker prints the final results
+        logging.info("Number of finished trials: {}".format(len(study.trials)))
+        logging.info("Best trial:")
+        trial = study.best_trial
+        logging.info("  Value: {}".format(trial.value))
+        logging.info("  Params: ")
+        for key, value in trial.params.items():
+            logging.info("    {}: {}".format(key, value))
         
     return study.best_params
