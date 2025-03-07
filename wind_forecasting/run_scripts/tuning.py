@@ -6,9 +6,11 @@ from gluonts.time_feature._base import second_of_minute, minute_of_hour, hour_of
 from gluonts.transform import ExpectedNumInstanceSampler, ValidationSplitSampler
 import logging
 import torch
+import gc
 
 from mysql.connector import connect as sql_connect
 from optuna import create_study
+from optuna.samplers import TPESampler
 from optuna.storages import JournalStorage, RDBStorage
 from optuna.storages.journal import JournalFileBackend
 
@@ -117,27 +119,107 @@ class MLTuningObjective:
         agg_metrics["trainable_parameters"] = summarize(estimator.create_lightning_module()).trainable_parameters
         self.metrics.append(agg_metrics.copy())
         
+        # Checkpoint the WAL file every 5 trials to prevent excessive growth
+        if trial.number % 5 == 0 and hasattr(trial.study, '_storage') and hasattr(trial.study._storage, '_url'):
+            try:
+                if hasattr(trial.study._storage, '_url') and 'sqlite' in trial.study._storage._url:
+                    import sqlite3
+                    db_path = trial.study._storage._url.replace('sqlite:///', '').split('?')[0]
+                    conn = sqlite3.connect(db_path)
+                    conn.execute("PRAGMA wal_checkpoint(RESTART)")
+                    conn.close()
+                    logging.info(f"Forced WAL checkpoint at trial {trial.number}")
+            except Exception as e:
+                logging.warning(f"Failed to checkpoint WAL file: {e}")
+        
         # Log GPU stats at the end of the trial
         self.log_gpu_stats(stage=f"Trial {trial.number} End")
+        
+        # Force garbage collection at the end of each trial
+        gc.collect()
+        torch.cuda.empty_cache()
+        
         return agg_metrics[self.metric]
 
 
 def get_storage(use_rdb, study_name, journal_storage_dir=None):
+    """
+    Get storage for Optuna studies.
+    
+    Args:
+        use_rdb: Whether to use SQLite storage
+        study_name: Name of the study
+        journal_storage_dir: Directory to store journal files
+        
+    Returns:
+        Storage object for Optuna
+    """
     if use_rdb:
-        logging.info(f"Connecting to RDB database {study_name}")
-        try:
-            db = sql_connect(host="localhost", user="root",
-                            database=study_name)       
-        except Exception: 
-            db = sql_connect(host="localhost", user="root")
-            cursor = db.cursor()
-            cursor.execute(f"CREATE DATABASE {study_name}") 
-        finally:
-            storage = RDBStorage(url=f"mysql://{db.user}@{db.server_host}:{db.server_port}/{study_name}")
+        # SQLite with WAL mode
+        db_path = os.path.join(journal_storage_dir, f"{study_name}.db")
+        os.makedirs(os.path.dirname(db_path), exist_ok=True)
+        
+        # Check if the database file exists
+        db_exists = os.path.exists(db_path)
+        
+        # SQLite connection string with WAL mode
+        storage_url = f"sqlite:///{db_path}?journal_mode=WAL&synchronous=NORMAL&timeout=60&busy_timeout=60000"
+                
+        # Manually create and initialize the database with WAL mode if it doesn't exist
+        if not db_exists:
+            import sqlite3
+            conn = sqlite3.connect(db_path, timeout=60)
+            # Enable WAL mode and optimize settings
+            settings = [
+                ("PRAGMA journal_mode=WAL", "Set WAL mode"),
+                ("PRAGMA synchronous=NORMAL", "Balance between durability and performance"),
+                ("PRAGMA cache_size=10000", "Increase cache size for better performance"),
+                ("PRAGMA temp_store=MEMORY", "Store temp tables in memory"),
+                ("PRAGMA mmap_size=30000000000", "Memory map DB up to 30GB if beneficial"),
+                ("PRAGMA busy_timeout=60000", "Wait up to 60 seconds on busy database"),
+                ("PRAGMA wal_autocheckpoint=1000", "Checkpoint after 1000 pages (default)")
+            ]
+            for command, description in settings:
+                try:
+                    result = conn.execute(command).fetchone()[0]
+                    logging.info(f"SQLite {description}: {result}")
+                except Exception as e:
+                    logging.warning(f"Failed to execute {command}: {e}")
+            
+            conn.commit()
+            conn.close()
+            
+            # Verify WAL mode is working
+            check_wal_mode(db_path)
+            
+        return storage_url
     else:
-        logging.info(f"Connecting to Journal database {study_name}")
-        storage = JournalStorage(JournalFileBackend(os.path.join(journal_storage_dir, f"{study_name}.log")))
-    return storage
+        # Existing journal storage implementation
+        journal_file = os.path.join(journal_storage_dir, f"{study_name}.journal")
+        storage = JournalStorage(
+            JournalFileBackend(journal_file)
+        )
+        return storage
+    
+def check_wal_mode(db_path):
+    """Verify that WAL mode is working on the filesystem."""
+    import sqlite3
+    try:
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        cursor.execute("PRAGMA journal_mode")
+        result = cursor.fetchone()[0]
+        conn.close()
+        
+        if result.upper() != 'WAL':
+            logging.warning(f"WAL mode not supported on {db_path}! Using {result} instead.")
+            return False
+        else:
+            logging.info(f"Successfully confirmed WAL mode on {db_path}")
+            return True
+    except Exception as e:
+        logging.error(f"Error checking WAL mode: {e}")
+        return False
 
 def get_tuned_params(use_rdb, study_name):
     storage = get_storage(use_rdb=use_rdb, study_name=study_name)
@@ -153,7 +235,7 @@ def get_tuned_params(use_rdb, study_name):
 def tune_model(model, config, lightning_module_class, estimator_class, 
                max_epochs, limit_train_batches, 
                distr_output_class, data_module, context_length_choices, 
-               journal_storage_dir, use_rdb=False, restart_study=False, metric="mean_wQuantileLoss", 
+               journal_storage_dir, use_rdb=True, restart_study=False, metric="mean_wQuantileLoss", 
                direction="minimize", n_trials=10, trial_protection_callback=None):
     
     # Make sure the journal directory exists
@@ -168,21 +250,51 @@ def tune_model(model, config, lightning_module_class, estimator_class,
     study_name = config.optuna.study_name
     logging.info(f"Allocating storage for Optuna study {study_name}.")  
     storage = get_storage(use_rdb=use_rdb, study_name=study_name, journal_storage_dir=journal_storage_dir)
+    
+    # Handle restarting the study differently for SQLite
     if restart_study:
-        logging.info(f"Deleting existing Optuna studies {storage.get_all_studies()}.")  
-        for s in storage.get_all_studies():
-            storage.delete_study(s._study_id)
+        if use_rdb:
+            # For SQLite, we can drop and recreate the DB
+            db_path = os.path.join(journal_storage_dir, f"{study_name}.db")
+            wal_path = f"{db_path}-wal"
+            shm_path = f"{db_path}-shm"
             
-    logging.info(f"Creating Optuna study {study_name}.")  
-    study = create_study(study_name=study_name,
-                         storage=storage,
-                         direction=direction,
-                         load_if_exists=True)
+            # Remove the database and associated WAL files if they exist
+            for path in [db_path, wal_path, shm_path]:
+                if os.path.exists(path):
+                    try:
+                        os.remove(path)
+                        logging.info(f"Deleted {path}")
+                    except Exception as e:
+                        logging.warning(f"Could not delete {path}: {e}")
+            
+            # Reinitialize storage
+            storage = get_storage(use_rdb=use_rdb, study_name=study_name, journal_storage_dir=journal_storage_dir)
+        else:
+            # Original journal file handling
+            logging.info(f"Deleting existing Optuna studies {storage.get_all_studies()}.")  
+            for s in storage.get_all_studies():
+                storage.delete_study(s._study_id)
+    
+    # Create or load the study with standard hyperparameters
+    try:
+        logging.info(f"Creating Optuna study {study_name}.")
+        study = create_study(
+            study_name=study_name,
+            storage=storage,
+            direction=direction,
+            load_if_exists=True,
+            sampler=TPESampler(seed=42)
+        )
+    except Exception as e:
+        logging.error(f"Error creating study: {e}")
+        raise
     
     # Get worker ID for logging
     worker_id = os.environ.get('SLURM_PROCID', '0')
     
-    logging.info(f"Worker {worker_id}: Optimizing Optuna study {study_name}.") 
+    logging.info(f"Worker {worker_id}: Optimizing Optuna study {study_name}.")
+    
     tuning_objective = MLTuningObjective(model=model, config=config, 
                                         lightning_module_class=lightning_module_class,
                                         estimator_class=estimator_class, 
@@ -200,7 +312,12 @@ def tune_model(model, config, lightning_module_class, estimator_class,
     # Use the trial protection callback if provided
     objective_fn = (lambda trial: trial_protection_callback(tuning_objective, trial)) if trial_protection_callback else tuning_objective
     
-    study.optimize(objective_fn, n_trials=n_trials_per_worker, show_progress_bar=True)
+    try:
+        study.optimize(objective_fn, n_trials=n_trials_per_worker, show_progress_bar=True)
+    except Exception as e:
+        logging.error(f"Worker {worker_id} failed with error: {e}")
+        logging.error(f"Error details: {type(e).__name__}")
+        raise
 
     if worker_id == '0':  # Only the first worker prints the final results
         logging.info("Number of finished trials: {}".format(len(study.trials)))
