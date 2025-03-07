@@ -93,17 +93,58 @@ def main():
     if not os.path.exists(config["experiment"]["log_dir"]):
         os.makedirs(config["experiment"]["log_dir"])
         
+    # Get worker info from environment variables
+    worker_id = os.environ.get('SLURM_PROCID', '0')
+    gpu_id = os.environ.get('CUDA_VISIBLE_DEVICES', '0')
+
+    # Create a unique run name for each worker
+    run_name = f"{config['experiment']['run_name']}_worker{worker_id}_gpu{gpu_id}"
+
     wandb_logger = WandbLogger(
         project="wind_forecasting",
-        name=config["experiment"]["run_name"],
+        name=run_name,  # Use the unique run name
         log_model="all",
         # offline=True,
         save_dir=config["experiment"]["log_dir"],
+        group=config['experiment']['run_name'],  # Group all workers under the same experiment group
     )
     wandb_logger.log_hyperparams(config)
     config["trainer"]["logger"] = wandb_logger
 
-
+    # Early in the function, ensure all log directories exist
+    log_dir = config.experiment.log_dir
+    
+    # Create all logging directories
+    os.makedirs(log_dir, exist_ok=True)
+    
+    # Set up wandb directory
+    wandb_dir = config.logging.wandb_dir if hasattr(config, 'logging') and hasattr(config.logging, 'wandb_dir') else os.path.join(log_dir, "wandb")
+    os.makedirs(wandb_dir, exist_ok=True)
+    os.environ["WANDB_DIR"] = wandb_dir
+    
+    # Set up optuna directory 
+    optuna_dir = config.logging.optuna_dir if hasattr(config, 'logging') and hasattr(config.logging, 'optuna_dir') else os.path.join(log_dir, "optuna")
+    os.makedirs(optuna_dir, exist_ok=True)
+    
+    # Set up checkpoint directory
+    checkpoint_dir = config.logging.checkpoint_dir if hasattr(config, 'logging') and hasattr(config.logging, 'checkpoint_dir') else os.path.join(log_dir, "checkpoints")
+    os.makedirs(checkpoint_dir, exist_ok=True)
+    
+    # Update config with these directories if they're not already set
+    if not hasattr(config, 'logging'):
+        config.logging = SimpleNamespace()
+        config.logging.wandb_dir = wandb_dir
+        config.logging.optuna_dir = optuna_dir
+        config.logging.checkpoint_dir = checkpoint_dir
+    
+    # Ensure optuna journal_dir is set correctly
+    if hasattr(config, 'optuna'):
+        config.optuna.journal_dir = optuna_dir
+    
+    # Ensure trainer default_root_dir is set correctly
+    if hasattr(config, 'trainer'):
+        config.trainer.default_root_dir = checkpoint_dir
+    
     # %% CREATE DATASET
     logging.info("Creating datasets")
     data_module = DataModule(data_path=config["dataset"]["data_path"], n_splits=config["dataset"]["n_splits"],
@@ -158,19 +199,59 @@ def main():
 
     if args.mode == "tune":
         logging.info("Starting Optuna hyperparameter tuning...")
+        # Explicitly set which GPU to use based on environment or worker ID
+        if "CUDA_VISIBLE_DEVICES" in os.environ:
+            device_id = int(os.environ["CUDA_VISIBLE_DEVICES"].split(",")[0])
+            logging.info(f"Using GPU device {device_id}")
+            
+        # Clear GPU memory before starting
+        torch.cuda.empty_cache()
+        gc.collect()
+        
+        # Enhanced GPU memory logging
+        if torch.cuda.is_available():
+            device = torch.cuda.current_device()
+            logging.info(f"Using GPU: {torch.cuda.get_device_name(device)}")
+            logging.info(f"GPU Memory: {torch.cuda.memory_allocated(device)/1e9:.2f}GB / {torch.cuda.get_device_properties(device).total_memory/1e9:.2f}GB")
+        
         # %% TUNE MODEL WITH OPTUNA
         from wind_forecasting.run_scripts.tuning import tune_model
         if not os.path.exists(config["optuna"]["journal_dir"]):
             os.makedirs(config["optuna"]["journal_dir"]) 
-    
+
         # Use globals() to fetch the module and estimator classes dynamically (Aoife comment #3)
         LightningModuleClass = globals()[f"{args.model.capitalize()}LightningModule"]
         EstimatorClass = globals()[f"{args.model.capitalize()}Estimator"]
         DistrOutputClass = globals()[config["model"]["distr_output"]["class"]]
         
-        # Print available memory before creating model
-        logging.info(f"GPU Memory before model: {torch.cuda.memory_allocated()/1e6:.2f}MB / {torch.cuda.memory_reserved()/1e6:.2f}MB")
+        def handle_trial_with_oom_protection(tuning_objective, trial):
+            try:
+                # Log GPU memory at the start of each trial
+                if torch.cuda.is_available():
+                    device = torch.cuda.current_device()
+                    logging.info(f"Trial {trial.number} - Starting GPU Memory: {torch.cuda.memory_allocated(device)/1e9:.2f}GB / {torch.cuda.get_device_properties(device).total_memory/1e9:.2f}GB")
+                
+                result = tuning_objective(trial)
+                
+                # Log GPU memory after trial completes
+                if torch.cuda.is_available():
+                    device = torch.cuda.current_device()
+                    logging.info(f"Trial {trial.number} - Ending GPU Memory: {torch.cuda.memory_allocated(device)/1e9:.2f}GB / {torch.cuda.get_device_properties(device).total_memory/1e9:.2f}GB")
+                    
+                return result
+            except RuntimeError as e:
+                if "CUDA out of memory" in str(e):
+                    logging.warning(f"Trial {trial.number} failed with CUDA OOM error")
+                    if torch.cuda.is_available():
+                        logging.warning(f"OOM at memory usage: {torch.cuda.memory_allocated()/1e9:.2f}GB")
+                    # Force garbage collection
+                    torch.cuda.empty_cache()
+                    gc.collect()
+                    # Return a very poor score
+                    return float('inf') if config["optuna"]["direction"] == "minimize" else float('-inf')
+                raise e
         
+        # Pass the OOM protection wrapper to tune_model
         tune_model(model=args.model, config=config, 
                     lightning_module_class=LightningModuleClass, 
                     estimator_class=EstimatorClass,
@@ -184,7 +265,8 @@ def main():
                     n_trials=config["optuna"]["n_trials"],
                     journal_storage_dir=config["optuna"]["journal_dir"],
                     use_rdb=config["optuna"]["use_rdb"],
-                    restart_study=args.restart_tuning)
+                    restart_study=args.restart_tuning,
+                    trial_protection_callback=handle_trial_with_oom_protection)  # Add this parameter
         
         # After training completes
         torch.cuda.empty_cache()
