@@ -5,6 +5,7 @@ from gluonts.model.forecast_generator import DistributionForecastGenerator
 from gluonts.time_feature._base import second_of_minute, minute_of_hour, hour_of_day, day_of_year
 from gluonts.transform import ExpectedNumInstanceSampler, ValidationSplitSampler
 import logging
+import torch
 
 from mysql.connector import connect as sql_connect
 from optuna import create_study
@@ -28,18 +29,39 @@ class MLTuningObjective:
 
         self.config["trainer"]["max_epochs"] = max_epochs
         self.config["trainer"]["limit_train_batches"] = limit_train_batches
+        
+        # Add GPU monitoring
+        self.gpu_available = torch.cuda.is_available()
+        if self.gpu_available:
+            self.device = torch.cuda.current_device()
+            self.gpu_name = torch.cuda.get_device_name(self.device)
+            self.total_memory = torch.cuda.get_device_properties(self.device).total_memory
+            logging.info(f"GPU monitoring initialized for {self.gpu_name}")
     
-    # def get_params(self, trial) -> dict:
-    #     return {
-    #     "context_length": trial.suggest_int("context_length", self.data_module.prediction_length, self.data_module.prediction_length*7, 4),
-    #     "max_epochs": trial.suggest_int("max_epochs", 1, 10, 2),
-    #     "batch_size": trial.suggest_int("batch_size", 128, 256, 64),
-    #     "num_encoder_layers": trial.suggest_int("num_encoder_layers", 2, 16,4),
-    #     "num_decoder_layers": trial.suggest_int("num_decoder_layers", 2, 16,4),
-    #      "num_batches_per_epoch":trial.suggest_int("num_batches_per_epoch", 100, 200, 100),   
-    #     }
+    def log_gpu_stats(self, stage=""):
+        """Log GPU memory usage at different stages of training"""
+        if not self.gpu_available:
+            return
+            
+        # Memory in GB
+        allocated = torch.cuda.memory_allocated(self.device) / 1e9
+        reserved = torch.cuda.memory_reserved(self.device) / 1e9
+        max_allocated = torch.cuda.max_memory_allocated(self.device) / 1e9
+        total = self.total_memory / 1e9
+        
+        # Calculate utilization percentage
+        utilization_percent = (allocated / total) * 100
+        
+        logging.info(f"GPU Stats {stage}: "
+                    f"Current Memory: {allocated:.2f}GB ({utilization_percent:.1f}%), "
+                    f"Reserved: {reserved:.2f}GB, "
+                    f"Peak: {max_allocated:.2f}GB, "
+                    f"Total: {total:.2f}GB")
      
     def __call__(self, trial):
+        # Log GPU stats at the beginning of the trial
+        self.log_gpu_stats(stage=f"Trial {trial.number} Start")
+        
         # params = self.get_params(trial)
         params = self.estimator_class.get_params(trial, self.context_length_choices)
         self.config["dataset"].update({k: v for k, v in params.items() if k in self.config["dataset"]})
@@ -66,11 +88,17 @@ class MLTuningObjective:
             **self.config["model"][self.model]
         )
         
+        # Log GPU stats before training
+        self.log_gpu_stats(stage=f"Trial {trial.number} Before Training")
+        
         train_output = estimator.train(
             training_data=self.data_module.train_dataset,
             validation_data=self.data_module.val_dataset,
             forecast_generator=DistributionForecastGenerator(estimator.distr_output)
         )
+        
+        # Log GPU stats after training
+        self.log_gpu_stats(stage=f"Trial {trial.number} After Training")
         
         model = self.lightning_module_class.load_from_checkpoint(train_output.trainer.checkpoint_callback.best_model_path)
         transformation = estimator.create_transformation(use_lazyframe=False)
@@ -88,6 +116,9 @@ class MLTuningObjective:
         agg_metrics, _ = self.evaluator(iter(tss), iter(forecasts), num_series=self.data_module.num_target_vars)
         agg_metrics["trainable_parameters"] = summarize(estimator.create_lightning_module()).trainable_parameters
         self.metrics.append(agg_metrics.copy())
+        
+        # Log GPU stats at the end of the trial
+        self.log_gpu_stats(stage=f"Trial {trial.number} End")
         return agg_metrics[self.metric]
 
 
@@ -123,9 +154,18 @@ def tune_model(model, config, lightning_module_class, estimator_class,
                max_epochs, limit_train_batches, 
                distr_output_class, data_module, context_length_choices, 
                journal_storage_dir, use_rdb=False, restart_study=False, metric="mean_wQuantileLoss", 
-               direction="minimize", n_trials=10):
+               direction="minimize", n_trials=10, trial_protection_callback=None):
     
-    study_name = f"tuning_{model}"
+    # Make sure the journal directory exists
+    os.makedirs(journal_storage_dir, exist_ok=True)
+    
+    # Ensure WandB is correctly initialized with the proper directory
+    if hasattr(config, 'logging') and hasattr(config.logging, 'wandb_dir'):
+        wandb_dir = config.logging.wandb_dir
+        os.makedirs(wandb_dir, exist_ok=True)
+        os.environ["WANDB_DIR"] = wandb_dir
+    
+    study_name = config.optuna.study_name
     logging.info(f"Allocating storage for Optuna study {study_name}.")  
     storage = get_storage(use_rdb=use_rdb, study_name=study_name, journal_storage_dir=journal_storage_dir)
     if restart_study:
@@ -157,7 +197,10 @@ def tune_model(model, config, lightning_module_class, estimator_class,
     n_trials_per_worker = max(1, n_trials // int(os.environ.get('SLURM_NTASKS', '1')))
     logging.info(f"Worker {worker_id} will run {n_trials_per_worker} trials")
     
-    study.optimize(tuning_objective, n_trials=n_trials_per_worker, show_progress_bar=True)
+    # Use the trial protection callback if provided
+    objective_fn = (lambda trial: trial_protection_callback(tuning_objective, trial)) if trial_protection_callback else tuning_objective
+    
+    study.optimize(objective_fn, n_trials=n_trials_per_worker, show_progress_bar=True)
 
     if worker_id == '0':  # Only the first worker prints the final results
         logging.info("Number of finished trials: {}".format(len(study.trials)))
