@@ -6,6 +6,7 @@ import torch
 import gc
 import random
 import numpy as np
+from types import SimpleNamespace
 
 import polars as pl
 # import wandb
@@ -238,6 +239,8 @@ def main():
                     device = torch.cuda.current_device()
                     logging.info(f"Trial {trial.number} - Ending GPU Memory: {torch.cuda.memory_allocated(device)/1e9:.2f}GB / {torch.cuda.get_device_properties(device).total_memory/1e9:.2f}GB")
                     
+                # Add explicit garbage collection after each trial
+                gc.collect()
                 return result
             except RuntimeError as e:
                 if "CUDA out of memory" in str(e):
