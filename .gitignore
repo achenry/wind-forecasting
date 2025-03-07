@@ -52,6 +52,8 @@ wind_forecasting.code-workspace
 *.zip
 *.parquet
 *.dat
+*.checkpoint
+*.ckpt
 
 examples/data/*
 .vscode/
