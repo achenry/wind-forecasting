@@ -2,10 +2,17 @@ experiment:
   run_name: windfarm_debug_juan_flasc
   log_dir: /user/taed7566/wind-forecasting/logging/
 
+logging:
+  wandb_dir: ${experiment.log_dir}wandb/
+  optuna_dir: ${experiment.log_dir}optuna/
+  checkpoint_dir: ${experiment.log_dir}checkpoints/
+  slurm_output_dir: ${experiment.log_dir}slurm_logs/
+
 optuna:
-  journal_dir: /user/taed7566/wind-forecasting/optuna
+  study_name: "windfarm_debug_juan_flasc"
+  journal_dir: ${logging.optuna_dir}  # Changed from direct path to use log_dir
   use_rdb: False               # Whether to use RDB storage for Optuna
-  n_trials: 50                # How many trials to run
+  n_trials: 8                  # How many trials to run
   max_epochs: 3                # How many epochs to run per trial
   limit_train_batches: 20      # How many batches per epoch during tuning
   metric: "mean_wQuantileLoss" # The metric to optimize
@@ -106,7 +113,7 @@ trainer:
     # accumulate: 1.0
     max_epochs: 5 # Maximum number of epochs to train 100
     limit_train_batches: 20 # Reduced from 100 during tuning INFO @Juan
-    default_root_dir: /user/taed7566/wind-forecasting/checkpoints
+    default_root_dir: ${logging.checkpoint_dir}  # Changed from direct path to use log_dir
     # precision: 16-mixed # 16-mixed enables mixed precision training 32-true is full precision
     # batch_size: 32 # larger = more stable gradients
     # lr: 0.0001 # Step size
