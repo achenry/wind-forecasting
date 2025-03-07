@@ -66,13 +66,18 @@ for i in $(seq 0 $((${SLURM_NTASKS_PER_NODE}-1))); do
             RESTART_FLAG=""
         fi
         
-        srun --exclusive -n 1 --export=ALL,CUDA_VISIBLE_DEVICES=$i,WANDB_DIR=${WANDB_DIR} python ${WORK_DIR}/run_scripts/run_model.py \
+        # Add a small delay between workers to avoid initialization conflicts
+        sleep_time=$((i*2 + j))
+        
+        # Launch worker with environment settings
+        srun --exclusive -n 1 --export=ALL,CUDA_VISIBLE_DEVICES=$i,WANDB_DIR=${WANDB_DIR} \
+          python ${WORK_DIR}/run_scripts/run_model.py \
           --config ${BASE_DIR}/examples/inputs/training_inputs_juan_flasc.yaml \
           --model informer \
           --mode tune \
           ${RESTART_FLAG} &
         
-        sleep 2
+        sleep $sleep_time
     done
 done
 

@@ -11,7 +11,7 @@ logging:
 optuna:
   study_name: "windfarm_debug_juan_flasc"
   journal_dir: ${logging.optuna_dir}  # Changed from direct path to use log_dir
-  use_rdb: False               # Whether to use RDB storage for Optuna
+  use_rdb: True               # Whether to use RDB storage for Optuna
   n_trials: 8                  # How many trials to run
   max_epochs: 3                # How many epochs to run per trial
   limit_train_batches: 20      # How many batches per epoch during tuning
