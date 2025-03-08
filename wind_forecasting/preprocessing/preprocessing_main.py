@@ -179,7 +179,7 @@ def main():
             
             df_query = df_query.select([pl.col("time")] 
                                        + [pl.col(c) for c in 
-                                          sorted(df_query.select(cs.numeric()).collect_schema().names(), 
+                                          sorted(df_query.select(cs.numeric()).select(pl.exclude("file_set_idx")).collect_schema().names(), 
                                                  key=lambda col: (re.search(f".*?(?={data_loader.turbine_signature})", col).group(0), 
                                                                   int(re.search("\\d+", re.search(data_loader.turbine_signature, col).group(0)).group(0))))])
             # generate turbine ids
