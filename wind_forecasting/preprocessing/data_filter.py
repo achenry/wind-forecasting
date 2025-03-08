@@ -165,6 +165,7 @@ class DataFilter:
     def multi_generate_filter(self, df_query, filter_func, feature_types, turbine_ids, **kwargs):
         if self.multiprocessor:
             if self.multiprocessor == "mpi" and mpi_exists:
+                print(168)
                 executor = MPICommExecutor(MPI.COMM_WORLD, root=0)
                 logging.info(f"🚀 Using MPI executor with {MPI.COMM_WORLD.Get_size()} processes")
             else:  # "cf" case
@@ -181,11 +182,11 @@ class DataFilter:
                 # if isinstance(results[0], tuple):
                 #     return np.stack([res[0] for res in results], axis=1), [res[1:] for res in results]
                 # else:
-                return np.stack(results, axis=1), None
+                return np.stack(results, axis=1)
         else:
             logging.info("🔧 Using single process executor")
             masks = []
-            other_outputs = []
+            # other_outputs = []
             for tid in turbine_ids:
                 res = filter_func(
                     df_query=df_query.select([pl.col(f"{feat_type}_{tid}") for feat_type in feature_types]), tid=tid, **kwargs)
