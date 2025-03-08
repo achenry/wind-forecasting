@@ -182,7 +182,7 @@ class DataFilter:
                 # if isinstance(results[0], tuple):
                 #     return np.stack([res[0] for res in results], axis=1), [res[1:] for res in results]
                 # else:
-                return np.stack(results, axis=1)
+            return np.stack(results, axis=1)
         else:
             logging.info("🔧 Using single process executor")
             masks = []
