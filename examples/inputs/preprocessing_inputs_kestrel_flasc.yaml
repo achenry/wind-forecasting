@@ -16,7 +16,7 @@ filters:
     bin_min: 0.01 # factor multiplied by rated power
     bin_max: 0.95 # factor multiplied by rated power
     threshold_type: scalar
-  nacelle_calibration:
+  # nacelle_calibration:
   std_range_flag:
     threshold: 1.5
   split:
