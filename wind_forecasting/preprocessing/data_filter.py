@@ -137,9 +137,11 @@ class DataFilter:
         return df
     
     def _single_generate_window_range_filter(self, df_query, tid, **kwargs):
+        print(140)
         mask = filters.window_range_flag(window_col=df_query.select(f"wind_speed_{tid}").collect().to_pandas()[f"wind_speed_{tid}"],
                                          value_col=df_query.select(f"power_output_{tid}").collect().to_pandas()[f"power_output_{tid}"],
                                          **kwargs).values
+        print(144)
         mask &= df_query.select(pl.all_horizontal(pl.all().is_not_null())).collect().to_numpy().flatten()
                                                 
         logging.info(f"Finished generating out of window filter for {df_query.collect_schema().names()}")
