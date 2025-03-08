@@ -1,22 +1,25 @@
 #!/bin/bash
 
 #SBATCH --nodes=1
-#SBATCH --ntasks=104
+#SBATCH --ntasks-per-node=104
 #SBATCH --mem=0
 #SBATCH --account=ssc
-#SBATCH --time=01:00:00
-##SBATCH --partition=bigmem
-#SBATCH --partition=standard
-#SBATCH --output=load_data.out
-##SBATCH --tmp=1T
+#SBATCH --time=02:00:00
+#SBATCH --partition=bigmem
+##SBATCH --partition=standard
+#SBATCH --output=load_data-%j.out
+#SBATCH --tmp=1T
+#SBATCH --exclusive
 
 module purge
 module load mamba
 mamba activate wind_forecasting
+#echo $SLURM_NNODES * $SLURM_NTASKS
 echo $SLURM_NTASKS
-
-module load openmpi/4.1.6-intel
-export MPICC=$(which mpicc)
+#ntasks=$((SLURM_NTASKS*SLURM_NNODES))
+#echo $ntasks
+#module load openmpi/4.1.6-intel
+#export MPICC=$(which mpicc)
 
 # export RUST_BACKTRACE=full
 # salloc --partition=debug --mem=0 --time=00:30:00 --ntasks=104 --account=ssc
@@ -28,8 +31,10 @@ export MPICC=$(which mpicc)
 # conda activate wind_forecasting_preprocessing
 # python preprocessing_main.py --config /srv/data/nfs/ahenry/wind_forecasting_env/wind-forecasting/examples/inputs/preprocessing_inputs_server_awaken_new.yaml --reload_data --multiprocessor cf 
 
-#srun python preprocessing_main.py --config /$HOME/toolboxes/wind_forecasting_env/wind-forecasting/examples/inputs/preprocessing_inputs_kestrel_awaken_new.yaml --reload_data --multiprocessor mpi
-srun python preprocessing_main.py --config /$HOME/toolboxes/wind_forecasting_env/wind-forecasting/examples/inputs/preprocessing_inputs_kestrel_flasc.yaml --reload_data --multiprocessor mpi
+#export ntasks = $SLURM_NTASKS * $SLURM_NNODES
+
+mpirun --npernode $SLURM_NTASKS_PER_NODE python preprocessing_main.py --config /$HOME/toolboxes/wind_forecasting_env/wind-forecasting/examples/inputs/preprocessing_inputs_kestrel_awaken_new.yaml --reload_data --multiprocessor mpi
+#mpirun -np $SLURM_NTASKS python preprocessing_main.py --config /$HOME/toolboxes/wind_forecasting_env/wind-forecasting/examples/inputs/preprocessing_inputs_kestrel_flasc.yaml --reload_data --multiprocessor mpi
 
 #mv /tmp/scratch/$SLURM_JOB_ID/*.parquet /projects/ssc/ahenry/wind_forecasting/awaken_data/ 
-mv /tmp/scratch/$SLURM_JOB_ID/*.parquet /projects/ssc/ahenry/wind_forecasting/flasc_data/ 
+#mv /tmp/scratch/$SLURM_JOB_ID/*.parquet /projects/ssc/ahenry/wind_forecasting/flasc_data/ 

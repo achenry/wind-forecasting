@@ -4,11 +4,12 @@
 #SBATCH --ntasks=104
 #SBATCH --mem=0
 #SBATCH --account=ssc
-#SBATCH --time=12:00:00
+#SBATCH --time=24:00:00
 #SBATCH --partition=bigmem
-#SBATCH --partition=standard
-#SBATCH --output=preprocess_data.out
-#SBATCH --tmp=1T
+##SBATCH --time=01:00:00
+##SBATCH --partition=standard
+#SBATCH --output=preprocess_data-%j.out
+##SBATCH --tmp=1T
 
 module purge
 module load mamba
