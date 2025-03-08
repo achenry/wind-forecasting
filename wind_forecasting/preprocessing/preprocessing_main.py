@@ -915,11 +915,15 @@ def main():
                 threshold=config["filters"]["std_range_flag"]["threshold"], 
                 over="asset", feature_types=["ws_horz", "ws_vert"],
                 # asset_coords={tid: (data_inspector.fmodel.layout_x[t], data_inspector.fmodel.layout_y[t]) for t, tid in enumerate(data_loader.turbine_ids)}
-            ) & df_query.select(cs.starts_with("ws_horz").is_not_null(), cs.starts_with("ws_vert").is_not_null()).collect().to_numpy() 
+            ).values
+            std_dev_outliers[std_dev_outliers == None] = False
+            std_dev_outliers = std_dev_outliers.astype("bool")
+            # df_query.select(cs.starts_with("ws_horz").is_not_null(), cs.starts_with("ws_vert").is_not_null()).collect() 
+
              
             if RUN_ONCE:
                 with open(config["processed_data_path"].replace(".parquet", "_std_dev_outliers.pkl"), "wb") as f:  
-                    pickle.dump(std_dev_outliers.values, f)
+                    pickle.dump(std_dev_outliers, f)
 
         elif RUN_ONCE:
             # std_dev_outliers = np.load(config["processed_data_path"].replace(".parquet", "_std_dev_outliers.npy"), allow_pickle=True)[()]
