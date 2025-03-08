@@ -6,7 +6,6 @@ import torch
 import gc
 import random
 import numpy as np
-from types import SimpleNamespace
 
 import polars as pl
 # import wandb
@@ -113,38 +112,47 @@ def main():
     config["trainer"]["logger"] = wandb_logger
 
     # Early in the function, ensure all log directories exist
-    log_dir = config.experiment.log_dir
+    log_dir = config["experiment"]["log_dir"]
     
     # Create all logging directories
     os.makedirs(log_dir, exist_ok=True)
     
     # Set up wandb directory
-    wandb_dir = config.logging.wandb_dir if hasattr(config, 'logging') and hasattr(config.logging, 'wandb_dir') else os.path.join(log_dir, "wandb")
+    if "logging" in config and "wandb_dir" in config["logging"]:
+        wandb_dir = config["logging"]["wandb_dir"]
+    else:
+        wandb_dir = os.path.join(log_dir, "wandb")
     os.makedirs(wandb_dir, exist_ok=True)
     os.environ["WANDB_DIR"] = wandb_dir
     
     # Set up optuna directory 
-    optuna_dir = config.logging.optuna_dir if hasattr(config, 'logging') and hasattr(config.logging, 'optuna_dir') else os.path.join(log_dir, "optuna")
+    if "logging" in config and "optuna_dir" in config["logging"]:
+        optuna_dir = config["logging"]["optuna_dir"]
+    else:
+        optuna_dir = os.path.join(log_dir, "optuna")
     os.makedirs(optuna_dir, exist_ok=True)
     
     # Set up checkpoint directory
-    checkpoint_dir = config.logging.checkpoint_dir if hasattr(config, 'logging') and hasattr(config.logging, 'checkpoint_dir') else os.path.join(log_dir, "checkpoints")
+    if "logging" in config and "checkpoint_dir" in config["logging"]:
+        checkpoint_dir = config["logging"]["checkpoint_dir"]
+    else:
+        checkpoint_dir = os.path.join(log_dir, "checkpoints")
     os.makedirs(checkpoint_dir, exist_ok=True)
     
     # Update config with these directories if they're not already set
-    if not hasattr(config, 'logging'):
-        config.logging = SimpleNamespace()
-        config.logging.wandb_dir = wandb_dir
-        config.logging.optuna_dir = optuna_dir
-        config.logging.checkpoint_dir = checkpoint_dir
+    if "logging" not in config:
+        config["logging"] = {}
+    config["logging"]["wandb_dir"] = wandb_dir
+    config["logging"]["optuna_dir"] = optuna_dir
+    config["logging"]["checkpoint_dir"] = checkpoint_dir
     
     # Ensure optuna journal_dir is set correctly
-    if hasattr(config, 'optuna'):
-        config.optuna.journal_dir = optuna_dir
+    if "optuna" in config:
+        config["optuna"]["journal_dir"] = optuna_dir
     
     # Ensure trainer default_root_dir is set correctly
-    if hasattr(config, 'trainer'):
-        config.trainer.default_root_dir = checkpoint_dir
+    if "trainer" in config:
+        config["trainer"]["default_root_dir"] = checkpoint_dir
     
     # %% CREATE DATASET
     logging.info("Creating datasets")

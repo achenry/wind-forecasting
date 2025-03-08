@@ -11,7 +11,7 @@ import gc
 from mysql.connector import connect as sql_connect
 from optuna import create_study
 from optuna.samplers import TPESampler
-from optuna.storages import JournalStorage, RDBStorage
+from optuna.storages import JournalStorage
 from optuna.storages.journal import JournalFileBackend
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -242,12 +242,12 @@ def tune_model(model, config, lightning_module_class, estimator_class,
     os.makedirs(journal_storage_dir, exist_ok=True)
     
     # Ensure WandB is correctly initialized with the proper directory
-    if hasattr(config, 'logging') and hasattr(config.logging, 'wandb_dir'):
-        wandb_dir = config.logging.wandb_dir
+    if "logging" in config and "wandb_dir" in config["logging"]:
+        wandb_dir = config["logging"]["wandb_dir"]
         os.makedirs(wandb_dir, exist_ok=True)
         os.environ["WANDB_DIR"] = wandb_dir
     
-    study_name = config.optuna.study_name
+    study_name = config["optuna"]["study_name"]
     logging.info(f"Allocating storage for Optuna study {study_name}.")  
     storage = get_storage(use_rdb=use_rdb, study_name=study_name, journal_storage_dir=journal_storage_dir)
     
