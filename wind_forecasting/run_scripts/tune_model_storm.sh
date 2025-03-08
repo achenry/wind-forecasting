@@ -55,9 +55,17 @@ module list
 echo "=== STARTING TUNING ==="
 date +"%Y-%m-%d %H:%M:%S"
 
-# Example with 2 workers per GPU:
+# Configure how many workers to run per GPU
 NUM_WORKERS_PER_GPU=2
-for i in $(seq 0 $((${SLURM_NTASKS_PER_NODE}-1))); do
+
+# Used to track process IDs for all workers
+declare -a WORKER_PIDS=()
+
+# Total number of GPUs available
+NUM_GPUS=${SLURM_NTASKS_PER_NODE}
+
+# Launch multiple workers per GPU
+for i in $(seq 0 $((${NUM_GPUS}-1))); do
     for j in $(seq 0 $((${NUM_WORKERS_PER_GPU}-1))); do
         # The restart flag should only be set for the very first worker (i=0, j=0)
         if [ $i -eq 0 ] && [ $j -eq 0 ]; then
@@ -66,21 +74,38 @@ for i in $(seq 0 $((${SLURM_NTASKS_PER_NODE}-1))); do
             RESTART_FLAG=""
         fi
         
-        # Add a small delay between workers to avoid initialization conflicts
-        sleep_time=$((i*2 + j))
+        # Create a unique seed for each worker to ensure they explore different areas
+        WORKER_SEED=$((42 + i*10 + j))
+        
+        # Calculate worker index for logging
+        WORKER_INDEX=$((i*NUM_WORKERS_PER_GPU + j))
+        
+        echo "Starting worker ${WORKER_INDEX} on GPU ${i} with seed ${WORKER_SEED}"
         
         # Launch worker with environment settings
-        srun --exclusive -n 1 --export=ALL,CUDA_VISIBLE_DEVICES=$i,WANDB_DIR=${WANDB_DIR} \
+        # CUDA_VISIBLE_DEVICES ensures each worker sees only one GPU
+        # The worker ID (SLURM_PROCID) helps Optuna identify workers
+        srun --exclusive -n 1 --export=ALL,CUDA_VISIBLE_DEVICES=$i,SLURM_PROCID=${WORKER_INDEX},WANDB_DIR=${WANDB_DIR} \
           python ${WORK_DIR}/run_scripts/run_model.py \
           --config ${BASE_DIR}/examples/inputs/training_inputs_juan_flasc.yaml \
           --model informer \
           --mode tune \
+          --seed ${WORKER_SEED} \
           ${RESTART_FLAG} &
         
-        sleep $sleep_time
+        # Store the process ID
+        WORKER_PIDS+=($!)
+        
+        # Add a small delay between starting workers on the same GPU
+        # to avoid initialization conflicts
+        sleep 2
     done
 done
 
+echo "Started ${#WORKER_PIDS[@]} worker processes"
+echo "Process IDs: ${WORKER_PIDS[@]}"
+
+# Wait for all workers to complete
 wait
 
 date +"%Y-%m-%d %H:%M:%S"
@@ -90,5 +115,5 @@ echo "=== TUNING COMPLETED ==="
 # sbatch wind_forecasting/run_scripts/tune_model_storm.sh
 # sinfo -p cfdg.p
 # squeue -u taed7566
-# tail -f informer_tune_flasc_%j.out
+# tail -f /user/taed7566/wind-forecasting/logging/slurm_logs/informer_tune_flasc_%j.out
 # srun -p all_gpu.p -N 1 -n 1 --gpus-per-node 1 -c 128 --mem=32G --time=5:00:00 --pty bash
