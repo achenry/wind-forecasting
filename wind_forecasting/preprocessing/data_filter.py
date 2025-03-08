@@ -226,7 +226,8 @@ class DataFilter:
                 logging.info(f"🚀 Using MPI executor with {MPI.COMM_WORLD.Get_size()} processes")
             else:  # "cf" case
                 max_workers = multiprocessing.cpu_count()
-                executor = ProcessPoolExecutor(max_workers=max_workers)
+                executor = ProcessPoolExecutor(max_workers=max_workers,
+                                               mp_context=multiprocessing.get_context("spawn"))
                 logging.info(f"🖥️  Using ProcessPoolExecutor with {max_workers} workers")
             
             with executor as ex:
@@ -256,7 +257,8 @@ class DataFilter:
                 logging.info(f"🚀 Using MPI executor with {MPI.COMM_WORLD.Get_size()} processes")
             else:  # "cf" case
                 max_workers = multiprocessing.cpu_count()
-                executor = ProcessPoolExecutor(max_workers=max_workers)
+                executor = ProcessPoolExecutor(max_workers=max_workers,
+                                               mp_context=multiprocessing.get_context("spawn"))
                 logging.info(f"🖥️  Using ProcessPoolExecutor with {max_workers} workers")
             
             with executor as ex:
@@ -279,7 +281,8 @@ class DataFilter:
                 logging.info(f"🚀 Using MPI executor with {MPI.COMM_WORLD.Get_size()} processes")
             else:  # "cf" case
                 max_workers = multiprocessing.cpu_count()
-                executor = ProcessPoolExecutor(max_workers=max_workers)
+                executor = ProcessPoolExecutor(max_workers=max_workers,
+                                               mp_context=multiprocessing.get_context("spawn"))
                 logging.info(f"🖥️  Using ProcessPoolExecutor with {max_workers} workers")
             
             with executor as ex:
