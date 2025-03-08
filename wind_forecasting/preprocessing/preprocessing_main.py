@@ -913,7 +913,8 @@ def main():
             std_dev_outliers = filters.std_range_flag(
                 data_pl=df_query.select(cs.starts_with("ws_horz"), cs.starts_with("ws_vert")),
                 threshold=config["filters"]["std_range_flag"]["threshold"], 
-                over="asset", feature_types=["ws_horz", "ws_vert"],
+                over="time", #"asset", 
+                feature_types=["ws_horz", "ws_vert"],
                 # asset_coords={tid: (data_inspector.fmodel.layout_x[t], data_inspector.fmodel.layout_y[t]) for t, tid in enumerate(data_loader.turbine_ids)}
             ).values
             std_dev_outliers[std_dev_outliers == None] = False
