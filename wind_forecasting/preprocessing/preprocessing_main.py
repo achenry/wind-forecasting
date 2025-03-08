@@ -548,14 +548,14 @@ def main():
         print(534)
         if args.reload_data or args.regenerate_filters or not os.path.exists(config["processed_data_path"].replace(".parquet", "_out_of_window.npy")):
             if RUN_ONCE:
-                data_filter.multiprocessor = None
+                # data_filter.multiprocessor = None
                 out_of_window = data_filter.multi_generate_filter(df_query=df_query, filter_func=data_filter._single_generate_window_range_filter,
                                                                     feature_types=["wind_speed", "power_output"], turbine_ids=data_loader.turbine_ids,
                                                                     window_start=config["filters"]["window_range_flag"]["window_start"], 
                                                                     window_end=config["filters"]["window_range_flag"]["window_end"], 
                                                                     value_min=config["filters"]["window_range_flag"]["value_min"] * data_inspector.rated_turbine_power, 
                                                                     value_max=config["filters"]["window_range_flag"]["value_max"] * data_inspector.rated_turbine_power)
-                data_filter.multiprocessor = args.multiprocessor
+                # data_filter.multiprocessor = args.multiprocessor
             
                 np.save(config["processed_data_path"].replace(".parquet", "_out_of_window.npy"), out_of_window)
                 
@@ -639,7 +639,7 @@ def main():
         
         # apply a bin filter to remove data with power values outside of an envelope around median power curve at each wind speed
         if args.reload_data or args.regenerate_filters or not os.path.exists(config["processed_data_path"].replace(".parquet", "_bin_outliers.npy")):
-            data_filter.multiprocessor = None
+            # data_filter.multiprocessor = None
             
             # df_query.select(pl.max_horizontal(cs.starts_with(f"power_output").max())).collect().item()
             bin_outliers = data_filter.multi_generate_filter(df_query=df_query, filter_func=data_filter._single_generate_bin_filter,
@@ -652,7 +652,7 @@ def main():
                                                                 threshold_type=config["filters"]["bin_filter"]["threshold_type"],
                                                                 direction="below"# keep derated cases
                                                                 ) 
-            data_filter.multiprocessor = args.multiprocessor
+            # data_filter.multiprocessor = args.multiprocessor
             if RUN_ONCE:
                 np.save(config["processed_data_path"].replace(".parquet", "_bin_outliers.npy"), bin_outliers)
         elif RUN_ONCE:
@@ -762,9 +762,9 @@ def main():
 
                 # df_offsets = {"turbine_id": [], "northing_bias": []}
                 if args.reload_data or args.regenerate_filters or not os.path.exists(config["processed_data_path"].replace(".parquet", "_biases.npy")):
-                    data_filter.multiprocessor = None
+                    # data_filter.multiprocessor = None
                     biases = data_filter.multi_compute_bias(df_query_10min, data_loader.turbine_ids)
-                    data_filter.multiprocessor = args.multiprocessor
+                    # data_filter.multiprocessor = args.multiprocessor
                     np.save(config["processed_data_path"].replace(".parquet", "_biases.npy"), biases)
                 else:
                     biases = np.load(config["processed_data_path"].replace(".parquet", "_biases.npy"))
