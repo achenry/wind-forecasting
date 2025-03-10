@@ -6,6 +6,8 @@ import time
 import logging
 from typing import Callable, Optional
 from pathlib import Path
+import pandas as pd
+import re
 
 from itertools import cycle
 
@@ -768,19 +770,36 @@ class DataInspector:
 
     @staticmethod
     def unpivot_dataframe(df, value_vars, turbine_signature, data_format="wide"):
-        id_vars = df.select(pl.exclude(*[f"^{vv}.*$" for vv in value_vars])).columns
-        # value_vars = df.select(pl.exclude(*[f"^{iv}.*$" for iv in id_vars])).columns 
-        if data_format == 'wide':
-            # Unpivot wide format to long format
-            return pl.concat([
-                df.select(*[pl.col(id_var) for id_var in id_vars], cs.starts_with(f"{feature_type}_"))\
-                .unpivot(index=id_vars, variable_name="feature", value_name=feature_type)\
-                .with_columns(pl.col("feature").str.extract(turbine_signature, group_index=0).alias("turbine_id"))\
-                .drop("feature") for feature_type in value_vars if len(df.select(cs.starts_with(f"{feature_type}_")).columns)], how="align")\
-                .group_by("turbine_id", *id_vars).agg(cs.numeric().drop_nulls().first()).sort("turbine_id", "time")
-        else:
-            # Data is already in long format
-            return df
+        if isinstance(df, pl.DataFrame):
+            id_vars = df.select(pl.exclude(*[f"^{vv}.*$" for vv in value_vars])).columns
+            # value_vars = df.select(pl.exclude(*[f"^{iv}.*$" for iv in id_vars])).columns 
+            if data_format == 'wide':
+                # Unpivot wide format to long format
+                return pl.concat([
+                    df.select(*[pl.col(id_var) for id_var in id_vars], cs.starts_with(f"{feature_type}_"))\
+                    .unpivot(index=id_vars, variable_name="feature", value_name=feature_type)\
+                    .with_columns(pl.col("feature").str.extract(turbine_signature, group_index=0).alias("turbine_id"))\
+                    .drop("feature") for feature_type in value_vars if len(df.select(cs.starts_with(f"{feature_type}_")).columns)], how="align")\
+                    .group_by("turbine_id", *id_vars).agg(cs.numeric().drop_nulls().first()).sort("turbine_id", "time")
+            else:
+                # Data is already in long format
+                return df
+        elif isinstance(df, pd.DataFrame):
+            id_vars = [col for col in df.columns if all(re.match(f"^{vv}.*$", col) is None for vv in value_vars)]
+            if data_format == 'wide':
+                # Unpivot wide format to long format
+                return pd.concat([df[id_vars + [col for col in df.columns if col.startswith(f"{feature_type}_")]]\
+                    .melt(id_vars=id_vars, var_name="feature", value_name=feature_type)\
+                    .assign(turbine_id=lambda d: d["feature"].str.extract(turbine_signature))\
+                    .drop("feature", axis=1)\
+                    .set_index(id_vars + ["turbine_id"]) 
+                    for feature_type in value_vars 
+                    if len([col for col in df.columns if col.startswith(f"{feature_type}_")])], axis=1)\
+                        .groupby(by=id_vars + ["turbine_id"], axis=0).first().reset_index().sort_values(by=["turbine_id", "time"])
+                
+            else:
+                # Data is already in long format
+                return df
 
     @staticmethod
     def pivot_dataframe(df, data_format="long"):

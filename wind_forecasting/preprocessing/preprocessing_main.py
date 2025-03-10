@@ -545,7 +545,6 @@ def main():
         
         # apply a window range filter to remove data with power values outside of the window from 20 to 3000 kW for wind speeds between 5 and 40 m/s.
         # identifies when turbine is shut down, filtering for normal turbine operation
-        print(534)
         if args.reload_data or args.regenerate_filters or not os.path.exists(config["processed_data_path"].replace(".parquet", "_out_of_window.npy")):
             if RUN_ONCE:
                 # data_filter.multiprocessor = None
@@ -563,18 +562,14 @@ def main():
                 out_of_window = np.load(config["processed_data_path"].replace(".parquet", "_out_of_window.npy"))
         
         if RUN_ONCE:
-            print(547)
             # check if wind speed/dir measurements from inoperational turbines differ from fully operational 
             mask = lambda tid: safe_mask(tid, outlier_flag=out_of_window, turbine_id_to_index=turbine_id_to_index)
-            print(550)
             
             if args.verbose:
                 DataInspector.print_pc_remaining_vals(df_query, mask,
                                                         mask_input_features=sorted(data_loader.turbine_ids),
                                                         output_features=ws_cols,
                                                         filter_type="power-wind speed window range")
-            
-            print(557)
             
             if args.plot:
                 data_inspector.plot_nulled_vs_remaining(df_query.slice(0, ROW_LIMIT), mask,
@@ -607,8 +602,6 @@ def main():
                 plt.tight_layout()
                 fig.savefig(os.path.join(data_inspector.save_dir, "power_curve_out_of_window_range.png"), dpi=100)
 
-            print(589)
-            
             # fill cells corresponding to values that are outside of power-wind speed window range with Null st they are marked for interpolation via impute or linear/forward fill interpolation later
             # loop through each turbine's wind speed and wind direction columns, and compare the distribution of data with and without the inoperational turbines
             threshold = 0.01
@@ -617,13 +610,12 @@ def main():
                                                         mask_input_features=sorted(data_loader.turbine_ids),
                                                         output_features=ws_cols, 
                                                         filter_type="power-wind speed window range", check_js=False)
-            print(598)
+            
             del out_of_window, mask
             # need to sink parquet and recollect to avoid recursion limit error
             df_query.collect().write_parquet(config["processed_data_path"].replace(".parquet", "_filtered.parquet"), statistics=False)
-            print(601)
             df_query = pl.scan_parquet(config["processed_data_path"].replace(".parquet", "_filtered.parquet"))
-            print(603)
+            
             logging.info("Finished nullifying wind speed-power curve out-of-window measurements in dataframe.") 
             
             if args.verbose:
@@ -910,17 +902,17 @@ def main():
         if args.reload_data or args.regenerate_filters or not os.path.exists(config["processed_data_path"].replace(".parquet", "_std_dev_outliers.pkl")):
             # df_query.select("time", "ws_vert_1").with_row_index().filter(((pl.col("time") > datetime(2020, 5, 23, 20, 45)) & (pl.col("time") < datetime(2020, 5, 23, 21, 45)))).collect().select("index").to_numpy().flatten() 
             # TODO consider neighboring turbines only
+            # Fig1: over time thr 3, Fig2: over time thr 1 BAD, Fig3: over asset thr 3, Fig4 over asset thr 1 GOOD
             std_dev_outliers = filters.std_range_flag(
                 data_pl=df_query.select(cs.starts_with("ws_horz"), cs.starts_with("ws_vert")),
                 threshold=config["filters"]["std_range_flag"]["threshold"], 
-                over="time", #"asset", 
+                over=config["filters"]["std_range_flag"]["over"], # asset or time 
                 feature_types=["ws_horz", "ws_vert"],
                 # asset_coords={tid: (data_inspector.fmodel.layout_x[t], data_inspector.fmodel.layout_y[t]) for t, tid in enumerate(data_loader.turbine_ids)}
             ).values
             std_dev_outliers[std_dev_outliers == None] = False
             std_dev_outliers = std_dev_outliers.astype("bool")
             # df_query.select(cs.starts_with("ws_horz").is_not_null(), cs.starts_with("ws_vert").is_not_null()).collect() 
-
              
             if RUN_ONCE:
                 with open(config["processed_data_path"].replace(".parquet", "_std_dev_outliers.pkl"), "wb") as f:  
