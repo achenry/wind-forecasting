@@ -151,7 +151,7 @@ class DataFilter:
                                   data_pl=df_query.select(f"wind_speed_{tid}", f"power_output_{tid}"),
                                   return_center=False, **kwargs)
         
-        mask = mask.to_numpy().flatten() & df_query.select(pl.all_horizontal(pl.all().is_not_null())).collect().to_numpy().flatten()
+        mask = mask.to_numpy().flatten().astype(bool) & df_query.select(pl.all_horizontal(pl.all().is_not_null())).collect().to_numpy().flatten()
                                                 
         logging.info(f"Finished generating wind speed-power curve bin-outlier filter for {df_query.collect_schema().names()}")
         return mask #, center
