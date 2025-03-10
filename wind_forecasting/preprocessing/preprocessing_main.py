@@ -901,13 +901,15 @@ def main():
         # apply a bin filter to remove data with power values outside of an envelope around median power curve at each wind speed
         if args.reload_data or args.regenerate_filters or not os.path.exists(config["processed_data_path"].replace(".parquet", "_std_dev_outliers.pkl")):
             # df_query.select("time", "ws_vert_1").with_row_index().filter(((pl.col("time") > datetime(2020, 5, 23, 20, 45)) & (pl.col("time") < datetime(2020, 5, 23, 21, 45)))).collect().select("index").to_numpy().flatten() 
-            # TODO consider neighboring turbines only
+            # TODO consider neighboring/highly correlated turbines only
             # Fig1: over time thr 3, Fig2: over time thr 1 BAD, Fig3: over asset thr 3, Fig4 over asset thr 1 GOOD
             std_dev_outliers = filters.std_range_flag(
                 data_pl=df_query.select(cs.starts_with("ws_horz"), cs.starts_with("ws_vert")),
                 threshold=config["filters"]["std_range_flag"]["threshold"], 
                 over=config["filters"]["std_range_flag"]["over"], # asset or time 
                 feature_types=["ws_horz", "ws_vert"],
+                r2_threshold=config["filters"]["std_range_flag"]["r2_threshold"],
+                min_correlated_assets=config["filters"]["std_range_flag"]["min_correlated_assets"]
                 # asset_coords={tid: (data_inspector.fmodel.layout_x[t], data_inspector.fmodel.layout_y[t]) for t, tid in enumerate(data_loader.turbine_ids)}
             ).values
             std_dev_outliers[std_dev_outliers == None] = False
