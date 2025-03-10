@@ -137,11 +137,9 @@ class DataFilter:
         return df
     
     def _single_generate_window_range_filter(self, df_query, tid, **kwargs):
-        print(140)
         mask = filters.window_range_flag(window_col=df_query.select(f"wind_speed_{tid}").collect().to_pandas()[f"wind_speed_{tid}"],
                                          value_col=df_query.select(f"power_output_{tid}").collect().to_pandas()[f"power_output_{tid}"],
                                          **kwargs).values
-        print(144)
         mask &= df_query.select(pl.all_horizontal(pl.all().is_not_null())).collect().to_numpy().flatten()
                                                 
         logging.info(f"Finished generating out of window filter for {df_query.collect_schema().names()}")
@@ -149,10 +147,11 @@ class DataFilter:
 
     def _single_generate_bin_filter(self, df_query, tid, **kwargs):
         mask = filters.bin_filter(bin_col=f"power_output_{tid}", value_col=f"wind_speed_{tid}", 
-                                  data=df_query.select(f"wind_speed_{tid}", f"power_output_{tid}").collect().to_pandas(),
-                                  return_center=False, **kwargs).values
+                                #   data_pd=df_query.select(f"wind_speed_{tid}", f"power_output_{tid}").collect().to_pandas(),
+                                  data_pl=df_query.select(f"wind_speed_{tid}", f"power_output_{tid}"),
+                                  return_center=False, **kwargs)
         
-        mask &= df_query.select(pl.all_horizontal(pl.all().is_not_null())).collect().to_numpy().flatten()
+        mask = mask.to_numpy().flatten() & df_query.select(pl.all_horizontal(pl.all().is_not_null())).collect().to_numpy().flatten()
                                                 
         logging.info(f"Finished generating wind speed-power curve bin-outlier filter for {df_query.collect_schema().names()}")
         return mask #, center
@@ -171,12 +170,10 @@ class DataFilter:
                 executor = MPICommExecutor(MPI.COMM_WORLD, root=0)
                 logging.info(f"🚀 Using MPI executor with {MPI.COMM_WORLD.Get_size()} processes")
             else:  # "cf" case
-                print(171)  
                 max_workers = multiprocessing.cpu_count()
                 executor = ProcessPoolExecutor(max_workers=max_workers,
                                                mp_context=multiprocessing.get_context("spawn"))
                 logging.info(f"🖥️  Using ProcessPoolExecutor with {max_workers} workers")
-            print(175) 
             with executor as ex:
                 futures = [ex.submit(filter_func, 
                                     df_query=df_query.select([pl.col(f"{feat_type}_{tid}") for feat_type in feature_types]), 
