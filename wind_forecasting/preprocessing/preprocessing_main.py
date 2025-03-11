@@ -344,9 +344,10 @@ def main():
             # find stuck sensor measurements for each turbine and set them to null
             # NOTE: this filter must be applied before any cells are nullified st null values aren't considered repeated values
             # find values of wind speed/direction, where there are duplicate values with nulls inbetween
-            if args.reload_data or args.regenerate_filters \
-                or not all(os.path.exists(config["processed_data_path"].replace(".parquet", f"_frozen_sensors_{feat}.npy")) for feat in ws_cols + wd_cols):
-                    
+            generate_filter = args.reload_data or args.regenerate_filters \
+                or not all(os.path.exists(config["processed_data_path"].replace(".parquet", f"_frozen_sensors_{feat}.npy")) for feat in ws_cols + wd_cols)
+                
+            if generate_filter:
                 thr = int(np.timedelta64(config["filters"]["unresponsive_sensor"]["frozen_sensor_limit"], 's') / np.timedelta64(data_loader.dt, 's'))
                 frozen_sensors = filters.unresponsive_flag(
                     data_pl=df_query.select(cs.starts_with("wind_speed"), cs.starts_with("wind_direction")), 
@@ -356,7 +357,7 @@ def main():
                 for feat in ws_cols + wd_cols:
                     np.save(config["processed_data_path"].replace(".parquet", f"_frozen_sensors_{feat}.npy"), 
                                 frozen_sensors(feat).collect().to_numpy().flatten())
-                    
+                
             else:
                 mask = lambda feat: np.load(config["processed_data_path"].replace(".parquet", f"_frozen_sensors_{feat}.npy")) 
         
@@ -405,7 +406,10 @@ def main():
                                                         filter_type="unresponsive sensor",
                                                         check_js=False)
             # df_query.select(pl.col("time"), cs.starts_with("wind_speed")).filter(frozen_sensors["wind_speed"].all(axis=1)).collect()
-            del frozen_sensors, mask
+            if generate_filter:
+                del frozen_sensors
+            del mask
+            
             df_query.collect().write_parquet(config["processed_data_path"].replace(".parquet", "_filtered.parquet"), statistics=False)
             df_query = pl.scan_parquet(config["processed_data_path"].replace(".parquet", "_filtered.parquet"))
             logging.info("Finished nullifying wind speed/direction frozen sensor measurements in dataframe.")
@@ -751,6 +755,8 @@ def main():
                     data_inspector.plot_wind_offset(df_query_10min, "Original", data_loader.turbine_ids)
 
                 # remove biases from median direction
+                df_query_10min.collect().write_parquet(config["processed_data_path"].replace(".parquet", "_calibrated_1.parquet"), statistics=False)
+                df_query_10min = pl.scan_parquet(config["processed_data_path"].replace(".parquet", "_calibrated_2.parquet"))
 
                 # df_offsets = {"turbine_id": [], "northing_bias": []}
                 if args.reload_data or args.regenerate_filters or not os.path.exists(config["processed_data_path"].replace(".parquet", "_biases.npy")):
