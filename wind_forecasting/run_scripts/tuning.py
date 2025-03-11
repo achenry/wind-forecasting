@@ -155,43 +155,31 @@ def get_storage(use_rdb, study_name, journal_storage_dir=None):
         Storage object for Optuna
     """
     if use_rdb:
-        # SQLite with WAL mode
+        # SQLite with WAL mode - using a simpler URL format
+        os.makedirs(journal_storage_dir, exist_ok=True)
         db_path = os.path.join(journal_storage_dir, f"{study_name}.db")
-        os.makedirs(os.path.dirname(db_path), exist_ok=True)
         
-        # Check if the database file exists
-        db_exists = os.path.exists(db_path)
+        # Use a simplified connection string format that Optuna expects
+        storage_url = f"sqlite:///{db_path}"
         
-        # SQLite connection string with WAL mode
-        storage_url = f"sqlite:///{db_path}?journal_mode=WAL&synchronous=NORMAL&timeout=60&busy_timeout=60000"
+        # Check if database already exists and initialize WAL mode directly
+        if not os.path.exists(db_path):
+            try:
+                import sqlite3
+                # Create the database manually first with WAL settings
+                conn = sqlite3.connect(db_path, timeout=60000)
+                conn.execute("PRAGMA journal_mode=WAL")
+                conn.execute("PRAGMA synchronous=NORMAL")
+                conn.execute("PRAGMA cache_size=10000")
+                conn.execute("PRAGMA temp_store=MEMORY")
+                conn.execute("PRAGMA busy_timeout=60000")
+                conn.execute("PRAGMA wal_autocheckpoint=1000")
+                conn.commit()
+                conn.close()
+                logging.info(f"Created SQLite database with WAL mode at {db_path}")
+            except Exception as e:
+                logging.error(f"Error initializing SQLite database: {e}")
                 
-        # Manually create and initialize the database with WAL mode if it doesn't exist
-        if not db_exists:
-            import sqlite3
-            conn = sqlite3.connect(db_path, timeout=60)
-            # Enable WAL mode and optimize settings
-            settings = [
-                ("PRAGMA journal_mode=WAL", "Set WAL mode"),
-                ("PRAGMA synchronous=NORMAL", "Balance between durability and performance"),
-                ("PRAGMA cache_size=10000", "Increase cache size for better performance"),
-                ("PRAGMA temp_store=MEMORY", "Store temp tables in memory"),
-                ("PRAGMA mmap_size=30000000000", "Memory map DB up to 30GB if beneficial"),
-                ("PRAGMA busy_timeout=60000", "Wait up to 60 seconds on busy database"),
-                ("PRAGMA wal_autocheckpoint=1000", "Checkpoint after 1000 pages (default)")
-            ]
-            for command, description in settings:
-                try:
-                    result = conn.execute(command).fetchone()[0]
-                    logging.info(f"SQLite {description}: {result}")
-                except Exception as e:
-                    logging.warning(f"Failed to execute {command}: {e}")
-            
-            conn.commit()
-            conn.close()
-            
-            # Verify WAL mode is working
-            check_wal_mode(db_path)
-            
         return storage_url
     else:
         # Existing journal storage implementation
@@ -248,8 +236,7 @@ def tune_model(model, config, lightning_module_class, estimator_class,
         os.environ["WANDB_DIR"] = wandb_dir
     
     study_name = config["optuna"]["study_name"]
-    logging.info(f"Allocating storage for Optuna study {study_name}.")  
-    storage = get_storage(use_rdb=use_rdb, study_name=study_name, journal_storage_dir=journal_storage_dir)
+    logging.info(f"Allocating storage for Optuna study {study_name} in {journal_storage_dir}")  
     
     # Handle restarting the study differently for SQLite
     if restart_study:
@@ -267,18 +254,22 @@ def tune_model(model, config, lightning_module_class, estimator_class,
                         logging.info(f"Deleted {path}")
                     except Exception as e:
                         logging.warning(f"Could not delete {path}: {e}")
-            
-            # Reinitialize storage
-            storage = get_storage(use_rdb=use_rdb, study_name=study_name, journal_storage_dir=journal_storage_dir)
         else:
             # Original journal file handling
-            logging.info(f"Deleting existing Optuna studies {storage.get_all_studies()}.")  
-            for s in storage.get_all_studies():
-                storage.delete_study(s._study_id)
+            journal_file = os.path.join(journal_storage_dir, f"{study_name}.journal")
+            if os.path.exists(journal_file):
+                try:
+                    os.remove(journal_file)
+                    logging.info(f"Deleted journal file {journal_file}")
+                except Exception as e:
+                    logging.warning(f"Could not delete journal file {journal_file}: {e}")
+    
+    # Get storage after potential deletions
+    storage = get_storage(use_rdb=use_rdb, study_name=study_name, journal_storage_dir=journal_storage_dir)
     
     # Create or load the study with standard hyperparameters
     try:
-        logging.info(f"Creating Optuna study {study_name}.")
+        logging.info(f"Creating Optuna study {study_name}")
         study = create_study(
             study_name=study_name,
             storage=storage,
@@ -286,8 +277,12 @@ def tune_model(model, config, lightning_module_class, estimator_class,
             load_if_exists=True,
             sampler=TPESampler(seed=42)
         )
+        logging.info(f"Study successfully created or loaded: {study_name}")
     except Exception as e:
-        logging.error(f"Error creating study: {e}")
+        logging.error(f"Error creating study: {str(e)}")
+        logging.error(f"Error type: {type(e).__name__}")
+        logging.error(f"Storage type: {type(storage).__name__}")
+        logging.error(f"Storage value: {storage}")
         raise
     
     # Get worker ID for logging
@@ -315,7 +310,7 @@ def tune_model(model, config, lightning_module_class, estimator_class,
     try:
         study.optimize(objective_fn, n_trials=n_trials_per_worker, show_progress_bar=True)
     except Exception as e:
-        logging.error(f"Worker {worker_id} failed with error: {e}")
+        logging.error(f"Worker {worker_id} failed with error: {str(e)}")
         logging.error(f"Error details: {type(e).__name__}")
         raise
 

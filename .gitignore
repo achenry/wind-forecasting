@@ -54,6 +54,7 @@ wind_forecasting.code-workspace
 *.dat
 *.checkpoint
 *.ckpt
+*.db
 
 examples/data/*
 .vscode/
