@@ -23,6 +23,7 @@ mkdir -p ${LOG_DIR}/wandb
 mkdir -p ${LOG_DIR}/optuna
 mkdir -p ${LOG_DIR}/checkpoints
 
+# Change to working directory
 cd ${WORK_DIR}
 
 # --- Module loading ---
@@ -38,9 +39,11 @@ module load CUDA/12.4.0
 eval "$(conda shell.bash hook)"
 conda activate wf_env_2
 
-# Set WandB directory explicitly
+# Set paths
+export PYTHONPATH=${WORK_DIR}:${PYTHONPATH}
 export WANDB_DIR=${LOG_DIR}/wandb
 
+# Print environment info
 echo "SLURM_JOB_ID=${SLURM_JOB_ID}"
 echo "SLURM_JOB_NAME=${SLURM_JOB_NAME}"
 echo "SLURM_JOB_PARTITION=${SLURM_JOB_PARTITION}"
@@ -56,7 +59,7 @@ echo "=== STARTING TUNING ==="
 date +"%Y-%m-%d %H:%M:%S"
 
 # Configure how many workers to run per GPU
-NUM_WORKERS_PER_GPU=2
+NUM_WORKERS_PER_GPU=1
 
 # Used to track process IDs for all workers
 declare -a WORKER_PIDS=()
@@ -115,5 +118,4 @@ echo "=== TUNING COMPLETED ==="
 # sbatch wind_forecasting/run_scripts/tune_model_storm.sh
 # sinfo -p cfdg.p
 # squeue -u taed7566
-# tail -f /user/taed7566/wind-forecasting/logging/slurm_logs/informer_tune_flasc_%j.out
-# srun -p all_gpu.p -N 1 -n 1 --gpus-per-node 1 -c 128 --mem=32G --time=5:00:00 --pty bash
+# tail -f /user/taed7566/wind-forecasting/logging/slurm_logs/informer_tune_flasc_%j.out# srun -p all_gpu.p -N 1 -n 1 --gpus-per-node 1 -c 128 --mem=32G --time=5:00:00 --pty bash
