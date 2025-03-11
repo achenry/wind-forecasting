@@ -631,7 +631,7 @@ def main():
         
         # apply a bin filter to remove data with power values outside of an envelope around median power curve at each wind speed
         if args.reload_data or args.regenerate_filters or not os.path.exists(config["processed_data_path"].replace(".parquet", "_bin_outliers.npy")):
-            # data_filter.multiprocessor = None
+            data_filter.multiprocessor = None
             
             # df_query.select(pl.max_horizontal(cs.starts_with(f"power_output").max())).collect().item()
             bin_outliers = data_filter.multi_generate_filter(df_query=df_query, filter_func=data_filter._single_generate_bin_filter,
@@ -644,7 +644,7 @@ def main():
                                                                 threshold_type=config["filters"]["bin_filter"]["threshold_type"],
                                                                 direction="below"# keep derated cases
                                                                 ) 
-            # data_filter.multiprocessor = args.multiprocessor
+            data_filter.multiprocessor = args.multiprocessor
             if RUN_ONCE:
                 np.save(config["processed_data_path"].replace(".parquet", "_bin_outliers.npy"), bin_outliers)
         elif RUN_ONCE:
