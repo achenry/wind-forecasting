@@ -3,14 +3,14 @@ experiment:
   log_dir: /user/taed7566/wind-forecasting/logging/
 
 logging:
-  wandb_dir: ${experiment.log_dir}wandb/
-  optuna_dir: ${experiment.log_dir}optuna/
-  checkpoint_dir: ${experiment.log_dir}checkpoints/
-  slurm_output_dir: ${experiment.log_dir}slurm_logs/
+  wandb_dir: /user/taed7566/wind-forecasting/logging/wandb/
+  optuna_dir: /user/taed7566/wind-forecasting/logging/optuna/
+  checkpoint_dir: /user/taed7566/wind-forecasting/logging/checkpoints/
+  slurm_output_dir: /user/taed7566/wind-forecasting/logging/slurm_logs/
 
 optuna:
   study_name: "windfarm_debug_juan_flasc"
-  journal_dir: ${logging.optuna_dir}  # Changed from direct path to use log_dir
+  journal_dir: /user/taed7566/wind-forecasting/logging/optuna/ # Changed from variable reference
   use_rdb: True               # Whether to use RDB storage for Optuna
   n_trials: 8                  # How many trials to run
   max_epochs: 3                # How many epochs to run per trial
