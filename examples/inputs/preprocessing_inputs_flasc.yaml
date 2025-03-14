@@ -1,3 +1,5 @@
+config_label: "flasc_aoifemac"
+
 filters:
   unresponsive_sensor:
     frozen_sensor_limit: 1200 # maximum duration for which a value can be constant before it is flagged as frozen, seconds
