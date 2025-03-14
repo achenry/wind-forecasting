@@ -2,7 +2,7 @@ import argparse
 import logging
 from memory_profiler import profile
 import os
-
+# TODO HIGH add rank r to Optuna hyperparmaeter list
 import polars as pl
 import wandb
 wandb.login()
