@@ -756,7 +756,7 @@ def main():
 
                 # remove biases from median direction
                 df_query_10min.collect().write_parquet(config["processed_data_path"].replace(".parquet", "_calibrated_1.parquet"), statistics=False)
-                df_query_10min = pl.scan_parquet(config["processed_data_path"].replace(".parquet", "_calibrated_2.parquet"))
+                df_query_10min = pl.scan_parquet(config["processed_data_path"].replace(".parquet", "_calibrated_1.parquet"))
 
                 # df_offsets = {"turbine_id": [], "northing_bias": []}
                 if args.reload_data or args.regenerate_filters or not os.path.exists(config["processed_data_path"].replace(".parquet", "_biases.npy")):
@@ -860,8 +860,8 @@ def main():
         logging.info("Selecting features.")
         
         df_query2 = df_query\
-            .with_columns(**{f"ws_horz_{tid}": (pl.col(f"wind_speed_{tid}") * ((pl.col(f"wind_direction_{tid}") - 180.0).radians().sin())) for tid in data_loader.turbine_ids})\
-            .with_columns(**{f"ws_vert_{tid}": (pl.col(f"wind_speed_{tid}") * ((pl.col(f"wind_direction_{tid}") - 180.0).radians().cos())) for tid in data_loader.turbine_ids})\
+            .with_columns(**{f"ws_horz_{tid}": (pl.col(f"wind_speed_{tid}") * ((pl.col(f"wind_direction_{tid}") + 180.0).radians().sin())) for tid in data_loader.turbine_ids})\
+            .with_columns(**{f"ws_vert_{tid}": (pl.col(f"wind_speed_{tid}") * ((pl.col(f"wind_direction_{tid}") + 180.0).radians().cos())) for tid in data_loader.turbine_ids})\
             .with_columns(**{f"nd_cos_{tid}": ((pl.col(f"nacelle_direction_{tid}")).radians().cos()) for tid in data_loader.turbine_ids})\
             .with_columns(**{f"nd_sin_{tid}": ((pl.col(f"nacelle_direction_{tid}")).radians().sin()) for tid in data_loader.turbine_ids})\
             .select(pl.col("time"), cs.starts_with("ws_horz"), cs.starts_with("ws_vert"), cs.starts_with("nd_sin"), cs.starts_with("nd_cos"), cs.starts_with("power_output"))

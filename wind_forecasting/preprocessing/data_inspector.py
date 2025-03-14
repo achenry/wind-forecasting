@@ -780,7 +780,7 @@ class DataInspector:
                     .unpivot(index=id_vars, variable_name="feature", value_name=feature_type)\
                     .with_columns(pl.col("feature").str.extract(turbine_signature, group_index=0).alias("turbine_id"))\
                     .drop("feature") for feature_type in value_vars if len(df.select(cs.starts_with(f"{feature_type}_")).columns)], how="align")\
-                    .group_by("turbine_id", *id_vars).agg(cs.numeric().drop_nulls().first()).sort("turbine_id", "time")
+                    .group_by("turbine_id", *id_vars, maintain_order=True).agg(cs.numeric().drop_nulls().first()).sort("turbine_id", "time")
             else:
                 # Data is already in long format
                 return df
@@ -899,8 +899,12 @@ class DataInspector:
     #INFO: @Juan 10/02/24 Added method to calculate wind direction
     @staticmethod
     def calculate_wind_direction(u: np.ndarray, v: np.ndarray) -> np.ndarray:
-        return np.mod(180 + np.rad2deg(np.arctan2(u, v)), 360)
+        return np.mod(180 + np.rad2deg(np.arctan2(u, v)), 360) # DEFINITELY RIGHT
     
+    @staticmethod
+    def calculate_wind_speed_components(wm: np.ndarray, wd: np.ndarray) -> np.ndarray:
+        return wm * np.sin((np.pi+np.deg2rad(wd))), wm * np.cos((np.pi + np.deg2rad(wd)))
+     
     #INFO: @Juan 10/02/24 Added method to calculate mutual information for chunks of data
     @staticmethod
     def calculate_mi_for_chunk(args: tuple) -> tuple:
