@@ -165,7 +165,6 @@ wind-forecasting/
 </details>
 
 ## 📋 Usage
-
 1. Clone the repository and set up the Jupyter notebook collaboration as described in the setup section.
 2. Download the required data using the script in `examples` or use your own data.
 3. Set up the appropriate environment (CUDA or ROCm) using the scripts in the `install_rc` folder.
@@ -173,6 +172,21 @@ wind-forecasting/
 5. Train and evaluate models using the scripts in the `wind_forecasting/models` directory.
 6. For running jobs on HPC environments, use the SLURM scripts provided in the `rc_jobs` folder.
 
+### Preprocessing
+1. Write a preprocessing configuration file similar to `wind-forecasting/examples/inputs/preprocessing_inputs_flasc.yaml`
+2. Run preprocessing on a local machine with `preprocessing_main.py --config /Users/ahenry/Documents/toolboxes/wind-forecasting/examples/inputs/preprocessing_inputs_flasc.yaml --reload_data --preprocess_data --regenerate_filters --multiprocessor cf --verbose` or on a HPC by running `wind-forecasting/wind_forecasting/preprocessing/load_data.sh`, followed by `wind-forecasting/wind_forecasting/preprocessing/preprocess_data.sh`.
+3. Write a training configuration file similar to `wind-forecasting/examples/inputs/training_inputs_kestrel_flasc.yaml`.
+4. Run `wind-forecasting/wind_forecasting/run_scripts/load_data.py` to resample the data as needed, caterogize the variables, and generate train/test/val splits.
+
+### Tuning a ML Model
+
+### Tuning a Statistical Model
+
+### Training a ML Model
+
+### Testing a ML Model
+
+### Combining a Statistical or ML Model with a Wind Farm Controller
 ---
 
 <!-- <div align="center">

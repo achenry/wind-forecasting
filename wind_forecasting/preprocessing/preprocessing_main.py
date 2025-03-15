@@ -205,13 +205,11 @@ def main():
         #     rmtree(temp_save_dir)
             # raise Exception(f"Temporary saving directory {temp_save_dir} already exists! Please remove or rename it.")
         if RUN_ONCE:
-            if not os.path.exists(temp_save_dir):
-                logging.info(f"Making temporary directory {temp_save_dir}")
-                os.makedirs(temp_save_dir)
+            logging.info(f"Making temporary directory {temp_save_dir}")
+            os.makedirs(temp_save_dir, exist_ok=True)
     
-            if not os.path.exists(os.path.dirname(data_loader.save_path)):
-                logging.info(f"Making directory to save_path {os.path.dirname(data_loader.save_path)}")
-                os.makedirs(os.path.dirname(data_loader.save_path))
+            logging.info(f"Making directory to save_path {os.path.dirname(data_loader.save_path)}")
+            os.makedirs(os.path.dirname(data_loader.save_path), exist_ok=True)
                         
         df_query = data_loader.read_multi_files(temp_save_dir, read_single_files=True, first_merge=True, second_merge=True) 
         
