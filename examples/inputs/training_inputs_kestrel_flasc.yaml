@@ -10,8 +10,8 @@ optuna:
   n_trials: 100
 
 dataset: 
-    data_path: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/preprocessed_flasc_data/SMARTEOLE_WakeSteering_SCADA_1minData_normalized.parquet
-    normalization_consts_path: /projects/ssc/ahenry/wind_forecasting/examples/data/preprocessed_flasc_data/SMARTEOLE_WakeSteering_SCADA_1minData_normalization_consts.csv 
+    data_path: /projects/ssc/ahenry/wind_forecasting/flasc_data/SMARTEOLE_WakeSteering_SCADA_1minData_normalized.parquet
+    normalization_consts_path: /projects/ssc/ahenry/wind_forecasting/flasc_data/SMARTEOLE_WakeSteering_SCADA_1minData_normalization_consts.csv 
     context_length: 20 # 120=10 minutes for 5 sec sample size
     prediction_length: 20 # 120=10 minutes for 5 sec sample size
     target_turbine_ids: # or leave blank to capture all
@@ -21,7 +21,7 @@ dataset:
     overfit: False
     test_split: 0.20
     val_split: 0.1
-    resample_freq: 30s
+    resample_freq: 60s
     n_splits: 1 # how many divisions of each continuity group to make which is further subdivided into training test and validation data
     per_turbine_target: False
 
