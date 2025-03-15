@@ -71,8 +71,8 @@ def main():
 
     # %% SETUP LOGGING
     logging.info("Setting up logging")
-    if not os.path.exists(config["experiment"]["log_dir"]):
-        os.makedirs(config["experiment"]["log_dir"])
+    os.makedirs(config["experiment"]["log_dir"], exist_ok=True)
+    
     wandb_logger = WandbLogger(
         project="wind_forecasting",
         name=config["experiment"]["run_name"],
@@ -138,8 +138,7 @@ def main():
     if args.mode == "tune":
         # %% TUNE MODEL WITH OPTUNA
         from wind_forecasting.run_scripts.tuning import tune_model
-        if not os.path.exists(config["optuna"]["journal_dir"]):
-            os.makedirs(config["optuna"]["journal_dir"]) 
+        os.makedirs(config["optuna"]["journal_dir"], exist_ok=True) 
     
         tune_model(model=args.model, config=config, 
                     lightning_module_class=globals()[f"{args.model.capitalize()}LightningModule"], 
