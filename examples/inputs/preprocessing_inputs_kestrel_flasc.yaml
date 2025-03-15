@@ -54,7 +54,7 @@ raw_data_directory:
   - /projects/ssc/ahenry/wind_forecasting/flasc_data/
 
 # processed_data_path: /tmp/scratch/$SLURM_JOB_ID/flasc_processed.parquet
-processed_data_path: /projects/ssc/ahenry/wind_forecasting/awaken_data/flasc_processed.parquet
+processed_data_path: /projects/ssc/ahenry/wind_forecasting/flasc_data/flasc_processed.parquet
 
 raw_data_file_signature: 
   - SMARTEOLE_WakeSteering_SCADA_1minData.csv
