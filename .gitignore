@@ -3,6 +3,7 @@ wind_forecasting/models/.eggs
 .vscode
 .vscode/launch.json
 
+examples/optuna/*
 wind_forecasting/models/spacetimeformer/spacetimeformer/data
 wind_forecasting/models/__pycache__
 wind_forecasting/preprocessing/__pycache__
