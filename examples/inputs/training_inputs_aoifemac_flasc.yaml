@@ -4,7 +4,7 @@ experiment:
 
 optuna:
   journal_dir: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/optuna
-  use_rdb: True
+  storage_type: sqlite # or mysql, or journal
   n_trials: 2
   metric: mean_wQuantileLoss
   direction: minimize
