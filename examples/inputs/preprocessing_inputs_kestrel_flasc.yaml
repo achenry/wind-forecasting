@@ -36,6 +36,15 @@ feature_mapping:
     power_output: 'active_power_\d+_avg'
     nacelle_direction: 'nacelle_position_\d+_avg'
 
+turbine_mapping:
+- 1: 1
+  2: 2
+  3: 3
+  4: 4
+  5: 5
+  6: 6
+  7: 7
+
 turbine_signature: 
   - '\d+'
 
