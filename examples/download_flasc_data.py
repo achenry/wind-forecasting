@@ -14,8 +14,7 @@ def download_smarteole_data():
     filesize = r_json["files"][0]["size"] / (1024 * 1024)
     filename = os.path.join("inputs", r_json["files"][0]["key"])
     result = requests.get(r_json["files"][0]["links"]["self"], stream=True)
-    if not os.path.exists("inputs"):
-        os.makedirs("inputs")
+    os.makedirs("inputs", exist_ok=True)
     if not os.path.exists(filename):
         print("SMARTEOLE data not found locally. Beginning file download from Zenodo...")
         chunk_number = 0

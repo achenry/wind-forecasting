@@ -42,6 +42,15 @@ feature_mapping:
 turbine_signature: 
   - '\d+'
 
+turbine_mapping:
+- 1: 1
+  2: 2
+  3: 3
+  4: 4
+  5: 5
+  6: 6
+  7: 7
+
 merge_chunk: 100
 ram_limit: 70
 frozen_sensor_limit: 1200 # maximum duration for which a value can be constant before it is flagged as frozen, seconds
