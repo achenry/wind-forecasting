@@ -10,6 +10,7 @@ from mysql.connector import connect as sql_connect
 from optuna import create_study
 from optuna.storages import JournalStorage, RDBStorage
 from optuna.storages.journal import JournalFileBackend
+from optuna.samplers import TPESampler
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -91,8 +92,8 @@ class MLTuningObjective:
         return agg_metrics[self.metric]
 
 
-def get_storage(use_rdb, study_name, journal_storage_dir=None):
-    if use_rdb:
+def get_storage(storage_type, study_name, journal_storage_dir=None):
+    if storage_type == "mysql":
         logging.info(f"Connecting to RDB database {study_name}")
         try:
             db = sql_connect(host="localhost", user="root",
@@ -103,13 +104,42 @@ def get_storage(use_rdb, study_name, journal_storage_dir=None):
             cursor.execute(f"CREATE DATABASE {study_name}") 
         finally:
             storage = RDBStorage(url=f"mysql://{db.user}@{db.server_host}:{db.server_port}/{study_name}")
-    else:
+    elif storage_type == "sqlite":
+        # SQLite with WAL mode - using a simpler URL format
+        os.makedirs(journal_storage_dir, exist_ok=True)
+        db_path = os.path.join(journal_storage_dir, f"{study_name}.db")
+
+        # Use a simplified connection string format that Optuna expects
+        storage_url = f"sqlite:///{db_path}"
+
+        # Check if database already exists and initialize WAL mode directly
+        if not os.path.exists(db_path):
+            try:
+                import sqlite3
+                # Create the database manually first with WAL settings
+                conn = sqlite3.connect(db_path, timeout=60000)
+                conn.execute("PRAGMA journal_mode=WAL")
+                conn.execute("PRAGMA synchronous=NORMAL")
+                conn.execute("PRAGMA cache_size=10000")
+                conn.execute("PRAGMA temp_store=MEMORY")
+                conn.execute("PRAGMA busy_timeout=60000")
+                conn.execute("PRAGMA wal_autocheckpoint=1000")
+                conn.commit()
+                conn.close()
+                logging.info(f"Created SQLite database with WAL mode at {db_path}")
+            except Exception as e:
+                logging.error(f"Error initializing SQLite database: {e}")
+                
+        storage = RDBStorage(url=storage_url)
+        
+    elif storage_type == "journal":
         logging.info(f"Connecting to Journal database {study_name}")
         storage = JournalStorage(JournalFileBackend(os.path.join(journal_storage_dir, f"{study_name}.log")))
+    
     return storage
 
-def get_tuned_params(use_rdb, study_name):
-    storage = get_storage(use_rdb=use_rdb, study_name=study_name)
+def get_tuned_params(storage_type, study_name):
+    storage = get_storage(storage_type=storage_type, study_name=study_name)
     try:
         study_id = storage.get_study_id_from_name(study_name)
     except Exception:
@@ -122,13 +152,14 @@ def get_tuned_params(use_rdb, study_name):
 def tune_model(model, config, lightning_module_class, estimator_class, 
                max_epochs, limit_train_batches, 
                distr_output_class, data_module, context_length_choices, 
-               journal_storage_dir, use_rdb=False, restart_study=False, metric="mean_wQuantileLoss", 
+               journal_storage_dir, storage_type="sqlite", restart_tuning=False, metric="mean_wQuantileLoss", 
                direction="minimize", n_trials=10):
     
+    assert storage_type in ["sqlite", "mysql", "journal"]
     study_name = f"tuning_{model}"
     logging.info(f"Allocating storage for Optuna study {study_name}.")  
-    storage = get_storage(use_rdb=use_rdb, study_name=study_name, journal_storage_dir=journal_storage_dir)
-    if restart_study:
+    storage = get_storage(storage_type=storage_type, study_name=study_name, journal_storage_dir=journal_storage_dir)
+    if restart_tuning:
         logging.info(f"Deleting existing Optuna studies {storage.get_all_studies()}.")  
         for s in storage.get_all_studies():
             storage.delete_study(s._study_id)
@@ -137,7 +168,8 @@ def tune_model(model, config, lightning_module_class, estimator_class,
     study = create_study(study_name=study_name,
                          storage=storage,
                          direction=direction,
-                         load_if_exists=True)
+                         load_if_exists=True,
+                         sampler=TPESampler())
     
     logging.info(f"Optimizing Optuna study {study_name}.") 
     tuning_objective = MLTuningObjective(model=model, config=config, 

@@ -29,6 +29,16 @@ from scipy.optimize import minimize
 
 import matplotlib.pyplot as plt
 
+factor = 1.5
+# factor = 3.0 # single column
+plt.rc('font', size=12*factor)          # controls default text sizes
+plt.rc('axes', titlesize=20*factor)     # fontsize of the axes title
+plt.rc('axes', labelsize=15*factor)     # fontsize of the x and y labels
+plt.rc('xtick', labelsize=12*factor)    # fontsize of the xtick labels
+plt.rc('ytick', labelsize=12*factor)    # fontsize of the ytick labels
+plt.rc('legend', fontsize=12*factor)    # legend fontsize
+plt.rc('legend', title_fontsize=14*factor)  # legend title fontsize
+
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 class DataFilter:
@@ -137,15 +147,17 @@ class DataFilter:
 
     def _single_generate_bin_filter(self, df_query, tid, **kwargs):
         mask = filters.bin_filter(bin_col=f"power_output_{tid}", value_col=f"wind_speed_{tid}", 
-                                  data=df_query.select(f"wind_speed_{tid}", f"power_output_{tid}").collect().to_pandas(),
-                                  **kwargs).values
-        mask &= df_query.select(pl.all_horizontal(pl.all().is_not_null())).collect().to_numpy().flatten()
+                                #   data_pd=df_query.select(f"wind_speed_{tid}", f"power_output_{tid}").collect().to_pandas(),
+                                  data_pl=df_query.select(f"wind_speed_{tid}", f"power_output_{tid}"),
+                                  return_center=False, **kwargs)
+        
+        mask = mask.to_numpy().flatten().astype(bool) & df_query.select(pl.all_horizontal(pl.all().is_not_null())).collect().to_numpy().flatten()
                                                 
         logging.info(f"Finished generating wind speed-power curve bin-outlier filter for {df_query.collect_schema().names()}")
-        return mask
+        return mask #, center
     
     def _single_generate_std_range_filter(self, df_query, tid, **kwargs):
-        mask = filters.std_range_flag(data=df_query.collect().to_pandas(), **kwargs).values
+        mask = filters.std_range_flag(data_pl=df_query.collect().to_pandas(), **kwargs).values
         mask &= df_query.select(pl.all().is_not_null()).collect().to_numpy()
                                                 
         logging.info(f"Finished generating std out of range filter for {df_query.collect_schema().names()}")
@@ -154,30 +166,87 @@ class DataFilter:
     def multi_generate_filter(self, df_query, filter_func, feature_types, turbine_ids, **kwargs):
         if self.multiprocessor:
             if self.multiprocessor == "mpi" and mpi_exists:
+                print(168)
                 executor = MPICommExecutor(MPI.COMM_WORLD, root=0)
                 logging.info(f"🚀 Using MPI executor with {MPI.COMM_WORLD.Get_size()} processes")
             else:  # "cf" case
                 max_workers = multiprocessing.cpu_count()
-                executor = ProcessPoolExecutor(max_workers=max_workers)
+                executor = ProcessPoolExecutor(max_workers=max_workers,
+                                               mp_context=multiprocessing.get_context("spawn"))
                 logging.info(f"🖥️  Using ProcessPoolExecutor with {max_workers} workers")
-            
             with executor as ex:
                 futures = [ex.submit(filter_func, 
                                     df_query=df_query.select([pl.col(f"{feat_type}_{tid}") for feat_type in feature_types]), 
                                     tid=tid, **kwargs) for tid in turbine_ids]
-                masks = [fut.result() for fut in futures]
-                
-                return np.stack(masks, axis=1) 
+                results = [fut.result() for fut in futures]
+                # if isinstance(results[0], tuple):
+                #     return np.stack([res[0] for res in results], axis=1), [res[1:] for res in results]
+                # else:
+            return np.stack(results, axis=1)
         else:
             logging.info("🔧 Using single process executor")
-            res = []
+            masks = []
+            # other_outputs = []
             for tid in turbine_ids:
-                mask = filter_func(
+                res = filter_func(
                     df_query=df_query.select([pl.col(f"{feat_type}_{tid}") for feat_type in feature_types]), tid=tid, **kwargs)
-                res.append(mask)
+                # if isinstance(res, tuple):
+                #     masks.append(res[0])
+                #     other_outputs.append(res[1])
+                # else:
+                masks.append(res)
                     
-            return np.stack(res, axis=1)
+            return np.stack(masks, axis=1) #, other_outputs or None
 
+    def _single_compute_bias(self, df_query, tid):
+        bias = df_query\
+                    .filter(pl.col(f"power_output_{tid}") >= 0)\
+                    .select("time", f"wind_direction_{tid}", f"nacelle_direction_{tid}", "wd_median", "nd_median")\
+                    .select(wd_bias=(pl.col(f"wind_direction_{tid}") - pl.col("wd_median")), 
+                            nd_bias=(pl.col(f"nacelle_direction_{tid}") - pl.col("nd_median")))\
+                    .select(pl.all().radians().sin().mean().name.suffix("_sin"), pl.all().radians().cos().mean().name.suffix("_cos"))\
+                    .select(wd_bias=pl.arctan2("wd_bias_sin", "wd_bias_cos").degrees().mod(360),
+                            nd_bias=pl.arctan2("nd_bias_sin", "nd_bias_cos").degrees().mod(360))\
+                    .select(pl.when(pl.all() > 180.0).then(pl.all() - 360.0).otherwise(pl.all()))\
+                    .select(0.5 * (pl.col("wd_bias").fill_null(0) + pl.col("nd_bias").fill_null(0))).collect().item()
+
+        # df_offsets["turbine_id"].append(turbine_id)
+        # bias = 0.5 * ((bias.select("wd_bias").item() or 0) + (bias.select("nd_bias").item() or 0))
+         
+        logging.info(f"Finished computing wind/nacelle direction bias for turbine {tid}")
+        return bias
+    
+    def multi_compute_bias(self, df_query, turbine_ids):
+        if self.multiprocessor:
+            if self.multiprocessor == "mpi" and mpi_exists:
+                executor = MPICommExecutor(MPI.COMM_WORLD, root=0)
+                logging.info(f"🚀 Using MPI executor with {MPI.COMM_WORLD.Get_size()} processes")
+            else:  # "cf" case
+                max_workers = multiprocessing.cpu_count()
+                executor = ProcessPoolExecutor(max_workers=max_workers,
+                                               mp_context=multiprocessing.get_context("spawn"))
+                logging.info(f"🖥️  Using ProcessPoolExecutor with {max_workers} workers")
+            
+            with executor as ex:
+                futures = [ex.submit(self._single_compute_bias, 
+                                    df_query=df_query.select(
+                    "time", "nd_median", "wd_median", f"power_output_{tid}", f"wind_direction_{tid}", f"nacelle_direction_{tid}"), 
+                                    tid=tid) for tid in turbine_ids]
+                biases = [fut.result() for fut in futures]
+                
+                return biases
+        else:
+            logging.info("🔧 Using single process executor")
+            biases = []
+            for tid in turbine_ids:
+                bias = self._single_compute_bias(
+                    df_query=df_query.select(
+                        "time", "nd_median", "wd_median", f"power_output_{tid}", f"wind_direction_{tid}", f"nacelle_direction_{tid}"), 
+                    tid=tid)
+                biases.append(bias)
+                    
+            return biases
+    
     def fill_multi_missing_datasets(self, dfs, impute_missing_features, interpolate_missing_features, r2_threshold):
         if self.multiprocessor:
             if self.multiprocessor == "mpi" and mpi_exists:
@@ -185,7 +254,8 @@ class DataFilter:
                 logging.info(f"🚀 Using MPI executor with {MPI.COMM_WORLD.Get_size()} processes")
             else:  # "cf" case
                 max_workers = multiprocessing.cpu_count()
-                executor = ProcessPoolExecutor(max_workers=max_workers)
+                executor = ProcessPoolExecutor(max_workers=max_workers,
+                                               mp_context=multiprocessing.get_context("spawn"))
                 logging.info(f"🖥️  Using ProcessPoolExecutor with {max_workers} workers")
             
             with executor as ex:
@@ -208,21 +278,22 @@ class DataFilter:
                 logging.info(f"🚀 Using MPI executor with {MPI.COMM_WORLD.Get_size()} processes")
             else:  # "cf" case
                 max_workers = multiprocessing.cpu_count()
-                executor = ProcessPoolExecutor(max_workers=max_workers)
+                executor = ProcessPoolExecutor(max_workers=max_workers,
+                                               mp_context=multiprocessing.get_context("spawn"))
                 logging.info(f"🖥️  Using ProcessPoolExecutor with {max_workers} workers")
             
             with executor as ex:
                 futures = {feature: ex.submit(imputing.impute_all_assets_by_correlation,
-                                              data_pl=df.select("time", cs.starts_with(feature)), data_pd=None, 
+                                              data_pl=df.select("time", cs.starts_with(f"{feature}_")), data_pd=None, 
                                     #  data_pd=unpivot_df.select(["time", "turbine_id", feature]).collect().to_pandas().set_index(["time", "turbine_id"]),
                                      impute_col=feature, reference_col=feature,
                                      asset_id_col="turbine_id", method="linear", r2_threshold=r2_threshold) for feature in impute_missing_features}
                 
                 for k, v in futures.items():
-                    df = df.update(v, on="time")
+                    df = df.update(v.result(), on="time")
         elif parallel == "turbine_id":
             for feature in impute_missing_features:
-                features_pl = ["time", cs.starts_with(feature)]
+                features_pl = ["time", cs.starts_with(f"{feature}_")]
 
                 imputed_vals = imputing.impute_all_assets_by_correlation(
                     # data_pd=unpivot_df.select(features).collect().to_pandas().set_index(["time", "turbine_id"]),
@@ -236,7 +307,7 @@ class DataFilter:
                 logging.info(f"Imputed feature {feature} in DataFrame {df_idx}.")
         else:
             for feature in impute_missing_features:
-                features_pl = ["time", cs.starts_with(feature)]
+                features_pl = ["time", cs.starts_with(f"{feature}_")]
 
                 imputed_vals = imputing.impute_all_assets_by_correlation(
                                                             data_pl=df.select(features_pl), data_pd=None,
@@ -253,7 +324,7 @@ class DataFilter:
         df = self._impute_single_missing_dataset(df_idx, df, impute_missing_features, r2_threshold=r2_threshold, parallel=parallel)
 
         # if any column is all nulls ... can't be imputed
-        df = df.with_columns([cs.starts_with(feat).interpolate().fill_null(strategy="forward").fill_null(strategy="backward") for feat in interpolate_missing_features])
+        df = df.with_columns([cs.starts_with(f"{feat}_").interpolate().fill_null(strategy="forward").fill_null(strategy="backward") for feat in interpolate_missing_features])
 
         if df.select(pl.any_horizontal(pl.all().is_null().sum())).collect().item():
             missing_columns = df.select(col.name for col in 
@@ -323,17 +394,17 @@ class DataFilter:
         
         return __class__._js_divergence(p, q)
 
-    def conditional_filter(self, df, threshold, mask, mask_input_features, output_features, check_js=True):
+    def conditional_filter(self, df, threshold, mask, mask_input_features, output_features, filter_type, check_js=True):
         """
         only applies mask to features if the Jensen-Shannon metric between filtered and unfiltered 
         data exceeds a threshold
         """
         if self.data_format == 'wide':
-            return self._conditional_filter_wide(df, threshold, mask, mask_input_features, output_features, check_js)
+            return self._conditional_filter_wide(df, threshold, mask, mask_input_features, output_features, filter_type, check_js)
         else:
-            return self._conditional_filter_long(df, threshold, mask, mask_input_features, output_features, check_js)
+            return self._conditional_filter_long(df, threshold, mask, mask_input_features, output_features, filter_type, check_js)
 
-    def _conditional_filter_wide(self, df, threshold, mask, mask_input_features, output_features, check_js):
+    def _conditional_filter_wide(self, df, threshold, mask, mask_input_features, output_features, filter_type, check_js):
         if check_js:
             js_scores = []
             for inp_feat, opt_feat in zip(mask_input_features, output_features):
@@ -342,7 +413,7 @@ class DataFilter:
                     train_sample=df.filter(filt_expr).select(opt_feat).drop_nulls().collect().to_numpy().flatten(),
                     test_sample=df.select(opt_feat).drop_nulls().collect().to_numpy().flatten()
                 )
-                logging.info(f"JS Score for feature {opt_feat} = {js_score}")
+                logging.info(f"JS Score for feature {opt_feat} = {js_score} with filter {filter_type}")
                 js_scores.append(js_score)
                 
                 if js_score > threshold:
@@ -351,6 +422,7 @@ class DataFilter:
                     #     ma.filled(ma.array(df.select(pl.col(feat)).collect().to_numpy().flatten(), mask=mask(tid), fill_value=np.nan))
                     #                         }).with_columns(pl.col(feat).fill_nan(None).alias(feat))
                     df = df.with_columns(pl.when(pl.Series(filt_expr)).then(None).otherwise(pl.col(opt_feat)).alias(opt_feat))
+                    logging.info(f"Applied filter {filter_type} to feature {opt_feat}.")
                 
                 # if js_score > threshold:
                     # df = df.with_columns(pl.when(mask(tid)).then(pl.col(feat)).otherwise(None).alias(feat))
@@ -366,11 +438,11 @@ class DataFilter:
                 #     ma.filled(ma.array(df.select(pl.col(feat)).collect().to_numpy().flatten(), mask=filt_expr, fill_value=np.nan))
                 #     }).with_columns(pl.col(feat).fill_nan(None).alias(feat))
                 # df = df.with_columns(pl.when(mask(tid)).then(pl.col(feat)).otherwise(None).alias(feat))
-                logging.info(f"Applied filter to feature {opt_feat}.")
+                logging.info(f"Applied filter {filter_type} to feature {opt_feat}.")
         
         return df
 
-    def _conditional_filter_long(self, df, threshold, mask, mask_input_features, output_features, check_js):
+    def _conditional_filter_long(self, df, threshold, mask, mask_input_features, output_features, filter_type, check_js):
         # TODO test this
         if check_js:
             js_scores = []
@@ -380,7 +452,7 @@ class DataFilter:
                     train_sample=df.filter(pl.Series(filt_expr)).select(opt_feat).drop_nulls().collect().to_numpy().flatten(),
                     test_sample=df.select(opt_feat).drop_nulls().collect().to_numpy().flatten()
                 )
-                logging.info(f"JS Score for feature {feat} = {js_score}")
+                logging.info(f"JS Score for feature {opt_feat} = {js_score} with filter {filter_type}")
                 js_scores.append(js_score)
                 # if js_score > threshold:
                 #     df = df.with_columns(pl.when(mask).then(pl.col(feat)).otherwise(None).alias(feat))
@@ -538,40 +610,40 @@ def compute_offsets(df, fi, turbine_ids, turbine_pairs:list[tuple[int, int]]=Non
                                         .then(pl.col(f"wind_direction_{tid_up}") - 360.0)\
                                         .otherwise(pl.col(f"wind_direction_{tid_up}")),
                                         pl.col(f"wind_direction_{tid_up}").round().alias(f"wd_round"))\
-                        .group_by(f"wd_round").agg(pl.all().mean()).sort("wd_round").collect()
+                        .group_by(f"wd_round").agg(pl.all().mean()).sort("wd_round")
 
         # compute the power ratio downstream power to upstream power for each integer wind direction
-        p_ratio = df_sub.select(pl.col(f"wd_round"), (pl.col(f"power_output_{tid_down}") / pl.col(f"power_output_{tid_up}")).alias("p_ratio"))
+        df_sub = df_sub.select(pl.col(f"wd_round"), (pl.col(f"power_output_{tid_down}") / pl.col(f"power_output_{tid_up}")).alias("p_ratio")).collect()
 
         if plot or True:
-            fig, ax = plt.subplots(1,1)
-            ax.plot(p_ratio.select("wd_round").to_numpy().flatten(), p_ratio.select("p_ratio").to_numpy().flatten(), label="_nolegend_")
+            fig, ax = plt.subplots(1,1, figsize=(10, 6))
+            ax.plot(df_sub.select("wd_round").to_numpy().flatten(), df_sub.select("p_ratio").to_numpy().flatten(), label="_nolegend_")
             ax.plot(dir_align * np.ones(2),[0, 1.25], 'k--', label="Direction of Alignment")
             ax.grid()
-            ax.set_title(f"Turbine Pair: ({turbine_ids[i_up]}, {turbine_ids[i_down]})")
-            ax.set_xlabel("Rounded Wind Direction [deg]")
+            # ax.set_title(f"Turbine Pair: ({turbine_ids[i_up]}, {turbine_ids[i_down]})")
+            ax.set_xlabel("Wind Direction [$^\\circ$]")
             ax.set_ylabel("Power Ratio [-]")
 
         # get the range of wind directions around that of alignment (according to turbine layout), when the nadir should occur
         wd_range = np.arange(int(np.round(dir_align)) - prat_hfwdth,int(np.round(dir_align)) + prat_hfwdth + 1) % 360
-        if len(set(wd_range) & set(p_ratio.select(f"wd_round").to_numpy().flatten())) != len(wd_range):
+        if len(set(wd_range) & set(df_sub.select(f"wd_round").to_numpy().flatten())) != len(wd_range):
             logging.info(f"Cannot compute nadir for turbine pair {turbine_ids[i_up]}, {turbine_ids[i_down]}")
             continue
         
         # get the power ratios that occur in the range around the aligned wind direction, 
         # get the rounded wind direction corresponding to the power nadir, then add the direction of alignment and subtract the prat halfwidth
-        nadir = p_ratio.filter(pl.col("wd_round").is_in(wd_range)) \
+        nadir = df_sub.filter(pl.col("wd_round").is_in(wd_range)) \
                         .filter(pl.col("p_ratio") == pl.col("p_ratio").min()) \
                         .select(pl.col("wd_round")).item()
         
         wd_range = np.arange(nadir - prat_hfwdth, nadir + prat_hfwdth + 1) % 360
-        if len(set(wd_range) & set(p_ratio.select(f"wd_round").to_numpy().flatten())) != len(wd_range):
+        if len(set(wd_range) & set(df_sub.select(f"wd_round").to_numpy().flatten())) != len(wd_range):
             logging.info(f"Cannot compute nadir for turbine pair {turbine_ids[i_up]}, {turbine_ids[i_down]}")
             continue
         
         # get parameters of gaussian trough that fits power ratio for wind direction approx perpendicular to dir_align TODO?
         opt_gauss_params = minimize(gauss_corr, [0, 5.0, 1.0], 
-                                    args=(p_ratio.filter(pl.col("wd_round").is_in(wd_range))\
+                                    args=(df_sub.filter(pl.col("wd_round").is_in(wd_range))\
                                                .select("p_ratio").to_numpy().flatten()), method='SLSQP')
 
         # range around -/+ 30 degrees
@@ -580,10 +652,10 @@ def compute_offsets(df, fi, turbine_ids, turbine_pairs:list[tuple[int, int]]=Non
 
         if plot or True:
             ax.plot(xs + nadir, gauss,'k',label="_nolegend_")
-            ax.plot(2 * [nadir + opt_gauss_params.x[0]], [0, 1.25], 'r--',label="Direction of Measured Wake Center")
+            ax.plot(2 * [nadir + opt_gauss_params.x[0]], [0, 1.25], 'r--',label="Direction of Measured Power Nadir")
             ax.legend()
-            fig.savefig(save_path.replace(".png", f"_{i_up}_{i_down}.png"))
-            plt.close()
+            fig.savefig(save_path.replace(".png", f"_{i_up}_{i_down}.png"), dpi=100)
+            plt.close() 
         
         dir_offset = DataFilter.wrap_180(nadir + opt_gauss_params.x[0] - dir_align)
         print(f"Direction offset for turbine pair ({tid_up}, {tid_down}) = {dir_offset}")
@@ -607,7 +679,7 @@ def safe_mask(tid, outlier_flag, turbine_id_to_index, flag_format="numpy"):
             idx = turbine_id_to_index[tid]
             mask_array = outlier_flag[:, idx]
         else:
-            mask_array = outlier_flag.select(cs.ends_with(tid))
+            mask_array = outlier_flag.select(cs.ends_with(f"_{tid}"))
         # logging.info(f"Mask for turbine {tid} includes {np.sum(~mask_array)} out of {len(mask_array)} data points")
         return mask_array
     except KeyError:

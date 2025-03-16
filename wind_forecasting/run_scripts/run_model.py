@@ -2,7 +2,7 @@ import argparse
 import logging
 from memory_profiler import profile
 import os
-
+# TODO HIGH add rank r to Optuna hyperparmaeter list
 import polars as pl
 import wandb
 wandb.login()
@@ -71,8 +71,8 @@ def main():
 
     # %% SETUP LOGGING
     logging.info("Setting up logging")
-    if not os.path.exists(config["experiment"]["log_dir"]):
-        os.makedirs(config["experiment"]["log_dir"])
+    os.makedirs(config["experiment"]["log_dir"], exist_ok=True)
+    
     wandb_logger = WandbLogger(
         project="wind_forecasting",
         name=config["experiment"]["run_name"],
@@ -138,8 +138,7 @@ def main():
     if args.mode == "tune":
         # %% TUNE MODEL WITH OPTUNA
         from wind_forecasting.run_scripts.tuning import tune_model
-        if not os.path.exists(config["optuna"]["journal_dir"]):
-            os.makedirs(config["optuna"]["journal_dir"]) 
+        os.makedirs(config["optuna"]["journal_dir"], exist_ok=True) 
     
         tune_model(model=args.model, config=config, 
                     lightning_module_class=globals()[f"{args.model.capitalize()}LightningModule"], 
@@ -153,8 +152,8 @@ def main():
                     context_length_choices=[int(data_module.prediction_length * i) for i in config["optuna"]["context_length_choice_factors"]],
                     n_trials=config["optuna"]["n_trials"],
                     journal_storage_dir=config["optuna"]["journal_dir"],
-                    use_rdb=config["optuna"]["use_rdb"],
-                    restart_study=args.restart_tuning)
+                    storage_type=config["optuna"]["storage_type"],
+                    restart_tuning=args.restart_tuning)
         
     elif args.mode == "train":
         # %% TRAIN MODEL
