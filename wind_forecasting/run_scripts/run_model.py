@@ -51,6 +51,7 @@ def main():
                         help="Which checkpoint to use: can be equal to 'latest', 'best', or an existing checkpoint path.")
     parser.add_argument("-m", "--model", type=str, choices=["informer", "autoformer", "spacetimeformer", "tactis"], required=True)
     parser.add_argument("-rt", "--restart_tuning", action="store_true")
+    parser.add_argument("-s", "--seed", type=int, default=42)
     parser.add_argument("-tp", "--use_tuned_parameters", action="store_true",
                         help="Use parameters tuned from Optuna optimization, otherwise use defaults set in Module class.")
     # pretrained_filename = "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/logging/wf_forecasting/lznjshyo/checkpoints/epoch=0-step=50.ckpt"
