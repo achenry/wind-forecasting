@@ -22,11 +22,11 @@ mamba activate wind_forecasting
 
 BASE_DIR="/home/ahenry/toolboxes/wind_forecasting_env/wind-forecasting"
 WORK_DIR="${BASE_DIR}/wind_forecasting"
-LOG_DIR="${BASE_DIR}/logging"
+LOG_DIR="/projects/ssc/ahenry/wind_forecasting/logging"
 
 # Set paths
 export PYTHONPATH=${WORK_DIR}:${PYTHONPATH}
-# export WANDB_DIR=${LOG_DIR}/wandb
+export WANDB_DIR=${LOG_DIR}/wandb
 
 # Print environment info
 echo "SLURM_JOB_ID=${SLURM_JOB_ID}"
@@ -73,7 +73,7 @@ for i in $(seq 0 $((${NUM_GPUS}-1))); do
         # Launch worker with environment settings
         # CUDA_VISIBLE_DEVICES ensures each worker sees only one GPU
         # The worker ID (SLURM_PROCID) helps Optuna identify workers
-        srun --exclusive -n 1 --export=ALL,CUDA_VISIBLE_DEVICES=$i,SLURM_PROCID=${WORKER_INDEX}\ #,WANDB_DIR=${WANDB_DIR} \
+        srun --exclusive -n 1 --export=ALL,CUDA_VISIBLE_DEVICES=$i,SLURM_PROCID=${WORKER_INDEX},WANDB_DIR=${WANDB_DIR} \
           python ${WORK_DIR}/run_scripts/run_model.py \
           --config ${BASE_DIR}/examples/inputs/training_inputs_kestrel_flasc.yaml \
           --model $1 \
