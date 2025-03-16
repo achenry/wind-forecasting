@@ -913,7 +913,7 @@ def main():
             final_shape = (total_rows, len(cols))
             if config["filters"]["std_range_flag"]["over"] == "asset":
                 
-                chunk_size = 50000
+                chunk_size = 300000
                 row_chunk_size = int(chunk_size // len(cols))
                 
                 for i in range(0, total_rows, row_chunk_size):
@@ -926,13 +926,14 @@ def main():
                         min_correlated_assets=config["filters"]["std_range_flag"]["min_correlated_assets"]
                         # asset_coords={tid: (data_inspector.fmodel.layout_x[t], data_inspector.fmodel.layout_y[t]) for t, tid in enumerate(data_loader.turbine_ids)}
                     ).values
-                    logging.info(f"Processing rows {i} to {min(i + row_chunk_size, total_rows)} of std_dev_outliers, shape {std_dev_outliers.shape}.")
+                    logging.info(f"Processing rows {i} to {min(i + row_chunk_size, total_rows)} of {total_rows} of std_dev_outliers, shape {std_dev_outliers.shape}.")
                     std_dev_outliers[std_dev_outliers == None] = False
                     std_dev_outliers = std_dev_outliers.astype("bool")
                     
                     if RUN_ONCE:
                         with open(config["processed_data_path"].replace(".parquet", "_std_dev_outliers.npy"), "ab") as f:  
                             std_dev_outliers.tofile(f)
+                        sleep(2)
             else:
                  
                 for col in cols:
@@ -951,6 +952,7 @@ def main():
                     if RUN_ONCE:
                         with open(config["processed_data_path"].replace(".parquet", "_std_dev_outliers.npy"), mode="ab") as f:
                             std_dev_outliers.tofile(f)
+                        sleep(2)
 
         # elif RUN_ONCE:
         # std_dev_outliers = np.load(config["processed_data_path"].replace(".parquet", "_std_dev_outliers.npy"), allow_pickle=True)[()]
