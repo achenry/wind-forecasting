@@ -776,7 +776,7 @@ class DataInspector:
             if data_format == 'wide':
                 # Unpivot wide format to long format
                 return pl.concat([
-                    df.select(*[pl.col(id_var) for id_var in id_vars], cs.starts_with(f"{feature_type}_"))\
+                    df.select(*[pl.col(id_var) for id_var in id_vars], f"^{feature_type}_{turbine_signature}$")\
                     .unpivot(index=id_vars, variable_name="feature", value_name=feature_type)\
                     .with_columns(pl.col("feature").str.extract(turbine_signature, group_index=0).alias("turbine_id"))\
                     .drop("feature") for feature_type in value_vars if len(df.select(cs.starts_with(f"{feature_type}_")).columns)], how="align")\

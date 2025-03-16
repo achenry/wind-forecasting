@@ -152,8 +152,8 @@ def main():
                     context_length_choices=[int(data_module.prediction_length * i) for i in config["optuna"]["context_length_choice_factors"]],
                     n_trials=config["optuna"]["n_trials"],
                     journal_storage_dir=config["optuna"]["journal_dir"],
-                    use_rdb=config["optuna"]["use_rdb"],
-                    restart_study=args.restart_tuning)
+                    storage_type=config["optuna"]["storage_type"],
+                    restart_tuning=args.restart_tuning)
         
     elif args.mode == "train":
         # %% TRAIN MODEL
