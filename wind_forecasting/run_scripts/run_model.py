@@ -47,17 +47,18 @@ def main():
     parser = argparse.ArgumentParser(prog="WindFarmForecasting")
     parser.add_argument("-cnf", "--config", type=str, required=True)
     parser.add_argument("-md", "--mode", choices=["tune", "train", "test"], required=True)
-    parser.add_argument("-chk", "--checkpoint", type=str, required=False, default=None)
+    parser.add_argument("-chk", "--checkpoint", type=str, required=False, default="latest", 
+                        help="Which checkpoint to use: can be equal to 'latest', 'best', or an existing checkpoint path.")
     parser.add_argument("-m", "--model", type=str, choices=["informer", "autoformer", "spacetimeformer", "tactis"], required=True)
     parser.add_argument("-rt", "--restart_tuning", action="store_true")
-    parser.add_argument("-tp", "--use_tuned_parameters", action="store_true")
+    parser.add_argument("-tp", "--use_tuned_parameters", action="store_true",
+                        help="Use parameters tuned from Optuna optimization, otherwise use defaults set in Module class.")
     # pretrained_filename = "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/logging/wf_forecasting/lznjshyo/checkpoints/epoch=0-step=50.ckpt"
     args = parser.parse_args()
 
     with open(args.config, 'r') as file:
         config  = yaml.safe_load(file)
         
-    # TODO create function to check config params and set defaults
     assert args.checkpoint is None or args.checkpoint in ["best", "latest"] or os.path.exists(args.checkpoint), "Checkpoint argument, if provided, must equal 'best', 'latest', or an existing checkpoint path."
     # set number of devices/number of nodes based on environment variables
     if "SLURM_NTASKS_PER_NODE" in os.environ:
@@ -102,7 +103,7 @@ def main():
         if args.use_tuned_parameters:
             try:
                 logging.info("Getting tuned parameters")
-                tuned_params = get_tuned_params(use_rdb=config["optuna"]["use_rdb"], study_name=f"tuning_{args.model}")
+                tuned_params = get_tuned_params(model=args.model, storage_type=config["optuna"]["storage_type"], journal_storage_dir=config["optuna"]["journal_dir"])
                 logging.info(f"Declaring estimator {args.model.capitalize()} with tuned parameters")
                 config["dataset"].update({k: v for k, v in tuned_params.items() if k in config["dataset"]})
                 config["model"][args.model].update({k: v for k, v in tuned_params.items() if k in config["model"][args.model]})
@@ -125,7 +126,6 @@ def main():
             # lags_seq=[0, 1],
             time_features=[second_of_minute, minute_of_hour, hour_of_day, day_of_year],
             distr_output=globals()[config["model"]["distr_output"]["class"]](dim=data_module.num_target_vars, **config["model"]["distr_output"]["kwargs"]),
-            
             batch_size=config["dataset"].setdefault("batch_size", 128),
             num_batches_per_epoch=config["trainer"].setdefault("limit_train_batches", 50), # TODO set this to be arbitrarily high st limit train_batches dominates
             context_length=config["dataset"]["context_length"],
@@ -168,66 +168,15 @@ def main():
         # train_output.trainer.checkpoint_callback.best_model_path
     elif args.mode == "test":
         # %% TEST MODEL
-        from wind_forecasting.run_scripts.testing import test_model
-        from glob import glob
-        import pandas as pd
-        import re
-        import shutil
+        from wind_forecasting.run_scripts.testing import test_model, get_checkpoint
         
         metric = "val_loss_epoch"
         mode = "min"
+        log_dir = os.path.join(config["trainer"]["default_root_dir"], "lightning_logs")
+        checkpoint_path = get_checkpoint(checkpoint=args.checkpoint, metric=metric, mode=mode, log_dir=log_dir)
         
-        if args.checkpoint in ["best", "latest"]:
-            version_dirs = glob(os.path.join(config["trainer"]["default_root_dir"], "lightning_logs", "version_*"))
-            if not version_dirs:
-                raise TypeError("Must provide a valid --checkpoint argument to load from.")
-        
-        if args.checkpoint == "best":
-            best_metric_value = float('inf') if mode == "min" else float('-inf')
-            for version_dir in version_dirs:
-                if not os.path.exists(os.path.join(version_dir, "metrics.csv")):
-                    logging.info(f"Metrics table {os.path.join(version_dir, "metrics.csv")} does not exist, removing invalid version dir {version_dir}.")
-                    shutil.rmtree(version_dir) 
-                    continue
-                
-                metrics = pd.read_csv(os.path.join(version_dir, "metrics.csv"), index_col=None)
-
-                best_chk_metrics = metrics.loc[metrics[metric].idxmin() if mode == "min" else metrics[metric].idxmax(), 
-                                  ["epoch", "step", metric]]
-                
-                if (mode == "min" and best_chk_metrics[metric] < best_metric_value) \
-                    or (mode == "max" and best_chk_metrics[metric] > best_metric_value):
-                    checkpoint = os.path.join(version_dir, "checkpoints", 
-                                            f"epoch={int(best_chk_metrics['epoch'])}-step={int(best_chk_metrics['step']) + 1}.ckpt")
-                    best_metric_value = best_chk_metrics[metric] 
-
-            if os.path.exists(checkpoint):
-                logging.info(f"Found best pretrained model: {checkpoint}")
-            else:
-                raise FileNotFoundError(f"Best checkpoint {checkpoint} does not exist.")
-                
-        elif args.checkpoint == "latest":
-            logging.info("Fetching latest pretrained model...")
-            version_dir = os.path.join(config["trainer"]["default_root_dir"], "lightning_logs",
-                                f"version_{max([int(re.search(r'(?<=version_)\d+', vd).group(0)) for vd in version_dirs])}")
-            
-            checkpoint_paths = glob(os.path.join(version_dir, "checkpoints", f"*.ckpt"))
-            checkpoint_stats = [(int(re.search(r'(?<=epoch=)(\d+)', cp).group(0)),
-                                 int(re.search(r'(?<=step=)(\d+)', cp).group(0))) for cp in checkpoint_paths]
-            checkpoint = checkpoint_paths[checkpoint_stats.index(sorted(checkpoint_stats)[-1])]
-            
-            if os.path.exists(checkpoint):
-                logging.info(f"Found latest pretrained model: {checkpoint}")
-            else:
-                raise FileNotFoundError(f"Last checkpoint {checkpoint} does not exist.")
-             
-        elif os.path.exists(args.checkpoint):
-            logging.info("Fetching pretrained model...")
-            checkpoint = args.checkpoint
-            logging.info(f"Found given pretrained model: {checkpoint}")
-            
         test_model(data_module=data_module,
-                    checkpoint=checkpoint,
+                    checkpoint=checkpoint_path,
                     lightning_module_class=globals()[f"{args.model.capitalize()}LightningModule"], 
                     estimator=estimator, 
                     normalization_consts_path=config["dataset"]["normalization_consts_path"])

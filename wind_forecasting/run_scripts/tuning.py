@@ -138,8 +138,10 @@ def get_storage(storage_type, study_name, journal_storage_dir=None):
     
     return storage
 
-def get_tuned_params(storage_type, study_name):
-    storage = get_storage(storage_type=storage_type, study_name=study_name)
+def get_tuned_params(model, storage_type, journal_storage_dir):
+    study_name = f"tuning_{model}"
+    logging.info(f"Allocating storage for Optuna study {study_name}.")  
+    storage = get_storage(storage_type=storage_type, study_name=study_name, journal_storage_dir=journal_storage_dir)
     try:
         study_id = storage.get_study_id_from_name(study_name)
     except Exception:
