@@ -913,7 +913,7 @@ def main():
             final_shape = (total_rows, len(cols))
             if config["filters"]["std_range_flag"]["over"] == "asset":
                 
-                chunk_size = 1000000
+                chunk_size = 10000000
                 row_chunk_size = int(chunk_size // len(cols))
                 
                 with open(config["processed_data_path"].replace(".parquet", "_std_dev_outliers.npy"), "ab") as f: 
@@ -934,7 +934,7 @@ def main():
                     # if RUN_ONCE:
                          
                         std_dev_outliers.tofile(f)
-                        f.flush()
+                        # f.flush()
                         # sleep(2)
             else:
                 with open(config["processed_data_path"].replace(".parquet", "_std_dev_outliers.npy"), mode="ab") as f: 
@@ -954,7 +954,7 @@ def main():
                         # if RUN_ONCE:
                         #     with open(config["processed_data_path"].replace(".parquet", "_std_dev_outliers.npy"), mode="ab") as f:
                         std_dev_outliers.tofile(f)
-                        f.flush()
+                        # f.flush()
                         # sleep(2)
 
         # elif RUN_ONCE:
