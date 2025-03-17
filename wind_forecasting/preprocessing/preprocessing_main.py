@@ -903,20 +903,20 @@ def main():
             logging.info("Nullifying standard deviation outliers.")
             
         # apply a bin filter to remove data with power values outside of an envelope around median power curve at each wind speed
-        if args.reload_data or args.regenerate_filters or not os.path.exists(config["processed_data_path"].replace(".parquet", "_std_dev_outliers.pkl")):
+        total_rows = df_query.select(pl.len()).collect().item()
+        cols = df_query.select(cs.starts_with("ws_horz"), cs.starts_with("ws_vert")).collect_schema().names()
+        final_shape = (total_rows, len(cols))
+        if args.reload_data or args.regenerate_filters or not os.path.exists(config["processed_data_path"].replace(".parquet", "_std_dev_outliers.arr")):
             # TODO use __slots__ for data_loader etc classes to reduce memory load?
-            if os.path.exists(config["processed_data_path"].replace(".parquet", "_std_dev_outliers.npy")):
-                os.remove(config["processed_data_path"].replace(".parquet", "_std_dev_outliers.npy"))
-                
-            total_rows = df_query.select(pl.len()).collect().item()
-            cols = df_query.select(cs.starts_with("ws_horz"), cs.starts_with("ws_vert")).collect_schema().names()
-            final_shape = (total_rows, len(cols))
+            if os.path.exists(config["processed_data_path"].replace(".parquet", "_std_dev_outliers.arr")):
+                os.remove(config["processed_data_path"].replace(".parquet", "_std_dev_outliers.arr"))
+                 
             if config["filters"]["std_range_flag"]["over"] == "asset":
                 
                 chunk_size = 10000000
                 row_chunk_size = int(chunk_size // len(cols))
                 
-                with open(config["processed_data_path"].replace(".parquet", "_std_dev_outliers.npy"), "ab") as f: 
+                with open(config["processed_data_path"].replace(".parquet", "_std_dev_outliers.arr"), "ab") as f: 
                     for i in range(0, total_rows, row_chunk_size):
                         std_dev_outliers = filters.std_range_flag(
                             data_pl=df_query.slice(i, row_chunk_size).select(cs.starts_with("ws_horz"), cs.starts_with("ws_vert")),
@@ -937,7 +937,7 @@ def main():
                         # f.flush()
                         # sleep(2)
             else:
-                with open(config["processed_data_path"].replace(".parquet", "_std_dev_outliers.npy"), mode="ab") as f: 
+                with open(config["processed_data_path"].replace(".parquet", "_std_dev_outliers.arr"), mode="ab") as f: 
                     for col in cols:
                         std_dev_outliers = filters.std_range_flag(
                             data_pl=df_query.select(col),
@@ -959,11 +959,22 @@ def main():
 
         # elif RUN_ONCE:
         # std_dev_outliers = np.load(config["processed_data_path"].replace(".parquet", "_std_dev_outliers.npy"), allow_pickle=True)[()]
-        std_dev_outliers = np.fromfile(config["processed_data_path"].replace(".parquet", "_std_dev_outliers.npy"), dtype=bool)
+        # std_dev_outliers = np.fromfile(config["processed_data_path"].replace(".parquet", "_std_dev_outliers.arr"), dtype=bool)
+        # 
+        
         if config["filters"]["std_range_flag"]["over"] == "asset":
-            std_dev_outliers = np.reshape(std_dev_outliers, final_shape)
+            # x = np.memmap(config["processed_data_path"].replace(".parquet", "_std_dev_outliers.arr"), 
+            #                          mode="r", dtype=bool, shape=final_shape)
+            # (x[-std_dev_outliers.shape[0]:, :] == std_dev_outliers).all()
+            std_dev_outliers = np.memmap(config["processed_data_path"].replace(".parquet", "_std_dev_outliers.arr"), 
+                                     mode="r", dtype=bool, shape=final_shape)
         else:
-            std_dev_outliers = np.reshape(std_dev_outliers, (final_shape[1], final_shape[0])).T
+            # std_dev_outliers = np.reshape(std_dev_outliers.flatten(), (final_shape[1], final_shape[0])).T
+            # x = np.memmap(config["processed_data_path"].replace(".parquet", "_std_dev_outliers.arr"), 
+            #                          mode="r", dtype=bool, shape=(final_shape[1], final_shape[0])).T
+            # (x[:, -1] == std_dev_outliers.flatten()).all()
+            std_dev_outliers = np.memmap(config["processed_data_path"].replace(".parquet", "_std_dev_outliers.arr"), 
+                                     mode="r", dtype=bool, shape=(final_shape[1], final_shape[0])).T
 
         if RUN_ONCE:
             mask = lambda feat: std_dev_outliers[:, (ws_horz_cols + ws_vert_cols).index(feat)]
