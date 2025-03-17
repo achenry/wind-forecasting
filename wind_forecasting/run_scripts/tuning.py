@@ -138,8 +138,8 @@ def get_storage(storage_type, study_name, journal_storage_dir=None):
     
     return storage
 
-def get_tuned_params(model, storage_type, journal_storage_dir):
-    study_name = f"tuning_{model}"
+def get_tuned_params(model, data_source, storage_type, journal_storage_dir):
+    study_name = f"tuning_{model}_{data_source}"
     logging.info(f"Allocating storage for Optuna study {study_name}.")  
     storage = get_storage(storage_type=storage_type, study_name=study_name, journal_storage_dir=journal_storage_dir)
     try:
