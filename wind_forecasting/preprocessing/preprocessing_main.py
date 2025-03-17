@@ -19,7 +19,7 @@ import yaml
 import time
 import re
 from memory_profiler import profile
-from shutil import rmtree
+from shutil import rmtree, move
 import pickle
 from time import sleep
 
@@ -97,16 +97,18 @@ def main():
             else:
                 assert os.path.exists(config[path_key]), f"{config[path_key]} doesn't exist."
              
-    for path_key in ["raw_data_directory", "processed_data_path", "turbine_input_path", "farm_input_path"]:
+    for path_key in ["raw_data_directory", "processed_data_path", "turbine_input_path", "farm_input_path", "temp_storage_dir"]:
         if isinstance(config[path_key], list):
             env_vars = [re.findall(r"(?:^|\/)\$(\w+)(?:\/|$)", d) for d in config[path_key]]
             for file_set_idx in range(len(env_vars)):
                 for env_var in env_vars[file_set_idx]:
-                    config[path_key][file_set_idx] = config[path_key][file_set_idx].replace(f"${env_var}", os.environ[env_var])
+                    if env_var in os.environ:
+                        config[path_key][file_set_idx] = config[path_key][file_set_idx].replace(f"${env_var}", os.environ[env_var])
         else:
             env_vars = re.findall(r"(?:^|\/)\$(\w+)(?:\/|$)", config[path_key])
             for env_var in env_vars:
-                config[path_key] = config[path_key].replace(f"${env_var}", os.environ[env_var])
+                if env_var in os.environ:
+                    config[path_key] = config[path_key].replace(f"${env_var}", os.environ[env_var])
     
     # config["filters"] = ["nacelle_calibration", "unresponsive_sensor", "range_flag", "bin_filter", "std_range_flag", "impute_missing_data", "split", "normalize"]
     # config["filters"] = ["split", "impute_missing_data", "normalize"]
@@ -208,7 +210,7 @@ def main():
         if RUN_ONCE:
             logging.info(f"Making temporary directory {temp_save_dir}")
             os.makedirs(temp_save_dir, exist_ok=True)
-    
+            
             logging.info(f"Making directory to save_path {os.path.dirname(data_loader.save_path)}")
             os.makedirs(os.path.dirname(data_loader.save_path), exist_ok=True)
                         
@@ -901,22 +903,27 @@ def main():
     if "std_range_flag" in config["filters"]:
         if RUN_ONCE:
             logging.info("Nullifying standard deviation outliers.")
-            
+        
+        os.makedirs(config["temp_storage_dir"], exist_ok=True) # other temporary directory, used to store things on SLURM node before transferring
+        std_dev_filter_temp_path = os.path.join(config["temp_storage_dir"], 
+                                       os.path.basename(config["processed_data_path"]).replace(".parquet", "_std_dev_outliers.arr"))
+        std_dev_filter_target_path = config["processed_data_path"].replace(".parquet", "_std_dev_outliers.arr")
         # apply a bin filter to remove data with power values outside of an envelope around median power curve at each wind speed
         total_rows = df_query.select(pl.len()).collect().item()
         cols = df_query.select(cs.starts_with("ws_horz"), cs.starts_with("ws_vert")).collect_schema().names()
         final_shape = (total_rows, len(cols))
         if args.reload_data or args.regenerate_filters or not os.path.exists(config["processed_data_path"].replace(".parquet", "_std_dev_outliers.arr")):
             # TODO use __slots__ for data_loader etc classes to reduce memory load?
-            if os.path.exists(config["processed_data_path"].replace(".parquet", "_std_dev_outliers.arr")):
-                os.remove(config["processed_data_path"].replace(".parquet", "_std_dev_outliers.arr"))
+            if os.path.exists(std_dev_filter_target_path):
+                os.remove(std_dev_filter_target_path)
                  
             if config["filters"]["std_range_flag"]["over"] == "asset":
                 
                 chunk_size = 10000000
                 row_chunk_size = int(chunk_size // len(cols))
                 
-                with open(config["processed_data_path"].replace(".parquet", "_std_dev_outliers.arr"), "ab") as f: 
+                # with open(config["processed_data_path"].replace(".parquet", "_std_dev_outliers.arr"), "ab") as f:
+                with open(std_dev_filter_temp_path, "ab") as f: 
                     for i in range(0, total_rows, row_chunk_size):
                         std_dev_outliers = filters.std_range_flag(
                             data_pl=df_query.slice(i, row_chunk_size).select(cs.starts_with("ws_horz"), cs.starts_with("ws_vert")),
@@ -937,7 +944,8 @@ def main():
                         # f.flush()
                         # sleep(2)
             else:
-                with open(config["processed_data_path"].replace(".parquet", "_std_dev_outliers.arr"), mode="ab") as f: 
+                # with open(config["processed_data_path"].replace(".parquet", "std_dev_outliers.arr"), mode="ab") as f:
+                with open(std_dev_filter_temp_path, "ab") as f:  
                     for col in cols:
                         std_dev_outliers = filters.std_range_flag(
                             data_pl=df_query.select(col),
@@ -961,20 +969,21 @@ def main():
         # std_dev_outliers = np.load(config["processed_data_path"].replace(".parquet", "_std_dev_outliers.npy"), allow_pickle=True)[()]
         # std_dev_outliers = np.fromfile(config["processed_data_path"].replace(".parquet", "_std_dev_outliers.arr"), dtype=bool)
         # 
-        
+        # move from temp location to permanent 
+        move(std_dev_filter_temp_path, std_dev_filter_target_path)
         if config["filters"]["std_range_flag"]["over"] == "asset":
             # x = np.memmap(config["processed_data_path"].replace(".parquet", "_std_dev_outliers.arr"), 
             #                          mode="r", dtype=bool, shape=final_shape)
             # (x[-std_dev_outliers.shape[0]:, :] == std_dev_outliers).all()
-            std_dev_outliers = np.memmap(config["processed_data_path"].replace(".parquet", "_std_dev_outliers.arr"), 
+            std_dev_outliers = np.memmap(std_dev_filter_target_path, 
                                      mode="r", dtype=bool, shape=final_shape)
         else:
             # std_dev_outliers = np.reshape(std_dev_outliers.flatten(), (final_shape[1], final_shape[0])).T
             # x = np.memmap(config["processed_data_path"].replace(".parquet", "_std_dev_outliers.arr"), 
             #                          mode="r", dtype=bool, shape=(final_shape[1], final_shape[0])).T
             # (x[:, -1] == std_dev_outliers.flatten()).all()
-            std_dev_outliers = np.memmap(config["processed_data_path"].replace(".parquet", "_std_dev_outliers.arr"), 
-                                     mode="r", dtype=bool, shape=(final_shape[1], final_shape[0])).T
+            std_dev_outliers = np.memmap(std_dev_filter_target_path, 
+                                        mode="r", dtype=bool, shape=(final_shape[1], final_shape[0])).T
 
         if RUN_ONCE:
             mask = lambda feat: std_dev_outliers[:, (ws_horz_cols + ws_vert_cols).index(feat)]
