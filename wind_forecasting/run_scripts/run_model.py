@@ -104,7 +104,9 @@ def main():
         if args.use_tuned_parameters:
             try:
                 logging.info("Getting tuned parameters")
-                tuned_params = get_tuned_params(model=args.model, storage_type=config["optuna"]["storage_type"], journal_storage_dir=config["optuna"]["journal_dir"])
+                tuned_params = get_tuned_params(model=args.model, 
+                                                data_source=os.path.splitext(os.path.basename(config["dataset"]["data_path"]))[0],
+                                                storage_type=config["optuna"]["storage_type"], journal_storage_dir=config["optuna"]["journal_dir"])
                 logging.info(f"Declaring estimator {args.model.capitalize()} with tuned parameters")
                 config["dataset"].update({k: v for k, v in tuned_params.items() if k in config["dataset"]})
                 config["model"][args.model].update({k: v for k, v in tuned_params.items() if k in config["model"][args.model]})
@@ -124,7 +126,7 @@ def main():
             num_feat_static_real=data_module.num_feat_static_real,
             input_size=data_module.num_target_vars,
             scaling=False,
-            # lags_seq=[0, 1],
+            lags_seq=[0], # TODO
             time_features=[second_of_minute, minute_of_hour, hour_of_day, day_of_year],
             distr_output=globals()[config["model"]["distr_output"]["class"]](dim=data_module.num_target_vars, **config["model"]["distr_output"]["kwargs"]),
             batch_size=config["dataset"].setdefault("batch_size", 128),

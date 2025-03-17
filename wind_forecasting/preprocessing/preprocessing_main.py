@@ -914,56 +914,62 @@ def main():
         final_shape = (total_rows, len(cols))
         if args.reload_data or args.regenerate_filters or not os.path.exists(config["processed_data_path"].replace(".parquet", "_std_dev_outliers.arr")):
             # TODO use __slots__ for data_loader etc classes to reduce memory load?
+            
+            if os.path.exists(std_dev_filter_temp_path):
+                os.remove(std_dev_filter_temp_path)
             if os.path.exists(std_dev_filter_target_path):
                 os.remove(std_dev_filter_target_path)
-                 
+            
+            # Create a memory-mapped array (creates the file if it doesn't exist)
+            fp = np.memmap(std_dev_filter_temp_path, dtype=bool, mode='w+', shape=final_shape)
+            
             if config["filters"]["std_range_flag"]["over"] == "asset":
                 
                 chunk_size = 10000000
                 row_chunk_size = int(chunk_size // len(cols))
                 
                 # with open(config["processed_data_path"].replace(".parquet", "_std_dev_outliers.arr"), "ab") as f:
-                with open(std_dev_filter_temp_path, "ab") as f: 
-                    for i in range(0, total_rows, row_chunk_size):
-                        std_dev_outliers = filters.std_range_flag(
-                            data_pl=df_query.slice(i, row_chunk_size).select(cs.starts_with("ws_horz"), cs.starts_with("ws_vert")),
-                            threshold=config["filters"]["std_range_flag"]["threshold"], 
-                            over=config["filters"]["std_range_flag"]["over"], # asset or time 
-                            feature_types=["ws_horz", "ws_vert"],
-                            r2_threshold=config["filters"]["std_range_flag"]["r2_threshold"],
-                            min_correlated_assets=config["filters"]["std_range_flag"]["min_correlated_assets"]
-                            # asset_coords={tid: (data_inspector.fmodel.layout_x[t], data_inspector.fmodel.layout_y[t]) for t, tid in enumerate(data_loader.turbine_ids)}
-                        ).values
-                        logging.info(f"Processing rows {i} to {min(i + row_chunk_size, total_rows)} of {total_rows} of std_dev_outliers, shape {std_dev_outliers.shape}.")
-                        std_dev_outliers[std_dev_outliers == None] = False
-                        std_dev_outliers = std_dev_outliers.astype("bool")
-                    
-                    # if RUN_ONCE:
-                         
-                        std_dev_outliers.tofile(f)
-                        # f.flush()
-                        # sleep(2)
+                # with open(std_dev_filter_temp_path, "ab") as f: 
+                for i in range(0, total_rows, row_chunk_size):
+                    std_dev_outliers = filters.std_range_flag(
+                        data_pl=df_query.slice(i, row_chunk_size).select(cs.starts_with("ws_horz"), cs.starts_with("ws_vert")),
+                        threshold=config["filters"]["std_range_flag"]["threshold"], 
+                        over=config["filters"]["std_range_flag"]["over"], # asset or time 
+                        feature_types=["ws_horz", "ws_vert"],
+                        r2_threshold=config["filters"]["std_range_flag"]["r2_threshold"],
+                        min_correlated_assets=config["filters"]["std_range_flag"]["min_correlated_assets"]
+                        # asset_coords={tid: (data_inspector.fmodel.layout_x[t], data_inspector.fmodel.layout_y[t]) for t, tid in enumerate(data_loader.turbine_ids)}
+                    ).values
+                    logging.info(f"Processing rows {i} to {min(i + row_chunk_size, total_rows)} of {total_rows} of std_dev_outliers, shape {std_dev_outliers.shape}.")
+                    std_dev_outliers[std_dev_outliers == None] = False
+                    std_dev_outliers = std_dev_outliers.astype("bool")
+                    fp[i:i+row_chunk_size, :] = std_dev_outliers
+                
             else:
                 # with open(config["processed_data_path"].replace(".parquet", "std_dev_outliers.arr"), mode="ab") as f:
-                with open(std_dev_filter_temp_path, "ab") as f:  
-                    for col in cols:
-                        std_dev_outliers = filters.std_range_flag(
-                            data_pl=df_query.select(col),
-                            threshold=config["filters"]["std_range_flag"]["threshold"], 
-                            over=config["filters"]["std_range_flag"]["over"], # asset or time 
-                            feature_types=[re.search(f"\\w+(?=_{data_loader.turbine_signature})", col).group()],
-                            r2_threshold=config["filters"]["std_range_flag"]["r2_threshold"],
-                            min_correlated_assets=config["filters"]["std_range_flag"]["min_correlated_assets"]
-                            # asset_coords={tid: (data_inspector.fmodel.layout_x[t], data_inspector.fmodel.layout_y[t]) for t, tid in enumerate(data_loader.turbine_ids)}
-                        ).values
-                        std_dev_outliers[std_dev_outliers == None] = False
-                        std_dev_outliers = std_dev_outliers.astype("bool")
+                # with open(std_dev_filter_temp_path, "ab") as f:  
+                for c, col in enumerate(cols):
+                    std_dev_outliers = filters.std_range_flag(
+                        data_pl=df_query.select(col),
+                        threshold=config["filters"]["std_range_flag"]["threshold"], 
+                        over=config["filters"]["std_range_flag"]["over"], # asset or time 
+                        feature_types=[re.search(f"\\w+(?=_{data_loader.turbine_signature})", col).group()],
+                        r2_threshold=config["filters"]["std_range_flag"]["r2_threshold"],
+                        min_correlated_assets=config["filters"]["std_range_flag"]["min_correlated_assets"]
+                        # asset_coords={tid: (data_inspector.fmodel.layout_x[t], data_inspector.fmodel.layout_y[t]) for t, tid in enumerate(data_loader.turbine_ids)}
+                    ).values
+                    std_dev_outliers[std_dev_outliers == None] = False
+                    std_dev_outliers = std_dev_outliers.astype("bool")
                     
-                        # if RUN_ONCE:
-                        #     with open(config["processed_data_path"].replace(".parquet", "_std_dev_outliers.npy"), mode="ab") as f:
-                        std_dev_outliers.tofile(f)
-                        # f.flush()
-                        # sleep(2)
+                    fp[i, c] = std_dev_outliers
+            
+            fp.flush() 
+                
+                    # if RUN_ONCE:
+                    #     with open(config["processed_data_path"].replace(".parquet", "_std_dev_outliers.npy"), mode="ab") as f:
+                    # std_dev_outliers.tofile(f)
+                    # f.flush()
+                    # sleep(2)
 
         # elif RUN_ONCE:
         # std_dev_outliers = np.load(config["processed_data_path"].replace(".parquet", "_std_dev_outliers.npy"), allow_pickle=True)[()]
@@ -971,19 +977,21 @@ def main():
         # 
         # move from temp location to permanent 
         move(std_dev_filter_temp_path, std_dev_filter_target_path)
-        if config["filters"]["std_range_flag"]["over"] == "asset":
-            # x = np.memmap(config["processed_data_path"].replace(".parquet", "_std_dev_outliers.arr"), 
-            #                          mode="r", dtype=bool, shape=final_shape)
-            # (x[-std_dev_outliers.shape[0]:, :] == std_dev_outliers).all()
-            std_dev_outliers = np.memmap(std_dev_filter_target_path, 
+        std_dev_outliers = np.memmap(std_dev_filter_target_path, 
                                      mode="r", dtype=bool, shape=final_shape)
-        else:
-            # std_dev_outliers = np.reshape(std_dev_outliers.flatten(), (final_shape[1], final_shape[0])).T
-            # x = np.memmap(config["processed_data_path"].replace(".parquet", "_std_dev_outliers.arr"), 
-            #                          mode="r", dtype=bool, shape=(final_shape[1], final_shape[0])).T
-            # (x[:, -1] == std_dev_outliers.flatten()).all()
-            std_dev_outliers = np.memmap(std_dev_filter_target_path, 
-                                        mode="r", dtype=bool, shape=(final_shape[1], final_shape[0])).T
+        # if config["filters"]["std_range_flag"]["over"] == "asset":
+        #     # x = np.memmap(config["processed_data_path"].replace(".parquet", "_std_dev_outliers.arr"), 
+        #     #                          mode="r", dtype=bool, shape=final_shape)
+        #     # (x[-std_dev_outliers.shape[0]:, :] == std_dev_outliers).all()
+        #     std_dev_outliers = np.memmap(std_dev_filter_target_path, 
+        #                              mode="r", dtype=bool, shape=final_shape)
+        # else:
+        #     # std_dev_outliers = np.reshape(std_dev_outliers.flatten(), (final_shape[1], final_shape[0])).T
+        #     # x = np.memmap(config["processed_data_path"].replace(".parquet", "_std_dev_outliers.arr"), 
+        #     #                          mode="r", dtype=bool, shape=(final_shape[1], final_shape[0])).T
+        #     # (x[:, -1] == std_dev_outliers.flatten()).all()
+        #     std_dev_outliers = np.memmap(std_dev_filter_target_path, 
+        #                                 mode="r", dtype=bool, shape=(final_shape[1], final_shape[0])).T
 
         if RUN_ONCE:
             mask = lambda feat: std_dev_outliers[:, (ws_horz_cols + ws_vert_cols).index(feat)]
