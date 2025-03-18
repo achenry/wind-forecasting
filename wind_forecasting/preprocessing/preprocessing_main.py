@@ -924,7 +924,7 @@ def main():
             fp = np.memmap(std_dev_filter_temp_path, dtype=bool, mode='w+', shape=final_shape)
             
             if config["filters"]["std_range_flag"]["over"] == "asset":
-                
+                # TODO try writing to different files and then deleting?
                 chunk_size = 10000000
                 row_chunk_size = int(chunk_size // len(cols))
                 
