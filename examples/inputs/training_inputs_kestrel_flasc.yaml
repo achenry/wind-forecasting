@@ -7,7 +7,7 @@ experiment:
 optuna:
   journal_dir: /projects/ssc/ahenry/wind_forecasting/optuna
   storage_type: sqlite # or mysql, or journal
-  n_trials: 100
+  n_trials: 1000
 
 dataset: 
     data_path: /projects/ssc/ahenry/wind_forecasting/flasc_data/SMARTEOLE_WakeSteering_SCADA_1minData_normalized.parquet
