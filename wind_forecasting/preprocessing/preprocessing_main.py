@@ -924,8 +924,8 @@ def main():
             fp = np.memmap(std_dev_filter_temp_path, dtype=bool, mode='w+', shape=final_shape)
             
             if config["filters"]["std_range_flag"]["over"] == "asset":
-                # TODO try writing to different files and then deleting?
-                chunk_size = 10000000
+                # TODO try writing to different files and then deleting? apply to frozen sensor
+                chunk_size = 50000000
                 row_chunk_size = int(chunk_size // len(cols))
                 
                 # with open(config["processed_data_path"].replace(".parquet", "_std_dev_outliers.arr"), "ab") as f:
