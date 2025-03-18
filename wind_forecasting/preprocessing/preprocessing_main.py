@@ -944,6 +944,7 @@ def main():
                     std_dev_outliers[std_dev_outliers == None] = False
                     std_dev_outliers = std_dev_outliers.astype("bool")
                     fp[i:i+row_chunk_size, :] = std_dev_outliers
+                    fp.flush()
                 
             else:
                 # with open(config["processed_data_path"].replace(".parquet", "std_dev_outliers.arr"), mode="ab") as f:
@@ -961,7 +962,8 @@ def main():
                     std_dev_outliers[std_dev_outliers == None] = False
                     std_dev_outliers = std_dev_outliers.astype("bool")
                     
-                    fp[i, c] = std_dev_outliers
+                    fp[:, c] = std_dev_outliers
+                    fp.flush() 
             
             fp.flush() 
                 
