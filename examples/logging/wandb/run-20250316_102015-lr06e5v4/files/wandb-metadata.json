@@ -1,0 +1,52 @@
+{
+  "os": "macOS-15.3.2-arm64-arm-64bit",
+  "python": "CPython 3.12.4",
+  "startedAt": "2025-03-16T16:20:16.032609Z",
+  "args": [
+    "--config",
+    "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/inputs/training_inputs_aoifemac_flasc.yaml",
+    "--mode",
+    "test",
+    "--model",
+    "informer",
+    "--checkpoint",
+    "latest"
+  ],
+  "program": "run_model.py",
+  "codePath": "wind_forecasting/run_scripts/run_model.py",
+  "git": {
+    "remote": "https://github.com/achenry/wind-forecasting.git",
+    "commit": "77ea55772e3e9520b3944dc4e6c46a898613daea"
+  },
+  "root": "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/logging/",
+  "host": "ahenry-39583s",
+  "executable": "/Users/ahenry/miniconda3/envs/wind_forecasting_env/bin/python",
+  "codePathLocal": "run_model.py",
+  "cpu_count": 12,
+  "cpu_count_logical": 12,
+  "disk": {
+    "/": {
+      "total": "1995218165760",
+      "used": "349593874432"
+    },
+    "/System/Volumes/Data": {
+      "total": "1995218165760",
+      "used": "349593874432"
+    }
+  },
+  "memory": {
+    "total": "34359738368"
+  },
+  "cpu": {
+    "count": 12,
+    "countLogical": 12
+  },
+  "apple": {
+    "name": "Apple M2 Pro",
+    "ecpuCores": 4,
+    "pcpuCores": 8,
+    "gpuCores": 19,
+    "memoryGb": 32,
+    "ramTotalBytes": "34359738368"
+  }
+}

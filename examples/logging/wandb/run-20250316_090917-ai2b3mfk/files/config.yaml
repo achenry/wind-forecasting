@@ -1,0 +1,169 @@
+_wandb:
+    value:
+        cli_version: 0.19.6
+        m:
+            - "1": val_loss_epoch
+              "5": 2
+              "6":
+                - 1
+                - 3
+              "7": []
+            - "1": trainer/global_step
+              "6":
+                - 3
+              "7": []
+            - "1": epoch
+              "5": 2
+              "6":
+                - 1
+                - 3
+              "7": []
+            - "1": train_loss
+              "5": 2
+              "6":
+                - 1
+                - 3
+              "7": []
+            - "1": val_loss_step
+              "5": 2
+              "6":
+                - 1
+                - 3
+              "7": []
+        python_version: 3.12.4
+        t:
+            "1":
+                - 1
+                - 9
+                - 55
+                - 103
+                - 106
+            "2":
+                - 1
+                - 9
+                - 35
+                - 55
+                - 103
+                - 106
+            "3":
+                - 7
+                - 13
+                - 23
+                - 55
+                - 66
+            "4": 3.12.4
+            "5": 0.19.6
+            "8":
+                - 5
+            "12": 0.19.6
+            "13": darwin-arm64
+callbacks:
+    value:
+        early_stopping: null
+        lr_monitor: true
+        model_checkpoint: null
+        progress_bar: null
+dataset:
+    value:
+        batch_size: 128
+        context_length: 20
+        data_path: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/preprocessed_flasc_data/SMARTEOLE_WakeSteering_SCADA_1minData_normalized.parquet
+        n_splits: 1
+        normalization_consts_path: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/preprocessed_flasc_data/SMARTEOLE_WakeSteering_SCADA_1minData_normalization_consts.csv
+        normalize: false
+        overfit: false
+        per_turbine_target: false
+        prediction_length: 20
+        resample_freq: 60s
+        target_turbine_ids: null
+        test_split: 0.2
+        val_split: 0.1
+        workers: 12
+experiment:
+    value:
+        log_dir: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/logging/
+        run_name: windfarm_debug
+lr:
+    value: 0.001
+model:
+    value:
+        activation: relu
+        attn: prob
+        autoformer:
+            activation: relu
+            dim_feedforward: 64
+            n_heads: 4
+            num_decoder_layers: 3
+            num_encoder_layers: 3
+        cardinality:
+            - 1
+        context_length: 40
+        d_model: 32
+        dim_feedforward: 32
+        distil: true
+        distr_output: gluonts.torch.distributions.distribution_output.LowRankMultivariateNormalOutput(beta=0.0)
+        dropout: 0.1
+        embedding_dimension: null
+        factor: 5
+        freq: 60s
+        informer:
+            activation: relu
+            d_model: 64
+            dim_feedforward: 64
+            n_heads: 4
+            num_decoder_layers: 3
+            num_encoder_layers: 3
+        input_size: 14
+        lags_seq: null
+        n_heads: 6
+        num_decoder_layers: 4
+        num_encoder_layers: 2
+        num_feat_dynamic_real: 19
+        num_feat_static_cat: 1
+        num_feat_static_real: 1
+        num_parallel_samples: 100
+        prediction_length: 20
+        scaling: "False"
+        spacetimeformer:
+            activation: relu
+            d_model: 64
+            d_queries_keys: 64
+            d_values: 64
+            dim_feedforward: 64
+            dropout_attn_matrix: 0
+            dropout_attn_out: 0
+            dropout_emb: 0.2
+            dropout_ff: 0.3
+            dropout_qkv: 0
+            embed_method: spatio-temporal
+            n_heads: 4
+            num_decoder_layers: 3
+            num_encoder_layers: 3
+            performer_redraw_interval: 100
+            pos_emb_type: abs
+            start_token_len: 0
+            use_shifted_time_windows: false
+optuna:
+    value:
+        context_length_choice_factors:
+            - 1
+            - 1.5
+            - 2
+        direction: minimize
+        journal_dir: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/optuna
+        limit_train_batches: 100
+        max_epochs: 3
+        metric: mean_wQuantileLoss
+        n_trials: 2
+        storage_type: sqlite
+trainer:
+    value:
+        accelerator: cpu
+        default_root_dir: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/checkpoints
+        devices: auto
+        limit_train_batches: 5
+        max_epochs: 2
+        num_nodes: 1
+        strategy: auto
+weight_decay:
+    value: 1e-08
