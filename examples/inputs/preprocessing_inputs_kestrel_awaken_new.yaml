@@ -21,7 +21,7 @@ filters:
   # nacelle_calibration:
   std_range_flag:
     threshold: 1
-    over: asset
+    over: asset 
     r2_threshold: 0.7
     min_correlated_assets: 5
   split:
