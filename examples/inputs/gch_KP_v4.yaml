@@ -258,7 +258,7 @@ farm:
   # is mapped to the location at the same index in ``layout_x`` and ``layout_y``.
   # The types can be either a name included in the turbine_library or
   # a full definition of a wind turbine directly.
-  turbine_library_path: ../../examples/inputs
+  turbine_library_path: ../../examples/inputs/turbine_library
 
   turbine_type:
   - ge_282_127

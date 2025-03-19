@@ -3,6 +3,7 @@ wind_forecasting/models/.eggs
 .vscode
 .vscode/launch.json
 
+examples/optuna/*
 wind_forecasting/models/spacetimeformer/spacetimeformer/data
 wind_forecasting/models/__pycache__
 wind_forecasting/preprocessing/__pycache__
@@ -13,18 +14,24 @@ wget-log*
 output
 awaken_data
 check_gpu.py
-preprocessing/preprocessing_scada/examples
+wind_forecasting/wind_forecasting/preprocessing/preprocessing_scada/examples
 preprocessing/preprocessing_scada/shapefiles
 .identifier
 .code-workspace
 .ipynb_checkpoints
 Miniforge3-Linux-x86_64.sh
 wind_forecasting.egg-info
-preprocessing/preprocessing_scada/.ipynb*
+wind_forecasting/preprocessing/preprocessing_scada/.ipynb*
 examples/data
 examples/postprocessed
 examples/other
 examples/inputs/awaken_data
+examples/checkpoints/
+examples/logging/
+examples/logging/*
+examples/logging/wandb/*
+examples/logging/wandb/latest_run/*
+wandb/
 wind-forecasting.code-workspace
 wind_forecasting/preprocessing/.ipynb_checkpoints
 lut/
@@ -41,12 +48,15 @@ wind_forecasting.code-workspace
 *.nc
 *.pyc
 *.dbf
+*.wandb
 *.egg-info
 *.zip
 *.parquet
+*.dat
 
 examples/data/*
 .vscode/
+
 
 wind_forecasting/preprocessing/.ipynb_checkpoints/
 *.sh.vscode/launch.json
