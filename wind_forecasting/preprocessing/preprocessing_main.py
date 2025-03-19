@@ -948,7 +948,7 @@ def main():
             if config["filters"]["std_range_flag"]["over"] == "asset":
                     
                 # TODO apply to frozen sensor
-                chunk_size = 10_000_000
+                chunk_size = 100_000_000
                 row_chunk_size = int(chunk_size // len(cols))
                 
                 # with open(config["processed_data_path"].replace(".parquet", "_std_dev_outliers.arr"), "ab") as f:
@@ -965,12 +965,13 @@ def main():
                             r2_threshold=config["filters"]["std_range_flag"]["r2_threshold"],
                             min_correlated_assets=config["filters"]["std_range_flag"]["min_correlated_assets"]
                         )
-                        std_dev_writer.write_table(std_dev_outliers.collect().to_arrow()) #, row_group_size=10_000)
+                        std_dev_writer.write_table(std_dev_outliers.collect().to_arrow(), row_group_size=row_chunk_size)
                         
                         end_row = min(start_row + row_chunk_size, total_rows)  # Handle the last chunk
                         logging.info(f"Processing rows {start_row} to {end_row} of {total_rows} of std_dev_outliers.")
                         
                         if s > 1 and s % 5 == 0:
+                            logging.info(f"Flushing rows {start_row} to {end_row} of {total_rows} of std_dev_outliers.")
                             std_dev_writer.close()
                             std_dev_writer = ParquetWriter(where=std_dev_filter_temp_path, 
                                                    schema=pa.schema({col: pa.bool_() for col in cols})) 
