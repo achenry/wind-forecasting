@@ -932,7 +932,7 @@ def main():
                 # with open(std_dev_filter_temp_path, "ab") as f: 
                 for start_row in range(0, total_rows, row_chunk_size):
                     std_dev_outliers = filters.std_range_flag(
-                        data_pl=df_query.slice(i, row_chunk_size).select(cs.starts_with("ws_horz"), cs.starts_with("ws_vert")),
+                        data_pl=df_query.slice(start_row, row_chunk_size).select(cs.starts_with("ws_horz"), cs.starts_with("ws_vert")),
                         threshold=config["filters"]["std_range_flag"]["threshold"], 
                         over=config["filters"]["std_range_flag"]["over"], # asset or time 
                         feature_types=["ws_horz", "ws_vert"],
@@ -942,7 +942,7 @@ def main():
                     ).values
                     
                     end_row = min(start_row + row_chunk_size, total_rows)  # Handle the last chunk
-                    logging.info(f"Processing rows {i} to {end_row} of {total_rows} of std_dev_outliers, shape {std_dev_outliers.shape}.")
+                    logging.info(f"Processing rows {start_row} to {end_row} of {total_rows} of std_dev_outliers, shape {std_dev_outliers.shape}.")
                     std_dev_outliers[std_dev_outliers == None] = False
                     std_dev_outliers = std_dev_outliers.astype("bool")
                      
