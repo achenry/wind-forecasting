@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #SBATCH --nodes=1
-#SBATCH --ntasks=1 # NOTE use 1 for st_dev calc
+#SBATCH --ntasks=104 # NOTE use 1 for st_dev calc
 #SBATCH --mem=0
 #SBATCH --account=ssc
 #SBATCH --time=12:00:00
@@ -27,7 +27,7 @@ mamba activate wind_forecasting
 # conda activate wind_forecasting_preprocessing
 # python preprocessing_main.py --config /srv/data/nfs/ahenry/wind_forecasting_env/wind-forecasting/examples/inputs/preprocessing_inputs_server_awaken_new.yaml --reload_data --multiprocessor cf 
 
-# python preprocessing_main.py --config /$HOME/toolboxes/wind_forecasting_env/wind-forecasting/examples/inputs/preprocessing_inputs_kestrel_awaken_new.yaml --multiprocessor cf --preprocess_data --regenerate_filters
-python preprocessing_main.py --config /$HOME/toolboxes/wind_forecasting_env/wind-forecasting/examples/inputs/preprocessing_inputs_kestrel_flasc.yaml --multiprocessor cf --preprocess_data --regenerate_filters
+python preprocessing_main.py --config /$HOME/toolboxes/wind_forecasting_env/wind-forecasting/examples/inputs/preprocessing_inputs_kestrel_awaken_new.yaml --multiprocessor cf --preprocess_data #--regenerate_filters
+# python preprocessing_main.py --config /$HOME/toolboxes/wind_forecasting_env/wind-forecasting/examples/inputs/preprocessing_inputs_kestrel_flasc.yaml --multiprocessor cf --preprocess_data #--regenerate_filters
 # srun preprocessing_main.py --config /$HOME/toolboxes/wind_forecasting_env/wind-forecasting/examples/inputs/preprocessing_inputs_kestrel_awaken_new.yaml --multiprocessor mpi --preprocess_data #--regenerate_filters
 
