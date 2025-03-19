@@ -24,8 +24,9 @@ import pickle
 from glob import glob
 from time import sleep
 # from pyarrow.dataset import write_dataset
-from pyarrow.parquet import ParquetWriter
+from pyarrow.parquet import ParquetWriter, ParquetDataset
 import pyarrow as pa
+from psutil import virtual_memory
 
 mpi_exists = False
 try:
@@ -917,99 +918,89 @@ def main():
         cols = df_query.select(cs.starts_with("ws_horz"), cs.starts_with("ws_vert")).collect_schema().names()
         final_shape = (total_rows, len(cols))
         
-        if config["filters"]["std_range_flag"]["over"] == "asset":
-            std_dev_filter_temp_path = os.path.join(config["temp_storage_dir"], 
-                                            os.path.basename(config["processed_data_path"]).replace(".parquet", "_std_dev_outliers.parquet"))
-                                    
-            std_dev_filter_target_path = os.path.join(os.path.dirname(config["processed_data_path"]), 
-                                            os.path.basename(config["processed_data_path"]).replace(".parquet", "_std_dev_outliers.parquet"))
-            
-            if os.path.exists(std_dev_filter_temp_path):
-                os.remove(std_dev_filter_temp_path)
-            if os.path.exists(std_dev_filter_target_path):
-                os.remove(std_dev_filter_target_path)
-        else:
-            std_dev_filter_temp_dir = os.path.join(config["temp_storage_dir"], 
-                                                os.path.basename(config["processed_data_path"]).replace(".parquet", "_std_dev_outliers"))
-                                      
-            std_dev_filter_target_dir = os.path.join(os.path.dirname(config["processed_data_path"]), 
+        std_dev_filter_temp_path = os.path.join(config["temp_storage_dir"], 
                                             os.path.basename(config["processed_data_path"]).replace(".parquet", "_std_dev_outliers"))
-            
-            if os.path.exists(std_dev_filter_temp_dir):
-                rmtree(std_dev_filter_temp_dir) 
-            os.makedirs(std_dev_filter_temp_dir, exist_ok=True)
-            if os.path.exists(std_dev_filter_target_dir):
-                rmtree(std_dev_filter_target_dir) 
+                                    
+        std_dev_filter_target_path = os.path.join(os.path.dirname(config["processed_data_path"]), 
+                                        os.path.basename(config["processed_data_path"]).replace(".parquet", "_std_dev_outliers"))
         
-        filter_exists = os.path.exists(std_dev_filter_target_path)
-        if args.reload_data or args.regenerate_filters or not os.path.exists(std_dev_filter_target_path):
+        if os.path.exists(std_dev_filter_temp_path):
+            rmtree(std_dev_filter_temp_path) 
+            
+        os.makedirs(std_dev_filter_temp_path, exist_ok=True)
+        
+        if os.path.exists(std_dev_filter_target_path):
+            rmtree(std_dev_filter_target_path) 
+        
+        if args.reload_data or args.regenerate_filters \
+            or ((not os.path.exists(std_dev_filter_target_path)) or (len(glob(os.path.join(std_dev_filter_temp_path, "*.parquet"))) == 0)):
             # TODO use __slots__ for data_loader etc classes to reduce memory load?
             
             if config["filters"]["std_range_flag"]["over"] == "asset":
                     
                 # TODO apply to frozen sensor
-                chunk_size = 10_000_000
+                chunk_size = 100_000_000
+                # chunk_size = 1_000
                 row_chunk_size = int(chunk_size // len(cols))
                 
                 # with open(config["processed_data_path"].replace(".parquet", "_std_dev_outliers.arr"), "ab") as f:
                 # with open(std_dev_filter_temp_path, "ab") as f:
-                try:
-                    std_dev_writer = ParquetWriter(where=std_dev_filter_temp_path, 
-                                                   schema=pa.schema({col: pa.bool_() for col in cols})) 
-                    for s, start_row in enumerate(range(0, total_rows, row_chunk_size)):
-                        std_dev_outliers = filters.std_range_flag(
-                            data_pl=df_query.slice(start_row, row_chunk_size).select(cs.starts_with("ws_horz"), cs.starts_with("ws_vert")),
-                            threshold=config["filters"]["std_range_flag"]["threshold"], 
-                            over=config["filters"]["std_range_flag"]["over"], # asset or time 
-                            feature_types=["ws_horz", "ws_vert"],
-                            r2_threshold=config["filters"]["std_range_flag"]["r2_threshold"],
-                            min_correlated_assets=config["filters"]["std_range_flag"]["min_correlated_assets"]
-                        )
-                        std_dev_writer.write_table(std_dev_outliers.collect().to_arrow()) #, row_group_size=10_000)
+                # try:
+                for s, start_row in enumerate(range(0, total_rows, row_chunk_size)):
+                    # std_dev_outliers = 
+                    filters.std_range_flag(
+                        data_pl=df_query.slice(start_row, row_chunk_size).select(cs.starts_with("ws_horz"), cs.starts_with("ws_vert")),
+                        threshold=config["filters"]["std_range_flag"]["threshold"], 
+                        over=config["filters"]["std_range_flag"]["over"], # asset or time 
+                        feature_types=["ws_horz", "ws_vert"],
+                        r2_threshold=config["filters"]["std_range_flag"]["r2_threshold"],
+                        min_correlated_assets=config["filters"]["std_range_flag"]["min_correlated_assets"]
+                    ).collect().write_parquet(os.path.join(std_dev_filter_temp_path, f"{s}.parquet"), statistics=False)
+                    sleep(2)
+                    # with ParquetWriter(
+                    #     where=os.path.join(std_dev_filter_temp_path, f"{s}.parquet"), 
+                    #     schema=pa.schema({col: pa.bool_() for col in cols}),
+                    #     write_statistics=False, store_schema=False,
+                    #     write_batch_size=chunk_size*100) as writer:
+                    #     writer.write_table(std_dev_outliers.collect().to_arrow(), row_group_size=32_000)
+                    
+                    # std_dev_outliers.collect().write_parquet(os.path.join(std_dev_filter_temp_path, f"{s}.parquet"), statistics=False) 
+                    end_row = min(start_row + row_chunk_size, total_rows)  # Handle the last chunk
+                    used_ram = virtual_memory().percent
+                    logging.info(f"Processing rows {start_row} to {end_row} of {total_rows} of std_dev_outliers. Used {used_ram}% of RAM.")
                         
-                        end_row = min(start_row + row_chunk_size, total_rows)  # Handle the last chunk
-                        logging.info(f"Processing rows {start_row} to {end_row} of {total_rows} of std_dev_outliers.")
-                        
-                        if s > 1 and s % 5 == 0:
-                            std_dev_writer.close()
-                            std_dev_writer = ParquetWriter(where=std_dev_filter_temp_path, 
-                                                   schema=pa.schema({col: pa.bool_() for col in cols})) 
-                finally:
-                    # Always close the writer to finalize the file
-                    if "std_dev_writer" in locals() and std_dev_writer is not None:
-                        std_dev_writer.close()
-                        
-                        # move from temp location to permanent
-                        move(std_dev_filter_temp_path, std_dev_filter_target_path)
+                # except Exception as e:
+                #     raise Exception(e)
                 
             else:
                 
                 for c, col in enumerate(cols):
-                    try:
-                        std_dev_writer = ParquetWriter(
-                            where=os.path.join(std_dev_filter_temp_path, f"{col}.parquet"), 
-                            schema=pa.schema({col: pa.bool_()}))
-                        
-                        std_dev_outliers = filters.std_range_flag(
-                            data_pl=df_query.select(col),
-                            threshold=config["filters"]["std_range_flag"]["threshold"], 
-                            over=config["filters"]["std_range_flag"]["over"], # asset or time 
-                            feature_types=[re.search(f"\\w+(?=_{data_loader.turbine_signature})", col).group()],
-                            r2_threshold=config["filters"]["std_range_flag"]["r2_threshold"],
-                            min_correlated_assets=config["filters"]["std_range_flag"]["min_correlated_assets"]
-                            # asset_coords={tid: (data_inspector.fmodel.layout_x[t], data_inspector.fmodel.layout_y[t]) for t, tid in enumerate(data_loader.turbine_ids)}
-                        )#.rename({col: re.search(f"\\w+(?=_{data_loader.turbine_signature})", col).group()})
-                        
-                        std_dev_writer.write_table(std_dev_outliers.collect().to_arrow(), row_group_size=10_000)
+                    # try:
+                    # std_dev_writer = ParquetWriter(
+                    #     where=os.path.join(std_dev_filter_temp_path, f"{col}.parquet"), 
+                    #     schema=pa.schema({col: pa.bool_()}),
+                    #     write_statistics=False)
+                    
+                    filters.std_range_flag(
+                        data_pl=df_query.select(col),
+                        threshold=config["filters"]["std_range_flag"]["threshold"], 
+                        over=config["filters"]["std_range_flag"]["over"], # asset or time 
+                        feature_types=[re.search(f"\\w+(?=_{data_loader.turbine_signature})", col).group()],
+                        r2_threshold=config["filters"]["std_range_flag"]["r2_threshold"],
+                        min_correlated_assets=config["filters"]["std_range_flag"]["min_correlated_assets"]
+                        # asset_coords={tid: (data_inspector.fmodel.layout_x[t], data_inspector.fmodel.layout_y[t]) for t, tid in enumerate(data_loader.turbine_ids)}
+                    ).collect().write_parquet(os.path.join(std_dev_filter_temp_path, f"{c}.parquet"), statistics=False)
+                    sleep(2)
+                    # std_dev_writer.write_table(std_dev_outliers.collect().to_arrow(), row_group_size=32_000)
                             
-                    finally:
-                        # Always close the writer to finalize the file
-                        if "std_dev_writer" in locals() and std_dev_writer is not None:
-                            std_dev_writer.close()
+                    # finally:
+                    #     # Always close the writer to finalize the file
+                    #     if "std_dev_writer" in locals() and std_dev_writer is not None:
+                    #         std_dev_writer.close()
 
-                # move from temp location to permanent
-                if len(glob(os.path.join(std_dev_filter_temp_path, "*.parquet"))):
-                    move(std_dev_filter_temp_path, std_dev_filter_target_path)
+            # move from temp location to permanent
+            if len(glob(os.path.join(std_dev_filter_temp_path, "*.parquet"))):
+                move(std_dev_filter_temp_path, std_dev_filter_target_path)
         
         if RUN_ONCE:
             if config["filters"]["std_range_flag"]["over"] == "asset": 
