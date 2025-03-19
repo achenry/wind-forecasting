@@ -921,7 +921,7 @@ def main():
                 os.remove(std_dev_filter_target_path)
             
             # Create a memory-mapped array (creates the file if it doesn't exist)
-            fp = np.memmap(std_dev_filter_temp_path, dtype=bool, mode='w+', shape=final_shape)
+            fp = np.memmap(std_dev_filter_temp_path, dtype=bool, mode='r+', shape=final_shape)
             
             if config["filters"]["std_range_flag"]["over"] == "asset":
                 # TODO try writing to different files and then deleting? apply to frozen sensor
