@@ -969,6 +969,11 @@ def main():
                         
                         end_row = min(start_row + row_chunk_size, total_rows)  # Handle the last chunk
                         logging.info(f"Processing rows {start_row} to {end_row} of {total_rows} of std_dev_outliers.")
+                        
+                        if s > 1 and s % 5 == 0:
+                            std_dev_writer.close()
+                            std_dev_writer = ParquetWriter(where=std_dev_filter_temp_path, 
+                                                   schema=pa.schema({col: pa.bool_() for col in cols})) 
                 finally:
                     # Always close the writer to finalize the file
                     if "std_dev_writer" in locals() and std_dev_writer is not None:
