@@ -916,20 +916,36 @@ def main():
         total_rows = df_query.select(pl.len()).collect().item()
         cols = df_query.select(cs.starts_with("ws_horz"), cs.starts_with("ws_vert")).collect_schema().names()
         final_shape = (total_rows, len(cols))
+        
+        if config["filters"]["std_range_flag"]["over"] == "asset":
+            std_dev_filter_temp_path = os.path.join(config["temp_storage_dir"], 
+                                            os.path.basename(config["processed_data_path"]).replace(".parquet", "_std_dev_outliers.parquet"))
+                                    
+            std_dev_filter_target_path = os.path.join(os.path.dirname(config["processed_data_path"]), 
+                                            os.path.basename(config["processed_data_path"]).replace(".parquet", "_std_dev_outliers.parquet"))
+            
+            if os.path.exists(std_dev_filter_temp_path):
+                os.remove(std_dev_filter_temp_path)
+            if os.path.exists(std_dev_filter_target_path):
+                os.remove(std_dev_filter_target_path)
+        else:
+            std_dev_filter_temp_dir = os.path.join(config["temp_storage_dir"], 
+                                                os.path.basename(config["processed_data_path"]).replace(".parquet", "_std_dev_outliers"))
+                                      
+            std_dev_filter_target_dir = os.path.join(os.path.dirname(config["processed_data_path"]), 
+                                            os.path.basename(config["processed_data_path"]).replace(".parquet", "_std_dev_outliers"))
+            
+            if os.path.exists(std_dev_filter_temp_dir):
+                rmtree(std_dev_filter_temp_dir) 
+            os.makedirs(std_dev_filter_temp_dir, exist_ok=True)
+            if os.path.exists(std_dev_filter_target_dir):
+                rmtree(std_dev_filter_target_dir) 
+        
+        filter_exists = os.path.exists(std_dev_filter_target_path)
         if args.reload_data or args.regenerate_filters or not os.path.exists(std_dev_filter_target_path):
             # TODO use __slots__ for data_loader etc classes to reduce memory load?
             
             if config["filters"]["std_range_flag"]["over"] == "asset":
-                std_dev_filter_temp_path = os.path.join(config["temp_storage_dir"], 
-                                                os.path.basename(config["processed_data_path"]).replace(".parquet", "_std_dev_outliers.parquet"))
-                                      
-                std_dev_filter_target_path = os.path.join(os.path.dirname(config["processed_data_path"]), 
-                                                os.path.basename(config["processed_data_path"]).replace(".parquet", "_std_dev_outliers.parquet"))
-                
-                if os.path.exists(std_dev_filter_temp_path):
-                    os.remove(std_dev_filter_temp_path)
-                if os.path.exists(std_dev_filter_target_path):
-                    os.remove(std_dev_filter_target_path)
                     
                 # TODO apply to frozen sensor
                 # chunk_size = 1_000_000
@@ -963,22 +979,12 @@ def main():
                         move(std_dev_filter_temp_path, std_dev_filter_target_path)
                 
             else:
-                std_dev_filter_temp_dir = os.path.join(config["temp_storage_dir"], 
-                                                os.path.basename(config["processed_data_path"]).replace(".parquet", "_std_dev_outliers"))
-                                      
-                std_dev_filter_target_dir = os.path.join(os.path.dirname(config["processed_data_path"]), 
-                                                os.path.basename(config["processed_data_path"]).replace(".parquet", "_std_dev_outliers"))
                 
-                if os.path.exists(std_dev_filter_temp_dir):
-                    rmtree(std_dev_filter_temp_dir) 
-                os.makedirs(std_dev_filter_temp_dir, exist_ok=True)
-                if os.path.exists(std_dev_filter_target_dir):
-                    rmtree(std_dev_filter_target_dir) 
 
                 for c, col in enumerate(cols):
                     try:
                         std_dev_writer = ParquetWriter(
-                            where=os.path.join(std_dev_filter_temp_dir, f"{col}.parquet"), 
+                            where=os.path.join(std_dev_filter_temp_path, f"{col}.parquet"), 
                             schema=pa.schema({col: pa.bool_()}))
                         
                         std_dev_outliers = filters.std_range_flag(
@@ -999,8 +1005,8 @@ def main():
                             std_dev_writer.close()
 
                 # move from temp location to permanent
-                if len(glob(os.path.join(std_dev_filter_temp_dir, "*.parquet"))):
-                    move(std_dev_filter_temp_dir, std_dev_filter_target_dir)
+                if len(glob(os.path.join(std_dev_filter_temp_path, "*.parquet"))):
+                    move(std_dev_filter_temp_path, std_dev_filter_target_path)
         
         if RUN_ONCE:
             if config["filters"]["std_range_flag"]["over"] == "asset": 
