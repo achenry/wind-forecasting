@@ -28,6 +28,7 @@ cd ..
 git clone https://github.com/boujuan/pytorch-transformer-ts
 cd pytorch-transformer-ts
 git checkout feature/spacetimeformer
+python -m pip install -e .
 python -m pip install ujson datasets xformers etsformer-pytorch reformer_pytorch pykeops apex # gluonts[torch]
 python -m pip install git+https://github.com/kashif/hopfield-layers@pytorch-2 git+https://github.com/microsoft/torchscale
 cd ..
