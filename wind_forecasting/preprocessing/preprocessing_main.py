@@ -22,6 +22,7 @@ from memory_profiler import profile
 from shutil import rmtree, move
 import pickle
 from time import sleep
+from pyarrow.dataset import write_dataset
 
 mpi_exists = False
 try:
@@ -904,10 +905,12 @@ def main():
         if RUN_ONCE:
             logging.info("Nullifying standard deviation outliers.")
         
-        os.makedirs(config["temp_storage_dir"], exist_ok=True) # other temporary directory, used to store things on SLURM node before transferring
-        std_dev_filter_temp_path = os.path.join(config["temp_storage_dir"], 
-                                       os.path.basename(config["processed_data_path"]).replace(".parquet", "_std_dev_outliers.dat"))
-        std_dev_filter_target_path = config["processed_data_path"].replace(".parquet", "_std_dev_outliers.dat")
+        
+        std_dev_filter_temp_path = os.path.join(config["temp_storage_dir"], "std_dev_outliers")
+                                    #    os.path.basename(config["processed_data_path"]).replace(".parquet", "_std_dev_outliers.dat"))
+        std_dev_filter_target_path = os.path.join(os.path.dirname(config["processed_data_path"]), "std_dev_outliers")
+        os.makedirs(std_dev_filter_temp_path, exist_ok=True) # other temporary directory, used to store things on SLURM node before transferring
+        os.makedirs(std_dev_filter_target_path, exist_ok=True)
         # apply a bin filter to remove data with power values outside of an envelope around median power curve at each wind speed
         total_rows = df_query.select(pl.len()).collect().item()
         cols = df_query.select(cs.starts_with("ws_horz"), cs.starts_with("ws_vert")).collect_schema().names()
@@ -916,21 +919,19 @@ def main():
             # TODO use __slots__ for data_loader etc classes to reduce memory load?
             
             if os.path.exists(std_dev_filter_temp_path):
-                os.remove(std_dev_filter_temp_path)
+                rmtree(std_dev_filter_temp_path)
             if os.path.exists(std_dev_filter_target_path):
-                os.remove(std_dev_filter_target_path)
-            
-            # Create a memory-mapped array (creates the file if it doesn't exist)
-            fp = np.memmap(std_dev_filter_temp_path, dtype=bool, mode='w+', shape=final_shape)
+                rmtree(std_dev_filter_target_path)
             
             if config["filters"]["std_range_flag"]["over"] == "asset":
                 # TODO apply to frozen sensor
+                # chunk_size = 1_000_000
                 chunk_size = 100_000
                 row_chunk_size = int(chunk_size // len(cols))
                 
                 # with open(config["processed_data_path"].replace(".parquet", "_std_dev_outliers.arr"), "ab") as f:
                 # with open(std_dev_filter_temp_path, "ab") as f: 
-                for start_row in range(0, total_rows, row_chunk_size):
+                for s, start_row in enumerate(range(0, total_rows, row_chunk_size)):
                     std_dev_outliers = filters.std_range_flag(
                         data_pl=df_query.slice(start_row, row_chunk_size).select(cs.starts_with("ws_horz"), cs.starts_with("ws_vert")),
                         threshold=config["filters"]["std_range_flag"]["threshold"], 
@@ -938,19 +939,13 @@ def main():
                         feature_types=["ws_horz", "ws_vert"],
                         r2_threshold=config["filters"]["std_range_flag"]["r2_threshold"],
                         min_correlated_assets=config["filters"]["std_range_flag"]["min_correlated_assets"]
-                        # asset_coords={tid: (data_inspector.fmodel.layout_x[t], data_inspector.fmodel.layout_y[t]) for t, tid in enumerate(data_loader.turbine_ids)}
-                    ).values
+                    )
+                    write_dataset(data=std_dev_outliers.collect().to_arrow(), base_dir=std_dev_filter_temp_path, 
+                                  format="parquet", existing_data_behavior="overwrite_or_ignore",
+                                  basename_template="{i}")
                     
                     end_row = min(start_row + row_chunk_size, total_rows)  # Handle the last chunk
-                    logging.info(f"Processing rows {start_row} to {end_row} of {total_rows} of std_dev_outliers, shape {std_dev_outliers.shape}.")
-                    std_dev_outliers[std_dev_outliers == None] = False
-                    std_dev_outliers = std_dev_outliers.astype("bool")
-                     
-                    fp[start_row:end_row, :] = std_dev_outliers.copy()
-                    
-                    # Flush less frequently (e.g., every N chunks)
-                    if (start_row // row_chunk_size) % 20 == 0:  # Flush every 10 chunks.  Adjust as needed.
-                        fp.flush()
+                    logging.info(f"Processing rows {start_row} to {end_row} of {total_rows} of std_dev_outliers.")
                 
             else:
                 # with open(config["processed_data_path"].replace(".parquet", "std_dev_outliers.arr"), mode="ab") as f:
@@ -964,30 +959,20 @@ def main():
                         r2_threshold=config["filters"]["std_range_flag"]["r2_threshold"],
                         min_correlated_assets=config["filters"]["std_range_flag"]["min_correlated_assets"]
                         # asset_coords={tid: (data_inspector.fmodel.layout_x[t], data_inspector.fmodel.layout_y[t]) for t, tid in enumerate(data_loader.turbine_ids)}
-                    ).values
-                    std_dev_outliers[std_dev_outliers == None] = False
-                    std_dev_outliers = std_dev_outliers.astype("bool")
+                    )
                     
-                    fp[:, c] = std_dev_outliers
-                    
-                    # Flush less frequently (e.g., every N chunks)
-                    if (c // row_chunk_size) % 10 == 0:  # Flush every 10 chunks.  Adjust as needed.
-                        fp.flush()
-            
-            fp.flush() 
+                    write_dataset(data=std_dev_outliers.collect().to_arrow(), base_dir=std_dev_filter_temp_path, 
+                                  format="parquet", existing_data_behavior="overwrite_or_ignore",
+                                  basename_template="{i}.parquet")
                 
-                    # if RUN_ONCE:
-                    #     with open(config["processed_data_path"].replace(".parquet", "_std_dev_outliers.npy"), mode="ab") as f:
-                    # std_dev_outliers.tofile(f)
-                    # f.flush()
-                    # sleep(2)
-
+            # move from temp location to permanent 
+            move(std_dev_filter_temp_path, std_dev_filter_target_path)
+            
         # elif RUN_ONCE:
         # std_dev_outliers = np.load(config["processed_data_path"].replace(".parquet", "_std_dev_outliers.npy"), allow_pickle=True)[()]
         # std_dev_outliers = np.fromfile(config["processed_data_path"].replace(".parquet", "_std_dev_outliers.arr"), dtype=bool)
         # 
-        # move from temp location to permanent 
-        move(std_dev_filter_temp_path, std_dev_filter_target_path)
+        files = glob(os.path.join(std_dev_filter_target_path, "*"))
         std_dev_outliers = np.memmap(std_dev_filter_target_path, 
                                      mode="r", dtype=bool, shape=final_shape)
         # if config["filters"]["std_range_flag"]["over"] == "asset":
