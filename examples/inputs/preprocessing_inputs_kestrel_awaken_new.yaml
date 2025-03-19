@@ -1,24 +1,24 @@
 config_label: kestrel_awaken_new
 
 filters:
-  unresponsive_sensor:
-    frozen_sensor_limit: 1200 # maximum duration for which a value can be constant before it is flagged as frozen, seconds
-  range_flag:
-    lower: 3
-    upper: 25
-  window_range_flag:
-    window_start: 3
-    window_end: 25
-    value_min: 0.01 # factor multiplied by rated power
-    value_max: 1.02 # factor multiplied by rated power
-  bin_filter:
-    bin_width: 100 # kW
-    threshold: 1.5 # absolute deviation in wind speed 
-    center_type: median
-    bin_min: 0.01 # factor multiplied by rated power
-    bin_max: 0.95 # factor multiplied by rated power
-    threshold_type: scalar
-  nacelle_calibration:
+  # unresponsive_sensor:
+  #   frozen_sensor_limit: 1200 # maximum duration for which a value can be constant before it is flagged as frozen, seconds
+  # range_flag:
+  #   lower: 3
+  #   upper: 25
+  # window_range_flag:
+  #   window_start: 3
+  #   window_end: 25
+  #   value_min: 0.01 # factor multiplied by rated power
+  #   value_max: 1.02 # factor multiplied by rated power
+  # bin_filter:
+  #   bin_width: 100 # kW
+  #   threshold: 1.5 # absolute deviation in wind speed 
+  #   center_type: median
+  #   bin_min: 0.01 # factor multiplied by rated power
+  #   bin_max: 0.95 # factor multiplied by rated power
+  #   threshold_type: scalar
+  # nacelle_calibration:
   std_range_flag:
     threshold: 1
     over: asset
@@ -260,6 +260,7 @@ raw_data_directory:
 # raw_data_directory: /projects/ssc/ahenry/wind_forecasting/awaken_data/00_engie_scada_test/
 # processed_data_path: /tmp/scratch/$SLURM_JOB_ID/awaken_processed.parquet
 processed_data_path: /projects/ssc/ahenry/wind_forecasting/awaken_data/awaken_processed.parquet # TODO
+temp_storage_dir: /tmp/scratch/$SLURM_JOB_ID/
 # processed_data_path: /projects/ssc/ahenry/wind_forecasting/awaken_data/awaken_processed_debug.parquet
 
 # processed_data_path: /tmp/scratch/$SLURM_JOB_ID/00_engie_scada_processed.parquet
