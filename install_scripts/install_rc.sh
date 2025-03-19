@@ -1,13 +1,15 @@
 acompile
 ml mambaforge
-mamba create --prefix=/projects/aohe7145/software/anaconda/envs/wind_forecasting python=3.12 --y
+# In the case that mamba is not yet installed, use following command first: conda install mamba -n base -c conda-forge 
+mamba create --prefix=/projects/aohe7145/software/anaconda/envs/wind_forecasting python=3.12 #--y this y part should not be included
+eval "$(mamba.exe shell hook --shell bash)" # Intialize mamba for current shell
 mamba activate wind_forecasting
 
 # mamba install conda-forge::cuda-version=12.4 nvidia/label/cuda-12.4.0::cuda-toolkit performer-pytorch pytorch torchvision torchaudio torchmetrics pytorch-cuda=12.4 lightning -c pytorch -c nvidia --y
-mamba install polars windrose statsmodels scikit-learn jupyterlab nb_conda_kernels pyyaml matplotlib numpy seaborn opt_einsum netcdf4 scipy h5pyd wandb einops --y 
-python -m openmpi pip install opencv-python floris performer-pytorch psutil memory_profiler optuna mysqlclient mysql-connector-python filterpy
-
-brew install mysql  && brew services start mysql
+mamba install polars windrose statsmodels scikit-learn jupyterlab nb_conda_kernels pyyaml matplotlib numpy seaborn opt_einsum netcdf4 scipy h5pyd wandb einops # --y this part should not be included
+# Use the following code when experiencing package dependencies: mamba install polars windrose statsmodels scikit-learn jupyterlab nb_conda_kernels pyyaml matplotlib numpy seaborn opt_einsum netcdf4 scipy h5pyd wandb einops -c conda-forge
+python -m pip install opencv-python floris performer-pytorch psutil memory_profiler optuna mysqlclient mysql-connector-python filterpy # removed openmpi since it cannot be installed
+brew install mysql  && brew services start mysql # This only works on MacOS, for windows use official website to download and install MySQL
 
 git clone https://github.com/achenry/wind-forecasting.git
 cd wind-forecasting
@@ -28,11 +30,11 @@ cd ..
 git clone https://github.com/boujuan/pytorch-transformer-ts
 cd pytorch-transformer-ts
 git checkout feature/spacetimeformer
-python -m pip install ujson datasets xformers etsformer-pytorch reformer_pytorch pykeops apex # gluonts[torch]
+python -m pip install ujson datasets xformers etsformer-pytorch reformer_pytorch pykeops # removed 'apex' since it caused errors # gluonts[torch]
 python -m pip install git+https://github.com/kashif/hopfield-layers@pytorch-2 git+https://github.com/microsoft/torchscale
 cd ..
 
-mamba install conda-forge::cuda-version=12.4 nvidia/label/cuda-12.4.0::cuda-toolkit performer-pytorch pytorch torchvision torchaudio torchmetrics pytorch-cuda=12.4 lightning -c pytorch -c nvidia --y
+mamba install conda-forge::cuda-version=12.4 nvidia/label/cuda-12.4.0::cuda-toolkit performer-pytorch pytorch torchvision torchaudio torchmetrics pytorch-cuda=12.4 lightning -c pytorch -c nvidia # --y this part should not be included
 
 git clone https://github.com/achenry/gluonts
 cd gluonts
