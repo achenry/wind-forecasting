@@ -1057,17 +1057,17 @@ def main():
     if "split" in config["filters"]:
         
         if args.reload_data or args.regenerate_filters or not os.path.exists(config["processed_data_path"].replace(".parquet", "_split.parquet")):
-            if RUN_ONCE:
-                logging.info("Split dataset during time steps for which many turbines have missing data.")
-                print(1062) 
-                # if there is a short or long gap for some turbines, impute them using the imputing.impute_all_assets_by_correlation function
-                #       else if there is a short or long gap for many turbines, split the dataset
-                assert config["filters"]["split"]["missing_col_thr"] <= len(data_loader.turbine_ids) 
-                print(1066)
-                missing_col_thr = config["filters"]["split"]["missing_col_thr"] 
-                missing_duration_thr = np.timedelta64(config["filters"]["split"]["missing_duration_thr"], "s")
-                minimum_not_missing_duration = np.timedelta64(config["filters"]["split"]["minimum_not_missing_duration"], "s")
-                missing_data_cols = ["ws_horz", "ws_vert"]
+            # if RUN_ONCE:
+            logging.info("Split dataset during time steps for which many turbines have missing data.")
+            print(1062) 
+            # if there is a short or long gap for some turbines, impute them using the imputing.impute_all_assets_by_correlation function
+            #       else if there is a short or long gap for many turbines, split the dataset
+            assert config["filters"]["split"]["missing_col_thr"] <= len(data_loader.turbine_ids) 
+            print(1066)
+            missing_col_thr = config["filters"]["split"]["missing_col_thr"] 
+            missing_duration_thr = np.timedelta64(config["filters"]["split"]["missing_duration_thr"], "s")
+            minimum_not_missing_duration = np.timedelta64(config["filters"]["split"]["minimum_not_missing_duration"], "s")
+            missing_data_cols = ["ws_horz", "ws_vert"]
             
             print(1072)
 
