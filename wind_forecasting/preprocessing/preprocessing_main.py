@@ -307,8 +307,6 @@ def main():
                         .filter(pl.all_horizontal((cs.starts_with("wind_speed") >= 3) & (cs.starts_with("wind_speed") <= 25)))
             data_inspector.plot_wind_rose(df_query2.slice(0, ROW_LIMIT), 
                                 feature_type="wind_direction", turbine_ids="all", fig_label=f"wind_rose_{file_set_idx}")
-            data_inspector.plot_wind_rose(df_query2.slice(0, ROW_LIMIT), 
-                                feature_type="nacelle_direction", turbine_ids="all", fig_label=f"wind_rose_{file_set_idx}")
                         
         # data_inspector.plot_correlation(df_query.slice(0, ROW_LIMIT), 
         # data_inspector.get_features(df_query.slice(0, ROW_LIMIT), feature_types=["wind_speed", "wind_direction", "nacelle_direction"], 
