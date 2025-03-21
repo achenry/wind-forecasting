@@ -985,7 +985,7 @@ def main():
                         r2_threshold=config["filters"]["std_range_flag"]["r2_threshold"],
                         min_correlated_assets=config["filters"]["std_range_flag"]["min_correlated_assets"]
                     )], how="horizontal").collect().write_parquet(os.path.join(std_dev_filter_temp_path, f"{s}.parquet"), statistics=False)
-                    sleep(10)
+                    sleep(15)
                     # with ParquetWriter(
                     #     where=os.path.join(std_dev_filter_temp_path, f"{s}.parquet"), 
                     #     schema=pa.schema({col: pa.bool_() for col in cols}),
@@ -1020,7 +1020,7 @@ def main():
                         min_correlated_assets=config["filters"]["std_range_flag"]["min_correlated_assets"]
                         # asset_coords={tid: (data_inspector.fmodel.layout_x[t], data_inspector.fmodel.layout_y[t]) for t, tid in enumerate(data_loader.turbine_ids)}
                     ).collect().write_parquet(os.path.join(std_dev_filter_temp_path, f"{c}.parquet"), statistics=False)
-                    sleep(10)
+                    sleep(15)
                     used_ram = virtual_memory().percent
                     if RUN_ONCE:
                         logging.info(f"Processing column {c} of {len(cols)} of std_dev_outliers. Used {used_ram}% of RAM.")
@@ -1217,15 +1217,12 @@ def main():
                 if df_query.select(pl.len()).collect().item() == 0:
                     logging.warn(f"No remaining data rows after splicing time steps with over {missing_col_thr} missing columns")
             
-                logging.info(1196)
-                
                 # need to sink parquet and recollect to avoid recursion limit error
                 logging.info("Starting to write split data to file.") 
                 df_query.collect().write_parquet(config["processed_data_path"].replace(".parquet", "_split.parquet"), statistics=False)
                 df_query = pl.scan_parquet(config["processed_data_path"].replace(".parquet", "_split.parquet"))
                 logging.info("Finished writing split data to file.") 
                  
-            logging.info(1201)
             # check each split dataframe a) is continuous in time AND b) has <= than the threshold number of missing columns OR for less than the threshold time span
             # for df in df_query:
             #     assert df.select((pl.col("time").diff(null_behavior="drop") == np.timedelta64(data_loader.dt, "s")).all()).collect(streaming=True).item()
