@@ -941,6 +941,7 @@ def main():
             logging.info("Nullifying standard deviation outliers.")
 
         # apply a bin filter to remove data with power values outside of an envelope around median power curve at each wind speed
+        # df_query = pl.scan_parquet("./sample_ah.parquet")
         total_rows = df_query.select(pl.len()).collect().item()
         cols = df_query.select(cs.starts_with("ws_horz"), cs.starts_with("ws_vert")).collect_schema().names()
         final_shape = (total_rows, len(cols))
@@ -968,15 +969,16 @@ def main():
                     
                 # TODO apply to frozen sensor
                 chunk_size = 10_000_000
-                # chunk_size = 1_000
+                chunk_size = 10_000
                 row_chunk_size = int(chunk_size // len(cols))
                 
+                # NEED: polars, my OpenOA repository, config file, FLASC data
                 # with open(config["processed_data_path"].replace(".parquet", "_std_dev_outliers.arr"), "ab") as f:
                 # with open(std_dev_filter_temp_path, "ab") as f:
                 # try:
                 for s, start_row in enumerate(range(0, total_rows, row_chunk_size)):
                     # std_dev_outliers = 
-                    std_dev_outliers = pl.concat([df_query.slice(start_row, row_chunk_size).select("time"),
+                    pl.concat([df_query.slice(start_row, row_chunk_size).select("time"),
                                filters.std_range_flag(
                         data_pl=df_query.slice(start_row, row_chunk_size).select(cs.starts_with("ws_horz"), cs.starts_with("ws_vert")),
                         threshold=config["filters"]["std_range_flag"]["threshold"], 
@@ -984,9 +986,7 @@ def main():
                         feature_types=["ws_horz", "ws_vert"],
                         r2_threshold=config["filters"]["std_range_flag"]["r2_threshold"],
                         min_correlated_assets=config["filters"]["std_range_flag"]["min_correlated_assets"]
-                    )], how="horizontal").collect()
-                    
-                    std_dev_outliers.write_parquet(os.path.join(std_dev_filter_temp_path, f"{s}.parquet"), statistics=False)
+                    )], how="horizontal").collect(_eager=True).write_parquet(os.path.join(std_dev_filter_temp_path, f"{s}.parquet"), statistics=False)
                     # sleep(15)
                     # with ParquetWriter(
                     #     where=os.path.join(std_dev_filter_temp_path, f"{s}.parquet"), 
@@ -1021,8 +1021,8 @@ def main():
                         r2_threshold=config["filters"]["std_range_flag"]["r2_threshold"],
                         min_correlated_assets=config["filters"]["std_range_flag"]["min_correlated_assets"]
                         # asset_coords={tid: (data_inspector.fmodel.layout_x[t], data_inspector.fmodel.layout_y[t]) for t, tid in enumerate(data_loader.turbine_ids)}
-                    ).collect().write_parquet(os.path.join(std_dev_filter_temp_path, f"{c}.parquet"), statistics=False)
-                    sleep(15)
+                    ).collect(_eager=True).write_parquet(os.path.join(std_dev_filter_temp_path, f"{c}.parquet"), statistics=False)
+
                     used_ram = virtual_memory().percent
                     if RUN_ONCE:
                         logging.info(f"Processing column {c} of {len(cols)} of std_dev_outliers. Used {used_ram}% of RAM.")
