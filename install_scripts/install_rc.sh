@@ -8,7 +8,7 @@ mamba activate wind_forecasting
 # mamba install conda-forge::cuda-version=12.4 nvidia/label/cuda-12.4.0::cuda-toolkit performer-pytorch pytorch torchvision torchaudio torchmetrics pytorch-cuda=12.4 lightning -c pytorch -c nvidia --y
 mamba install polars windrose statsmodels scikit-learn jupyterlab nb_conda_kernels pyyaml matplotlib numpy seaborn opt_einsum netcdf4 scipy h5pyd wandb einops # --y this part should not be included
 # Use the following code when experiencing package dependencies: mamba install polars windrose statsmodels scikit-learn jupyterlab nb_conda_kernels pyyaml matplotlib numpy seaborn opt_einsum netcdf4 scipy h5pyd wandb einops -c conda-forge
-python -m pip install opencv-python floris performer-pytorch psutil memory_profiler optuna mysqlclient mysql-connector-python filterpy # removed openmpi since it cannot be installed
+python -m pip install opencv-python floris performer-pytorch psutil memory_profiler optuna mysqlclient mysql-connector-python filterpy # For windows, leave the MySQL out; removed openmpi since it cannot be installed
 brew install mysql  && brew services start mysql # This only works on MacOS, for windows use official website to download and install MySQL
 
 git clone https://github.com/achenry/wind-forecasting.git

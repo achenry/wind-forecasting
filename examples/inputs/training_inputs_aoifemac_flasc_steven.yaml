@@ -1,0 +1,105 @@
+experiment:
+  run_name: windfarm_debug
+  log_dir: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/logging/
+
+optuna:
+  journal_dir: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/optuna
+  storage_type: sqlite # or mysql, or journal
+  n_trials: 2
+  metric: mean_wQuantileLoss
+  direction: minimize
+  max_epochs: 3
+  limit_train_batches: 100
+  context_length_choice_factors:
+    - 1
+    - 1.5
+    - 2
+  
+dataset: 
+    #data_path: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/preprocessed_flasc_data/SMARTEOLE_WakeSteering_SCADA_1minData_normalized.parquet
+    data_path: C:\Users\20202629\Desktop\Internship\Wind_Forecaster_Folder\SMARTEOLE_WakeSteering_SCADA_1minData_normalized.parquet
+    #normalization_consts_path: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/preprocessed_flasc_data/SMARTEOLE_WakeSteering_SCADA_1minData_normalization_consts.csv
+    normalization_consts_path: C:\Users\20202629\Desktop\Internship\Wind_Forecaster_Folder\SMARTEOLE_WakeSteering_SCADA_1minData_normalization_consts.csv
+    context_length: 20 # 120=10 minutes for 5 sec sample size
+    prediction_length: 20 # 120=10 minutes for 5 sec sample size
+    target_turbine_ids: # or leave blank to capture all
+    normalize: False 
+    batch_size: 128
+    workers: 12
+    overfit: False
+    test_split: 0.20
+    val_split: 0.10
+    resample_freq: 60s
+    n_splits: 1 # how many divisions of each continuity group to make which is further subdivided into training test and validation data
+    per_turbine_target: False
+
+model:
+  distr_output: 
+    class: LowRankMultivariateNormalOutput
+    kwargs:
+      rank: 8
+  informer:
+    # embedding_dimension: 32 # Determines dimension of the embedding space
+    num_encoder_layers: 3 # Number of transformer blocks stacked
+    num_decoder_layers: 3 # Number of transformer blocks stacked
+    n_heads: 4 # Number of heads for spatio-temporal attention
+    d_model: 64
+    dim_feedforward: 64
+    activation: relu
+  autoformer:
+    # embedding_dimension: 32 # Determines dimension of the embedding space
+    num_encoder_layers: 3 # Number of transformer blocks stacked
+    num_decoder_layers: 3 # Number of transformer blocks stacked
+    n_heads: 4 # Number of heads for spatio-temporal attention
+    dim_feedforward: 64
+    activation: relu
+  spacetimeformer:
+    # embedding_dimension: 32 # Determines dimension of the embedding space
+    num_encoder_layers: 3 # Number of transformer blocks stacked
+    num_decoder_layers: 3 # Number of transformer blocks stacked
+    n_heads: 4 # Number of heads for spatio-temporal attention
+    d_model: 64
+    dim_feedforward: 64
+    d_queries_keys: 64
+    d_values: 64
+    dropout_emb: 0.2
+    dropout_attn_matrix: 0.0
+    dropout_attn_out: 0.0
+    dropout_ff: 0.3
+    dropout_qkv: 0.0
+    start_token_len: 0
+    performer_redraw_interval: 100
+    use_shifted_time_windows: False
+    # decay_factor: 0.25
+    # l2_coeff: 1e-6
+    # class_loss_imp: 0.1
+    pos_emb_type: abs
+    embed_method: spatio-temporal
+    activation: relu
+
+callbacks: 
+    progress_bar:  
+    early_stopping:  
+    model_checkpoint:  
+    lr_monitor: True
+
+trainer: 
+    # grad_clip_norm: 0.0 # Prevents gradient explosion if > 0 
+    # limit_val_batches: 1.0 
+    # val_check_interval: 1.0
+    accelerator: cpu
+    devices: auto
+    num_nodes: 1
+    strategy: auto
+    # n_workers: auto
+    # debug: False 
+    # accumulate: 1.0
+    max_epochs: 2 # Maximum number of epochs to train 100
+    limit_train_batches: 5
+    default_root_dir: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/checkpoints
+    # precision: 32-true # 16-mixed enables mixed precision training 32-true is full precision
+    # batch_size: 32 # larger = more stable gradients
+    # lr: 0.0001 # Step size
+    # dropout: 0.1 # Regularization parameter (prevents overfitting)
+    # patience: 50 # Number of epochs to wait before early stopping
+    # accumulate_grad_batches: 2 # Simulates a larger batch size
