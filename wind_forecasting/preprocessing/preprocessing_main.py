@@ -976,14 +976,15 @@ def main():
                 # try:
                 for s, start_row in enumerate(range(0, total_rows, row_chunk_size)):
                     # std_dev_outliers = 
-                    filters.std_range_flag(
+                    pl.concat([df_query.slice(start_row, row_chunk_size).select("time"),
+                               filters.std_range_flag(
                         data_pl=df_query.slice(start_row, row_chunk_size).select(cs.starts_with("ws_horz"), cs.starts_with("ws_vert")),
                         threshold=config["filters"]["std_range_flag"]["threshold"], 
                         over=config["filters"]["std_range_flag"]["over"], # asset or time 
                         feature_types=["ws_horz", "ws_vert"],
                         r2_threshold=config["filters"]["std_range_flag"]["r2_threshold"],
                         min_correlated_assets=config["filters"]["std_range_flag"]["min_correlated_assets"]
-                    ).collect().write_parquet(os.path.join(std_dev_filter_temp_path, f"{s}.parquet"), statistics=False)
+                    )], how="horizontal").collect().write_parquet(os.path.join(std_dev_filter_temp_path, f"{s}.parquet"), statistics=False)
                     sleep(10)
                     # with ParquetWriter(
                     #     where=os.path.join(std_dev_filter_temp_path, f"{s}.parquet"), 
@@ -995,7 +996,8 @@ def main():
                     # std_dev_outliers.collect().write_parquet(os.path.join(std_dev_filter_temp_path, f"{s}.parquet"), statistics=False) 
                     end_row = min(start_row + row_chunk_size, total_rows)  # Handle the last chunk
                     used_ram = virtual_memory().percent
-                    logging.info(f"Processing rows {start_row} to {end_row} of {total_rows} of std_dev_outliers. Used {used_ram}% of RAM.")
+                    if RUN_ONCE:
+                        logging.info(f"Processing rows {start_row} to {end_row} of {total_rows} of std_dev_outliers. Used {used_ram}% of RAM.")
                         
                 # except Exception as e:
                 #     raise Exception(e)
@@ -1019,6 +1021,9 @@ def main():
                         # asset_coords={tid: (data_inspector.fmodel.layout_x[t], data_inspector.fmodel.layout_y[t]) for t, tid in enumerate(data_loader.turbine_ids)}
                     ).collect().write_parquet(os.path.join(std_dev_filter_temp_path, f"{c}.parquet"), statistics=False)
                     sleep(10)
+                    used_ram = virtual_memory().percent
+                    if RUN_ONCE:
+                        logging.info(f"Processing column {c} of {len(cols)} of std_dev_outliers. Used {used_ram}% of RAM.")
                     # std_dev_writer.write_table(std_dev_outliers.collect().to_arrow(), row_group_size=32_000)
                             
                     # finally:
@@ -1032,7 +1037,7 @@ def main():
         
         if RUN_ONCE:
             if config["filters"]["std_range_flag"]["over"] == "asset": 
-                std_dev_outliers = pl.scan_parquet(std_dev_filter_target_path)
+                std_dev_outliers = pl.scan_parquet(os.path.join(std_dev_filter_target_path, "*.parquet")).sort("time").select(pl.exclude("time"))
                 mask = lambda feat: std_dev_outliers.select(feat).collect().to_numpy().flatten()
             else:
                 # std_dev_outliers = pl.scan_parquet(std_dev_filter_target_path)
@@ -1144,8 +1149,24 @@ def main():
             df_query_not_missing = group_df_by_continuity(df=df_query2, agg_df=df_query_not_missing, missing_data_cols=missing_data_cols)
             df_query_not_missing = df_query_not_missing.filter(pl.col("duration") >= minimum_not_missing_duration)
             
-            df_query = df_query2.select(*[cs.starts_with(feat_type) for feat_type in ["time", "ws_horz", "ws_vert", "nd_cos", "nd_sin", "power_output"]])
+            # filter out the continuity groups for which any measurement has 0 non-null values, can't impute then
+            df_query_not_missing = df_query_not_missing.select(pl.col("duration"), pl.col("start_time"), pl.col("end_time"), pl.col("continuity_group"), 
+                                        cs.starts_with("is_missing") & cs.matches(data_loader.turbine_signature))\
+                                .filter(pl.all_horizontal(cs.starts_with("is_missing") 
+                                                        < ((pl.col("duration") / np.timedelta64(data_loader.dt, 's')).cast(pl.Int64))))
+                                
+            # df_query_not_missing.collect().select(pl.col("duration"), pl.col("start_time"), pl.col("end_time"), pl.col("continuity_group"), cs.contains("3"))\
+            #                     .select(cs.starts_with("is_missing") / (pl.col("duration") / np.timedelta64(data_loader.dt, 's')).cast(pl.Int64))
+            # TODO HIGH GETS STUCK HERE
+            logging.info("Starting to split by continuity group.") 
+            df_query = get_continuity_group_index(continuity_groups_df=df_query_not_missing, time_series_df=df_query2)
             del df_query2
+            logging.info("Finished splitting by continuity group.")
+            
+            df_query = df_query.filter(pl.col("continuity_group") != -1)\
+                                .drop(cs.contains("is_missing") | cs.contains("num_missing"))\
+                                .sort("time")\
+                                .select(*[cs.starts_with(feat_type) for feat_type in ["time", "continuity_group", "ws_horz", "ws_vert", "nd_cos", "nd_sin", "power_output"]])
             
             if args.plot:
                 # Plot number of missing wind dir/wind speed data for each wind turbine (missing duration on x axis, turbine id on y axis, color for wind direction/wind speed)
@@ -1191,30 +1212,19 @@ def main():
             # x = df_query.collect().partition_by("continuity_group")
             # x[0].select(pl.any_horizontal(cs.numeric().is_not_null().sum() < 2)).item()
             
-            # filter out the continuity groups for which any measurement has 0 non-null values, can't impute then
-            df_query_not_missing = df_query_not_missing.select(pl.col("duration"), pl.col("start_time"), pl.col("end_time"), pl.col("continuity_group"), 
-                                        cs.starts_with("is_missing") & cs.matches(data_loader.turbine_signature))\
-                                .filter(pl.all_horizontal(cs.starts_with("is_missing") 
-                                                        < ((pl.col("duration") / np.timedelta64(data_loader.dt, 's')).cast(pl.Int64))))
-                                
-            # df_query_not_missing.collect().select(pl.col("duration"), pl.col("start_time"), pl.col("end_time"), pl.col("continuity_group"), cs.contains("3"))\
-            #                     .select(cs.starts_with("is_missing") / (pl.col("duration") / np.timedelta64(data_loader.dt, 's')).cast(pl.Int64))
-            # TODO HIGH GETS STUCK HERE 
-            df_query = get_continuity_group_index(continuity_groups_df=df_query_not_missing, time_series_df=df_query)\
-                                    .filter(pl.col("continuity_group") != -1)\
-                                    .drop(cs.contains("is_missing") | cs.contains("num_missing"))\
-                                    .sort("time").collect().lazy()
-
             if RUN_ONCE:
             
                 if df_query.select(pl.len()).collect().item() == 0:
                     logging.warn(f"No remaining data rows after splicing time steps with over {missing_col_thr} missing columns")
             
                 logging.info(1196)
+                
                 # need to sink parquet and recollect to avoid recursion limit error
+                logging.info("Starting to write split data to file.") 
                 df_query.collect().write_parquet(config["processed_data_path"].replace(".parquet", "_split.parquet"), statistics=False)
                 df_query = pl.scan_parquet(config["processed_data_path"].replace(".parquet", "_split.parquet"))
-            
+                logging.info("Finished writing split data to file.") 
+                 
             logging.info(1201)
             # check each split dataframe a) is continuous in time AND b) has <= than the threshold number of missing columns OR for less than the threshold time span
             # for df in df_query:
