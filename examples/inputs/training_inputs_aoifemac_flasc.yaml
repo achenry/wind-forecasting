@@ -74,7 +74,8 @@ model:
     pos_emb_type: abs
     embed_method: spatio-temporal
     activation: relu
-
+    use_given: False
+    
 callbacks: 
     progress_bar:  
     early_stopping:  
