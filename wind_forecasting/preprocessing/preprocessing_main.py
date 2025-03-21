@@ -987,7 +987,7 @@ def main():
                     )], how="horizontal").collect()
                     
                     std_dev_outliers.write_parquet(os.path.join(std_dev_filter_temp_path, f"{s}.parquet"), statistics=False)
-                    sleep(15)
+                    # sleep(15)
                     # with ParquetWriter(
                     #     where=os.path.join(std_dev_filter_temp_path, f"{s}.parquet"), 
                     #     schema=pa.schema({col: pa.bool_() for col in cols}),
