@@ -967,7 +967,7 @@ def main():
             if config["filters"]["std_range_flag"]["over"] == "asset":
                     
                 # TODO apply to frozen sensor
-                chunk_size = 1_000_000
+                chunk_size = 10_000_000
                 # chunk_size = 1_000
                 row_chunk_size = int(chunk_size // len(cols))
                 
@@ -976,7 +976,7 @@ def main():
                 # try:
                 for s, start_row in enumerate(range(0, total_rows, row_chunk_size)):
                     # std_dev_outliers = 
-                    pl.concat([df_query.slice(start_row, row_chunk_size).select("time"),
+                    std_dev_outliers = pl.concat([df_query.slice(start_row, row_chunk_size).select("time"),
                                filters.std_range_flag(
                         data_pl=df_query.slice(start_row, row_chunk_size).select(cs.starts_with("ws_horz"), cs.starts_with("ws_vert")),
                         threshold=config["filters"]["std_range_flag"]["threshold"], 
@@ -984,7 +984,9 @@ def main():
                         feature_types=["ws_horz", "ws_vert"],
                         r2_threshold=config["filters"]["std_range_flag"]["r2_threshold"],
                         min_correlated_assets=config["filters"]["std_range_flag"]["min_correlated_assets"]
-                    )], how="horizontal").collect().write_parquet(os.path.join(std_dev_filter_temp_path, f"{s}.parquet"), statistics=False)
+                    )], how="horizontal").collect()
+                    
+                    std_dev_outliers.write_parquet(os.path.join(std_dev_filter_temp_path, f"{s}.parquet"), statistics=False)
                     sleep(15)
                     # with ParquetWriter(
                     #     where=os.path.join(std_dev_filter_temp_path, f"{s}.parquet"), 
