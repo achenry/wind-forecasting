@@ -250,7 +250,6 @@ nacelle_calibration_turbine_pairs:
 - [62,63]
 - [32,33]
 - [59,60]
-- [43,42]
 
 dt: 1 # TODO
 
