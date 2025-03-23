@@ -22,7 +22,7 @@ filters:
   std_range_flag:
     threshold: 1
     over: asset 
-    r2_threshold: 0.7
+    r2_threshold: 0.85
     min_correlated_assets: 5
   split:
     missing_col_thr: 66 # number of missing turbine measurements, from either wind speed or wind direction, (max = n_turbines) above which this subset of data will be omitted, i.e. if many data points are missing omit the data
