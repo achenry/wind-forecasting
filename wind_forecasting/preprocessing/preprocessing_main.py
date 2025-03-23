@@ -761,84 +761,84 @@ def main():
                                 .group_by("time").agg(cs.numeric().mean()).sort("time")
             
             # if False: 
-                wd_median = df_query_10min.select(cs.starts_with("wind_direction").radians().sin().name.suffix("_sin"),
-                                                cs.starts_with("wind_direction").radians().cos().name.suffix("_cos"))
-                
-                wd_median = pl.concat([wd_median.select(pl.concat_list(cs.ends_with("_sin")).list.drop_nulls().list.median().alias("wd_sin_median")), 
-                                        wd_median.select(pl.concat_list(cs.ends_with("_cos")).list.drop_nulls().list.median().alias("wd_cos_median"))],
-                                    how="horizontal")\
-                                    .select(pl.arctan2(pl.col("wd_sin_median"), pl.col("wd_cos_median")).degrees().alias("wd_median"))
-                                    # .collect().to_numpy().flatten()
-                
-                nd_median = df_query_10min.select(cs.starts_with("nacelle_direction").radians().sin().name.suffix("_sin"),
-                                                cs.starts_with("nacelle_direction").radians().cos().name.suffix("_cos"))
-                nd_median = pl.concat([nd_median.select(pl.concat_list(cs.ends_with("_sin")).list.drop_nulls().list.median().alias("nd_sin_median")), 
-                                        nd_median.select(pl.concat_list(cs.ends_with("_cos")).list.drop_nulls().list.median().alias("nd_cos_median"))],
-                                    how="horizontal")\
-                                    .select(pl.arctan2(pl.col("nd_sin_median"), pl.col("nd_cos_median")).degrees().alias("nd_median"))
-                                    # .collect().to_numpy().flatten()
+            wd_median = df_query_10min.select(cs.starts_with("wind_direction").radians().sin().name.suffix("_sin"),
+                                            cs.starts_with("wind_direction").radians().cos().name.suffix("_cos"))
+            
+            wd_median = pl.concat([wd_median.select(pl.concat_list(cs.ends_with("_sin")).list.drop_nulls().list.median().alias("wd_sin_median")), 
+                                    wd_median.select(pl.concat_list(cs.ends_with("_cos")).list.drop_nulls().list.median().alias("wd_cos_median"))],
+                                how="horizontal")\
+                                .select(pl.arctan2(pl.col("wd_sin_median"), pl.col("wd_cos_median")).degrees().alias("wd_median"))
+                                # .collect().to_numpy().flatten()
+            
+            nd_median = df_query_10min.select(cs.starts_with("nacelle_direction").radians().sin().name.suffix("_sin"),
+                                            cs.starts_with("nacelle_direction").radians().cos().name.suffix("_cos"))
+            nd_median = pl.concat([nd_median.select(pl.concat_list(cs.ends_with("_sin")).list.drop_nulls().list.median().alias("nd_sin_median")), 
+                                    nd_median.select(pl.concat_list(cs.ends_with("_cos")).list.drop_nulls().list.median().alias("nd_cos_median"))],
+                                how="horizontal")\
+                                .select(pl.arctan2(pl.col("nd_sin_median"), pl.col("nd_cos_median")).degrees().alias("nd_median"))
+                                # .collect().to_numpy().flatten()
 
-                # df_query_10min = df_query_10min.with_columns(wd_median=wd_median, yaw_median=yaw_median).collect().lazy()
-                df_query_10min = pl.concat([df_query_10min, wd_median, nd_median], how="horizontal")
+            # df_query_10min = df_query_10min.with_columns(wd_median=wd_median, yaw_median=yaw_median).collect().lazy()
+            df_query_10min = pl.concat([df_query_10min, wd_median, nd_median], how="horizontal")
+            
+            if RUN_ONCE: # TODO am I using this correctly
+                del wd_median, nd_median
                 
-                if RUN_ONCE: # TODO am I using this correctly
-                    del wd_median, nd_median
-                    
-                if args.plot:
-                    data_inspector.plot_wind_offset(df_query_10min, "Original", data_loader.turbine_ids)
+            if args.plot:
+                data_inspector.plot_wind_offset(df_query_10min, "Original", data_loader.turbine_ids)
 
-                # remove biases from median direction
+            # remove biases from median direction
+            if RUN_ONCE:
+                df_query_10min.collect().write_parquet(config["processed_data_path"].replace(".parquet", "_calibrated_1.parquet"), statistics=False)
+                df_query_10min = pl.scan_parquet(config["processed_data_path"].replace(".parquet", "_calibrated_1.parquet"))
+
+            # df_offsets = {"turbine_id": [], "northing_bias": []}
+            if args.reload_data or args.regenerate_filters or not os.path.exists(config["processed_data_path"].replace(".parquet", "_biases.npy")):
+                # data_filter.multiprocessor = None
+                biases = data_filter.multi_compute_bias(df_query_10min, data_loader.turbine_ids)
+                # data_filter.multiprocessor = args.multiprocessor
                 if RUN_ONCE:
-                    df_query_10min.collect().write_parquet(config["processed_data_path"].replace(".parquet", "_calibrated_1.parquet"), statistics=False)
-                    df_query_10min = pl.scan_parquet(config["processed_data_path"].replace(".parquet", "_calibrated_1.parquet"))
+                    np.save(config["processed_data_path"].replace(".parquet", "_biases.npy"), biases)
+            elif RUN_ONCE:
+                biases = np.load(config["processed_data_path"].replace(".parquet", "_biases.npy"))
+                
+            for bias, turbine_id in zip(biases, data_loader.turbine_ids):
+                
+                df_query_10min = df_query_10min.with_columns((pl.col(f"wind_direction_{turbine_id}") - bias).mod(360.0).alias(f"wind_direction_{turbine_id}"), 
+                                                            (pl.col(f"nacelle_direction_{turbine_id}") - bias).mod(360.0).alias(f"nacelle_direction_{turbine_id}"))
+                df_query2 = df_query2.with_columns((pl.col(f"wind_direction_{turbine_id}") - bias).mod(360.0).alias(f"wind_direction_{turbine_id}"), 
+                                                (pl.col(f"nacelle_direction_{turbine_id}") - bias).mod(360.0).alias(f"nacelle_direction_{turbine_id}"))
 
-                # df_offsets = {"turbine_id": [], "northing_bias": []}
-                if args.reload_data or args.regenerate_filters or not os.path.exists(config["processed_data_path"].replace(".parquet", "_biases.npy")):
-                    # data_filter.multiprocessor = None
-                    biases = data_filter.multi_compute_bias(df_query_10min, data_loader.turbine_ids)
-                    # data_filter.multiprocessor = args.multiprocessor
-                    if RUN_ONCE:
-                        np.save(config["processed_data_path"].replace(".parquet", "_biases.npy"), biases)
-                elif RUN_ONCE:
-                    biases = np.load(config["processed_data_path"].replace(".parquet", "_biases.npy"))
-                    
-                for bias, turbine_id in zip(biases, data_loader.turbine_ids):
-                    
-                    df_query_10min = df_query_10min.with_columns((pl.col(f"wind_direction_{turbine_id}") - bias).mod(360.0).alias(f"wind_direction_{turbine_id}"), 
-                                                                (pl.col(f"nacelle_direction_{turbine_id}") - bias).mod(360.0).alias(f"nacelle_direction_{turbine_id}"))
-                    df_query2 = df_query2.with_columns((pl.col(f"wind_direction_{turbine_id}") - bias).mod(360.0).alias(f"wind_direction_{turbine_id}"), 
-                                                    (pl.col(f"nacelle_direction_{turbine_id}") - bias).mod(360.0).alias(f"nacelle_direction_{turbine_id}"))
-
-                    if RUN_ONCE:
-                        logging.info(f"Turbine {turbine_id} bias from median wind direction: {bias} deg")
-
-                # df_offsets = pl.DataFrame(df_offsets)
-
-                if args.plot:
-                    data_inspector.plot_wind_offset(df_query_10min, "Corrected", data_loader.turbine_ids)
-                    
-                # make sure we have corrected the bias between wind direction and yaw position by adding 3 deg. to the wind direction
-                if args.verbose and False:
-                    bias = 0
-                    for turbine_id in data_loader.turbine_ids:
-                        turbine_bias = df_query_10min.filter(pl.col(f"power_output_{turbine_id}") >= 0)\
-                                        .select("time", f"wind_direction_{turbine_id}", f"nacelle_direction_{turbine_id}")\
-                                        .select(bias=(pl.col(f"wind_direction_{turbine_id}") - pl.col(f"nacelle_direction_{turbine_id}")))\
-                                        .select(sin=pl.all().radians().sin().mean(), cos=pl.all().radians().cos().mean())\
-                                        .select(pl.arctan2(pl.col("sin"), pl.col("cos")).degrees().mod(360.0).alias("bias"))\
-                                        .select(pl.when(pl.all() > 180.0).then(pl.all() - 360.0).otherwise(pl.all()))\
-                                        .collect().item() or 0
-                        bias += turbine_bias
-                                    
-                        # bias += DataFilter.wrap_180(DataFilter.circ_mean(df.select(pl.col(f"wind_direction_{turbine_id}") - pl.col(f"nacelle_direction_{turbine_id}")).collect().to_numpy().flatten()))
-                    
-                    if RUN_ONCE:
-                        logging.info(f"Average Bias = {bias / len(data_loader.turbine_ids)} deg")
-
-                # %%
-                # Find offset to true North using wake loss profiles
                 if RUN_ONCE:
-                    logging.info("Finding offset to true North using wake loss profiles.")
+                    logging.info(f"Turbine {turbine_id} bias from median wind direction: {bias} deg")
+
+            # df_offsets = pl.DataFrame(df_offsets)
+
+            if args.plot:
+                data_inspector.plot_wind_offset(df_query_10min, "Corrected", data_loader.turbine_ids)
+                
+            # make sure we have corrected the bias between wind direction and yaw position by adding 3 deg. to the wind direction
+            if args.verbose and False:
+                bias = 0
+                for turbine_id in data_loader.turbine_ids:
+                    turbine_bias = df_query_10min.filter(pl.col(f"power_output_{turbine_id}") >= 0)\
+                                    .select("time", f"wind_direction_{turbine_id}", f"nacelle_direction_{turbine_id}")\
+                                    .select(bias=(pl.col(f"wind_direction_{turbine_id}") - pl.col(f"nacelle_direction_{turbine_id}")))\
+                                    .select(sin=pl.all().radians().sin().mean(), cos=pl.all().radians().cos().mean())\
+                                    .select(pl.arctan2(pl.col("sin"), pl.col("cos")).degrees().mod(360.0).alias("bias"))\
+                                    .select(pl.when(pl.all() > 180.0).then(pl.all() - 360.0).otherwise(pl.all()))\
+                                    .collect().item() or 0
+                    bias += turbine_bias
+                                
+                    # bias += DataFilter.wrap_180(DataFilter.circ_mean(df.select(pl.col(f"wind_direction_{turbine_id}") - pl.col(f"nacelle_direction_{turbine_id}")).collect().to_numpy().flatten()))
+                
+                if RUN_ONCE:
+                    logging.info(f"Average Bias = {bias / len(data_loader.turbine_ids)} deg")
+
+            # %%
+            # Find offset to true North using wake loss profiles
+            if RUN_ONCE:
+                logging.info("Finding offset to true North using wake loss profiles.")
 
             # Find offsets between direction of alignment between pairs of turbines 
             # and direction of peak wake losses. Use the average offset found this way 
