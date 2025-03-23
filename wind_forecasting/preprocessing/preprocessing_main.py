@@ -12,7 +12,6 @@
 # ./run_jupyter_preprocessing.sh && http://localhost:7878/lab
 
 # TODO HIGH check for lambda funcs killing parallelization
-# TODO HIGH check allowing polars to parallelize without run_once restriction
 
 import os
 import sys
@@ -68,7 +67,7 @@ from floris import FlorisModel
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # ROW_LIMIT = 2 * 60 * 60 * 24 * 30 * 18
-ROW_LIMIT = 2 * 24 * 30 * 18
+ROW_LIMIT = 60 * 60 * 24 * 30 * 3
 
 # %%
 # @profile
@@ -248,6 +247,7 @@ def main():
     # df_query = df_query.group_by("time").agg(cs.numeric().mean())
     # df_query.collect().write_parquet(config["processed_data_path"], statistics=False)
     
+    # df_query = df_query.head(ROW_LIMIT) 
     if RUN_ONCE:
         data_inspector = DataInspector(
             turbine_input_filepath=config["turbine_input_path"],
@@ -970,7 +970,7 @@ def main():
                     
                 # TODO apply to frozen sensor
                 # chunk_size = 1_000
-                chunk_size = 100_000
+                chunk_size = 10_000_000
                 row_chunk_size = int(chunk_size // len(cols))
                 
                 # NEED: polars, my OpenOA repository, config file, FLASC data
