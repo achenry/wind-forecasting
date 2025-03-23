@@ -1003,7 +1003,7 @@ def main():
                             logging.info(f"Found existing file for rows {start_row} to {end_row} of {total_rows} of std_dev_outliers. Used {used_ram}% of RAM.")
                         continue
                     
-                    max_ram, df = filters.std_range_flag(
+                    df, max_ram = filters.std_range_flag(
                         data_pl=df_query.slice(start_row, row_chunk_size).select(cs.starts_with("ws_horz"), cs.starts_with("ws_vert")),
                         threshold=config["filters"]["std_range_flag"]["threshold"], 
                         over=config["filters"]["std_range_flag"]["over"], # asset or time 
@@ -1028,7 +1028,7 @@ def main():
                             logging.info(f"Found existing file for column {c} of {len(cols)} of std_dev_outliers. Used {used_ram}% of RAM.")
                         continue
                     
-                    max_ram, df = filters.std_range_flag(
+                    df, max_ram = filters.std_range_flag(
                         data_pl=df_query.select(col),
                         threshold=config["filters"]["std_range_flag"]["threshold"], 
                         over=config["filters"]["std_range_flag"]["over"], # asset or time 
