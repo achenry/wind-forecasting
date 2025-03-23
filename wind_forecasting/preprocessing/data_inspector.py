@@ -599,7 +599,7 @@ class DataInspector:
             _type_: _description_
         """
         if wind_directions is None:
-            wind_directions = [190.0]
+            wind_directions = [180.0]
             
         if wind_speeds is None:
             wind_speeds = [10.0]
