@@ -67,49 +67,67 @@ declare -a WORKER_PIDS=()
 # Total number of GPUs available
 NUM_GPUS=${SLURM_NTASKS_PER_NODE}
 
-# Launch multiple workers per GPU
-for i in $(seq 0 $((${NUM_GPUS}-1))); do
-    for j in $(seq 0 $((${NUM_WORKERS_PER_GPU}-1))); do
-        # The restart flag should only be set for the very first worker (i=0, j=0)
-        if [ $i -eq 0 ] && [ $j -eq 0 ]; then
-            RESTART_FLAG="--restart_tuning"
-        else
-            RESTART_FLAG=""
-        fi
-        
-        # Create a unique seed for each worker to ensure they explore different areas
-        WORKER_SEED=$((42 + i*10 + j))
-        
-        # Calculate worker index for logging
-        WORKER_INDEX=$((i*NUM_WORKERS_PER_GPU + j))
-        
-        echo "Starting worker ${WORKER_INDEX} on GPU ${i} with seed ${WORKER_SEED}"
-        
-        # Launch worker with environment settings
-        # CUDA_VISIBLE_DEVICES ensures each worker sees only one GPU
-        # The worker ID (SLURM_PROCID) helps Optuna identify workers
-        srun --exclusive -n 1 --export=ALL,CUDA_VISIBLE_DEVICES=$i,SLURM_PROCID=${WORKER_INDEX},WANDB_DIR=${WANDB_DIR} \
-          python ${WORK_DIR}/run_scripts/run_model.py \
-          --config ${BASE_DIR}/examples/inputs/training_inputs_juan_flasc.yaml \
-          --model informer \
-          --mode tune \
-          --seed ${WORKER_SEED} \
-          ${RESTART_FLAG} &
-        
-        # Store the process ID
-        WORKER_PIDS+=($!)
-        
-        # Add a small delay between starting workers on the same GPU
-        # to avoid initialization conflicts
-        sleep 2
-    done
-done
+# The restart flag should only be set for the first run
+RESTART_FLAG="--restart_tuning"
 
-echo "Started ${#WORKER_PIDS[@]} worker processes"
-echo "Process IDs: ${WORKER_PIDS[@]}"
+# Prepare the database once before starting parallel execution
+echo "Initializing Optuna database..."
+python ${WORK_DIR}/run_scripts/run_model.py \
+  --config ${BASE_DIR}/examples/inputs/training_inputs_juan_flasc.yaml \
+  --model informer \
+  --mode tune \
+  --seed 42 \
+  ${RESTART_FLAG} \
+  --init_only
 
-# Wait for all workers to complete
-wait
+# Clear the restart flag now that database is initialized
+RESTART_FLAG=""
+
+# Use srun with heterogeneous job steps
+# This is more SLURM-friendly than multiple background srun commands
+echo "Launching parallel tuning workers across ${NUM_GPUS} GPUs..."
+
+# Create a launcher script for all workers
+LAUNCHER_SCRIPT="${BASE_DIR}/launcher_script_$$.sh"
+cat > ${LAUNCHER_SCRIPT} << EOF
+#!/bin/bash
+# Worker ID is passed as SLURM_PROCID
+WORKER_INDEX=\${SLURM_PROCID}
+# Assign GPU based on worker ID
+GPU_ID=\${WORKER_INDEX}
+# Create a unique seed for this worker
+WORKER_SEED=\$((42 + WORKER_INDEX*10))
+
+echo "Worker \${WORKER_INDEX} starting on GPU \${GPU_ID} with seed \${WORKER_SEED}"
+
+# Set environment variables
+export CUDA_VISIBLE_DEVICES=\${GPU_ID}
+export WANDB_DIR=${WANDB_DIR}
+
+# Run the tuning script
+python ${WORK_DIR}/run_scripts/run_model.py \
+  --config ${BASE_DIR}/examples/inputs/training_inputs_juan_flasc.yaml \
+  --model informer \
+  --mode tune \
+  --seed \${WORKER_SEED} \
+  --single_gpu
+EOF
+
+chmod +x ${LAUNCHER_SCRIPT}
+
+# Launch a single srun job with multiple tasks
+# This avoids the "step creation temporarily disabled" issue
+srun --ntasks=${NUM_GPUS} \
+     --ntasks-per-node=${NUM_GPUS} \
+     --cpus-per-task=$((${SLURM_CPUS_PER_TASK}/${NUM_GPUS})) \
+     --mem-per-cpu=${SLURM_MEM_PER_CPU} \
+     --gpus-per-task=1 \
+     ${LAUNCHER_SCRIPT}
+
+# Clean up the temporary launcher script
+rm ${LAUNCHER_SCRIPT}
+
+echo "All tuning processes completed"
 
 date +"%Y-%m-%d %H:%M:%S"
 echo "=== TUNING COMPLETED ==="
