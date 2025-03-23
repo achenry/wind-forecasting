@@ -62,6 +62,8 @@ def main():
     parser.add_argument("--predictor_path", type=str, help="Path to a saved predictor for evaluation", default=None)
     parser.add_argument("--seed", type=int, help="Seed for random number generator", default=42)
     parser.add_argument("--save_to", type=str, help="Path to save the predicted output", default=None)
+    parser.add_argument("--init_only", action="store_true", help="Only initialize the database/study and exit")
+    parser.add_argument("--single_gpu", action="store_true", help="Force using only a single GPU (the one specified by CUDA_VISIBLE_DEVICES)")
 
     args = parser.parse_args()
     
@@ -78,11 +80,19 @@ def main():
         
     # TODO create function to check config params and set defaults
     assert args.checkpoint is None or args.checkpoint in ["best", "latest"] or os.path.exists(args.checkpoint), "Checkpoint argument, if provided, must equal 'best', 'latest', or an existing checkpoint path."
-    # set number of devices/number of nodes based on environment variables
-    if "SLURM_NTASKS_PER_NODE" in os.environ:
-        config["trainer"]["devices"] = int(os.environ["SLURM_NTASKS_PER_NODE"])
-    if "SLURM_NNODES" in os.environ:
-        config["trainer"]["num_nodes"] = int(os.environ["SLURM_NNODES"])
+    # Modify configuration for single GPU mode vs. multi-GPU mode
+    if args.single_gpu:
+        # Force single GPU configuration when --single_gpu flag is set
+        # This ensures each worker only uses the GPU assigned to it via CUDA_VISIBLE_DEVICES
+        config["trainer"]["devices"] = 1
+        config["trainer"]["strategy"] = "auto"  # Let PyTorch Lightning determine strategy
+        logging.info("Single GPU mode enabled: Using devices=1 with auto strategy")
+    else:
+        # Multi-GPU configuration uses all available GPUs
+        if "SLURM_NTASKS_PER_NODE" in os.environ:
+            config["trainer"]["devices"] = int(os.environ["SLURM_NTASKS_PER_NODE"])
+        if "SLURM_NNODES" in os.environ:
+            config["trainer"]["num_nodes"] = int(os.environ["SLURM_NNODES"])
     
     if (type(config["dataset"]["target_turbine_ids"]) is str) and (
         (config["dataset"]["target_turbine_ids"].lower() == "none") or (config["dataset"]["target_turbine_ids"].lower() == "all")):
@@ -100,59 +110,83 @@ def main():
     # Create a unique run name for each worker
     run_name = f"{config['experiment']['run_name']}_worker{worker_id}_gpu{gpu_id}"
 
+    # Configure WandB to use the correct checkpoint location
+    os.environ["WANDB_ARTIFACT_DIR"] = config["logging"]["checkpoint_dir"]
+    # This ensures artifacts are saved in the correct checkpoint directory
+    
+    # Prevent WandB from creating a nested 'wandb' directory inside the wandb_dir
+    os.environ["WANDB_DIR"] = config["logging"]["wandb_dir"]
+    # Set an explicit run directory to avoid nesting issues
+    from datetime import datetime
+    unique_id = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{worker_id}_{gpu_id}"
+    run_dir = os.path.join(config["logging"]["wandb_dir"], f"run_{unique_id}")
+    os.environ["WANDB_RUN_DIR"] = run_dir
+    
+    # Create WandB logger with explicit path settings
     wandb_logger = WandbLogger(
         project="wind_forecasting",
-        name=run_name,  # Use the unique run name
+        name=run_name,
         log_model="all",
-        # offline=True,
-        save_dir=config["experiment"]["log_dir"],
-        group=config['experiment']['run_name'],  # Group all workers under the same experiment group
+        save_dir=config["logging"]["wandb_dir"],  # Use the dedicated wandb directory
+        group=config['experiment']['run_name'],   # Group all workers under the same experiment
+        tags=[f"worker_{worker_id}", f"gpu_{gpu_id}", args.model]  # Add tags for easier filtering
     )
     wandb_logger.log_hyperparams(config)
     config["trainer"]["logger"] = wandb_logger
 
-    # Early in the function, ensure all log directories exist
+    # Process absolute paths and resolve any variable references in the config
     log_dir = config["experiment"]["log_dir"]
-    
-    # Create all logging directories
     os.makedirs(log_dir, exist_ok=True)
     
-    # Set up wandb directory
-    if "logging" in config and "wandb_dir" in config["logging"]:
+    # Resolve path variables - ensure all paths are absolute and properly structured
+    if "logging" not in config:
+        config["logging"] = {}
+        
+    # Set up wandb directory - use absolute path
+    if "wandb_dir" in config["logging"]:
         wandb_dir = config["logging"]["wandb_dir"]
     else:
         wandb_dir = os.path.join(log_dir, "wandb")
     os.makedirs(wandb_dir, exist_ok=True)
-    os.environ["WANDB_DIR"] = wandb_dir
     
-    # Set up optuna directory 
-    if "logging" in config and "optuna_dir" in config["logging"]:
+    # Set up optuna directory - use absolute path
+    if "optuna_dir" in config["logging"]:
         optuna_dir = config["logging"]["optuna_dir"]
     else:
         optuna_dir = os.path.join(log_dir, "optuna")
     os.makedirs(optuna_dir, exist_ok=True)
     
-    # Set up checkpoint directory
-    if "logging" in config and "checkpoint_dir" in config["logging"]:
+    # Set up checkpoint directory - use absolute path
+    if "checkpoint_dir" in config["logging"]:
         checkpoint_dir = config["logging"]["checkpoint_dir"]
     else:
         checkpoint_dir = os.path.join(log_dir, "checkpoints")
     os.makedirs(checkpoint_dir, exist_ok=True)
     
-    # Update config with these directories if they're not already set
-    if "logging" not in config:
-        config["logging"] = {}
+    # Update config with normalized absolute paths
     config["logging"]["wandb_dir"] = wandb_dir
     config["logging"]["optuna_dir"] = optuna_dir
     config["logging"]["checkpoint_dir"] = checkpoint_dir
     
-    # Ensure optuna journal_dir is set correctly
+    # Configure WandB to use the specified directory structure
+    os.environ["WANDB_DIR"] = wandb_dir
+    
+    # Configure WandB to save runs in a standard location
+    # Note: This is critical to avoid WandB creating its own path structure
+    os.environ["WANDB_CHECKPOINT_PATH"] = checkpoint_dir
+    
+    # Ensure optuna journal_dir is set correctly with absolute path
     if "optuna" in config:
         config["optuna"]["journal_dir"] = optuna_dir
     
-    # Ensure trainer default_root_dir is set correctly
+    # Explicitly resolve any variable references in trainer config
     if "trainer" in config:
-        config["trainer"]["default_root_dir"] = checkpoint_dir
+        if "default_root_dir" in config["trainer"]:
+            # Replace ${logging.checkpoint_dir} with the actual path
+            if isinstance(config["trainer"]["default_root_dir"], str) and "${" in config["trainer"]["default_root_dir"]:
+                config["trainer"]["default_root_dir"] = checkpoint_dir
+        else:
+            config["trainer"]["default_root_dir"] = checkpoint_dir
     
     # %% CREATE DATASET
     logging.info("Creating datasets")
@@ -208,20 +242,52 @@ def main():
 
     if args.mode == "tune":
         logging.info("Starting Optuna hyperparameter tuning...")
-        # Explicitly set which GPU to use based on environment or worker ID
-        if "CUDA_VISIBLE_DEVICES" in os.environ:
-            device_id = int(os.environ["CUDA_VISIBLE_DEVICES"].split(",")[0])
-            logging.info(f"Using GPU device {device_id}")
-            
-        # Clear GPU memory before starting
-        torch.cuda.empty_cache()
-        gc.collect()
-        
-        # Enhanced GPU memory logging
+        # Enhanced GPU device setup and error checking
         if torch.cuda.is_available():
+            # Log all available GPUs for debugging
+            num_gpus = torch.cuda.device_count()
+            all_gpus = [f"{i}:{torch.cuda.get_device_name(i)}" for i in range(num_gpus)]
+            logging.info(f"System has {num_gpus} CUDA device(s): {all_gpus}")
+            
+            # Check CUDA_VISIBLE_DEVICES setting
+            if "CUDA_VISIBLE_DEVICES" in os.environ:
+                cuda_devices = os.environ["CUDA_VISIBLE_DEVICES"]
+                logging.info(f"CUDA_VISIBLE_DEVICES is set to: '{cuda_devices}'")
+                try:
+                    # Try to get the first visible device
+                    if cuda_devices.strip():
+                        visible_gpus = [int(idx) for idx in cuda_devices.split(',') if idx.strip()]
+                        if visible_gpus:
+                            device_id = 0  # With CUDA_VISIBLE_DEVICES, first visible GPU is always index 0
+                            actual_gpu = visible_gpus[0]
+                            logging.info(f"Primary GPU is system device {actual_gpu}, mapped to CUDA index {device_id}")
+                        else:
+                            logging.warning("CUDA_VISIBLE_DEVICES is set but no valid GPU indices found")
+                except ValueError as e:
+                    logging.warning(f"Error parsing CUDA_VISIBLE_DEVICES: {e}")
+            else:
+                logging.warning("CUDA_VISIBLE_DEVICES is not set, using default GPU assignment")
+            
+            # Verify current device setup
             device = torch.cuda.current_device()
-            logging.info(f"Using GPU: {torch.cuda.get_device_name(device)}")
+            logging.info(f"Using GPU {device}: {torch.cuda.get_device_name(device)}")
+            
+            # Verify the trainer configuration matches what we expect
+            if args.single_gpu and config["trainer"]["devices"] != 1:
+                logging.warning(f"--single_gpu flag is set but trainer.devices={config['trainer']['devices']}. Forcing devices=1.")
+                config["trainer"]["devices"] = 1
+                
+            logging.info(f"Trainer config: devices={config['trainer']['devices']}, strategy={config['trainer']['strategy']}")
+            
+            # Log memory information
             logging.info(f"GPU Memory: {torch.cuda.memory_allocated(device)/1e9:.2f}GB / {torch.cuda.get_device_properties(device).total_memory/1e9:.2f}GB")
+            
+            # Clear GPU memory before starting
+            torch.cuda.empty_cache()
+            gc.collect()
+        else:
+            logging.error("CUDA is not available! This will likely cause the tuning process to fail.")
+            logging.error("Please check your CUDA installation and GPU availability.")
         
         # %% TUNE MODEL WITH OPTUNA
         from wind_forecasting.run_scripts.tuning import tune_model
@@ -261,13 +327,70 @@ def main():
                     # Return a very poor score
                     return float('inf') if config["optuna"]["direction"] == "minimize" else float('-inf')
                 raise e
+            except Exception as e:
+                # Catch GPU configuration errors and other exceptions
+                if "MisconfigurationException" in str(type(e)) and "gpu" in str(e):
+                    logging.error(f"Trial {trial.number} failed with GPU configuration error: {str(e)}")
+                    logging.error("This is likely due to a mismatch between requested GPUs and available GPUs.")
+                    logging.error("Please check the --single_gpu flag and CUDA_VISIBLE_DEVICES setting.")
+                    
+                    # Return a poor score to allow the study to continue
+                    return float('inf') if config["optuna"]["direction"] == "minimize" else float('-inf')
+                elif "MisconfigurationException" in str(type(e)):
+                    logging.error(f"Trial {trial.number} failed with configuration error: {str(e)}")
+                    return float('inf') if config["optuna"]["direction"] == "minimize" else float('-inf')
+                
+                # For any other unexpected errors, log details and re-raise
+                logging.error(f"Trial {trial.number} failed with unexpected error: {type(e).__name__}: {str(e)}")
+                raise
         
-        # Pass the OOM protection wrapper to tune_model
-        tune_model(model=args.model, config=config, 
-                    lightning_module_class=LightningModuleClass, 
+        # If --init_only flag is set, just initialize the database and exit
+        if args.init_only:
+            # Disable WandB for the initialization step to avoid creating an extra run
+            os.environ["WANDB_MODE"] = "disabled"
+            
+            from wind_forecasting.run_scripts.tuning import get_storage, check_wal_mode
+            
+            logging.info("Initializing Optuna database only (--init_only flag detected). WandB disabled.")
+            
+            # Create directory if it doesn't exist
+            os.makedirs(config["optuna"]["journal_dir"], exist_ok=True)
+            
+            # Set up storage
+            storage = get_storage(
+                use_rdb=config["optuna"]["use_rdb"],
+                study_name=config["optuna"]["study_name"],
+                journal_storage_dir=config["optuna"]["journal_dir"]
+            )
+            
+            # If using SQLite, verify the WAL mode works
+            if config["optuna"]["use_rdb"]:
+                db_path = os.path.join(config["optuna"]["journal_dir"], f"{config['optuna']['study_name']}.db")
+                if os.path.exists(db_path):
+                    check_wal_mode(db_path)
+                    
+            # Create the study if needed but don't run any trials
+            from optuna import create_study
+            from optuna.samplers import TPESampler
+            
+            logging.info(f"Creating/accessing study '{config['optuna']['study_name']}' with {config['optuna']['direction']} direction")
+            study = create_study(
+                study_name=config["optuna"]["study_name"],
+                storage=storage,
+                direction=config["optuna"]["direction"],
+                load_if_exists=True,
+                sampler=TPESampler(seed=args.seed)
+            )
+            
+            logging.info(f"Study initialization complete. Exiting without running trials.")
+            return  # Exit the function early
+        
+        # Normal execution - pass the OOM protection wrapper to tune_model
+        tune_model(model=args.model, config=config,
+                    lightning_module_class=LightningModuleClass,
                     estimator_class=EstimatorClass,
-                    distr_output_class=DistrOutputClass, 
-                    data_module=data_module, 
+                    distr_output_class=DistrOutputClass,
+                    data_module=data_module,
                     max_epochs=config["optuna"]["max_epochs"],
                     limit_train_batches=config["optuna"]["limit_train_batches"],
                     metric=config["optuna"]["metric"],
@@ -277,7 +400,7 @@ def main():
                     journal_storage_dir=config["optuna"]["journal_dir"],
                     use_rdb=config["optuna"]["use_rdb"],
                     restart_study=args.restart_tuning,
-                    trial_protection_callback=handle_trial_with_oom_protection)  # Add this parameter
+                    trial_protection_callback=handle_trial_with_oom_protection)
         
         # After training completes
         torch.cuda.empty_cache()

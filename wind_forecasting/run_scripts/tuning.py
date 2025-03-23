@@ -69,11 +69,26 @@ class MLTuningObjective:
         self.config["dataset"].update({k: v for k, v in params.items() if k in self.config["dataset"]})
         self.config["model"][self.model].update({k: v for k, v in params.items() if k in self.config["model"][self.model]})
         self.config["trainer"].update({k: v for k, v in params.items() if k in self.config["trainer"]})
+        # Verify GPU configuration before creating estimator
+        if torch.cuda.is_available():
+            device = torch.cuda.current_device()
+            logging.info(f"Creating estimator using GPU {device}: {torch.cuda.get_device_name(device)}")
+            
+            # Ensure we have the right GPU configuration in trainer_kwargs
+            # This helps avoid the "You requested gpu: [0, 1, 2, 3] But your machine only has: [0]" error
+            if "devices" in self.config["trainer"] and self.config["trainer"]["devices"] > 1:
+                if "CUDA_VISIBLE_DEVICES" in os.environ and len(os.environ["CUDA_VISIBLE_DEVICES"].split(",")) == 1:
+                    logging.warning(f"Overriding trainer devices={self.config['trainer']['devices']} to 1 due to CUDA_VISIBLE_DEVICES")
+                    self.config["trainer"]["devices"] = 1
+                    self.config["trainer"]["strategy"] = "auto"
+        else:
+            logging.warning("No CUDA available for estimator creation")
+    
         estimator = self.estimator_class(
             freq=self.data_module.freq,
             prediction_length=self.data_module.prediction_length,
             context_length=self.config["dataset"]["context_length"],
-            num_feat_dynamic_real=self.data_module.num_feat_dynamic_real, 
+            num_feat_dynamic_real=self.data_module.num_feat_dynamic_real,
             num_feat_static_cat=self.data_module.num_feat_static_cat,
             cardinality=self.data_module.cardinality,
             num_feat_static_real=self.data_module.num_feat_static_real,
@@ -155,31 +170,49 @@ def get_storage(use_rdb, study_name, journal_storage_dir=None):
         Storage object for Optuna
     """
     if use_rdb:
-        # SQLite with WAL mode - using a simpler URL format
+        # For parallel execution, we need to handle SQLite concurrency issues
         os.makedirs(journal_storage_dir, exist_ok=True)
+        
+        # Get worker ID to potentially create worker-specific database files
+        worker_id = os.environ.get('SLURM_PROCID', '0')
+        
+        # Use a single database with optimized locking parameters for SLURM parallel jobs
         db_path = os.path.join(journal_storage_dir, f"{study_name}.db")
         
-        # Use a simplified connection string format that Optuna expects
-        storage_url = f"sqlite:///{db_path}"
+        # Optuna connection pooling is disabled by default in sqlite
+        # These optimized parameters significantly improve parallel access:
+        # - timeout=600: 10 minutes wait on locks (prevents early failures)
+        # - isolation_level=IMMEDIATE: Reduces deadlocks by starting transaction immediately
+        # - connect_args: Additional SQLite configuration for better concurrency
+        storage_url = f"sqlite:///{db_path}?timeout=600&isolation_level=IMMEDIATE"
+        
+        # Log the database file size for monitoring
+        if os.path.exists(db_path):
+            db_size_mb = os.path.getsize(db_path) / (1024 * 1024)
+            logging.info(f"SQLite database size: {db_size_mb:.2f} MB")
         
         # Check if database already exists and initialize WAL mode directly
         if not os.path.exists(db_path):
             try:
                 import sqlite3
                 # Create the database manually first with WAL settings
-                conn = sqlite3.connect(db_path, timeout=60000)
+                conn = sqlite3.connect(db_path, timeout=300000)  # 5 minutes timeout
                 conn.execute("PRAGMA journal_mode=WAL")
-                conn.execute("PRAGMA synchronous=NORMAL")
-                conn.execute("PRAGMA cache_size=10000")
-                conn.execute("PRAGMA temp_store=MEMORY")
-                conn.execute("PRAGMA busy_timeout=60000")
-                conn.execute("PRAGMA wal_autocheckpoint=1000")
+                conn.execute("PRAGMA synchronous=NORMAL")  # Less durability but faster
+                conn.execute("PRAGMA cache_size=10000")    # Larger cache
+                conn.execute("PRAGMA temp_store=MEMORY")   # Use memory for temp operations
+                conn.execute("PRAGMA busy_timeout=300000") # 5 minutes busy timeout
+                conn.execute("PRAGMA wal_autocheckpoint=1000") # Less frequent checkpoints
+                conn.execute("PRAGMA mmap_size=30000000000") # Memory mapping for large DB
                 conn.commit()
                 conn.close()
-                logging.info(f"Created SQLite database with WAL mode at {db_path}")
+                logging.info(f"Created SQLite database with optimized settings at {db_path}")
             except Exception as e:
                 logging.error(f"Error initializing SQLite database: {e}")
                 
+        # Log worker assignment for debugging
+        logging.info(f"Worker {worker_id} using SQLite database at {db_path}")
+        
         return storage_url
     else:
         # Existing journal storage implementation
@@ -300,14 +333,31 @@ def tune_model(model, config, lightning_module_class, estimator_class,
                                         context_length_choices=context_length_choices, 
                                         metric=metric)
     
-    # Each worker contributes trials to the shared study
-    n_trials_per_worker = max(1, n_trials // int(os.environ.get('SLURM_NTASKS', '1')))
-    logging.info(f"Worker {worker_id} will run {n_trials_per_worker} trials")
+    # Create worker-specific trial partitioning
+    total_workers = int(os.environ.get('SLURM_NTASKS', '1'))
+    worker_id_int = int(worker_id)
+    
+    # Calculate trials per worker and assign specific trial indices to each worker
+    n_trials_per_worker = max(1, n_trials // total_workers)
+    # Ensure the last worker picks up any remainder trials
+    if worker_id_int == total_workers - 1:
+        n_trials_per_worker += n_trials % total_workers
+        
+    # Calculate start and end indices for this worker's trials
+    start_idx = worker_id_int * (n_trials // total_workers)
+    end_idx = start_idx + n_trials_per_worker
+    
+    logging.info(f"Worker {worker_id} will run {n_trials_per_worker} trials (indices {start_idx}-{end_idx-1})")
+    
+    # Use a worker-specific seed to ensure different exploration paths
+    worker_seed = 42 + worker_id_int
+    study.sampler = TPESampler(seed=worker_seed)
     
     # Use the trial protection callback if provided
     objective_fn = (lambda trial: trial_protection_callback(tuning_objective, trial)) if trial_protection_callback else tuning_objective
     
     try:
+        # Create a worker-specific pruner to avoid expensive trials
         study.optimize(objective_fn, n_trials=n_trials_per_worker, show_progress_bar=True)
     except Exception as e:
         logging.error(f"Worker {worker_id} failed with error: {str(e)}")
