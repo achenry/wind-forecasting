@@ -998,6 +998,7 @@ def main():
                 # NEED: polars, my OpenOA repository, config file, FLASC data
                 for s, start_row in enumerate(range(0, total_rows, row_chunk_size)):
                     if not args.regenerate_filters and os.path.exists(os.path.join(std_dev_filter_target_path, f"{s}.parquet")):
+                        used_ram = virtual_memory().percent
                         if RUN_ONCE:
                             logging.info(f"Found existing file for rows {start_row} to {end_row} of {total_rows} of std_dev_outliers. Used {used_ram}% of RAM.")
                         continue
@@ -1014,7 +1015,7 @@ def main():
                     pl.concat([df_query.slice(start_row, row_chunk_size).select("time"),
                                df], how="horizontal").collect(_eager=True).write_parquet(os.path.join(std_dev_filter_temp_path, f"{s}.parquet"), statistics=False)
                     del df
-                    used_ram = virtual_memory().percent
+                    
                     if RUN_ONCE:
                         logging.info(f"Processing rows {start_row} to {end_row} of {total_rows} of std_dev_outliers. Maximum RAM used was {max_ram}%.")
                 
@@ -1022,6 +1023,7 @@ def main():
                 
                 for c, col in enumerate(cols):
                     if not args.regenerate_filters and os.path.exists(os.path.join(std_dev_filter_target_path, f"{c}.parquet")):
+                        used_ram = virtual_memory().percent
                         if RUN_ONCE:
                             logging.info(f"Found existing file for column {c} of {len(cols)} of std_dev_outliers. Used {used_ram}% of RAM.")
                         continue
@@ -1037,7 +1039,7 @@ def main():
                     )
                     df.collect(_eager=True).write_parquet(os.path.join(std_dev_filter_temp_path, f"{c}.parquet"), statistics=False)
                     del df
-                    used_ram = virtual_memory().percent
+                    
                     if RUN_ONCE:
                         logging.info(f"Processing column {c} of {len(cols)} of std_dev_outliers. Maximum RAM used was {max_ram}%.")
                     
