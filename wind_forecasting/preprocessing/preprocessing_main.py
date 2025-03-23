@@ -969,8 +969,8 @@ def main():
             if config["filters"]["std_range_flag"]["over"] == "asset":
                     
                 # TODO apply to frozen sensor
-                chunk_size = 1_000
-                # chunk_size = 10_000
+                # chunk_size = 1_000
+                chunk_size = 100_000
                 row_chunk_size = int(chunk_size // len(cols))
                 
                 # NEED: polars, my OpenOA repository, config file, FLASC data
