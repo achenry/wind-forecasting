@@ -261,10 +261,10 @@ def main():
     
     if args.debug:
         # .group_by("time", "file_set_idx")\
-        df_query = df_query.slice(0, int(3 * 30 * np.timedelta64(1, 'D') / np.timedelta64(data_loader.dt, 's')))\
-                           .with_columns(pl.col("time").dt.round(f"{1}m").alias("time"))\
-                           .group_by("time")\
-                            .agg(cs.numeric().mean()).sort("time")
+        df_query = df_query.slice(0, int(3 * 30 * np.timedelta64(1, 'D') / np.timedelta64(data_loader.dt, 's')))
+                        #    .with_columns(pl.col("time").dt.round(f"{1}m").alias("time"))\
+                        #    .group_by("time")\
+                        #     .agg(cs.numeric().mean()).sort("time")
     
     # %% Plot Wind Farm, Data Distributions
     # df_query.select("time", "wind_direction_1").filter((pl.col("time") > datetime(2020, 5, 24, 4, 30)) & (pl.col("time") < datetime(2020, 5, 24, 6, 30))).collect().to_numpy()[:, 1].flatten() 
@@ -353,28 +353,47 @@ def main():
         # find stuck sensor measurements for each turbine and set them to null
         # NOTE: this filter must be applied before any cells are nullified st null values aren't considered repeated values
         # find values of wind speed/direction, where there are duplicate values with nulls inbetween
-        generate_filter = args.reload_data or args.regenerate_filters \
-            or not all(os.path.exists(config["processed_data_path"].replace(".parquet", f"_frozen_sensors_{feat}.npy")) for feat in ws_cols + wd_cols)
+        
+        frozen_sensor_filter_temp_path = os.path.join(config["temp_storage_dir"], 
+                                            os.path.basename(config["processed_data_path"]).replace(".parquet", "_frozen_sensor"))
+                                    
+        frozen_sensor_filter_target_path = os.path.join(os.path.dirname(config["processed_data_path"]), 
+                                        os.path.basename(config["processed_data_path"]).replace(".parquet", "_frozen_sensor"))
+        
+        if RUN_ONCE:
+            if os.path.exists(frozen_sensor_filter_temp_path):
+                rmtree(frozen_sensor_filter_temp_path) 
             
-        if generate_filter:
+            os.makedirs(frozen_sensor_filter_temp_path, exist_ok=True)
+            
+            if args.regenerate_filters and os.path.exists(frozen_sensor_filter_target_path):
+                rmtree(frozen_sensor_filter_target_path)
+        
+        cols = ws_cols + wd_cols
+        
+        if args.reload_data or args.regenerate_filters \
+            or not all(os.path.join(frozen_sensor_filter_temp_path, f"{feat}.npy") for feat in cols):
             thr = int(np.timedelta64(config["filters"]["unresponsive_sensor"]["frozen_sensor_limit"], 's') / np.timedelta64(data_loader.dt, 's'))
             frozen_sensors = filters.unresponsive_flag(
                 data_pl=df_query.select(cs.starts_with("wind_speed"), cs.starts_with("wind_direction")), 
                 threshold=thr)
             mask = lambda feat: frozen_sensors(feat).collect().to_numpy().flatten()
             
-            for feat in ws_cols + wd_cols:
-                np.save(config["processed_data_path"].replace(".parquet", f"_frozen_sensors_{feat}.npy"), 
-                            frozen_sensors(feat).collect().to_numpy().flatten())
-            
+            if RUN_ONCE:
+                for feat in cols:
+                    np.save(os.path.join(frozen_sensor_filter_temp_path, f"{feat}.npy"), 
+                                frozen_sensors(feat).collect().to_numpy().flatten())
+                    
+                # move from temp location to permanent
+                move(frozen_sensor_filter_temp_path, frozen_sensor_filter_target_path)
         else:
-            mask = lambda feat: np.load(config["processed_data_path"].replace(".parquet", f"_frozen_sensors_{feat}.npy")) 
+            mask = lambda feat: np.load(os.path.join(frozen_sensor_filter_target_path, f"{feat}.npy")) 
     
         # check time series
         if args.verbose:
             DataInspector.print_pc_remaining_vals(df_query, mask,
-                                                    mask_input_features=ws_cols+wd_cols,
-                                                    output_features=ws_cols+wd_cols,
+                                                    mask_input_features=cols,
+                                                    output_features=cols,
                                                     filter_type="unresponsive sensor")
             
         if args.plot:
@@ -417,10 +436,9 @@ def main():
                                                     filter_type="unresponsive sensor",
                                                     check_js=False)
         if RUN_ONCE:
-            # df_query.select(pl.col("time"), cs.starts_with("wind_speed")).filter(frozen_sensors["wind_speed"].all(axis=1)).collect()
-            if generate_filter:
-                del frozen_sensors
             del mask
+            if "frozen_sensors" in locals():
+                del frozen_sensors
             
             df_query.collect().write_parquet(config["processed_data_path"].replace(".parquet", "_filtered.parquet"), statistics=False)
             df_query = pl.scan_parquet(config["processed_data_path"].replace(".parquet", "_filtered.parquet"))
@@ -746,7 +764,7 @@ def main():
             data_inspector.plot_time_series(df_query.slice(0, ROW_LIMIT), feature_types=["wind_speed", "wind_direction"], turbine_ids=data_loader.turbine_ids, continuity_groups=None, label="after_bin_outlier")
 
     if "nacelle_calibration" in config["filters"]:
-        if args.reload_data or args.regenerate_filters or not os.path.exists(config["processed_data_path"].replace(".parquet", "_calibrated.parquet")): 
+        if args.reload_data or args.regenerate_filters or not os.path.exists(config["processed_data_path"].replace(".parquet", "_calibrated_2.parquet")): 
             
             # Nacelle Calibration 
             # Find and correct wind direction offsets from median wind plant wind direction for each turbine
@@ -781,7 +799,7 @@ def main():
             # df_query_10min = df_query_10min.with_columns(wd_median=wd_median, yaw_median=yaw_median).collect().lazy()
             df_query_10min = pl.concat([df_query_10min, wd_median, nd_median], how="horizontal")
             
-            if RUN_ONCE: # TODO am I using this correctly
+            if RUN_ONCE:
                 del wd_median, nd_median
                 
             if args.plot:
@@ -881,10 +899,10 @@ def main():
             
             # need to sink parquet and recollect to avoid recursion limit error
             if RUN_ONCE:
-                df_query.collect().write_parquet(config["processed_data_path"].replace(".parquet", "_calibrated.parquet"), statistics=False)
-                df_query = pl.scan_parquet(config["processed_data_path"].replace(".parquet", "_calibrated.parquet"))
+                df_query.collect().write_parquet(config["processed_data_path"].replace(".parquet", "_calibrated_2.parquet"), statistics=False)
+                df_query = pl.scan_parquet(config["processed_data_path"].replace(".parquet", "_calibrated_2.parquet"))
         elif RUN_ONCE:
-            df_query = pl.scan_parquet(config["processed_data_path"].replace(".parquet", "_calibrated.parquet"))
+            df_query = pl.scan_parquet(config["processed_data_path"].replace(".parquet", "_calibrated_2.parquet"))
 
         # %% check time series
         if args.verbose:
@@ -942,10 +960,6 @@ def main():
             logging.info("Nullifying standard deviation outliers.")
 
         # apply a bin filter to remove data with power values outside of an envelope around median power curve at each wind speed
-        # df_query = pl.scan_parquet("./sample_ah.parquet")
-        total_rows = df_query.select(pl.len()).collect().item()
-        cols = df_query.select(cs.starts_with("ws_horz"), cs.starts_with("ws_vert")).collect_schema().names()
-        final_shape = (total_rows, len(cols))
         
         std_dev_filter_temp_path = os.path.join(config["temp_storage_dir"], 
                                             os.path.basename(config["processed_data_path"]).replace(".parquet", "_std_dev_outliers"))
@@ -959,81 +973,74 @@ def main():
             
             os.makedirs(std_dev_filter_temp_path, exist_ok=True)
             
-            if os.path.exists(std_dev_filter_target_path):
-                rmtree(std_dev_filter_target_path) 
+            if args.regenerate_filters and os.path.exists(std_dev_filter_target_path):
+                rmtree(std_dev_filter_target_path)
         
+        cols = df_query.select(cs.starts_with("ws_horz"), cs.starts_with("ws_vert")).collect_schema().names()
+        if config["filters"]["std_range_flag"]["over"] == "asset":
+            total_rows = df_query.select(pl.len()).collect().item()
+            chunk_size = 250_000_000
+            row_chunk_size = int(chunk_size // len(cols))
+            filenames = np.arange(len(np.arange(0, total_rows, row_chunk_size)))
+        else:
+            n_files = len(cols)
+            filenames = cols
+        
+        # final_shape = (total_rows, len(cols))
+
         if args.reload_data or args.regenerate_filters \
-            or ((not os.path.exists(std_dev_filter_target_path)) or (len(glob(os.path.join(std_dev_filter_temp_path, "*.parquet"))) == 0)):
+            or ((not os.path.exists(std_dev_filter_target_path)) or \
+                not all(os.path.exists(os.path.join(std_dev_filter_target_path, f"{s}.parquet")) for s in filenames)):
             # TODO use __slots__ for data_loader etc classes to reduce memory load?
             
             if config["filters"]["std_range_flag"]["over"] == "asset":
                     
-                # TODO apply to frozen sensor
-                # chunk_size = 1_000
-                chunk_size = 10_000_000
-                row_chunk_size = int(chunk_size // len(cols))
-                
                 # NEED: polars, my OpenOA repository, config file, FLASC data
-                # with open(config["processed_data_path"].replace(".parquet", "_std_dev_outliers.arr"), "ab") as f:
-                # with open(std_dev_filter_temp_path, "ab") as f:
-                # try:
                 for s, start_row in enumerate(range(0, total_rows, row_chunk_size)):
-                    # std_dev_outliers = 
-                    pl.concat([df_query.slice(start_row, row_chunk_size).select("time"),
+                    if not args.regenerate_filters and os.path.exists(os.path.join(std_dev_filter_target_path, f"{s}.parquet")):
+                        if RUN_ONCE:
+                            logging.info(f"Found existing file for rows {start_row} to {end_row} of {total_rows} of std_dev_outliers. Used {used_ram}% of RAM.")
+                        continue
+                    
+                    max_ram, df = pl.concat([df_query.slice(start_row, row_chunk_size).select("time"),
                                filters.std_range_flag(
                         data_pl=df_query.slice(start_row, row_chunk_size).select(cs.starts_with("ws_horz"), cs.starts_with("ws_vert")),
                         threshold=config["filters"]["std_range_flag"]["threshold"], 
                         over=config["filters"]["std_range_flag"]["over"], # asset or time 
                         feature_types=["ws_horz", "ws_vert"],
                         r2_threshold=config["filters"]["std_range_flag"]["r2_threshold"],
-                        min_correlated_assets=config["filters"]["std_range_flag"]["min_correlated_assets"]
-                    )], how="horizontal").collect(_eager=True).write_parquet(os.path.join(std_dev_filter_temp_path, f"{s}.parquet"), statistics=False)
-                    # sleep(15)
-                    # with ParquetWriter(
-                    #     where=os.path.join(std_dev_filter_temp_path, f"{s}.parquet"), 
-                    #     schema=pa.schema({col: pa.bool_() for col in cols}),
-                    #     write_statistics=False, store_schema=False,
-                    #     write_batch_size=chunk_size*100) as writer:
-                    #     writer.write_table(std_dev_outliers.collect().to_arrow(), row_group_size=32_000)
-                    
-                    # std_dev_outliers.collect().write_parquet(os.path.join(std_dev_filter_temp_path, f"{s}.parquet"), statistics=False) 
-                    end_row = min(start_row + row_chunk_size, total_rows)  # Handle the last chunk
+                        min_correlated_assets=config["filters"]["std_range_flag"]["min_correlated_assets"],
+                        return_ram=True
+                    )], how="horizontal")
+                    df.collect(_eager=True).write_parquet(os.path.join(std_dev_filter_temp_path, f"{s}.parquet"), statistics=False)
+                    del df
                     used_ram = virtual_memory().percent
                     if RUN_ONCE:
-                        logging.info(f"Processing rows {start_row} to {end_row} of {total_rows} of std_dev_outliers. Used {used_ram}% of RAM.")
-                        
-                # except Exception as e:
-                #     raise Exception(e)
+                        logging.info(f"Processing rows {start_row} to {end_row} of {total_rows} of std_dev_outliers. Maximum RAM used was {max_ram}%.")
                 
             else:
                 
                 for c, col in enumerate(cols):
-                    # try:
-                    # std_dev_writer = ParquetWriter(
-                    #     where=os.path.join(std_dev_filter_temp_path, f"{col}.parquet"), 
-                    #     schema=pa.schema({col: pa.bool_()}),
-                    #     write_statistics=False)
+                    if not args.regenerate_filters and os.path.exists(os.path.join(std_dev_filter_target_path, f"{c}.parquet")):
+                        if RUN_ONCE:
+                            logging.info(f"Found existing file for column {c} of {len(cols)} of std_dev_outliers. Used {used_ram}% of RAM.")
+                        continue
                     
-                    filters.std_range_flag(
+                    max_ram, df = filters.std_range_flag(
                         data_pl=df_query.select(col),
                         threshold=config["filters"]["std_range_flag"]["threshold"], 
                         over=config["filters"]["std_range_flag"]["over"], # asset or time 
                         feature_types=[re.search(f"\\w+(?=_{data_loader.turbine_signature})", col).group()],
                         r2_threshold=config["filters"]["std_range_flag"]["r2_threshold"],
-                        min_correlated_assets=config["filters"]["std_range_flag"]["min_correlated_assets"]
-                        # asset_coords={tid: (data_inspector.fmodel.layout_x[t], data_inspector.fmodel.layout_y[t]) for t, tid in enumerate(data_loader.turbine_ids)}
-                    ).collect(_eager=True).write_parquet(os.path.join(std_dev_filter_temp_path, f"{c}.parquet"), statistics=False)
-
+                        min_correlated_assets=config["filters"]["std_range_flag"]["min_correlated_assets"],
+                        return_ram=True
+                    )
+                    df.collect(_eager=True).write_parquet(os.path.join(std_dev_filter_temp_path, f"{c}.parquet"), statistics=False)
+                    del df
                     used_ram = virtual_memory().percent
                     if RUN_ONCE:
-                        logging.info(f"Processing column {c} of {len(cols)} of std_dev_outliers. Used {used_ram}% of RAM.")
-                    # std_dev_writer.write_table(std_dev_outliers.collect().to_arrow(), row_group_size=32_000)
-                            
-                    # finally:
-                    #     # Always close the writer to finalize the file
-                    #     if "std_dev_writer" in locals() and std_dev_writer is not None:
-                    #         std_dev_writer.close()
-
+                        logging.info(f"Processing column {c} of {len(cols)} of std_dev_outliers. Maximum RAM used was {max_ram}%.")
+                    
             # move from temp location to permanent
             if RUN_ONCE and len(glob(os.path.join(std_dev_filter_temp_path, "*.parquet"))):
                 move(std_dev_filter_temp_path, std_dev_filter_target_path)
@@ -1160,7 +1167,7 @@ def main():
                                 
             # df_query_not_missing.collect().select(pl.col("duration"), pl.col("start_time"), pl.col("end_time"), pl.col("continuity_group"), cs.contains("3"))\
             #                     .select(cs.starts_with("is_missing") / (pl.col("duration") / np.timedelta64(data_loader.dt, 's')).cast(pl.Int64))
-            # TODO HIGH GETS STUCK HERE
+            
             logging.info("Starting to split by continuity group.") 
             df_query = get_continuity_group_index(continuity_groups_df=df_query_not_missing, time_series_df=df_query2)
             del df_query2
@@ -1274,7 +1281,7 @@ def main():
             if RUN_ONCE:
                 df_query = df_query.drop([cs.starts_with(feat) for feat in ["ws_horz", "ws_vert", "nd_cos", "nd_sin", "power_output"]]).join(df_query2, on="time", how="left")
                 del df_query2
-                df_query.collect().write_parquet(config["processed_data_path"].replace(".parquet", "_imputed.parquet"), statistics=False)
+                df_query.collect().write_parquet(config["processed_data_path"].replace(".parquet", "_imputed.parquet"), statistics=False)                
                 df_query = pl.scan_parquet(config["processed_data_path"].replace(".parquet", "_imputed.parquet"))
         elif RUN_ONCE:
             df_query = pl.scan_parquet(config["processed_data_path"].replace(".parquet", "_imputed.parquet"))

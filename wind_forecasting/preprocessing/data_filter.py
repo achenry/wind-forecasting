@@ -288,36 +288,41 @@ class DataFilter:
                                     #  data_pd=unpivot_df.select(["time", "turbine_id", feature]).collect().to_pandas().set_index(["time", "turbine_id"]),
                                      impute_col=feature, reference_col=feature,
                                      asset_id_col="turbine_id", method="linear", r2_threshold=r2_threshold) for feature in impute_missing_features}
-                
+                df_cols = [] 
                 for k, v in futures.items():
-                    df = df.update(v.result(), on="time")
+                    # df = df.update(v.result(), on="time")
+                    df_cols.append(v.result())
         elif parallel == "turbine_id":
-            for feature in impute_missing_features:
-                features_pl = ["time", cs.starts_with(f"{feature}_")]
+            df_cols = []
+            for feat_type in impute_missing_features:
+                features_pl = ["time", cs.starts_with(f"{feat_type}_")]
 
                 imputed_vals = imputing.impute_all_assets_by_correlation(
                     # data_pd=unpivot_df.select(features).collect().to_pandas().set_index(["time", "turbine_id"]),
                     data_pl=df.select(features_pl), data_pd=None,
-                                                            impute_col=feature, reference_col=feature,
+                                                            impute_col=feat_type, reference_col=feat_type,
                                                             asset_id_col="turbine_id", method="linear", 
                                                             multiprocessor=self.multiprocessor,
                                                             r2_threshold=r2_threshold)
                 
-                df = df.update(imputed_vals, on="time")
-                logging.info(f"Imputed feature {feature} in DataFrame {df_idx}.")
+                # df = df.update(imputed_vals, on="time")
+                df_cols.append(imputed_vals.select(cs.starts_with(f"{feat_type}_")))
+                logging.info(f"Imputed feature {feat_type} in DataFrame {df_idx}.")
         else:
-            for feature in impute_missing_features:
-                features_pl = ["time", cs.starts_with(f"{feature}_")]
+            df_cols = []
+            for feat_type in impute_missing_features:
+                features_pl = ["time", cs.starts_with(f"{feat_type}_")]
 
                 imputed_vals = imputing.impute_all_assets_by_correlation(
                                                             data_pl=df.select(features_pl), data_pd=None,
-                                                            impute_col=feature, reference_col=feature,
+                                                            impute_col=feat_type, reference_col=feat_type,
                                                             asset_id_col="turbine_id", method="linear", multiprocessor=None,
                                                             r2_threshold=r2_threshold)
                 
-                df = df.update(imputed_vals, on="time")
-                logging.info(f"Imputed feature {feature} in DataFrame {df_idx}.") 
-        return df
+                # df = df.update(imputed_vals, on="time")
+                df_cols.append(imputed_vals.select(cs.starts_with(f"{feat_type}_")))
+                logging.info(f"Imputed feature {feat_type} in DataFrame {df_idx}.") 
+        return pl.concat([df.select(col) for col in df.columns if not any(col.startswith(feat_type) for feat_type in impute_missing_features)] + df_cols, how="horizontal")
 
     def _fill_single_missing_dataset(self, df_idx, df, impute_missing_features, interpolate_missing_features, r2_threshold, parallel=None):
         
