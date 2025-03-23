@@ -997,9 +997,10 @@ def main():
                     
                 # NEED: polars, my OpenOA repository, config file, FLASC data
                 for s, start_row in enumerate(range(0, total_rows, row_chunk_size)):
+                    end_row = start_row + row_chunk_size
                     if not args.regenerate_filters and os.path.exists(os.path.join(std_dev_filter_target_path, f"{s}.parquet")):
                         used_ram = virtual_memory().percent
-                        end_row = start_row + row_chunk_size
+                        
                         if RUN_ONCE:
                             logging.info(f"Found existing file for rows {start_row} to {end_row} of {total_rows} of std_dev_outliers. Used {used_ram}% of RAM.")
                         continue
