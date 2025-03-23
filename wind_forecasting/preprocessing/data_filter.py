@@ -322,7 +322,8 @@ class DataFilter:
                 # df = df.update(imputed_vals, on="time")
                 df_cols.append(imputed_vals.select(cs.starts_with(f"{feat_type}_")))
                 logging.info(f"Imputed feature {feat_type} in DataFrame {df_idx}.") 
-        return pl.concat([df.select(col) for col in df.columns if not any(col.startswith(feat_type) for feat_type in impute_missing_features)] + df_cols, how="horizontal")
+        return pl.concat([df.select([col for col in df.collect_schema().names() if not any(col.startswith(feat_type) for feat_type in impute_missing_features)])]
+                         + df_cols, how="horizontal")
 
     def _fill_single_missing_dataset(self, df_idx, df, impute_missing_features, interpolate_missing_features, r2_threshold, parallel=None):
         
