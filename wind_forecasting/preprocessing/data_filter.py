@@ -288,36 +288,42 @@ class DataFilter:
                                     #  data_pd=unpivot_df.select(["time", "turbine_id", feature]).collect().to_pandas().set_index(["time", "turbine_id"]),
                                      impute_col=feature, reference_col=feature,
                                      asset_id_col="turbine_id", method="linear", r2_threshold=r2_threshold) for feature in impute_missing_features}
-                
+                df_cols = [] 
                 for k, v in futures.items():
-                    df = df.update(v.result(), on="time")
+                    # df = df.update(v.result(), on="time")
+                    df_cols.append(v.result())
         elif parallel == "turbine_id":
-            for feature in impute_missing_features:
-                features_pl = ["time", cs.starts_with(f"{feature}_")]
+            df_cols = []
+            for feat_type in impute_missing_features:
+                features_pl = ["time", cs.starts_with(f"{feat_type}_")]
 
                 imputed_vals = imputing.impute_all_assets_by_correlation(
                     # data_pd=unpivot_df.select(features).collect().to_pandas().set_index(["time", "turbine_id"]),
                     data_pl=df.select(features_pl), data_pd=None,
-                                                            impute_col=feature, reference_col=feature,
+                                                            impute_col=feat_type, reference_col=feat_type,
                                                             asset_id_col="turbine_id", method="linear", 
                                                             multiprocessor=self.multiprocessor,
                                                             r2_threshold=r2_threshold)
                 
-                df = df.update(imputed_vals, on="time")
-                logging.info(f"Imputed feature {feature} in DataFrame {df_idx}.")
+                # df = df.update(imputed_vals, on="time")
+                df_cols.append(imputed_vals.select(cs.starts_with(f"{feat_type}_")))
+                logging.info(f"Imputed feature {feat_type} in DataFrame {df_idx}.")
         else:
-            for feature in impute_missing_features:
-                features_pl = ["time", cs.starts_with(f"{feature}_")]
+            df_cols = []
+            for feat_type in impute_missing_features:
+                features_pl = ["time", cs.starts_with(f"{feat_type}_")]
 
                 imputed_vals = imputing.impute_all_assets_by_correlation(
                                                             data_pl=df.select(features_pl), data_pd=None,
-                                                            impute_col=feature, reference_col=feature,
+                                                            impute_col=feat_type, reference_col=feat_type,
                                                             asset_id_col="turbine_id", method="linear", multiprocessor=None,
                                                             r2_threshold=r2_threshold)
                 
-                df = df.update(imputed_vals, on="time")
-                logging.info(f"Imputed feature {feature} in DataFrame {df_idx}.") 
-        return df
+                # df = df.update(imputed_vals, on="time")
+                df_cols.append(imputed_vals.select(cs.starts_with(f"{feat_type}_")))
+                logging.info(f"Imputed feature {feat_type} in DataFrame {df_idx}.") 
+        return pl.concat([df.select([col for col in df.collect_schema().names() if not any(col.startswith(feat_type) for feat_type in impute_missing_features)])]
+                         + df_cols, how="horizontal")
 
     def _fill_single_missing_dataset(self, df_idx, df, impute_missing_features, interpolate_missing_features, r2_threshold, parallel=None):
         
@@ -520,33 +526,45 @@ def add_df_agg_continuity_columns(df):
                 .sort("start_time")\
             .drop_nulls()
 
-def get_continuity_group_index(df):
+def get_continuity_group_index(continuity_groups_df, time_series_df, chunk_size=32):
     # Create the condition for the group
     group_number = None
 
     # Create conditions to assign group numbers based on time ranges
-    for i, (start, end) in enumerate(df.collect().select("start_time", "end_time").iter_rows()):
+    total_rows = continuity_groups_df.select(pl.len()).collect().item()
+    time_series_df = time_series_df.with_columns(continuity_group=pl.when(True).then(pl.lit(-1)))
+    for i, (start, end) in enumerate(continuity_groups_df.collect().select("start_time", "end_time").iter_rows()):
         # print(i, start, end, duration)
+        logging.info(f"Getting continuity group index {i} of {total_rows} for start time {start}, end time {end}")
+        
         time_cond = pl.col("time").is_between(start, end)
+        
         if group_number is None:
             group_number = pl.when(time_cond).then(pl.lit(i))
         else:
             group_number = group_number.when(time_cond).then(pl.lit(i))
-
+            
+        if (i % chunk_size == 0) or (i == total_rows - 1):
+            time_series_df = time_series_df.with_columns(continuity_group=group_number.otherwise(pl.col("continuity_group")))
+            group_number = None
+            
+             
     # If no group is matched, assign a default value (e.g., -1) 
     # group_number = group_number.when(pl.col("time") > end).then(pl.lit(i + 1))
-    if group_number is None:
-        group_number = pl.when(True).then(pl.lit(-1))
-    else:
-        group_number = group_number.otherwise(pl.lit(-1))
-    return group_number
+    # if group_number is None:
+    #     group_number = pl.when(True).then(pl.lit(-1))
+    # else:
+    #     group_number = group_number.otherwise(pl.lit(-1))
+        
+    return time_series_df
 
 def group_df_by_continuity(df, agg_df, missing_data_cols):
     
-    group_number = get_continuity_group_index(agg_df)
-
-    return pl.concat([agg_df, df.with_columns(group_number.alias("continuity_group"))\
-            .filter(pl.col("continuity_group") != -1)\
+    # group_number = get_continuity_group_index(agg_df)
+    df = get_continuity_group_index(continuity_groups_df=agg_df, time_series_df=df) 
+    # df.with_columns(group_number.alias("continuity_group"))
+    return pl.concat([agg_df, 
+            df.filter(pl.col("continuity_group") != -1)\
             .group_by("continuity_group")\
             .agg(cs.starts_with("is_missing").sum())\
             .with_columns([pl.sum_horizontal(cs.contains(col) & cs.starts_with("is_missing")).alias(f"is_missing_{col}") for col in missing_data_cols])\
