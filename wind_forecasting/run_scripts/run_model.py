@@ -39,7 +39,7 @@ except:
 # @profile
 def main():
     
-    RUN_ONCE = (mpi_exists and (MPI.COMM_WORLD.Get_rank()) == 0)
+    # RUN_ONCE = (mpi_exists and (MPI.COMM_WORLD.Get_rank()) == 0)
     
     # %% PARSE CONFIGURATION
     # parse training/test booleans and config file from command line
