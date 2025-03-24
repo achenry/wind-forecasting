@@ -12,8 +12,8 @@ optuna:
 dataset: 
     # data_path: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/preprocessed_awaken_data/short_loaded_data_normalized.parquet
     # normalization_consts_path: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/preprocessed_awaken_data/short_loaded_data_normalization_consts.csv
-    data_path: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/preprocessed_awaken1_data/filled_data_normalized.parquet
-    normalization_consts_path: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/preprocessed_awaken1_data/filled_data_normalization_consts.csv
+    data_path: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/preprocessed_awaken1_data/awaken_processed_debug.parquet
+    normalization_consts_path: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/preprocessed_awaken1_data/awaken_processed_debug_normalization_consts.csv
     context_length: 20 # 120=10 minutes for 5 sec sample size
     prediction_length: 20 # 120=10 minutes for 5 sec sample size
     target_turbine_ids:  # or leave blank to capture all
@@ -70,6 +70,7 @@ model:
     pos_emb_type: abs
     embed_method: spatio-temporal
     activation: relu
+    use_given: False
 
 callbacks: 
     progress_bar:  
