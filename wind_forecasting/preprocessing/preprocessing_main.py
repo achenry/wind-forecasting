@@ -979,7 +979,7 @@ def main():
         cols = df_query.select(cs.starts_with("ws_horz"), cs.starts_with("ws_vert")).collect_schema().names()
         if config["filters"]["std_range_flag"]["over"] == "asset":
             total_rows = df_query.select(pl.len()).collect().item()
-            chunk_size = 250_000_000
+            chunk_size = 1_000_000_000
             row_chunk_size = int(chunk_size // len(cols))
             filenames = np.arange(len(np.arange(0, total_rows, row_chunk_size)))
         else:
@@ -1015,7 +1015,7 @@ def main():
                         return_ram=True
                     ) 
                     pl.concat([df_query.slice(start_row, row_chunk_size).select("time"),
-                               df], how="horizontal").collect(_eager=True).write_parquet(os.path.join(std_dev_filter_temp_path, f"{s}.parquet"), statistics=False)
+                               df], how="horizontal").collect(_eager=True).write_parquet(os.path.join(std_dev_filter_target_path, f"{s}.parquet"), statistics=False)
                     del df
                     
                     if RUN_ONCE:
@@ -1039,15 +1039,15 @@ def main():
                         min_correlated_assets=config["filters"]["std_range_flag"]["min_correlated_assets"],
                         return_ram=True
                     )
-                    df.collect(_eager=True).write_parquet(os.path.join(std_dev_filter_temp_path, f"{c}.parquet"), statistics=False)
+                    df.collect(_eager=True).write_parquet(os.path.join(std_dev_filter_target_path, f"{c}.parquet"), statistics=False)
                     del df
                     
                     if RUN_ONCE:
                         logging.info(f"Processing column {c} of {len(cols)} of std_dev_outliers. Maximum RAM used was {max_ram}%.")
                     
             # move from temp location to permanent
-            if RUN_ONCE and len(glob(os.path.join(std_dev_filter_temp_path, "*.parquet"))):
-                move(std_dev_filter_temp_path, std_dev_filter_target_path)
+            # if RUN_ONCE and len(glob(os.path.join(std_dev_filter_temp_path, "*.parquet"))):
+            #     move(std_dev_filter_temp_path, std_dev_filter_target_path)
         
         if RUN_ONCE:
             if config["filters"]["std_range_flag"]["over"] == "asset": 
