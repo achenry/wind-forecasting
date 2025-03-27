@@ -6,8 +6,16 @@ experiment:
 
 optuna:
   journal_dir: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/optuna
-  use_rdb: False
+  storage_type: sqlite # or mysql, or journal
   n_trials: 2
+  metric: mean_wQuantileLoss
+  direction: minimize
+  max_epochs: 3
+  limit_train_batches: 100
+  context_length_choice_factors:
+    - 1
+    - 1.5
+    - 2
 
 dataset: 
     # data_path: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/preprocessed_awaken_data/short_loaded_data_normalized.parquet
@@ -91,7 +99,7 @@ trainer:
     # accumulate: 1.0
     max_epochs: 3 # Maximum number of epochs to train 100
     limit_train_batches: 100
-    default_root_dir: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/checkpoints
+    default_root_dir: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/logging/wind_forecasting
     # precision: 32-true # 16-mixed enables mixed precision training 32-true is full precision
     # batch_size: 32 # larger = more stable gradients
     # lr: 0.0001 # Step size
