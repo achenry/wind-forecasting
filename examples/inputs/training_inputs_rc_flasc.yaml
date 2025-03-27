@@ -6,8 +6,16 @@ experiment:
 
 optuna:
   journal_dir: /scratch/alpine/aohe7145/optuna
-  use_rdb: False
-  n_trials: 100
+  storage_type: sqlite # or mysql, or journal
+  n_trials: 2
+  metric: mean_wQuantileLoss
+  direction: minimize
+  max_epochs: 3
+  limit_train_batches: 100
+  context_length_choice_factors:
+    - 1
+    - 1.5
+    - 2
 
 dataset: 
     data_path: /scratch/alpine/aohe7145/flasc_data/preprocessed_flasc_data/SMARTEOLE_WakeSteering_SCADA_1minData_normalized.parquet
