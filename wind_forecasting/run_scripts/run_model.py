@@ -175,8 +175,8 @@ def main():
         
         metric = "val_loss_epoch"
         mode = "min"
-        log_dir = os.path.join(config["trainer"]["default_root_dir"], "lightning_logs")
-        checkpoint_path = get_checkpoint(checkpoint=args.checkpoint, metric=metric, mode=mode, log_dir=log_dir)
+        # log_dir = os.path.join(config["trainer"]["default_root_dir"], "lightning_logs")
+        checkpoint_path = get_checkpoint(checkpoint=args.checkpoint, metric=metric, mode=mode, log_dir=config["trainer"]["default_root_dir"])
         
         test_model(data_module=data_module,
                     checkpoint=checkpoint_path,
