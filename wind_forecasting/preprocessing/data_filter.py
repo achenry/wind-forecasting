@@ -436,15 +436,16 @@ class DataFilter:
                     
         else:
             # df = df.with_columns({feat: pl.when(mask(feat.split("_")[-1])).then(pl.col(feat)).otherwise(None) for feat in features})
-            for inp_feat, opt_feat in zip(mask_input_features, output_features):
-                filt_expr = mask(inp_feat)
-                # new_data = ma.filled(ma.array(df.select(pl.col(feat)).collect().to_numpy().flatten(), mask=mask(tid), fill_value=np.nan))
-                df = df.with_columns(pl.when(pl.Series(filt_expr)).then(None).otherwise(pl.col(opt_feat)).alias(opt_feat))
+            df = df.with_columns(**{opt_feat: pl.when(pl.Series(mask(inp_feat))).then(None).otherwise(pl.col(opt_feat)) for inp_feat, opt_feat in zip(mask_input_features, output_features)})
+            # for inp_feat, opt_feat in zip(mask_input_features, output_features):
+            #     filt_expr = mask(inp_feat)
+            #     # new_data = ma.filled(ma.array(df.select(pl.col(feat)).collect().to_numpy().flatten(), mask=mask(tid), fill_value=np.nan))
+            #     df = df.with_columns(pl.when(pl.Series(filt_expr)).then(None).otherwise(pl.col(opt_feat)).alias(opt_feat))
                 # df = df.with_columns(**{feat: 
                 #     ma.filled(ma.array(df.select(pl.col(feat)).collect().to_numpy().flatten(), mask=filt_expr, fill_value=np.nan))
                 #     }).with_columns(pl.col(feat).fill_nan(None).alias(feat))
                 # df = df.with_columns(pl.when(mask(tid)).then(pl.col(feat)).otherwise(None).alias(feat))
-                logging.info(f"Applied filter {filter_type} to feature {opt_feat}.")
+            logging.info(f"Applied filter {filter_type} to features {output_features}.")
         
         return df
 
