@@ -98,11 +98,10 @@ def main():
     config["farm_input_path"] = os.path.expanduser(config["farm_input_path"])
     
     if RUN_ONCE:
-        for path_key in ["raw_data_directory", "turbine_input_path", "farm_input_path"]:
-            if isinstance(config[path_key], list):
-                assert all(os.path.exists(fp) for fp in config[path_key]), f"One of {config[path_key]} doesn't exist."
-            else:
-                assert os.path.exists(config[path_key]), f"{config[path_key]} doesn't exist."
+        assert not args.reload_data or all(os.path.exists(fp) for fp in config[raw_data_directory]), f"One of {config[path_key]} doesn't exist."
+        
+        for path_key in ["turbine_input_path", "farm_input_path"]:
+            assert os.path.exists(config[path_key]), f"{config[path_key]} doesn't exist."
              
     for path_key in ["raw_data_directory", "processed_data_path", "turbine_input_path", "farm_input_path", "temp_storage_dir"]:
         if isinstance(config[path_key], list):
