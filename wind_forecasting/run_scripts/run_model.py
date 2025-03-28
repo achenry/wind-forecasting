@@ -65,7 +65,7 @@ def main():
     parser.add_argument("--tune_first", action="store_true", help="Whether to use tuned parameters", default=False)
     parser.add_argument("--model_path", type=str, help="Path to a saved model checkpoint to load from", default=None)
     parser.add_argument("--predictor_path", type=str, help="Path to a saved predictor for evaluation", default=None)
-    parser.add_argument("--seed", type=int, help="Seed for random number generator", default=42)
+    parser.add_argument("-s", "--seed", type=int, help="Seed for random number generator", default=42)
     parser.add_argument("--save_to", type=str, help="Path to save the predicted output", default=None)
     parser.add_argument("--init_only", action="store_true", help="Only initialize the database/study and exit")
     parser.add_argument("--single_gpu", action="store_true", help="Force using only a single GPU (the one specified by CUDA_VISIBLE_DEVICES)")
@@ -360,6 +360,19 @@ def main():
             
             logging.info("Initializing Optuna database only (--init_only flag detected). WandB disabled.")
             
+            # Ensure the journal_dir is properly set in config
+            if "optuna" not in config:
+                config["optuna"] = {}
+            
+            if "journal_dir" not in config["optuna"] or config["optuna"]["journal_dir"] is None:
+                # If journal_dir is not set, use the optuna_dir from logging if available
+                if "logging" in config and "optuna_dir" in config["logging"]:
+                    config["optuna"]["journal_dir"] = config["logging"]["optuna_dir"]
+                else:
+                    # Fallback to a default path if neither is available
+                    config["optuna"]["journal_dir"] = os.path.join(config["experiment"]["log_dir"], "optuna")
+                logging.info(f"Setting journal_dir to {config['optuna']['journal_dir']}")
+            
             # Create directory if it doesn't exist
             os.makedirs(config["optuna"]["journal_dir"], exist_ok=True)
             
@@ -447,9 +460,10 @@ def main():
         
         if args.checkpoint == "best":
             best_metric_value = float('inf') if mode == "min" else float('-inf')
+            checkpoint = None  # Initialize checkpoint to avoid UnboundLocalError
             for version_dir in version_dirs:
                 if not os.path.exists(os.path.join(version_dir, "metrics.csv")):
-                    logging.info(f"Metrics table {os.path.join(version_dir, "metrics.csv")} does not exist, removing invalid version dir {version_dir}.")
+                    logging.info(f"Metrics table {os.path.join(version_dir, 'metrics.csv')} does not exist, removing invalid version dir {version_dir}.")
                     shutil.rmtree(version_dir) 
                     continue
                 
@@ -461,20 +475,36 @@ def main():
                 if (mode == "min" and best_chk_metrics[metric] < best_metric_value) \
                     or (mode == "max" and best_chk_metrics[metric] > best_metric_value):
                     checkpoint = os.path.join(version_dir, "checkpoints", 
-                                            f"epoch={int(best_chk_metrics['epoch'])}-step={int(best_chk_metrics['step']) + 1}.ckpt")
+                                            f"epoch={int(best_chk_metrics['epoch'])}-step={int(best_chk_metrics['step'])}.ckpt")
                     best_metric_value = best_chk_metrics[metric] 
 
-            if os.path.exists(checkpoint):
+            if checkpoint is None:
+                raise FileNotFoundError("No valid checkpoints found.")
+            elif os.path.exists(checkpoint):
                 logging.info(f"Found best pretrained model: {checkpoint}")
             else:
-                raise FileNotFoundError(f"Best checkpoint {checkpoint} does not exist.")
+                # If exact filename not found, try to find a matching checkpoint
+                checkpoint_dir = os.path.dirname(checkpoint)
+                checkpoint_pattern = f"epoch={int(best_chk_metrics['epoch'])}-step=*.ckpt"
+                matching_checkpoints = glob(os.path.join(checkpoint_dir, checkpoint_pattern))
+                
+                if matching_checkpoints:
+                    checkpoint = matching_checkpoints[0]
+                    logging.info(f"Found closest matching checkpoint: {checkpoint}")
+                else:
+                    raise FileNotFoundError(f"Best checkpoint {checkpoint} does not exist and no matching alternatives found.")
                 
         elif args.checkpoint == "latest":
             logging.info("Fetching latest pretrained model...")
             pattern = r'(?<=version_)\d+'
-            version_dir = f"version_{max([int(re.search(pattern, vd).group(0)) for vd in version_dirs])}"
+            # Extract version numbers from the full paths
+            version_numbers = [int(re.search(pattern, vd).group(0)) for vd in version_dirs]
+            # Get the highest version number
+            latest_version = max(version_numbers)
+            # Find the full path of the version directory with the highest number
+            version_dir = [vd for vd in version_dirs if f"version_{latest_version}" in vd][0]
             
-            checkpoint_paths = glob(os.path.join(version_dir, "checkpoints", f"*.ckpt"))
+            checkpoint_paths = glob(os.path.join(version_dir, "checkpoints", "*.ckpt"))
             checkpoint_stats = [(int(re.search(r'(?<=epoch=)(\d+)', cp).group(0)),
                                  int(re.search(r'(?<=step=)(\d+)', cp).group(0))) for cp in checkpoint_paths]
             checkpoint = checkpoint_paths[checkpoint_stats.index(sorted(checkpoint_stats)[-1])]
