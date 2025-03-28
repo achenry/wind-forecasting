@@ -288,6 +288,8 @@ class DataLoader:
                     if len(merged_paths) > 1: 
                         logging.info(f"Concatenating and running final sort/resample/fill.")
                         
+                        # Concatenate the different merged and sorted files by ordering them by time, and then finding the missing timestamps between them,
+                        # this is more memory efficient than joining all the files at once by a long time series
                         df_query = sorted([pl.scan_parquet(bp) for bp in merged_paths], 
                                         key=lambda df: 
                                             df.select(pl.col("time").first()).collect().item())
@@ -302,7 +304,7 @@ class DataLoader:
                             logging.info(f"Number of columns of merged df {i} = {len(df_query[i].collect_schema().names())}")
                             logging.info(f"Time bounds of merged df {i} before time col expansion: ({start_time_1}, {end_time_1})")
                             logging.info(f"Time bounds of merged df {i + 1}: ({start_time_2}, {end_time_2})")
-                            
+                            # . TODO upsampling or downsampling?? 
                             if start_time_2 == end_time_1:
                                 df_query[i] = pl.concat([df_query[i], df_query[i + 1].slice(0, 1)], how="diagonal")\
                                                 .group_by("time").agg(cs.numeric().mean()).sort(by="time")
@@ -331,20 +333,23 @@ class DataLoader:
                         # concatenate intermediary dataframes
                         logging.info(f"Concatenating final, used ram = {virtual_memory().percent}%")
                         df_query = pl.concat(df_query, how="diagonal_relaxed").collect().lazy()
-                        logging.info(f"Sorting final, used ram = {virtual_memory().percent}%")
-                        df_query = df_query.sort(by="time").collect().lazy()
-                        assert df_query.select((pl.col("time").diff().slice(1) == pl.col("time").diff().last()).all()).collect().item() 
-                         
+                        
+                        if not df_query.select("time").collect().to_series().is_sorted():
+                            logging.info(f"Sorting final, used ram = {virtual_memory().percent}%")
+                            df_query = df_query.sort(by="time").collect().lazy()
+                        
+                        assert df_query.select((pl.col("time").diff().slice(1) == pl.col("time").diff().last()).all()).collect().item(), "dt is non-uniform, even after resampling"
+                        
                         logging.info(f"Filling final, used ram = {virtual_memory().percent}%")
                         df_query = df_query.fill_null(strategy="forward").fill_null(strategy="backward").collect().lazy()
-                        assert df_query.select(pl.all_horizontal((cs.numeric().is_null() | cs.numeric().is_nan()).sum() == 0)).collect().item()
+                        assert df_query.select(pl.all_horizontal((cs.numeric().is_null() | cs.numeric().is_nan()).sum() == 0)).collect().item(), "null values found in final dataframe"
                         
                         logging.info(f"Sorting columns, used ram = {virtual_memory().percent}%") 
                         df_query = df_query.select([pl.col("time")] 
                                        + [pl.col(c) for c in 
-                                          sorted(df_query.select(cs.numeric()).collect_schema().names(), 
+                                          sorted([col for col in df_query.select(cs.numeric()).collect_schema().names() if col not in ["file_set_idx"]], 
                                                  key=lambda col: (re.search(f".*?(?={self.turbine_signature})", col).group(0), 
-                                                                  int(re.search(self.turbine_signature, col).group(0))))])
+                                                                  int(re.search("\\d+", re.search(self.turbine_signature, col).group(0)).group(0))))])
                         
                         # df_query = self.sort_resample_refill(df_query).fill_null(strategy="backward")
                         # Write to final parquet
@@ -354,9 +359,8 @@ class DataLoader:
                     else:
                         logging.info(f"Moving only batch to {self.save_path}.")
                         move(merged_paths[0], self.save_path)
-                        df_query = pl.scan_parquet(self.save_path)
-                else:
-                    df_query = pl.scan_parquet(self.save_path)
+                    
+                df_query = pl.scan_parquet(self.save_path)
                     
                 # turbine ids found in all files so far
                 self.turbine_ids = self.get_turbine_ids(self.turbine_signature, df_query, sort=True)
@@ -410,7 +414,6 @@ class DataLoader:
         
         logging.info(f"Finished join of {len(processed_file_paths)} files for file set {file_set_idx}, merge index {i}.")
         
-       
         # assert all(any(tid in col for col in df_queries.collect_schema().names() if col != "time") for tid in turbine_ids), \
             # f"merge_multiple_files should only merge collections of files that include every turbine's data, these file paths include:\n {'\n'.join(processed_file_paths)}"
         
@@ -435,7 +438,7 @@ class DataLoader:
         df_queries = self.sort_resample_refill(df_queries)
         assert df_queries.select((pl.col("time").diff().slice(1) == pl.col("time").diff().last()).all()).collect().item() 
         df_queries = df_queries.with_columns(file_set_idx=pl.lit(file_set_idx))
-        df_queries = df_queries.collect().write_parquet(merged_path, statistics=False)
+        df_queries.collect().write_parquet(merged_path, statistics=False)
         
         return merged_path
 
@@ -546,7 +549,29 @@ class DataLoader:
                             'time': time_var.tolist(),  # Convert to Polars datetime
                         },
                         **{k: dataset.variables[v][:] for k, v in self.feature_mapping[file_set_idx].items() if k not in ["time", "turbine_id"] and v in dataset.variables}
-                    }
+                    }   
+                    
+                    # If wind_direction variable is not present, calculate it from nacelle_direction and yaw_offset
+                    target_features = list(self.feature_mapping[file_set_idx])
+                    if "wind_direction" not in target_features:
+                        
+                        if "nacelle_direction" in target_features:
+                            if "yaw_offset_cw" in target_features:
+                                delta = 1
+                                direc = "cw" 
+                            elif "yaw_offset_ccw" in target_features:
+                                delta = -1
+                                direc = "ccw"
+                            else:
+                                raise Exception("No wind_direction or yaw_offset variable found in data.")
+                            
+                            data[f"wind_direction"] = data[f"nacelle_direction"] + delta * data[f"yaw_offset_{direc}"] 
+                            del data[f"yaw_offset_{direc}"]
+                                
+                            del target_features[target_features.index(f"yaw_offset_{direc}")]
+                            target_features.append("wind_direction")
+                        else:
+                            raise Exception("No wind direction, or nacelle direction variable found in data.")
 
                     # self.turbine_ids = self.turbine_ids.union(set(data["turbine_id"]))
 
@@ -555,8 +580,8 @@ class DataLoader:
                     # forward fill missing values
                     
                     available_columns = list(data.keys()) 
-                    target_features = list(self.feature_mapping[file_set_idx])
-                    # TODO upsampling or downsampling here?
+                     
+                    # counts, bins = np.histogram(x.select(pl.col("time").dt.round(f"{self.dt}s").alias("time").cast(pl.Datetime(time_unit="us")).unique()).sort("time").select(pl.all().diff()).to_pandas()["time"].astype('timedelta64[s]').astype('int').iloc[1:])
                     df_query = pl.LazyFrame(data).fill_nan(None)\
                                                     .with_columns(pl.col("time").dt.round(f"{self.dt}s").alias("time").cast(pl.Datetime(time_unit="us")))\
                                                     .select([cs.contains(feat) for feat in target_features])\
@@ -575,12 +600,11 @@ class DataLoader:
                 available_columns = df_query.collect_schema().names()
                 assert all(any(bool(re.search(feat, col)) for col in available_columns) for feat in self.source_features[file_set_idx]), "All values in feature_mapping must exist in data columns."
 
-                # Select only relevant columns and handle missing values
-                # df_query = df_query.select(self.source_features)\
+                # Select only relevant columns
                 df_query = df_query.select(*[cs.matches(feat) for feat in self.source_features[file_set_idx]])
                 source_features = df_query.collect_schema().names()
                 
-                # just the turbine ids found in this file
+                # Get just the turbine ids found in this file
                 turbine_ids = self.get_turbine_ids(self.turbine_signature[file_set_idx], df_query)
                 
                 # Apply column mapping after selecting relevant columns
@@ -601,12 +625,16 @@ class DataLoader:
 
                 df_query = df_query.rename(rename_dict)
                 
+                # Cast all numeric columns to Float64
                 df_query = df_query.with_columns([pl.col(col).cast(pl.Float64) for col in df_query.collect_schema().names() if any(feat_type in col and feat_type != "time" for feat_type in self.target_features)])
+                
+                # Fill NaN values with None for uniform 'none' denotation
                 df_query = df_query.with_columns(cs.numeric().fill_nan(None))
                 
-                # target_features = list(self.target_features)
+                # If wind_direction variable is not present, calculate it from nacelle_direction and yaw_offset
                 target_features = list(self.feature_mapping[file_set_idx])
                 if "wind_direction" not in target_features:
+                    
                     if "nacelle_direction" in target_features:
                         if "yaw_offset_cw" in target_features:
                             delta = 1
@@ -614,6 +642,8 @@ class DataLoader:
                         elif "yaw_offset_ccw" in target_features:
                             delta = -1
                             direc = "ccw"
+                        else:
+                            raise Exception("No wind_direction or yaw_offset variable found in data.")
                         
                         df_query = df_query\
                             .with_columns([
@@ -625,7 +655,9 @@ class DataLoader:
                         target_features.append("wind_direction")
                         # del self.feature_mapping[file_set_idx][f"yaw_offset_{direc}"]
                         # self.feature_mapping[file_set_idx]["wind_direction"] = ""
-                
+                    else:
+                        raise Exception("No wind direction, or nacelle direction variable found in data.")
+                    
                 time_type = df_query.collect_schema()["time"]
                 if time_type == pl.datatypes.String:
                     df_query = df_query.with_columns([
@@ -648,6 +680,7 @@ class DataLoader:
                 # remove the rows with all nans (corresponding to rows where excluded columns would have had a value)
                 # and bundle all values corresponding to identical time stamps together
                 # forward fill missing values
+                # counts, bins = np.histogram(df_query.collect().select(pl.col("time").dt.round(f"{self.dt}s").alias("time").cast(pl.Datetime(time_unit="us")).unique()).sort("time").select(pl.all().diff()).to_pandas()["time"].astype('timedelta64[s]').astype('int').iloc[1:])
                 df_query = df_query.with_columns(pl.col("time").dt.round(f"{self.dt}s").alias("time"))\
                                     .select([cs.contains(feat) for feat in target_features])\
                                     .filter(pl.any_horizontal(cs.numeric().is_not_null()))
@@ -799,15 +832,6 @@ class DataLoader:
         logging.info(f"Columns after reduce_features: {df.columns}")
         logging.info(f"Shape after reduce_features: {df.shape}")
         return df
-
-    # INFO: @Juan 10/16/24 Modified resampling method to handle both wide and long formats.
-    def resample(self, df) -> pl.LazyFrame:
-        if self.wide_format:
-            return df.with_columns(pl.col("time").dt.round(f"{self.dt}s").alias("time"))\
-                     .group_by("time").agg(cs.numeric().drop_nulls().first()).sort("time")
-        else:
-            return df.with_columns(pl.col("time").dt.round(f"{self.dt}s").alias("time"))\
-                     .group_by("turbine_id", "time").agg(cs.numeric().drop_nulls().first()).sort(["turbine_id", "time"])
 
     def normalize_features(self, df) -> pl.LazyFrame:
         """_summary_

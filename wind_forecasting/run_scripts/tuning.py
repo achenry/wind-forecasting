@@ -8,7 +8,7 @@ import logging
 import torch
 import gc
 
-from mysql.connector import connect as sql_connect
+# Removed mysql.connector import as MySQL logic is dropped
 from optuna import create_study
 from optuna.samplers import TPESampler
 from optuna.storages import JournalStorage
@@ -94,7 +94,7 @@ class MLTuningObjective:
             num_feat_static_real=self.data_module.num_feat_static_real,
             input_size=self.data_module.num_target_vars,
             scaling=False,
-            
+
             batch_size=self.config["dataset"].setdefault("batch_size", 128),
             num_batches_per_epoch=self.config["trainer"]["limit_train_batches"],
             train_sampler=ExpectedNumInstanceSampler(num_instances=1.0, min_past=self.config["dataset"]["context_length"], min_future=self.data_module.prediction_length),
@@ -119,15 +119,15 @@ class MLTuningObjective:
         
         model = self.lightning_module_class.load_from_checkpoint(train_output.trainer.checkpoint_callback.best_model_path)
         transformation = estimator.create_transformation(use_lazyframe=False)
-        predictor = estimator.create_predictor(transformation, model, 
+        predictor = estimator.create_predictor(transformation, model,
                                                 forecast_generator=DistributionForecastGenerator(estimator.distr_output))
-        
+
         forecast_it, ts_it = make_evaluation_predictions(
-            dataset=self.data_module.test_dataset, 
+            dataset=self.data_module.test_dataset,
             predictor=predictor,
             output_distr_params=True
         )
-        
+
         forecasts = list(forecast_it)
         tss = list(ts_it)
         agg_metrics, _ = self.evaluator(iter(tss), iter(forecasts), num_series=self.data_module.num_target_vars)
@@ -325,12 +325,12 @@ def tune_model(model, config, lightning_module_class, estimator_class,
     
     tuning_objective = MLTuningObjective(model=model, config=config, 
                                         lightning_module_class=lightning_module_class,
-                                        estimator_class=estimator_class, 
+                                        estimator_class=estimator_class,
                                         distr_output_class=distr_output_class,
                                         max_epochs=max_epochs,
                                         limit_train_batches=limit_train_batches,
-                                        data_module=data_module, 
-                                        context_length_choices=context_length_choices, 
+                                        data_module=data_module,
+                                        context_length_choices=context_length_choices,
                                         metric=metric)
     
     # Create worker-specific trial partitioning
