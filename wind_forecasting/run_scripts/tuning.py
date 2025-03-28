@@ -257,7 +257,7 @@ def tune_model(model, config, lightning_module_class, estimator_class,
                max_epochs, limit_train_batches, 
                distr_output_class, data_module, context_length_choices, 
                journal_storage_dir, use_rdb=True, restart_study=False, metric="mean_wQuantileLoss", 
-               direction="minimize", n_trials=10, trial_protection_callback=None):
+               direction="minimize", n_trials=10, trial_protection_callback=None, seed=42):
     
     # Make sure the journal directory exists
     os.makedirs(journal_storage_dir, exist_ok=True)
@@ -308,7 +308,7 @@ def tune_model(model, config, lightning_module_class, estimator_class,
             storage=storage,
             direction=direction,
             load_if_exists=True,
-            sampler=TPESampler(seed=42)
+            sampler=TPESampler(seed=seed)  # Use the seed provided as an argument
         )
         logging.info(f"Study successfully created or loaded: {study_name}")
     except Exception as e:
@@ -321,7 +321,7 @@ def tune_model(model, config, lightning_module_class, estimator_class,
     # Get worker ID for logging
     worker_id = os.environ.get('SLURM_PROCID', '0')
     
-    logging.info(f"Worker {worker_id}: Optimizing Optuna study {study_name}.")
+    logging.info(f"Worker {worker_id}: Participating in Optuna study {study_name}")
     
     tuning_objective = MLTuningObjective(model=model, config=config, 
                                         lightning_module_class=lightning_module_class,
@@ -333,44 +333,31 @@ def tune_model(model, config, lightning_module_class, estimator_class,
                                         context_length_choices=context_length_choices,
                                         metric=metric)
     
-    # Create worker-specific trial partitioning
-    total_workers = int(os.environ.get('SLURM_NTASKS', '1'))
-    worker_id_int = int(worker_id)
-    
-    # Calculate trials per worker and assign specific trial indices to each worker
-    n_trials_per_worker = max(1, n_trials // total_workers)
-    # Ensure the last worker picks up any remainder trials
-    if worker_id_int == total_workers - 1:
-        n_trials_per_worker += n_trials % total_workers
-        
-    # Calculate start and end indices for this worker's trials
-    start_idx = worker_id_int * (n_trials // total_workers)
-    end_idx = start_idx + n_trials_per_worker
-    
-    logging.info(f"Worker {worker_id} will run {n_trials_per_worker} trials (indices {start_idx}-{end_idx-1})")
-    
-    # Use a worker-specific seed to ensure different exploration paths
-    worker_seed = 42 + worker_id_int
-    study.sampler = TPESampler(seed=worker_seed)
-    
     # Use the trial protection callback if provided
     objective_fn = (lambda trial: trial_protection_callback(tuning_objective, trial)) if trial_protection_callback else tuning_objective
     
     try:
-        # Create a worker-specific pruner to avoid expensive trials
-        study.optimize(objective_fn, n_trials=n_trials_per_worker, show_progress_bar=True)
+        # Let Optuna handle trial distribution - each worker will get trials automatically
+        study.optimize(objective_fn, n_trials=n_trials, show_progress_bar=True)
     except Exception as e:
         logging.error(f"Worker {worker_id} failed with error: {str(e)}")
         logging.error(f"Error details: {type(e).__name__}")
         raise
 
-    if worker_id == '0':  # Only the first worker prints the final results
-        logging.info("Number of finished trials: {}".format(len(study.trials)))
-        logging.info("Best trial:")
-        trial = study.best_trial
-        logging.info("  Value: {}".format(trial.value))
-        logging.info("  Params: ")
-        for key, value in trial.params.items():
-            logging.info("    {}: {}".format(key, value))
+    # All workers log their contribution
+    logging.info(f"Worker {worker_id} completed optimization")
+    
+    # Only log best trial once
+    if worker_id == '0':
+        if len(study.trials) > 0:
+            logging.info("Number of finished trials: {}".format(len(study.trials)))
+            logging.info("Best trial:")
+            trial = study.best_trial
+            logging.info("  Value: {}".format(trial.value))
+            logging.info("  Params: ")
+            for key, value in trial.params.items():
+                logging.info("    {}: {}".format(key, value))
+        else:
+            logging.warning("No trials were completed")
         
     return study.best_params
