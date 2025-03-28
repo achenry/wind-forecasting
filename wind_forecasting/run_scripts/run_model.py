@@ -13,16 +13,20 @@ from lightning.pytorch.loggers import WandbLogger
 # wandb.login()
 # wandb.login(relogin=True)
 import yaml
+import glob # Needed for checkpoint loading from HEAD
+import pandas as pd # Needed for checkpoint loading from HEAD
+import re # Needed for checkpoint loading from HEAD
+import shutil # Needed for checkpoint loading from HEAD
 
 from gluonts.torch.distributions import LowRankMultivariateNormalOutput, StudentTOutput
 from gluonts.model.forecast_generator import DistributionForecastGenerator
 from gluonts.time_feature._base import second_of_minute, minute_of_hour, hour_of_day, day_of_year
 from gluonts.transform import ExpectedNumInstanceSampler, ValidationSplitSampler, SequentialSampler
 
-from torch import set_float32_matmul_precision 
+from torch import set_float32_matmul_precision
 set_float32_matmul_precision('medium') # or high to trade off performance for precision
 
-from lightning.pytorch.loggers import WandbLogger
+# Duplicate import removed (was line 29 in original conflict)
 from pytorch_transformer_ts.informer.lightning_module import InformerLightningModule
 from pytorch_transformer_ts.informer.estimator import InformerEstimator
 from pytorch_transformer_ts.autoformer.estimator import AutoformerEstimator
@@ -32,6 +36,7 @@ from pytorch_transformer_ts.spacetimeformer.lightning_module import Spacetimefor
 from pytorch_transformer_ts.tactis_2.estimator import TACTiS2Estimator as TactisEstimator
 from pytorch_transformer_ts.tactis_2.lightning_module import TACTiS2LightningModule as TactisLightningModule
 from wind_forecasting.preprocessing.data_module import DataModule
+from wind_forecasting.run_scripts.testing import test_model, get_checkpoint # Moved import earlier for clarity
 
 # Configure logging and matplotlib backend
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -98,7 +103,7 @@ def main():
         (config["dataset"]["target_turbine_ids"].lower() == "none") or (config["dataset"]["target_turbine_ids"].lower() == "all")):
         config["dataset"]["target_turbine_ids"] = None # select all turbines
 
-    # %% SETUP LOGGING
+    # %% SETUP LOGGING (Using advanced logic from HEAD)
     logging.info("Setting up logging")
     if not os.path.exists(config["experiment"]["log_dir"]):
         os.makedirs(config["experiment"]["log_dir"])
@@ -192,7 +197,7 @@ def main():
     logging.info("Creating datasets")
     data_module = DataModule(data_path=config["dataset"]["data_path"], n_splits=config["dataset"]["n_splits"],
                             continuity_groups=None, train_split=(1.0 - config["dataset"]["val_split"] - config["dataset"]["test_split"]),
-                                val_split=config["dataset"]["val_split"], test_split=config["dataset"]["test_split"], 
+                                val_split=config["dataset"]["val_split"], test_split=config["dataset"]["test_split"],
                                 prediction_length=config["dataset"]["prediction_length"], context_length=config["dataset"]["context_length"],
                                 target_prefixes=["ws_horz", "ws_vert"], feat_dynamic_real_prefixes=["nd_cos", "nd_sin"],
                                 freq=config["dataset"]["resample_freq"], target_suffixes=config["dataset"]["target_turbine_ids"],
@@ -214,6 +219,9 @@ def main():
             except FileNotFoundError as e:
                 logging.warning(e)
                 logging.info(f"Declaring estimator {args.model.capitalize()} with default parameters")
+            except KeyError as e:
+                 logging.warning(f"KeyError accessing Optuna config for tuned params: {e}. Using defaults.")
+                 logging.info(f"Declaring estimator {args.model.capitalize()} with default parameters")
         else:
             logging.info(f"Declaring estimator {args.model.capitalize()} with default parameters")
         
@@ -222,7 +230,7 @@ def main():
         estimator = EstimatorClass(
             freq=data_module.freq, 
             prediction_length=data_module.prediction_length,
-            num_feat_dynamic_real=data_module.num_feat_dynamic_real, 
+            num_feat_dynamic_real=data_module.num_feat_dynamic_real,
             num_feat_static_cat=data_module.num_feat_static_cat,
             cardinality=data_module.cardinality,
             num_feat_static_real=data_module.num_feat_static_real,
@@ -230,7 +238,6 @@ def main():
             scaling=False,
             time_features=[second_of_minute, minute_of_hour, hour_of_day, day_of_year],
             distr_output=globals()[config["model"]["distr_output"]["class"]](dim=data_module.num_target_vars, **config["model"]["distr_output"]["kwargs"]),
-            
             batch_size=config["dataset"].setdefault("batch_size", 128),
             num_batches_per_epoch=config["trainer"].setdefault("limit_train_batches", 50),
             context_length=config["dataset"]["context_length"],
@@ -491,21 +498,11 @@ def main():
         
         # %% EXPORT LOGGING DATA
         # api = wandb.Api()
-        # run is specified by <entity>/<project>/<run_id>
-        # run = api.run("aoife-henry-university-of-colorado-boulder/wind_forecasting/<run_id>")
-        
-        # save the metrics for the run to a csv file
+        # run = api.run("<entity>/<project>/<run_id>")
         # metrics_df = run.history()
         # metrics_df.to_csv("metrics.csv")
-        
-        # Pull down the accuracy and timestamps for logged metric data  
-        # if run.state == "finished":
-        #     for i, row in metrics_df.iterrows():
-        #     print(row["_timestamp"], row["accuracy"])
-        
-        # get unsampled metric data
         # history = run.scan_history()
-    
+
 if __name__ == "__main__":
     main()
 # %%

@@ -6,12 +6,12 @@ experiment:
 
 optuna:
   journal_dir: /projects/ssc/ahenry/wind_forecasting/optuna
-  use_rdb: False
-  n_trials: 100
+  storage_type: sqlite # or mysql, or journal
+  n_trials: 1000
 
 dataset: 
-    data_path: /projects/ssc/ahenry/wind_forecasting/awaken_data/SMARTEOLE_WakeSteering_SCADA_1minData_normalized.parquet
-    normalization_consts_path: /projects/ssc/ahenry/wind_forecasting/awaken_data/SMARTEOLE_WakeSteering_SCADA_1minData_normalization_consts.csv 
+    data_path: /projects/ssc/ahenry/wind_forecasting/flasc_data/SMARTEOLE_WakeSteering_SCADA_1minData_normalized.parquet
+    normalization_consts_path: /projects/ssc/ahenry/wind_forecasting/flasc_data/SMARTEOLE_WakeSteering_SCADA_1minData_normalization_consts.csv 
     context_length: 20 # 120=10 minutes for 5 sec sample size
     prediction_length: 20 # 120=10 minutes for 5 sec sample size
     target_turbine_ids: # or leave blank to capture all
@@ -21,7 +21,7 @@ dataset:
     overfit: False
     test_split: 0.20
     val_split: 0.1
-    resample_freq: 30s
+    resample_freq: 60s
     n_splits: 1 # how many divisions of each continuity group to make which is further subdivided into training test and validation data
     per_turbine_target: False
 
@@ -69,6 +69,7 @@ model:
     pos_emb_type: abs
     embed_method: spatio-temporal
     activation: relu
+    use_given: False
 
 callbacks: 
     progress_bar:  
