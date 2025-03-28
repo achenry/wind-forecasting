@@ -20,7 +20,7 @@ conda activate wind_forecasting
 
 #export MPICH_SHARED_MEM_COLL_OPT=mpi_bcast,mpi_barrier 
 #export MPICH_COLL_OPT_OFF=mpi_allreduce 
-#export LD_LIBRARy_PATH=$CONDA_PREFIX/lib
+export LD_LIBRARY_PATH=$CONDA_PREFIX/lib
 
 # cd $LARGE_STORAGE/ahenry/wind_forecasting_env/wind-forecasting/wind_forecasting/preprocessing
 # conda activate wind_forecasting_preprocessing
