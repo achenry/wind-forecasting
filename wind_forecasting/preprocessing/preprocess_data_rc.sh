@@ -9,13 +9,16 @@
 #SBATCH --output=preprocess_data.out
 #SBATCH --tmp=1T
 
-# module purge
-# module load mamba
+module purge
+module load miniforge
+module load intel
+module load impi
 conda activate wind_forecasting
 #echo $SLURM_NTASKS
 #export RUST_BACKTRACE=full
 
 #module load openmpi/4.1.6-intel
+
 #export MPICC=$(which mpicc)
 
 #export MPICH_SHARED_MEM_COLL_OPT=mpi_bcast,mpi_barrier 
@@ -30,3 +33,4 @@ python preprocessing_main.py --config /projects/aohe7145/toolboxes/wind_forecast
 # python preprocessing_main.py --config /$HOME/toolboxes/wind_forecasting_env/wind-forecasting/examples/inputs/preprocessing_inputs_kestrel_flasc.yaml --multiprocessor cf --preprocess_data #--regenerate_filters
 # srun preprocessing_main.py --config /$HOME/toolboxes/wind_forecasting_env/wind-forecasting/examples/inputs/preprocessing_inputs_kestrel_awaken_new.yaml --multiprocessor mpi --preprocess_data #--regenerate_filters
 
+# salloc --nodes=1 --ntasks=1 --time=01:00:00 --partition=atesting 
