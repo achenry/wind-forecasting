@@ -8,16 +8,14 @@ import logging
 import torch
 import gc
 
-# Removed mysql.connector import as MySQL logic is dropped
-from optuna import create_study
+# Imports for Optuna
+from optuna import create_study, load_study
 from optuna.samplers import TPESampler
-from optuna.storages import JournalStorage
-from optuna.storages.journal import JournalFileBackend
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 class MLTuningObjective:
-    def __init__(self, *, model, config, lightning_module_class, estimator_class, distr_output_class, max_epochs, limit_train_batches, data_module, metric, context_length_choices):
+    def __init__(self, *, model, config, lightning_module_class, estimator_class, distr_output_class, max_epochs, limit_train_batches, data_module, metric, context_length_choices, seed=42):
         self.model = model
         self.config = config
         self.lightning_module_class = lightning_module_class
@@ -28,6 +26,7 @@ class MLTuningObjective:
         self.evaluator = MultivariateEvaluator(num_workers=None, custom_eval_fn=None)
         self.context_length_choices = context_length_choices
         self.metrics = []
+        self.seed = seed
 
         self.config["trainer"]["max_epochs"] = max_epochs
         self.config["trainer"]["limit_train_batches"] = limit_train_batches
@@ -61,6 +60,17 @@ class MLTuningObjective:
                     f"Total: {total:.2f}GB")
      
     def __call__(self, trial):
+        # Set random seeds for reproducibility within each trial
+        # Use different but deterministic seeds for each trial by combining base seed with trial number
+        trial_seed = self.seed + trial.number
+        torch.manual_seed(trial_seed)
+        torch.cuda.manual_seed_all(trial_seed)
+        import random
+        import numpy as np
+        random.seed(trial_seed)
+        np.random.seed(trial_seed)
+        logging.info(f"Set random seed for trial {trial.number} to {trial_seed}")
+        
         # Log GPU stats at the beginning of the trial
         self.log_gpu_stats(stage=f"Trial {trial.number} Start")
         
@@ -167,7 +177,7 @@ def get_storage(use_rdb, study_name, journal_storage_dir=None):
         journal_storage_dir: Directory to store journal files
         
     Returns:
-        Storage object for Optuna
+        Storage URL string for Optuna
     """
     if use_rdb:
         # For parallel execution, we need to handle SQLite concurrency issues
@@ -215,12 +225,16 @@ def get_storage(use_rdb, study_name, journal_storage_dir=None):
         
         return storage_url
     else:
-        # Existing journal storage implementation
+        # Journal storage implementation with URL format
+        os.makedirs(journal_storage_dir, exist_ok=True)
         journal_file = os.path.join(journal_storage_dir, f"{study_name}.journal")
-        storage = JournalStorage(
-            JournalFileBackend(journal_file)
-        )
-        return storage
+        
+        # Create a valid storage URL for the journal file
+        # Format: journal:///path/to/journal/file
+        storage_url = f"journal:///{journal_file}"
+        logging.info(f"Using journal storage at {journal_file}")
+        
+        return storage_url
     
 def check_wal_mode(db_path):
     """Verify that WAL mode is working on the filesystem."""
@@ -242,18 +256,12 @@ def check_wal_mode(db_path):
         logging.error(f"Error checking WAL mode: {e}")
         return False
 
-def get_tuned_params(use_rdb, study_name):
-    storage = get_storage(use_rdb=use_rdb, study_name=study_name)
+def get_tuned_params(use_rdb, study_name, journal_storage_dir=None):
+    storage_url = get_storage(use_rdb=use_rdb, study_name=study_name, journal_storage_dir=journal_storage_dir)
     try:
-        if use_rdb:
-            # When use_rdb is True, storage is a URL string
-            from optuna import load_study
-            study = load_study(study_name=study_name, storage=storage)
-            return study.best_trial.params
-        else:
-            # When use_rdb is False, storage is a JournalStorage object
-            study_id = storage.get_study_id_from_name(study_name)
-            return storage.get_best_trial(study_id).params
+        from optuna import load_study
+        study = load_study(study_name=study_name, storage=storage_url)
+        return study.best_trial.params
     except Exception as e:
         logging.error(f"Error retrieving tuned parameters: {e}")
         raise FileNotFoundError(f"Optuna study {study_name} not found. Please run tune_hyperparameters_multi for all outputs first.")
@@ -303,14 +311,14 @@ def tune_model(model, config, lightning_module_class, estimator_class,
                     logging.warning(f"Could not delete journal file {journal_file}: {e}")
     
     # Get storage after potential deletions
-    storage = get_storage(use_rdb=use_rdb, study_name=study_name, journal_storage_dir=journal_storage_dir)
+    storage_url = get_storage(use_rdb=use_rdb, study_name=study_name, journal_storage_dir=journal_storage_dir)
     
     # Create or load the study with standard hyperparameters
     try:
         logging.info(f"Creating Optuna study {study_name}")
         study = create_study(
             study_name=study_name,
-            storage=storage,
+            storage=storage_url,
             direction=direction,
             load_if_exists=True,
             sampler=TPESampler(seed=seed)  # Use the seed provided as an argument
@@ -319,8 +327,8 @@ def tune_model(model, config, lightning_module_class, estimator_class,
     except Exception as e:
         logging.error(f"Error creating study: {str(e)}")
         logging.error(f"Error type: {type(e).__name__}")
-        logging.error(f"Storage type: {type(storage).__name__}")
-        logging.error(f"Storage value: {storage}")
+        logging.error(f"Storage type: {type(storage_url).__name__}")
+        logging.error(f"Storage value: {storage_url}")
         raise
     
     # Get worker ID for logging
@@ -336,7 +344,8 @@ def tune_model(model, config, lightning_module_class, estimator_class,
                                         limit_train_batches=limit_train_batches,
                                         data_module=data_module,
                                         context_length_choices=context_length_choices,
-                                        metric=metric)
+                                        metric=metric,
+                                        seed=seed)
     
     # Use the trial protection callback if provided
     objective_fn = (lambda trial: trial_protection_callback(tuning_objective, trial)) if trial_protection_callback else tuning_objective

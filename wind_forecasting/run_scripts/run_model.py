@@ -93,7 +93,42 @@ def main():
         config["trainer"]["strategy"] = "auto"  # Let PyTorch Lightning determine strategy
         logging.info("Single GPU mode enabled: Using devices=1 with auto strategy")
     else:
-        # Multi-GPU configuration uses all available GPUs
+        # Check if CUDA_VISIBLE_DEVICES is set and contains only a single GPU
+        if "CUDA_VISIBLE_DEVICES" in os.environ:
+            cuda_devices = os.environ["CUDA_VISIBLE_DEVICES"]
+            logging.info(f"CUDA_VISIBLE_DEVICES is set to: '{cuda_devices}'")
+            try:
+                # Count the number of GPUs specified in CUDA_VISIBLE_DEVICES
+                visible_gpus = [idx for idx in cuda_devices.split(',') if idx.strip()]
+                num_visible_gpus = len(visible_gpus)
+                
+                if num_visible_gpus > 0:
+                    # Only override if the current configuration doesn't match
+                    if "devices" in config["trainer"] and config["trainer"]["devices"] != num_visible_gpus:
+                        logging.warning(f"Adjusting trainer.devices from {config['trainer']['devices']} to {num_visible_gpus} based on CUDA_VISIBLE_DEVICES")
+                        config["trainer"]["devices"] = num_visible_gpus
+                        
+                        # If only one GPU is visible, use auto strategy instead of distributed
+                        if num_visible_gpus == 1 and "strategy" in config["trainer"] and config["trainer"]["strategy"] != "auto":
+                            logging.warning("Setting strategy to 'auto' since only one GPU is visible")
+                            config["trainer"]["strategy"] = "auto"
+                            
+                    # Log actual GPU mapping information
+                    if num_visible_gpus == 1:
+                        try:
+                            actual_gpu = int(visible_gpus[0])
+                            device_id = 0  # With CUDA_VISIBLE_DEVICES, first visible GPU is always index 0
+                            logging.info(f"Primary GPU is system device {actual_gpu}, mapped to CUDA index {device_id}")
+                        except ValueError:
+                            logging.warning(f"Could not parse GPU index from CUDA_VISIBLE_DEVICES: {visible_gpus[0]}")
+                else:
+                    logging.warning("CUDA_VISIBLE_DEVICES is set but no valid GPU indices found")
+            except Exception as e:
+                logging.warning(f"Error parsing CUDA_VISIBLE_DEVICES: {e}")
+        else:
+            logging.warning("CUDA_VISIBLE_DEVICES is not set, using default GPU assignment")
+        
+        # Multi-GPU configuration from SLURM environment variables (if not overridden above)
         if "SLURM_NTASKS_PER_NODE" in os.environ:
             config["trainer"]["devices"] = int(os.environ["SLURM_NTASKS_PER_NODE"])
         if "SLURM_NNODES" in os.environ:
@@ -261,16 +296,32 @@ def main():
                 cuda_devices = os.environ["CUDA_VISIBLE_DEVICES"]
                 logging.info(f"CUDA_VISIBLE_DEVICES is set to: '{cuda_devices}'")
                 try:
-                    # Try to get the first visible device
-                    if cuda_devices.strip():
-                        visible_gpus = [int(idx) for idx in cuda_devices.split(',') if idx.strip()]
-                        if visible_gpus:
-                            device_id = 0  # With CUDA_VISIBLE_DEVICES, first visible GPU is always index 0
-                            actual_gpu = visible_gpus[0]
-                            logging.info(f"Primary GPU is system device {actual_gpu}, mapped to CUDA index {device_id}")
-                        else:
-                            logging.warning("CUDA_VISIBLE_DEVICES is set but no valid GPU indices found")
-                except ValueError as e:
+                    # Count the number of GPUs specified in CUDA_VISIBLE_DEVICES
+                    visible_gpus = [idx for idx in cuda_devices.split(',') if idx.strip()]
+                    num_visible_gpus = len(visible_gpus)
+                    
+                    if num_visible_gpus > 0:
+                        # Only override if the current configuration doesn't match
+                        if "devices" in config["trainer"] and config["trainer"]["devices"] != num_visible_gpus:
+                            logging.warning(f"Adjusting trainer.devices from {config['trainer']['devices']} to {num_visible_gpus} based on CUDA_VISIBLE_DEVICES")
+                            config["trainer"]["devices"] = num_visible_gpus
+                            
+                            # If only one GPU is visible, use auto strategy instead of distributed
+                            if num_visible_gpus == 1 and "strategy" in config["trainer"] and config["trainer"]["strategy"] != "auto":
+                                logging.warning("Setting strategy to 'auto' since only one GPU is visible")
+                                config["trainer"]["strategy"] = "auto"
+                                
+                        # Log actual GPU mapping information
+                        if num_visible_gpus == 1:
+                            try:
+                                actual_gpu = int(visible_gpus[0])
+                                device_id = 0  # With CUDA_VISIBLE_DEVICES, first visible GPU is always index 0
+                                logging.info(f"Primary GPU is system device {actual_gpu}, mapped to CUDA index {device_id}")
+                            except ValueError:
+                                logging.warning(f"Could not parse GPU index from CUDA_VISIBLE_DEVICES: {visible_gpus[0]}")
+                    else:
+                        logging.warning("CUDA_VISIBLE_DEVICES is set but no valid GPU indices found")
+                except Exception as e:
                     logging.warning(f"Error parsing CUDA_VISIBLE_DEVICES: {e}")
             else:
                 logging.warning("CUDA_VISIBLE_DEVICES is not set, using default GPU assignment")
@@ -283,8 +334,17 @@ def main():
             if args.single_gpu and config["trainer"]["devices"] != 1:
                 logging.warning(f"--single_gpu flag is set but trainer.devices={config['trainer']['devices']}. Forcing devices=1.")
                 config["trainer"]["devices"] = 1
+                config["trainer"]["strategy"] = "auto"
+            
+            # Final check to ensure configuration is valid for available GPUs    
+            num_available_gpus = torch.cuda.device_count()
+            if config["trainer"]["devices"] > num_available_gpus:
+                logging.warning(f"Requested {config['trainer']['devices']} GPUs but only {num_available_gpus} are available. Adjusting trainer.devices.")
+                config["trainer"]["devices"] = num_available_gpus
+                if num_available_gpus == 1 and "strategy" in config["trainer"] and config["trainer"]["strategy"] != "auto":
+                    config["trainer"]["strategy"] = "auto"
                 
-            logging.info(f"Trainer config: devices={config['trainer']['devices']}, strategy={config['trainer']['strategy']}")
+            logging.info(f"Trainer config: devices={config['trainer']['devices']}, strategy={config['trainer'].get('strategy', 'auto')}")
             
             # Log memory information
             logging.info(f"GPU Memory: {torch.cuda.memory_allocated(device)/1e9:.2f}GB / {torch.cuda.get_device_properties(device).total_memory/1e9:.2f}GB")
