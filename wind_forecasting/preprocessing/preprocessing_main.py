@@ -4,14 +4,14 @@
 # ! mamba activate wind_forecasting_env
 # ! conda install -c conda-forge jupyterlab mpi4py impi_rt
 # git clone https://github.com/achenry/wind-forecasting.git
-# git checkout feature/nacelle_calibration
-# git submodule update --init --recursive
-# ! pip install ./OpenOA # have to change pyproject.toml to allow for python 3.12.7
-# ! pip install floris polars windrose netCDF4 statsmodels h5pyd seaborn pyarrow memory_profiler scikit-learn
+# cd wind-forecasting && git checkout feature/spacetimeformer && pip install -e .
+# git clone https://github.com/achenry/floris.git
+# cd floris && git checkout feature/mpc && pip install -e .
+# git clone https://github.com/achenry/OpenOA.git
+# cd OpenOA && git checkout main && pip install -e .
+# ! pip install polars windrose netCDF4 statsmodels h5pyd seaborn pyyaml memory_profiler scikit-learn
 # ! python -m ipykernel install --user --name=wind_forecasting_env
 # ./run_jupyter_preprocessing.sh && http://localhost:7878/lab
-
-# TODO HIGH check for lambda funcs killing parallelization
 
 import os
 import sys
@@ -22,12 +22,12 @@ import time
 import re
 from memory_profiler import profile
 from shutil import rmtree, move
-import pickle
-from glob import glob
-from time import sleep
+# import pickle
+# from glob import glob
+# from time import sleep
 # from pyarrow.dataset import write_dataset
-from pyarrow.parquet import ParquetWriter, ParquetDataset
-import pyarrow as pa
+# from pyarrow.parquet import ParquetWriter, ParquetDataset
+# import pyarrow as pa
 from psutil import virtual_memory
 
 mpi_exists = False
@@ -56,7 +56,7 @@ from openoa.utils import plot, filters, power_curve
 import polars as pl
 import polars.selectors as cs
 import numpy as np
-import matplotlib
+# import matplotlib
 # matplotlib.use('Agg') # Use TkAgg for interactive plots
 # matplotlib.use('TkAgg')
 import matplotlib.pyplot as plt
