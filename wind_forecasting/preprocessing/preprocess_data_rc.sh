@@ -7,25 +7,25 @@
 ##SBATCH --time=12:00:00
 #SBATCH --time=01:00:00
 ##SBATCH --partition=amem
-##SBATCH --partition=atesting
+#SBATCH --partition=atesting
 #SBATCH --output=preprocess_data.out
 ##SBATCH --tmp=1T
 
 module purge
 module load miniforge
-module load gcc/14.2.0
-module load openmpi/5.0.6
+module load intel
+module load impi
 conda activate wind_forecasting
 echo $SLURM_NTASKS
 #export RUST_BACKTRACE=full
 
 #module load openmpi/4.1.6-intel
 
-export MPICC=$(which mpicc)
-echo $MPICC
+#export MPICC=$(which mpicc)
+#echo $MPICC
 #export MPICH_SHARED_MEM_COLL_OPT=mpi_bcast,mpi_barrier 
 #export MPICH_COLL_OPT_OFF=mpi_allreduce 
-export LD_LIBRARY_PATH=$CONDA_PREFIX/lib
+export LD_LIBRARY_PATH=LD_LIBRARY_PATH:$CONDA_PREFIX/lib
 
 # cd $LARGE_STORAGE/ahenry/wind_forecasting_env/wind-forecasting/wind_forecasting/preprocessing
 # conda activate wind_forecasting_preprocessing
