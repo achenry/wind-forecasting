@@ -162,21 +162,17 @@ def main():
     run_dir = os.path.join(config["logging"]["wandb_dir"], f"run_{unique_id}")
     os.environ["WANDB_RUN_DIR"] = run_dir
     
-    # Create WandB logger only if not in init_only mode
-    if not args.init_only:
-        wandb_logger = WandbLogger(
-            project="wind_forecasting",
-            name=run_name,
-            log_model="all",
-            save_dir=config["logging"]["wandb_dir"],  # Use the dedicated wandb directory
-            group=config['experiment']['run_name'],   # Group all workers under the same experiment
-            tags=[f"worker_{worker_id}", f"gpu_{gpu_id}", args.model]  # Add tags for easier filtering
-        )
-        wandb_logger.log_hyperparams(config)
-        config["trainer"]["logger"] = wandb_logger
-    else:
-        # Disable logger for init_only mode
-        config["trainer"]["logger"] = None # Or False, depending on Lightning version compatibility
+    # Create WandB logger with explicit path settings
+    wandb_logger = WandbLogger(
+        project="wind_forecasting",
+        name=run_name,
+        log_model="all",
+        save_dir=config["logging"]["wandb_dir"],  # Use the dedicated wandb directory
+        group=config['experiment']['run_name'],   # Group all workers under the same experiment
+        tags=[f"worker_{worker_id}", f"gpu_{gpu_id}", args.model]  # Add tags for easier filtering
+    )
+    wandb_logger.log_hyperparams(config)
+    config["trainer"]["logger"] = wandb_logger
 
     # Process absolute paths and resolve any variable references in the config
     log_dir = config["experiment"]["log_dir"]
