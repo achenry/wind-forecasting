@@ -9,7 +9,7 @@
 # cd floris && git checkout feature/mpc && pip install -e .
 # git clone https://github.com/achenry/OpenOA.git
 # cd OpenOA && git checkout main && pip install -e .
-# ! pip install polars windrose netCDF4 statsmodels h5pyd seaborn pyyaml memory_profiler scikit-learn
+# ! pip install polars windrose netCDF4 statsmodels h5pyd seaborn pyyaml memory_profiler numpy scikit-learn
 # ! python -m ipykernel install --user --name=wind_forecasting_env
 # ./run_jupyter_preprocessing.sh && http://localhost:7878/lab
 
@@ -72,7 +72,7 @@ ROW_LIMIT = 60 * 60 * 24 * 30 * 3
 # %%
 # @profile
 def main():
-    if MPI.COMM_WORLD.Get_rank() == 0: 
+    if (not mpi_exists) or (mpi_exists and MPI.COMM_WORLD.Get_rank() == 0):
         logging.info("Parsing arguments...")
     parser = argparse.ArgumentParser(prog="WindFarmForecasting")
     parser.add_argument("-cnf", "--config", type=str)
