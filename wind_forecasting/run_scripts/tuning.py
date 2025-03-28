@@ -245,13 +245,18 @@ def check_wal_mode(db_path):
 def get_tuned_params(use_rdb, study_name):
     storage = get_storage(use_rdb=use_rdb, study_name=study_name)
     try:
-        study_id = storage.get_study_id_from_name(study_name)
-    except Exception:
+        if use_rdb:
+            # When use_rdb is True, storage is a URL string
+            from optuna import load_study
+            study = load_study(study_name=study_name, storage=storage)
+            return study.best_trial.params
+        else:
+            # When use_rdb is False, storage is a JournalStorage object
+            study_id = storage.get_study_id_from_name(study_name)
+            return storage.get_best_trial(study_id).params
+    except Exception as e:
+        logging.error(f"Error retrieving tuned parameters: {e}")
         raise FileNotFoundError(f"Optuna study {study_name} not found. Please run tune_hyperparameters_multi for all outputs first.")
-    # self.model[output].set_params(**storage.get_best_trial(study_id).params)
-    # storage.get_all_studies()[0]._study_id
-    # estimato = self.create_model(**storage.get_best_trial(study_id).params)
-    return storage.get_best_trial(study_id).params 
 
 def tune_model(model, config, lightning_module_class, estimator_class, 
                max_epochs, limit_train_batches, 
