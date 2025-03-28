@@ -407,7 +407,8 @@ def main():
                     journal_storage_dir=config["optuna"]["journal_dir"],
                     use_rdb=config["optuna"]["use_rdb"],
                     restart_study=args.restart_tuning,
-                    trial_protection_callback=handle_trial_with_oom_protection)
+                    trial_protection_callback=handle_trial_with_oom_protection,
+                    seed=args.seed)
         
         # After training completes
         torch.cuda.empty_cache()
