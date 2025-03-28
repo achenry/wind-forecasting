@@ -1,12 +1,12 @@
 #!/bin/bash
 #SBATCH --partition=all_gpu.p         # Partition for H100/A100 GPUs cfdg.p / all_gpu.p
 #SBATCH --nodes=1
-#SBATCH --ntasks-per-node=4         # Match number of GPUs
+#SBATCH --ntasks-per-node=2         # Match number of GPUs
 #SBATCH --cpus-per-task=32          # 32 CPUs per task (4 tasks × 32 = 128 CPUs)
 #SBATCH --mem-per-cpu=8016          # Total memory = 128 × 8016 ≈ 1 TB
-#SBATCH --gres=gpu:4
+#SBATCH --gres=gpu:2
 #SBATCH --time=1-00:00
-#SBATCH --job-name=informer_tune_flasc
+#SBATCH --job-name=informer_tune_flasc_test
 #SBATCH --output=/user/taed7566/wind-forecasting/logging/slurm_logs/informer_tune_flasc_%j.out
 #SBATCH --error=/user/taed7566/wind-forecasting/logging/slurm_logs/informer_tune_flasc_%j.err
 #SBATCH --hint=nomultithread        # Disable hyperthreading
@@ -40,7 +40,7 @@ eval "$(conda shell.bash hook)"
 conda activate wf_env_2
 
 # Set paths
-export PYTHONPATH=${WORK_DIR}:${PYTHONPATH}
+export PYTHONPATH=/user/taed7566/pytorch-transformer-ts:${WORK_DIR}:${PYTHONPATH}
 export WANDB_DIR=${LOG_DIR}/wandb
 
 # Print environment info
