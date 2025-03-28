@@ -1,12 +1,10 @@
-
-
 experiment:
   run_name: windfarm_debug
   log_dir: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/logging/
 
 optuna:
   journal_dir: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/optuna
-  use_rdb: True
+  storage_type: sqlite # or mysql, or journal
   n_trials: 2
   metric: mean_wQuantileLoss
   direction: minimize
@@ -76,7 +74,8 @@ model:
     pos_emb_type: abs
     embed_method: spatio-temporal
     activation: relu
-
+    use_given: False
+    
 callbacks: 
     progress_bar:  
     early_stopping:  
