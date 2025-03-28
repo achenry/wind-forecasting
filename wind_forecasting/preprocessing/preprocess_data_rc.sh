@@ -1,18 +1,17 @@
 #!/bin/bash
 
 #SBATCH --nodes=1
-#SBATCH --ntasks=104 # NOTE use 1 for st_dev calc
+#SBATCH --ntasks=48 # NOTE use 1 for st_dev calc
 #SBATCH --mem=0
-#SBATCH --account=ssc
 #SBATCH --time=12:00:00
-#SBATCH --partition=bigmem
-#SBATCH --partition=standard
+#SBATCH --partition=amem
+##SBATCH --partition=standard
 #SBATCH --output=preprocess_data.out
 #SBATCH --tmp=1T
 
-module purge
-module load mamba
-mamba activate wind_forecasting
+# module purge
+# module load mamba
+conda activate wind_forecasting
 #echo $SLURM_NTASKS
 #export RUST_BACKTRACE=full
 
