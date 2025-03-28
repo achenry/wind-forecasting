@@ -1,26 +1,28 @@
 #!/bin/bash
 
 #SBATCH --nodes=1
-#SBATCH --ntasks=48 # NOTE use 1 for st_dev calc
-#SBATCH --mem=0
-#SBATCH --time=12:00:00
-#SBATCH --partition=amem
-##SBATCH --partition=standard
+##SBATCH --ntasks=48
+#SBATCH --ntasks=1
+##SBATCH --mem=0
+##SBATCH --time=12:00:00
+#SBATCH --time=01:00:00
+##SBATCH --partition=amem
+##SBATCH --partition=atesting
 #SBATCH --output=preprocess_data.out
-#SBATCH --tmp=1T
+##SBATCH --tmp=1T
 
 module purge
 module load miniforge
-module load intel
-module load impi
+module load gcc/14.2.0
+module load openmpi/5.0.6
 conda activate wind_forecasting
-#echo $SLURM_NTASKS
+echo $SLURM_NTASKS
 #export RUST_BACKTRACE=full
 
 #module load openmpi/4.1.6-intel
 
-#export MPICC=$(which mpicc)
-
+export MPICC=$(which mpicc)
+echo $MPICC
 #export MPICH_SHARED_MEM_COLL_OPT=mpi_bcast,mpi_barrier 
 #export MPICH_COLL_OPT_OFF=mpi_allreduce 
 export LD_LIBRARY_PATH=$CONDA_PREFIX/lib
