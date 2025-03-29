@@ -170,8 +170,7 @@ def main():
         log_model=True,
         save_dir=config["logging"]["wandb_dir"],  # Use the dedicated wandb directory
         group=config['experiment']['run_name'],   # Group all workers under the same experiment
-        tags=[f"worker_{worker_id}", f"gpu_{gpu_id}", args.model],  # Add tags for easier filtering
-        dirpath=config["logging"]["checkpoint_dir"]  # Explicitly set checkpoint directory
+        tags=[f"worker_{worker_id}", f"gpu_{gpu_id}", args.model]  # Add tags for easier filtering
     )
     wandb_logger.log_hyperparams(config)
     config["trainer"]["logger"] = wandb_logger
