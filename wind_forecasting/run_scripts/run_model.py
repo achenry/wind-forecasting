@@ -154,8 +154,9 @@ def main():
     os.environ["WANDB_ARTIFACT_DIR"] = config["logging"]["checkpoint_dir"]
     # This ensures artifacts are saved in the correct checkpoint directory
     
-    # Prevent WandB from creating a nested 'wandb' directory inside the wandb_dir
-    os.environ["WANDB_DIR"] = config["logging"]["wandb_dir"]
+    wandb_parent_dir = config["logging"]["wandb_dir"]
+    os.environ["WANDB_DIR"] = wandb_parent_dir
+    logging.info(f"WandB will create logs in {os.path.join(wandb_parent_dir, 'wandb')}")
     # Set an explicit run directory to avoid nesting issues
     from datetime import datetime
     unique_id = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{worker_id}_{gpu_id}"
@@ -166,10 +167,11 @@ def main():
     wandb_logger = WandbLogger(
         project="wind_forecasting",
         name=run_name,
-        log_model="all",
+        log_model=True,
         save_dir=config["logging"]["wandb_dir"],  # Use the dedicated wandb directory
         group=config['experiment']['run_name'],   # Group all workers under the same experiment
-        tags=[f"worker_{worker_id}", f"gpu_{gpu_id}", args.model]  # Add tags for easier filtering
+        tags=[f"worker_{worker_id}", f"gpu_{gpu_id}", args.model],  # Add tags for easier filtering
+        dirpath=config["logging"]["checkpoint_dir"]  # Explicitly set checkpoint directory
     )
     wandb_logger.log_hyperparams(config)
     config["trainer"]["logger"] = wandb_logger
@@ -208,6 +210,21 @@ def main():
     config["logging"]["optuna_dir"] = optuna_dir
     config["logging"]["checkpoint_dir"] = checkpoint_dir
     
+    # Add a ModelCheckpoint callback to explicitly save checkpoints to the correct directory
+    from lightning.pytorch.callbacks import ModelCheckpoint
+    if "trainer" in config and "callbacks" not in config["trainer"]:
+        config["trainer"]["callbacks"] = []
+    
+    checkpoint_callback = ModelCheckpoint(
+        dirpath=checkpoint_dir,
+        filename='{epoch}-{step}',
+        save_top_k=3,
+        verbose=True,
+        monitor='val_loss',
+        mode='min'
+    )
+    config["trainer"].setdefault("callbacks", []).append(checkpoint_callback)
+    
     # Configure WandB to use the specified directory structure
     os.environ["WANDB_DIR"] = wandb_dir
     
@@ -217,7 +234,13 @@ def main():
     
     # Ensure optuna journal_dir is set correctly with absolute path
     if "optuna" in config:
-        config["optuna"]["journal_dir"] = optuna_dir
+        # Only override journal_dir if it's not explicitly set
+        if "journal_dir" not in config["optuna"] or config["optuna"]["journal_dir"] is None:
+            config["optuna"]["journal_dir"] = optuna_dir
+        else:
+            # Ensure the directory exists
+            os.makedirs(config["optuna"]["journal_dir"], exist_ok=True)
+            logging.info(f"Using explicitly defined Optuna journal_dir: {config['optuna']['journal_dir']}")
     
     # Explicitly resolve any variable references in trainer config
     if "trainer" in config:
