@@ -1,6 +1,12 @@
 ssh ahenry@kestrel-gpu.hpc.nrel.gov
 # https://docs.github.com/en/authentication/connecting-to-github-with-ssh/generating-a-new-ssh-key-and-adding-it-to-the-ssh-agent?platform=linux
 
+## FOR WANDB ONLY
+export WANDB_API_KEY=a9aec8e98a88077de29031385225167c720030f7
+pip install wandb
+wandb login
+## END WANDB
+
 ## FOR PREPROCESSING ONLY
 mkdir /home/ahenry/.conda
 chmod a=rx /home/ahenry/.conda
