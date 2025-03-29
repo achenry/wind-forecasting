@@ -35,7 +35,7 @@ cd ${WORK_DIR} || exit 1 # Exit if cd fails
 
 # --- Set Shared Environment Variables ---
 export PYTHONPATH=${WORK_DIR}:${PYTHONPATH}
-export WANDB_DIR=${LOG_DIR}/wandb # Ensure WandB logs to the correct shared directory
+export WANDB_DIR=${LOG_DIR} # WandB will create a 'wandb' subdirectory here automatically
 
 # --- Print Job Info ---
 echo "--- SLURM JOB INFO ---"
