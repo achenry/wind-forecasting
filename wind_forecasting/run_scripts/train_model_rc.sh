@@ -20,7 +20,8 @@ echo "SLURM_GPUS_ON_NODE=${SLURM_GPUS_ON_NODE}"
 # echo "SLURM_JOB_GPUS=${SLURM_JOB_GPUS}"
 # echo "SLURM_JOB_GRES=${SLURM_JOB_GRES}"
 
-srun -n $SLURM_NTASKS python run_model.py --config ../../examples/inputs/training_inputs_rc_awaken.yaml --mode train --model $1 
+# NOTE run the following first: python load_data.py --config ../../examples/inputs/training_inputs_rc_awaken.yaml --reload
+mpirun -n $SLURM_NTASKS python run_model.py --config ../../examples/inputs/training_inputs_rc_flasc.yaml --mode train --model $1 
 # srun python informer.py
 #python train_spacetimeformer.py spacetimeformer windfarm --debug --run_name spacetimeformer_windfarm_debug --context_points 600 --target_points 600
 
