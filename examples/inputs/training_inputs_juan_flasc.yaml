@@ -13,9 +13,9 @@ optuna:
   study_name: "windfarm_debug_juan_flasc"
   journal_dir: /user/taed7566/wind-forecasting/logging/optuna/ # Changed from variable reference
   use_rdb: True               # Whether to use RDB storage for Optuna
-  n_trials: 50                 # Number of trials to run
-  max_epochs: 5                # Numer of epochs per trial
-  limit_train_batches: 100     # Increased batches per epoch during tuning
+  n_trials: 40                 # trials to fit ~24h
+  max_epochs: 5                # epochs per trial
+  limit_train_batches: 100     # batches per epoch
   metric: "mean_wQuantileLoss" # The metric to optimize
   direction: "minimize"        # Whether to minimize or maximize the metric
   context_length_choice_factors: [1, 2, 3, 4]  # Factors to multiply prediction_length by
@@ -27,7 +27,7 @@ dataset:
     prediction_length: 20 # 120=10 minutes for 5 sec sample size
     target_turbine_ids: # or leave blank to capture all
     normalize: False
-    batch_size: 256 # Increased default batch size (monitor GPU memory)
+    batch_size: 512 # Increased batch size
     workers: 12 # Consider adjusting based on CPU cores per task
     overfit: False
     test_split: 0.20
