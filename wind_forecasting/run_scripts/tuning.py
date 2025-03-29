@@ -291,6 +291,8 @@ def tune_model(model, config, lightning_module_class, estimator_class,
         wandb_dir = config["logging"]["wandb_dir"]
         os.makedirs(wandb_dir, exist_ok=True)
         os.environ["WANDB_DIR"] = wandb_dir
+        logging.info(f"Set WANDB_DIR to {wandb_dir}")
+        logging.info(f"WandB will create logs in {os.path.join(wandb_dir, 'wandb')}")
     
     study_name = config["optuna"]["study_name"]
     logging.info(f"Allocating storage for Optuna study {study_name} in {journal_storage_dir}")  
