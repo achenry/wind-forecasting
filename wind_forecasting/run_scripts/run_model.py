@@ -18,6 +18,7 @@ from torch import set_float32_matmul_precision
 set_float32_matmul_precision('medium') # or high to trade off performance for precision
 
 from lightning.pytorch.loggers import WandbLogger
+from pytorch_lightning.utilities import rank_zero_only
 from pytorch_transformer_ts.informer.lightning_module import InformerLightningModule
 from pytorch_transformer_ts.informer.estimator import InformerEstimator
 from pytorch_transformer_ts.autoformer.estimator import AutoformerEstimator
@@ -72,8 +73,9 @@ def main():
         config["dataset"]["target_turbine_ids"] = None # select all turbines
 
     # %% SETUP LOGGING
-    logging.info("Setting up logging")
-    os.makedirs(config["experiment"]["log_dir"], exist_ok=True)
+    if rank_zero_only.rank == 0:
+        logging.info("Setting up logging")
+        os.makedirs(config["experiment"]["log_dir"], exist_ok=True)
     
     wandb_logger = WandbLogger(
         project="wind_forecasting",
@@ -82,10 +84,10 @@ def main():
         # offline=True,
         save_dir=config["experiment"]["log_dir"],
     )
-    if RUN_ONCE == 0:
+    if rank_zero_only.rank == 0:
         wandb_logger.experiment.config.update(config)
+        
     config["trainer"]["logger"] = wandb_logger
-
 
     # %% CREATE DATASET
     logging.info("Creating datasets")
@@ -104,21 +106,25 @@ def main():
         from wind_forecasting.run_scripts.tuning import get_tuned_params
         if args.use_tuned_parameters:
             try:
-                logging.info("Getting tuned parameters")
+                if rank_zero_only.rank == 0:
+                    logging.info("Getting tuned parameters")
                 tuned_params = get_tuned_params(model=args.model, 
                                                 data_source=os.path.splitext(os.path.basename(config["dataset"]["data_path"]))[0],
                                                 storage_type=config["optuna"]["storage_type"], journal_storage_dir=config["optuna"]["journal_dir"])
-                logging.info(f"Declaring estimator {args.model.capitalize()} with tuned parameters")
+                if rank_zero_only.rank == 0:
+                    logging.info(f"Declaring estimator {args.model.capitalize()} with tuned parameters")
                 config["dataset"].update({k: v for k, v in tuned_params.items() if k in config["dataset"]})
                 config["model"][args.model].update({k: v for k, v in tuned_params.items() if k in config["model"][args.model]})
                 config["trainer"].update({k: v for k, v in tuned_params.items() if k in config["trainer"]})
             except FileNotFoundError as e:
-                logging.warning(e)
-                logging.info(f"Declaring estimator {args.model.capitalize()} with default parameters")
-        else:
+                if rank_zero_only.rank == 0:
+                    logging.warning(e)
+                    logging.info(f"Declaring estimator {args.model.capitalize()} with default parameters")
+        elif rank_zero_only.rank == 0:
             logging.info(f"Declaring estimator {args.model.capitalize()} with default parameters")
          
-        os.makedirs(config["trainer"]["default_root_dir"], exist_ok=True) # create the directory for saving checkpoints if it doesn't exist
+        if rank_zero_only.rank == 0:
+            os.makedirs(config["trainer"]["default_root_dir"], exist_ok=True) # create the directory for saving checkpoints if it doesn't exist
         
         estimator = globals()[f"{args.model.capitalize()}Estimator"](
             freq=data_module.freq, 
@@ -144,7 +150,8 @@ def main():
     if args.mode == "tune":
         # %% TUNE MODEL WITH OPTUNA
         from wind_forecasting.run_scripts.tuning import tune_model
-        os.makedirs(config["optuna"]["journal_dir"], exist_ok=True) 
+        if rank_zero_only.rank == 0:
+            os.makedirs(config["optuna"]["journal_dir"], exist_ok=True) 
     
         tune_model(model=args.model, config=config, 
                     lightning_module_class=globals()[f"{args.model.capitalize()}LightningModule"], 
@@ -163,8 +170,9 @@ def main():
         
     elif args.mode == "train":
         # %% TRAIN MODEL
-        
-        logging.info("Training model")
+        if rank_zero_only.rank == 0:
+            logging.info("Training model")
+            
         estimator.train(
             training_data=data_module.train_dataset,
             validation_data=data_module.val_dataset,
@@ -207,4 +215,3 @@ def main():
     
 if __name__ == "__main__":
     main()
-# %%
