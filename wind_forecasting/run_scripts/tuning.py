@@ -143,7 +143,10 @@ class MLTuningObjective:
         agg_metrics, _ = self.evaluator(iter(tss), iter(forecasts), num_series=self.data_module.num_target_vars)
         agg_metrics["trainable_parameters"] = summarize(estimator.create_lightning_module()).trainable_parameters
         self.metrics.append(agg_metrics.copy())
-        
+
+        # Log available metrics for debugging
+        logging.info(f"Trial {trial.number} - Aggregated metrics calculated: {list(agg_metrics.keys())}")
+
         # Checkpoint the WAL file every 5 trials to prevent excessive growth
         if trial.number % 5 == 0 and hasattr(trial.study, '_storage') and hasattr(trial.study._storage, '_url'):
             try:
@@ -163,8 +166,16 @@ class MLTuningObjective:
         # Force garbage collection at the end of each trial
         gc.collect()
         torch.cuda.empty_cache()
-        
-        return agg_metrics[self.metric]
+
+        # Return the specified metric, with error handling
+        try:
+            metric_value = agg_metrics[self.metric]
+            logging.info(f"Trial {trial.number} - Returning metric '{self.metric}': {metric_value}")
+            return metric_value
+        except KeyError:
+            logging.error(f"Trial {trial.number} - Metric '{self.metric}' not found in calculated metrics: {list(agg_metrics.keys())}")
+            # Return a value indicating failure based on optimization direction
+            return float('inf') if self.config["optuna"]["direction"] == "minimize" else float('-inf')
 
 
 def get_storage(use_rdb, study_name, journal_storage_dir=None):
