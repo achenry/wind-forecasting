@@ -117,6 +117,8 @@ def main():
         else:
             logging.info(f"Declaring estimator {args.model.capitalize()} with default parameters")
          
+        os.makedirs(config["trainer"]["default_root_dir"], exist_ok=True) # create the directory for saving checkpoints if it doesn't exist
+        
         estimator = globals()[f"{args.model.capitalize()}Estimator"](
             freq=data_module.freq, 
             prediction_length=data_module.prediction_length,
@@ -160,6 +162,7 @@ def main():
         
     elif args.mode == "train":
         # %% TRAIN MODEL
+        
         logging.info("Training model")
         estimator.train(
             training_data=data_module.train_dataset,
