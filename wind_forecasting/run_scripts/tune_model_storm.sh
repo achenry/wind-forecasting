@@ -1,10 +1,10 @@
 #!/bin/bash
 #SBATCH --partition=all_gpu.p         # Partition for H100/A100 GPUs cfdg.p / all_gpu.p
 #SBATCH --nodes=1
-#SBATCH --ntasks-per-node=2         # Match number of GPUs requested below
-#SBATCH --cpus-per-task=32          # CPUs per task (2 tasks * 32 = 64 CPUs total)
+#SBATCH --ntasks-per-node=4         # Match number of GPUs requested below
+#SBATCH --cpus-per-task=32          # CPUs per task (4 tasks * 32 = 128 CPUs total)
 #SBATCH --mem-per-cpu=8016          # Memory per CPU (Total Mem = ntasks * cpus-per-task * mem-per-cpu)
-#SBATCH --gres=gpu:2                  # Request 2 GPUs
+#SBATCH --gres=gpu:4                  # Request 2 GPUs
 #SBATCH --time=1-00:00                # Time limit (1 day)
 #SBATCH --job-name=informer_tune_flasc
 #SBATCH --output=/user/taed7566/wind-forecasting/logging/slurm_logs/informer_tune_flasc_%j.out
@@ -176,39 +176,44 @@ echo "-------------------------------"
 
 # --- Wait for all background workers to complete ---
 wait
-WAIT_EXIT_CODE=$? # Capture the exit code of the 'wait' command itself
+WAIT_EXIT_CODE=$? # Capture the exit code of the initial 'wait' command
 
-# --- Final Status Check ---
-echo "--- Worker Completion Status ---"
+# --- Final Status Check based on Worker Logs ---
+echo "--- Worker Completion Status (from logs) ---"
 FAILED_WORKERS=0
-for pid in "${WORKER_PIDS[@]}"; do
-    wait $pid
-    STATUS=$?
-    if [ $STATUS -ne 0 ]; then
-        echo "Worker PID $pid exited with status $STATUS (FAILED)"
-        ((FAILED_WORKERS++))
+SUCCESSFUL_WORKERS=0
+for i in $(seq 0 $((${NUM_GPUS}-1))); do
+    WORKER_LOG="${LOG_DIR}/slurm_logs/worker_${i}_${SLURM_JOB_ID}.log"
+    if [ -f "$WORKER_LOG" ]; then
+        # Check for success message (adjust pattern if needed)
+        if grep -q "COMPLETED successfully" "$WORKER_LOG"; then
+            echo "Worker ${i}: SUCCESS (based on log)"
+            ((SUCCESSFUL_WORKERS++))
+        # Check for failure message (adjust pattern if needed)
+        elif grep -q "FAILED with status" "$WORKER_LOG"; then
+            echo "Worker ${i}: FAILED (based on log)"
+            ((FAILED_WORKERS++))
+        else
+            echo "Worker ${i}: UNKNOWN status (log exists but completion message not found)"
+            ((FAILED_WORKERS++)) # Treat unknown as failure
+        fi
     else
-        echo "Worker PID $pid exited with status $STATUS (SUCCESS)"
+        echo "Worker ${i}: FAILED (log file not found: $WORKER_LOG)"
+        ((FAILED_WORKERS++))
     fi
 done
-echo "--------------------------------"
+echo "------------------------------------------"
 
+TOTAL_WORKERS=${NUM_GPUS}
 if [ $FAILED_WORKERS -gt 0 ]; then
-    echo "${FAILED_WORKERS} workers failed. Check individual worker logs and SLURM error file."
-    # Optionally force a non-zero exit code for the SLURM job
-    # exit 1
+    echo "SUMMARY: ${FAILED_WORKERS} out of ${TOTAL_WORKERS} worker(s) reported failure. Check individual worker logs and SLURM error file."
+    FINAL_EXIT_CODE=1 # Force non-zero exit code for the SLURM job
 else
-    echo "All workers completed successfully."
+    echo "SUMMARY: All ${TOTAL_WORKERS} workers reported success."
+    FINAL_EXIT_CODE=0 # Use 0 if all logs indicate success
 fi
 
 echo "=== TUNING SCRIPT COMPLETED ==="
 date +"%Y-%m-%d %H:%M:%S"
 
-# Exit with the code from the initial 'wait'. If any worker failed before 'wait'
-# was reached, WAIT_EXIT_CODE might be 0, but FAILED_WORKERS will be > 0.
-# Consider exiting with 1 if FAILED_WORKERS > 0.
-if [ $FAILED_WORKERS -gt 0 ]; then
-    exit 1
-else
-    exit $WAIT_EXIT_CODE
-fi
+exit $FINAL_EXIT_CODE
