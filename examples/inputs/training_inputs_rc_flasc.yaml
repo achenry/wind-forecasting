@@ -2,24 +2,24 @@
 
 experiment:
   run_name: windfarm_debug
-  log_dir: /home/aohe7145/toolboxes/wind_forecasting/examples/logging/
+  log_dir: /projects/aohe7145/toolboxes/wind_forecasting_env/wind-forecasting/examples/logging/
 
 optuna:
-  journal_dir: /scratch/alpine/aohe7145/optuna
+  journal_dir: /pl/active/paolab/wind_forecasting/optuna
   storage_type: sqlite # or mysql, or journal
-  n_trials: 2
+  n_trials: 100
   metric: mean_wQuantileLoss
   direction: minimize
   max_epochs: 3
-  limit_train_batches: 100
+  limit_train_batches: 500
   context_length_choice_factors:
     - 1
     - 1.5
     - 2
 
 dataset: 
-    data_path: /scratch/alpine/aohe7145/flasc_data/preprocessed_flasc_data/SMARTEOLE_WakeSteering_SCADA_1minData_normalized.parquet
-    normalization_consts_path: /scratch/alpine/aohe7145/flasc_data/preprocessed_flasc_data/SMARTEOLE_WakeSteering_SCADA_1minData_normalization_consts.csv
+    data_path: /pl/active/paolab/wind_forecasting/flasc_data/SMARTEOLE_WakeSteering_SCADA_1minData_normalized.parquet
+    normalization_consts_path: /pl/active/paolab/wind_forecasting/flasc_data/SMARTEOLE_WakeSteering_SCADA_1minData_normalization_consts.csv
     context_length: 9 # 120=10 minutes for 5 sec sample size
     prediction_length: 5 # 120=10 minutes for 5 sec sample size
     target_turbine_ids: # or leave blank to capture all
@@ -92,13 +92,13 @@ trainer:
     accelerator: gpu
     devices: auto
     num_nodes: 1
-    strategy: auto
+    strategy: ddp
     # n_workers: auto
     # debug: False 
     # accumulate: 1.0
-    max_epochs: 100 # Maximum number of epochs to train 100
-    # limit_train_batches: 100
-    default_root_dir: /home/aohe7145/toolboxes/wind-forecasting/examples/checkpoints
+    max_epochs: 10 # Maximum number of epochs to train 100
+    limit_train_batches: 500
+    default_root_dir: /projects/aohe7145/toolboxes/wind_forecasting_env/wind-forecasting/examples/checkpoints
     # precision: 32-true # 16-mixed enables mixed precision training 32-true is full precision
     # batch_size: 32 # larger = more stable gradients
     # lr: 0.0001 # Step size

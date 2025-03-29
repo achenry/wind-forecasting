@@ -8,14 +8,10 @@
 #SBATCH --output=%j-%x.log
 #SBATCH --partition=atesting_a100
 
-#SBATCH --nodes=1 # this needs to match Trainer(num_nodes...)
-
-
 # sinteractive --partition=atesting_a100 --gres=gpu:1 --ntasks-per-node=1 --time=50:00
 
-
 module purge
-ml mambaforge
+ml miniforge
 mamba activate wind_forecasting
 
 echo "SLURM_NTASKS=${SLURM_NTASKS}"
