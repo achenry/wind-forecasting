@@ -82,7 +82,8 @@ def main():
         # offline=True,
         save_dir=config["experiment"]["log_dir"],
     )
-    wandb_logger.experiment.config.update(config)
+    if RUN_ONCE == 0:
+        wandb_logger.experiment.config.update(config)
     config["trainer"]["logger"] = wandb_logger
 
 
@@ -139,7 +140,7 @@ def main():
             trainer_kwargs=config["trainer"],
             **config["model"][args.model]
         )
-
+        
     if args.mode == "tune":
         # %% TUNE MODEL WITH OPTUNA
         from wind_forecasting.run_scripts.tuning import tune_model
