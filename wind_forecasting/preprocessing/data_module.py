@@ -143,7 +143,7 @@ class DataModule():
             self.cardinality = None 
     
     def generate_splits(self):
-        assert os.path.exists(self.train_ready_data_path), "Must run generate_datasets before generate_splits."
+        assert os.path.exists(self.train_ready_data_path), f"Must run generate_datasets before generate_splits to product {self.train_ready_data_path}."
         
         logging.info(f"Scanning dataset {self.train_ready_data_path}.") 
         dataset = IterableLazyFrame(data_path=self.train_ready_data_path, dtype=self.dtype)
