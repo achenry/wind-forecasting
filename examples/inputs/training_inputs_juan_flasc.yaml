@@ -1,5 +1,5 @@
 experiment:
-  run_name: windfarm_debug_juan_flasc
+  run_name: windfarm_juan_flasc_tune_pruning
   log_dir: /user/taed7566/wind-forecasting/logging/
 
 logging:
@@ -10,7 +10,7 @@ logging:
   slurm_output_dir: /user/taed7566/wind-forecasting/logging/slurm_logs/
 
 optuna:
-  study_name: "windfarm_debug_juan_flasc"
+  study_name: "windfarm_juan_flasc_tune_pruning"
   journal_dir: /user/taed7566/wind-forecasting/logging/optuna/
   use_rdb: True               # Whether to use RDB storage for Optuna
   n_trials: 40                # trials to fit ~24h
