@@ -7,9 +7,9 @@
 #SBATCH --mem-per-cpu=8016          # Memory per CPU (Total Mem = ntasks * cpus-per-task * mem-per-cpu)
 #SBATCH --gres=gpu:4           # Request 4 H100 GPUs
 #SBATCH --time=1-00:00              # Time limit (1 day)
-#SBATCH --job-name=informer_tune_flasc
-#SBATCH --output=/user/taed7566/wind-forecasting/logging/slurm_logs/informer_tune_flasc_%j.out
-#SBATCH --error=/user/taed7566/wind-forecasting/logging/slurm_logs/informer_tune_flasc_%j.err
+#SBATCH --job-name=informer_tune_flasc_sql
+#SBATCH --output=/user/taed7566/wind-forecasting/logging/slurm_logs/informer_tune_flasc_sql_%j.out
+#SBATCH --error=/user/taed7566/wind-forecasting/logging/slurm_logs/informer_tune_flasc_sql_%j.err
 #SBATCH --hint=nomultithread        # Disable hyperthreading
 #SBATCH --distribution=block:block  # Improve GPU-CPU affinity
 #SBATCH --gres-flags=enforce-binding # Enforce binding of GPUs to tasks
@@ -59,55 +59,77 @@ echo "MODEL_NAME: ${MODEL_NAME}"
 echo "RESTART_TUNING_FLAG: '${RESTART_TUNING_FLAG}'"
 echo "------------------------"
 
-# --- Initialize Optuna Study Database ---
-echo "=== INITIALIZING/CHECKING OPTUNA STUDY DATABASE ==="
-date +"%Y-%m-%d %H:%M:%S"
-# Run initialization in a subshell to load environment without affecting the main script
-(
-    echo "Setting up environment for initialization..."
-    # --- Module loading ---
-    module purge
-    module load slurm/hpc-2023/23.02.7
-    module load hpc-env/13.1
-    module load Mamba/24.3.0-0
-    module load CUDA/12.4.0 # Load CUDA even if not using GPU for init
-    echo "Modules loaded for initialization."
+# --- Setup Main Environment ---
+echo "Setting up main environment..."
+module purge
+module load slurm/hpc-2023/23.02.7
+module load hpc-env/13.1
+module load PostgreSQL/16.1-GCCcore-13.1.0
+module load Mamba/24.3.0-0
+module load CUDA/12.4.0
+echo "Modules loaded."
 
-    # --- Activate conda environment ---
-    eval "$(conda shell.bash hook)"
-    conda activate wf_env_2
-    echo "Conda environment 'wf_env_2' activated for initialization."
-
-    # --- Run initialization script ---
-    # Use --init_only flag in run_model.py
-    # Pass the restart flag if set
-    echo "Running database initialization..."
-    python ${WORK_DIR}/run_scripts/run_model.py \
-      --config ${CONFIG_FILE} \
-      --model ${MODEL_NAME} \
-      --mode tune \
-      --seed 12 \
-      ${RESTART_TUNING_FLAG} \
-      --init_only
-
-    sleep 2
-
-    INIT_STATUS=$?
-    if [ $INIT_STATUS -ne 0 ]; then
-        echo "DATABASE INITIALIZATION FAILED with status $INIT_STATUS"
-        exit $INIT_STATUS # Exit the subshell with error
-    else
-        echo "Database initialization successful."
-    fi
-)
-
-# Check if the initialization subshell failed
-if [ $? -ne 0 ]; then
-    echo "Exiting script due to database initialization failure."
-    exit 1
+# Find PostgreSQL binary directory after loading the module
+PG_INITDB_PATH=$(which initdb)
+if [[ -z "$PG_INITDB_PATH" ]]; then
+  echo "FATAL: Could not find 'initdb' after loading PostgreSQL module. Check module system." >&2
+  exit 1
 fi
-echo "================================================"
+# Extract the directory path (e.g., /path/to/postgres/bin)
+export POSTGRES_BIN_DIR=$(dirname "$PG_INITDB_PATH")
+echo "Found PostgreSQL bin directory: ${POSTGRES_BIN_DIR}"
 
+eval "$(conda shell.bash hook)"
+conda activate wf_env_2
+echo "Conda environment 'wf_env_2' activated."
+# --- End Main Environment Setup ---
+
+# --- Define PostgreSQL Variables (needed for trap) ---
+# Define PGDATA and PG_SOCKET_DIR here in the main scope and export them
+# Use paths consistent with db_utils.py and YAML config
+export PGDATA="${BASE_DIR}/logging/optuna/pg_data_study"
+# Use SLURM_JOB_ID for socket uniqueness in TMPDIR
+export PG_SOCKET_DIR="${TMPDIR}/pg_socket_${SLURM_JOB_ID}"
+# Note: Python script (db_utils) will also calculate these paths based on config,
+# ensure consistency. Exporting here makes them available to the trap.
+echo "Exported PGDATA=${PGDATA}"
+echo "Exported PG_SOCKET_DIR=${PG_SOCKET_DIR}"
+# --- End PostgreSQL Variables ---
+
+
+# --- Removed PostgreSQL Setup Block ---
+# Database setup (init, start, stop, URL generation) is now handled within the Python script (run_model.py)
+# based on the configuration in the YAML file.
+# The necessary PostgreSQL module is loaded above.
+
+# --- Define Slurm Cleanup Function ---
+# This function will run when the job exits (normally or via signal)
+# It ensures the PostgreSQL server managed by Python (rank 0) is stopped.
+cleanup() {
+    echo "SLURM EXIT/TERM/INT received. Running cleanup..."
+    # Check if PGDATA is set and directory exists before attempting stop
+    if [[ -n "$PGDATA" ]] && [[ -d "$PGDATA" ]]; then
+        echo "Attempting to stop PostgreSQL server ($PGDATA)..."
+        # Need to load modules again in case trap environment is minimal
+        module load hpc-env/13.1 &>/dev/null || echo "Trap: Failed to load hpc-env"
+        module load PostgreSQL/16.1-GCCcore-13.1.0 &>/dev/null || echo "Trap: Failed to load PostgreSQL"
+        pg_ctl stop -w -D "$PGDATA" -m fast || echo "Trap: pg_ctl stop failed (maybe server was not running or PGDATA invalid?)."
+        echo "PostgreSQL server stop command issued."
+    else
+        echo "Trap: PGDATA not set or directory does not exist, skipping pg_ctl stop."
+    fi
+    # Clean up socket directory if path is set
+    if [[ -n "$PG_SOCKET_DIR" ]] && [[ -d "$PG_SOCKET_DIR" ]]; then
+         echo "Trap: Removing socket directory $PG_SOCKET_DIR..."
+         rm -rf "$PG_SOCKET_DIR"
+    fi
+    echo "Slurm cleanup finished: $(date)"
+}
+
+# Trap signals to ensure cleanup runs AFTER the main script and workers finish
+trap cleanup EXIT TERM INT
+echo "Slurm cleanup trap registered."
+# --- End Cleanup Setup ---
 
 echo "=== STARTING PARALLEL OPTUNA TUNING WORKERS ==="
 date +"%Y-%m-%d %H:%M:%S"
@@ -142,17 +164,19 @@ for i in $(seq 0 $((${NUM_GPUS}-1))); do
 
         # --- Set Worker-Specific Environment ---
         export CUDA_VISIBLE_DEVICES=${i} # Assign specific GPU based on loop index
+        export WORKER_RANK=${i}          # Export rank for Python script
         # Note: PYTHONPATH and WANDB_DIR are inherited via export from parent script
 
-        echo \"Worker ${i}: Running python script...\"
+        echo \"Worker ${i}: Running python script with WORKER_RANK=${WORKER_RANK}...\"
         # --- Run the tuning script ---
-        # Workers connect to the already initialized study
-        # Do NOT pass --restart_tuning here
+        # Workers connect to the already initialized study using the PG URL
+        # Do NOT pass --restart_tuning or --init_only here
         python ${WORK_DIR}/run_scripts/run_model.py \\
           --config ${CONFIG_FILE} \\
           --model ${MODEL_NAME} \\
           --mode tune \\
           --seed ${CURRENT_WORKER_SEED} \\
+          ${RESTART_TUNING_FLAG} \\
           --single_gpu # Crucial for making Lightning use only the assigned GPU
 
         # Check exit status
@@ -188,7 +212,8 @@ echo "--- Worker Completion Status (from logs) ---"
 FAILED_WORKERS=0
 SUCCESSFUL_WORKERS=0
 for i in $(seq 0 $((${NUM_GPUS}-1))); do
-    WORKER_LOG="${LOG_DIR}/slurm_logs/worker_${i}_${SLURM_JOB_ID}.log"
+    # Correct path to include the job ID subdirectory
+    WORKER_LOG="${LOG_DIR}/slurm_logs/${SLURM_JOB_ID}/worker_${i}_${SLURM_JOB_ID}.log"
     if [ -f "$WORKER_LOG" ]; then
         # Check for success message (adjust pattern if needed)
         if grep -q "COMPLETED successfully" "$WORKER_LOG"; then
