@@ -13,16 +13,12 @@
 module purge
 module load miniforge
 module load intel impi
-conda activate wind_forecasting
-
-export WANDB_API_KEY=a9aec8e98a88077de29031385225167c720030f7
+mamba activate wind_forecasting
 
 echo "SLURM_NTASKS=${SLURM_NTASKS}"
 echo "SLURM_JOB_NUM_NODES=${SLURM_JOB_NUM_NODES}"
 echo "SLURM_GPUS_ON_NODE=${SLURM_GPUS_ON_NODE}"
 export WANDB_API_KEY=a9aec8e98a88077de29031385225167c720030f7
-# echo "SLURM_JOB_GPUS=${SLURM_JOB_GPUS}"
-# echo "SLURM_JOB_GRES=${SLURM_JOB_GRES}"
 export PYTHON_EXECUTABLE=$(which python)
 
 # NOTE run the following first: python load_data.py --config ../../examples/inputs/training_inputs_rc_awaken.yaml --reload
