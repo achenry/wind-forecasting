@@ -56,7 +56,7 @@ class MLTuningObjective:
             num_feat_static_real=self.data_module.num_feat_static_real,
             input_size=self.data_module.num_target_vars,
             scaling=False,
-            
+            lags_seq=[0], 
             batch_size=self.config["dataset"].setdefault("batch_size", 128),
             num_batches_per_epoch=self.config["trainer"]["limit_train_batches"],
             train_sampler=ExpectedNumInstanceSampler(num_instances=1.0, min_past=self.config["dataset"]["context_length"], min_future=self.data_module.prediction_length),
