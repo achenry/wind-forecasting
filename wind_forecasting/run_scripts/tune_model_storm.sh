@@ -1,21 +1,21 @@
 #!/bin/bash
 
-# Create job ID directory for logs
-mkdir -p /user/taed7566/wind-forecasting/logging/slurm_logs/${SLURM_JOB_ID}
-
-#SBATCH --partition=all_gpu.p         # Partition for H100/A100 GPUs cfdg.p / all_gpu.p
+#SBATCH --partition=all_gpu.p       # Partition for H100/A100 GPUs cfdg.p / all_gpu.p / mpcg.p(not allowed)
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=4         # Match number of GPUs requested below
 #SBATCH --cpus-per-task=32          # CPUs per task (4 tasks * 32 = 128 CPUs total)
 #SBATCH --mem-per-cpu=8016          # Memory per CPU (Total Mem = ntasks * cpus-per-task * mem-per-cpu)
-#SBATCH --gres=gpu:h100:4           # Request 4 H100 GPUs
+#SBATCH --gres=gpu:4           # Request 4 H100 GPUs
 #SBATCH --time=1-00:00              # Time limit (1 day)
-#SBATCH --job-name=informer_tune_flasc_prune
-#SBATCH --output=/user/taed7566/wind-forecasting/logging/slurm_logs/${SLURM_JOB_ID}/informer_tune_flasc_prune_%j.out
-#SBATCH --error=/user/taed7566/wind-forecasting/logging/slurm_logs/${SLURM_JOB_ID}/informer_tune_flasc_prune_%j.err
+#SBATCH --job-name=informer_tune_flasc
+#SBATCH --output=/user/taed7566/wind-forecasting/logging/slurm_logs/${SLURM_JOB_ID}/informer_tune_flasc_%j.out
+#SBATCH --error=/user/taed7566/wind-forecasting/logging/slurm_logs/${SLURM_JOB_ID}/informer_tune_flasc_%j.err
 #SBATCH --hint=nomultithread        # Disable hyperthreading
 #SBATCH --distribution=block:block  # Improve GPU-CPU affinity
 #SBATCH --gres-flags=enforce-binding # Enforce binding of GPUs to tasks
+
+# Create job ID directory for logs
+mkdir -p /user/taed7566/wind-forecasting/logging/slurm_logs/${SLURM_JOB_ID}
 
 # --- Configuration ---
 # Set this to "--restart_tuning" to clear and restart the Optuna study, otherwise set to "" to continue previous one
