@@ -4,8 +4,8 @@
 #SBATCH --ntasks-per-node=4         # Match number of GPUs requested below
 #SBATCH --cpus-per-task=32          # CPUs per task (4 tasks * 32 = 128 CPUs total)
 #SBATCH --mem-per-cpu=8016          # Memory per CPU (Total Mem = ntasks * cpus-per-task * mem-per-cpu)
-#SBATCH --gres=gpu:4                  # Request 2 GPUs
-#SBATCH --time=1-00:00                # Time limit (1 day)
+#SBATCH --gres=gpu:h100:4           # Request 4 H100 GPUs
+#SBATCH --time=1-00:00              # Time limit (1 day)
 #SBATCH --job-name=informer_tune_flasc
 #SBATCH --output=/user/taed7566/wind-forecasting/logging/slurm_logs/informer_tune_flasc_%j.out
 #SBATCH --error=/user/taed7566/wind-forecasting/logging/slurm_logs/informer_tune_flasc_%j.err
@@ -14,7 +14,7 @@
 #SBATCH --gres-flags=enforce-binding # Enforce binding of GPUs to tasks
 
 # --- Configuration ---
-# Set this to "--restart_tuning" to clear and restart the Optuna study, otherwise set to ""
+# Set this to "--restart_tuning" to clear and restart the Optuna study, otherwise set to "" to continue previous one
 RESTART_TUNING_FLAG="--restart_tuning" # "" Or "--restart_tuning"
 
 # --- Base Directories ---
@@ -26,7 +26,6 @@ export MODEL_NAME="informer"
 
 # --- Create Logging Directories ---
 mkdir -p ${LOG_DIR}/slurm_logs
-mkdir -p ${LOG_DIR}/wandb
 mkdir -p ${LOG_DIR}/optuna
 mkdir -p ${LOG_DIR}/checkpoints
 

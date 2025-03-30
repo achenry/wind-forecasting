@@ -11,6 +11,8 @@ import gc
 # Imports for Optuna
 from optuna import create_study, load_study
 from optuna.samplers import TPESampler
+from optuna.pruners import HyperbandPruner, MedianPruner, PercentilePruner, NopPruner
+from optuna.integration import PyTorchLightningPruningCallback
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -30,6 +32,13 @@ class MLTuningObjective:
 
         self.config["trainer"]["max_epochs"] = max_epochs
         self.config["trainer"]["limit_train_batches"] = limit_train_batches
+        
+        # Store pruning configuration
+        self.pruning_enabled = "pruning" in config["optuna"] and config["optuna"]["pruning"].get("enabled", False)
+        if self.pruning_enabled:
+            logging.info(f"Pruning is enabled using {config['optuna']['pruning'].get('type', 'hyperband')} pruner")
+        else:
+            logging.info("Pruning is disabled")
         
         # Add GPU monitoring
         self.gpu_available = torch.cuda.is_available()
@@ -79,6 +88,29 @@ class MLTuningObjective:
         self.config["dataset"].update({k: v for k, v in params.items() if k in self.config["dataset"]})
         self.config["model"][self.model].update({k: v for k, v in params.items() if k in self.config["model"][self.model]})
         self.config["trainer"].update({k: v for k, v in params.items() if k in self.config["trainer"]})
+        
+        # Configure trainer_kwargs to include pruning callback if enabled
+        if self.pruning_enabled:
+            # Initialize callbacks list if it doesn't exist
+            if "callbacks" not in self.config["trainer"]:
+                self.config["trainer"]["callbacks"] = []
+            elif self.config["trainer"]["callbacks"] is None:
+                self.config["trainer"]["callbacks"] = []
+            
+            # Check if callbacks is already a list, if not convert it
+            if not isinstance(self.config["trainer"]["callbacks"], list):
+                self.config["trainer"]["callbacks"] = [self.config["trainer"]["callbacks"]]
+            
+            # Create PyTorch Lightning pruning callback
+            pruning_callback = PyTorchLightningPruningCallback(
+                trial,
+                monitor=self.metric  # Use the same metric for pruning as for optimization
+            )
+            
+            # Add to callbacks list
+            self.config["trainer"]["callbacks"].append(pruning_callback)
+            logging.info(f"Added pruning callback for trial {trial.number}, monitoring {self.metric}")
+        
         # Verify GPU configuration before creating estimator
         if torch.cuda.is_available():
             device = torch.cuda.current_device()
@@ -133,7 +165,7 @@ class MLTuningObjective:
                                                 forecast_generator=DistributionForecastGenerator(estimator.distr_output))
 
         forecast_it, ts_it = make_evaluation_predictions(
-            dataset=self.data_module.test_dataset,
+            dataset=self.data_module.val_dataset,  # FIXED: Using validation data instead of test data
             predictor=predictor,
             output_distr_params=True
         )
@@ -326,15 +358,46 @@ def tune_model(model, config, lightning_module_class, estimator_class,
     # Get storage after potential deletions
     storage_url = get_storage(use_rdb=use_rdb, study_name=study_name, journal_storage_dir=journal_storage_dir)
     
+    # Configure pruner based on settings
+    pruner = None
+    if "pruning" in config["optuna"] and config["optuna"]["pruning"].get("enabled", False):
+        pruning_type = config["optuna"]["pruning"].get("type", "hyperband").lower()
+        min_resource = config["optuna"]["pruning"].get("min_resource", 2)
+        
+        logging.info(f"Configuring pruner: type={pruning_type}, min_resource={min_resource}")
+        
+        if pruning_type == "hyperband":
+            reduction_factor = config["optuna"]["pruning"].get("reduction_factor", 3)
+            pruner = HyperbandPruner(
+                min_resource=min_resource,
+                max_resource=max_epochs,
+                reduction_factor=reduction_factor
+            )
+            logging.info(f"Created HyperbandPruner with min_resource={min_resource}, max_resource={max_epochs}, reduction_factor={reduction_factor}")
+        elif pruning_type == "median":
+            pruner = MedianPruner(n_startup_trials=5, n_warmup_steps=min_resource)
+            logging.info(f"Created MedianPruner with n_startup_trials=5, n_warmup_steps={min_resource}")
+        elif pruning_type == "percentile":
+            percentile = config["optuna"]["pruning"].get("percentile", 25)
+            pruner = PercentilePruner(percentile=percentile, n_startup_trials=5, n_warmup_steps=min_resource)
+            logging.info(f"Created PercentilePruner with percentile={percentile}, n_startup_trials=5, n_warmup_steps={min_resource}")
+        else:
+            logging.warning(f"Unknown pruner type: {pruning_type}, using no pruning")
+            pruner = NopPruner()
+    else:
+        logging.info("Pruning is disabled, using NopPruner")
+        pruner = NopPruner()
+    
     # Create or load the study with standard hyperparameters
     try:
-        logging.info(f"Creating Optuna study {study_name}")
+        logging.info(f"Creating Optuna study {study_name} with pruner: {type(pruner).__name__}")
         study = create_study(
             study_name=study_name,
             storage=storage_url,
             direction=direction,
             load_if_exists=True,
-            sampler=TPESampler(seed=seed)  # Use the seed provided as an argument
+            sampler=TPESampler(seed=seed),  # Use the seed provided as an argument
+            pruner=pruner  # Add the pruner
         )
         logging.info(f"Study successfully created or loaded: {study_name}")
     except Exception as e:
@@ -373,6 +436,34 @@ def tune_model(model, config, lightning_module_class, estimator_class,
 
     # All workers log their contribution
     logging.info(f"Worker {worker_id} completed optimization")
+    
+    # Generate visualizations if enabled (primary worker only)
+    if worker_id == '0' and "visualization" in config["optuna"] and config["optuna"]["visualization"].get("enabled", False):
+        try:
+            from wind_forecasting.utils.optuna_visualization import generate_visualizations
+            
+            # Determine output directory
+            visualization_dir = config["optuna"]["visualization"].get("output_dir")
+            if not visualization_dir:
+                visualization_dir = os.path.join(journal_storage_dir, "visualizations")
+            
+            # Expand variable references if present
+            if isinstance(visualization_dir, str) and "${" in visualization_dir:
+                if "${logging.optuna_dir}" in visualization_dir:
+                    visualization_dir = visualization_dir.replace("${logging.optuna_dir}", journal_storage_dir)
+            
+            # Generate plots
+            logging.info(f"Generating Optuna visualizations in {visualization_dir}")
+            summary_path = generate_visualizations(study, visualization_dir, config["optuna"]["visualization"])
+            
+            if summary_path:
+                logging.info(f"Generated Optuna visualizations - summary available at: {summary_path}")
+            else:
+                logging.warning("No visualizations were generated - study may not have enough completed trials")
+        except Exception as e:
+            logging.error(f"Failed to generate Optuna visualizations: {e}")
+            import traceback
+            logging.error(traceback.format_exc())
     
     # Only log best trial once
     if worker_id == '0':
