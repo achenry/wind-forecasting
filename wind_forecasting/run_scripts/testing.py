@@ -198,16 +198,19 @@ def test_model(*, data_module, checkpoint, lightning_module_class, normalization
     print("here")
 
 def get_checkpoint(checkpoint, metric, mode, log_dir):
+    
     if checkpoint in ["best", "latest"]:
-        checkpoint_paths = glob(os.path.join(log_dir, "*/*/*.ckpt"))
+        checkpoint_paths = glob(os.path.join(log_dir, "*/*/*/*.ckpt"))
         # version_dirs = glob(os.path.join(log_dir, "*"))
         if len(checkpoint_paths) == 0:
-            raise FileNotFoundError(f"There are not checkpoint files in {log_dir}.")
+            raise FileNotFoundError(f"There are no checkpoint files in {log_dir}.")
         
     elif not os.path.exists(checkpoint):
         raise FileNotFoundError("Must provide a valid --checkpoint argument to load from.")
-        
-    if checkpoint == "best":
+
+    if checkpoint is None:
+        return None
+    elif checkpoint == "best":
         best_metric_value = float('inf') if mode == "min" else float('-inf')
         best_checkpoint_path = None
         for checkpoint_path in checkpoint_paths:
