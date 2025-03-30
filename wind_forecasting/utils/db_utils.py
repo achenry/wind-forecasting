@@ -177,16 +177,27 @@ def init_postgres(config):
             "--auth=trust", # Use trust auth for local socket simplicity
             "-E UTF8",
             f"-U {job_owner}", # Set initial superuser to the job owner
-            f"-D {pgdata}"
+            "-D", str(pgdata) # Explicitly pass -D and string path separately
         ]
-        _run_cmd(init_cmd)
+        _run_cmd(init_cmd) # Uses shell=False by default now
         logging.info("PostgreSQL data directory initialized.")
-        
-        # Add a short delay to ensure filesystem reflects file creation by initdb
-        time.sleep(1)
 
-        # Configure pg_hba.conf for local socket access
-        hba_conf_path = os.path.join(pgdata, "pg_hba.conf")
+        hba_conf_path = os.path.join(pgdata, "pg_hba.conf") # Define path early
+
+        # Wait explicitly for pg_hba.conf to appear after initdb (handle filesystem delays)
+        max_wait_hba = 10 # seconds
+        wait_interval_hba = 0.5 # seconds
+        waited_hba = 0
+        logging.info(f"Waiting up to {max_wait_hba}s for {hba_conf_path} to appear...")
+        while not os.path.exists(hba_conf_path):
+            time.sleep(wait_interval_hba)
+            waited_hba += wait_interval_hba
+            if waited_hba >= max_wait_hba:
+                logging.error(f"File {hba_conf_path} did not appear after initdb completed.")
+                raise FileNotFoundError(f"File {hba_conf_path} did not appear after initdb completed.")
+        logging.info(f"{hba_conf_path} found after {waited_hba:.1f}s.")
+
+        # Configure pg_hba.conf for local socket access (Now file should exist)
         logging.info(f"Modifying {hba_conf_path} for local trust authentication...")
         hba_lines = [
             "# TYPE  DATABASE        USER            ADDRESS                 METHOD",
@@ -225,23 +236,35 @@ def setup_db_user(config):
 
     # Use the job owner ($USER) which initdb created as superuser with trust auth
     # Check if user exists, create if not
-    check_user_cmd = f"{psql_path} -h '{socket_dir}' -U {job_owner} -d postgres -tAc \"SELECT 1 FROM pg_roles WHERE rolname='{db_user}'\""
-    user_exists = _run_cmd(check_user_cmd, check=False).stdout.strip() == '1'
+    check_user_cmd_list = [
+        psql_path, "-h", socket_dir, "-U", job_owner, "-d", "postgres",
+        "-tAc", f"SELECT 1 FROM pg_roles WHERE rolname='{db_user}'"
+    ]
+    user_exists = _run_cmd(check_user_cmd_list, check=False).stdout.strip() == '1'
 
     if not user_exists:
-        create_user_cmd = f"{psql_path} -h '{socket_dir}' -U {job_owner} -d postgres -c \"CREATE USER {db_user};\""
-        _run_cmd(create_user_cmd)
+        create_user_cmd_list = [
+            psql_path, "-h", socket_dir, "-U", job_owner, "-d", "postgres",
+            "-c", f"CREATE USER {db_user};"
+        ]
+        _run_cmd(create_user_cmd_list)
         logging.info(f"Created PostgreSQL user: {db_user}")
     else:
         logging.info(f"PostgreSQL user {db_user} already exists.")
 
     # Check if db exists, create if not
-    check_db_cmd = f"{psql_path} -h '{socket_dir}' -U {job_owner} -d postgres -tAc \"SELECT 1 FROM pg_database WHERE datname='{db_name}'\""
-    db_exists = _run_cmd(check_db_cmd, check=False).stdout.strip() == '1'
+    check_db_cmd_list = [
+        psql_path, "-h", socket_dir, "-U", job_owner, "-d", "postgres",
+        "-tAc", f"SELECT 1 FROM pg_database WHERE datname='{db_name}'"
+    ]
+    db_exists = _run_cmd(check_db_cmd_list, check=False).stdout.strip() == '1'
 
     if not db_exists:
-        create_db_cmd = f"{psql_path} -h '{socket_dir}' -U {job_owner} -d postgres -c \"CREATE DATABASE {db_name} OWNER {db_user};\""
-        _run_cmd(create_db_cmd)
+        create_db_cmd_list = [
+            psql_path, "-h", socket_dir, "-U", job_owner, "-d", "postgres",
+            "-c", f"CREATE DATABASE {db_name} OWNER {db_user};"
+        ]
+        _run_cmd(create_db_cmd_list)
         logging.info(f"Created PostgreSQL database: {db_name} owned by {db_user}")
     else:
         logging.info(f"PostgreSQL database {db_name} already exists.")
@@ -263,8 +286,9 @@ def start_postgres(config):
 
     logging.info("Starting PostgreSQL server...")
     # Check if server is already running (pg_ctl status)
-    status_cmd = [pg_ctl_path, "status", f"-D {pgdata}"] # Use full path
-    status_result = _run_cmd(status_cmd, check=False)
+    # Pass -D and path as separate arguments
+    status_cmd = [pg_ctl_path, "status", "-D", str(pgdata)]
+    status_result = _run_cmd(status_cmd, check=False) # Uses shell=False
 
     if status_result.returncode == 0:
         logging.info("PostgreSQL server is already running.")
@@ -272,14 +296,15 @@ def start_postgres(config):
 
     # If status check fails (code 3 usually means not running), try starting
     if status_result.returncode == 3:
-        start_cmd = [
-            pg_ctl_path, "start", "-w", # Use full path; -w waits for startup
-            f"-D {pgdata}",
-            f"-l {logfile}",
-            "-o", f"\"-c unix_socket_directories='{socket_dir}'\"" # Pass socket dir config
+        # Construct command list, passing -D and path separately
+        start_cmd_list = [
+            pg_ctl_path, "start", "-w",
+            "-D", str(pgdata),
+            "-l", logfile,
+            "-o", f"-c unix_socket_directories='{socket_dir}'" # Keep -o arg as single string
         ]
-        # Explicitly use shell=True because we joined the command list for quoting -o arg
-        _run_cmd(" ".join(start_cmd), shell=True)
+        # Use shell=False as we pass a list
+        _run_cmd(start_cmd_list)
         logging.info("PostgreSQL server started successfully.")
     else:
         # Unexpected status code
@@ -295,14 +320,15 @@ def stop_postgres(config, raise_on_error=True):
     pg_ctl_path = pg_config["pg_ctl_path"] # Get full path
 
     logging.info("Stopping PostgreSQL server...")
-    stop_cmd = [
-        pg_ctl_path, "stop", "-w", # Use full path; -w waits for shutdown
-        f"-D {pgdata}",
-        "-m fast" # Fast shutdown mode
+    # Construct command list, passing -D and path separately
+    stop_cmd_list = [
+        pg_ctl_path, "stop", "-w",
+        "-D", str(pgdata),
+        "-m", "fast"
     ]
     try:
-        # Explicitly use shell=True because we joined the command list
-        _run_cmd(" ".join(stop_cmd), shell=True)
+        # Use shell=False as we pass a list
+        _run_cmd(stop_cmd_list)
         logging.info("PostgreSQL server stopped.")
     except Exception as e:
         logging.warning(f"pg_ctl stop failed (maybe server was not running?): {e}")

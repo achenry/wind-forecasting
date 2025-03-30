@@ -9,6 +9,8 @@ wind_forecasting/models/__pycache__
 wind_forecasting/preprocessing/__pycache__
 wind_forecasting/__pycache__
 wind_forecasting/.DS_Store
+wind_forecasting/logging/optuna/*
+logging/optuna
 ting_3_9
 wget-log*
 output
