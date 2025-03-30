@@ -1,15 +1,15 @@
 experiment:
-  run_name: windfarm_debug
+  run_name: aoifemac_flasc
   log_dir: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/logging/
 
 optuna:
   journal_dir: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/optuna
-  storage_type: sqlite # or mysql, or journal
+  storage_type: mysql # or mysql, or journal
   n_trials: 2
   metric: mean_wQuantileLoss
   direction: minimize
   max_epochs: 3
-  limit_train_batches: 100
+  limit_train_batches: 500
   context_length_choice_factors:
     - 1
     - 1.5
@@ -18,8 +18,8 @@ optuna:
 dataset: 
     data_path: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/preprocessed_flasc_data/SMARTEOLE_WakeSteering_SCADA_1minData_normalized.parquet
     normalization_consts_path: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/preprocessed_flasc_data/SMARTEOLE_WakeSteering_SCADA_1minData_normalization_consts.csv
-    context_length: 20 # 120=10 minutes for 5 sec sample size
-    prediction_length: 20 # 120=10 minutes for 5 sec sample size
+    context_length: 10 # 120=10 minutes for 5 sec sample size
+    prediction_length: 5 # 120=10 minutes for 5 sec sample size
     target_turbine_ids: # or leave blank to capture all
     normalize: False 
     batch_size: 128
@@ -93,9 +93,9 @@ trainer:
     # n_workers: auto
     # debug: False 
     # accumulate: 1.0
-    max_epochs: 2 # Maximum number of epochs to train 100
-    limit_train_batches: 5
-    default_root_dir: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/checkpoints
+    max_epochs: 10 # Maximum number of epochs to train 100
+    limit_train_batches: 1000
+    default_root_dir: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/logging/
     # precision: 32-true # 16-mixed enables mixed precision training 32-true is full precision
     # batch_size: 32 # larger = more stable gradients
     # lr: 0.0001 # Step size
