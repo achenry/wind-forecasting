@@ -48,7 +48,7 @@ def main():
     parser = argparse.ArgumentParser(prog="WindFarmForecasting")
     parser.add_argument("-cnf", "--config", type=str, required=True)
     parser.add_argument("-md", "--mode", choices=["tune", "train", "test"], required=True)
-    parser.add_argument("-chk", "--checkpoint", type=str, required=False, default="latest", 
+    parser.add_argument("-chk", "--checkpoint", type=str, required=False, default=None, 
                         help="Which checkpoint to use: can be equal to 'latest', 'best', or an existing checkpoint path.")
     parser.add_argument("-m", "--model", type=str, choices=["informer", "autoformer", "spacetimeformer", "tactis"], required=True)
     parser.add_argument("-rt", "--restart_tuning", action="store_true")
@@ -104,6 +104,15 @@ def main():
     # %% DEFINE ESTIMATOR
     if args.mode in ["train", "test"]:
         from wind_forecasting.run_scripts.tuning import get_tuned_params
+        from wind_forecasting.run_scripts.testing import get_checkpoint
+        
+        metric = "val_loss_epoch"
+        mode = "min"
+        if args.checkpoint:
+            checkpoint_path = get_checkpoint(checkpoint=args.checkpoint, metric=metric, mode=mode, log_dir=config["trainer"]["default_root_dir"])
+        else:
+            checkpoint_path = None
+              
         if args.use_tuned_parameters:
             try:
                 if rank_zero_only.rank == 0:
@@ -177,18 +186,13 @@ def main():
             training_data=data_module.train_dataset,
             validation_data=data_module.val_dataset,
             forecast_generator=DistributionForecastGenerator(estimator.distr_output),
-            ckpt_path=args.checkpoint if ((args.checkpoint is not None) and (os.path.exists(args.checkpoint))) else None
+            ckpt_path=checkpoint_path
             # shuffle_buffer_length=1024
         )
         # train_output.trainer.checkpoint_callback.best_model_path
     elif args.mode == "test":
         # %% TEST MODEL
-        from wind_forecasting.run_scripts.testing import test_model, get_checkpoint
-        
-        metric = "val_loss_epoch"
-        mode = "min"
-        # log_dir = os.path.join(config["trainer"]["default_root_dir"], "lightning_logs")
-        checkpoint_path = get_checkpoint(checkpoint=args.checkpoint, metric=metric, mode=mode, log_dir=config["trainer"]["default_root_dir"])
+        from wind_forecasting.run_scripts.testing import test_model
         
         test_model(data_module=data_module,
                     checkpoint=checkpoint_path,
