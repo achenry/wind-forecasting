@@ -1,5 +1,5 @@
 experiment:
-  run_name: windfarm_juan_flasc_tune_pruning
+  run_name: windfarm_juan_flasc_tune_pruning_sql
   log_dir: /user/taed7566/wind-forecasting/logging/
 
 logging:
@@ -10,9 +10,8 @@ logging:
   slurm_output_dir: /user/taed7566/wind-forecasting/logging/slurm_logs/
 
 optuna:
-  study_name: "windfarm_juan_flasc_tune_pruning"
-  journal_dir: /user/taed7566/wind-forecasting/logging/optuna/
-  use_rdb: True               # Whether to use RDB storage for Optuna
+  study_name: "windfarm_juan_flasc_tune_pruning_sql"
+  # use_rdb: True # Replaced by storage section below
   n_trials: 40                # trials to fit ~24h
   max_epochs: 5               # epochs per trial
   limit_train_batches: 100    # batches per epoch
@@ -35,6 +34,22 @@ optuna:
       optimization_history: true
       parameter_importance: true
       slice_plot: true
+      
+  # Storage backend configuration
+  storage:
+    backend: "postgresql"  # Options: "postgresql", "sqlite"
+    # --- PostgreSQL Specific Settings ---
+    # Path relative to project root (e.g., /user/taed7566/wind-forecasting)
+    pgdata_path: "logging/optuna/pg_data_study"
+    db_name: "optuna_study_db"
+    db_user: "optuna_user"
+    use_socket: true      # Use Unix domain socket for local connection (recommended on single node)
+    # socket_dir_base: "/tmp" Optional: Base dir for socket, defaults to $TMPDIR if not set
+
+    # --- SQLite Specific Settings (Example - not used if backend is postgresql) ---
+    # sqlite_path: "logging/optuna/study.db" Relative path for SQLite file if backend="sqlite"
+    # sqlite_wal: true  Enable WAL mode for SQLite (still has limitations)
+    # sqlite_timeout: 600  Timeout in seconds for SQLite locks
 
 dataset:
     data_path: /user/taed7566/wind-forecasting/examples/inputs/SMARTEOLE-WFC-open-dataset/processed/SMARTEOLE_WakeSteering_SCADA_1minData_normalized.parquet

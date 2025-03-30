@@ -199,19 +199,7 @@ class MLTuningObjective:
         # Log available metrics for debugging
         logging.info(f"Trial {trial.number} - Aggregated metrics calculated: {list(agg_metrics.keys())}")
 
-        # Checkpoint the WAL file every 5 trials to prevent excessive growth
-        if trial.number % 5 == 0 and hasattr(trial.study, '_storage') and hasattr(trial.study._storage, '_url'):
-            try:
-                if hasattr(trial.study._storage, '_url') and 'sqlite' in trial.study._storage._url:
-                    import sqlite3
-                    db_path = trial.study._storage._url.replace('sqlite:///', '').split('?')[0]
-                    conn = sqlite3.connect(db_path)
-                    conn.execute("PRAGMA wal_checkpoint(RESTART)")
-                    conn.close()
-                    logging.info(f"Forced WAL checkpoint at trial {trial.number}")
-            except Exception as e:
-                logging.warning(f"Failed to checkpoint WAL file: {e}")
-        
+              
         # Log GPU stats at the end of the trial
         self.log_gpu_stats(stage=f"Trial {trial.number} End")
         
@@ -230,113 +218,12 @@ class MLTuningObjective:
             return float('inf') if self.config["optuna"]["direction"] == "minimize" else float('-inf')
 
 
-def get_storage(use_rdb, study_name, journal_storage_dir=None):
-    """
-    Get storage for Optuna studies.
-    
-    Args:
-        use_rdb: Whether to use SQLite storage
-        study_name: Name of the study
-        journal_storage_dir: Directory to store journal files
-        
-    Returns:
-        Storage URL string for Optuna
-    """
-    if use_rdb:
-        # For parallel execution, we need to handle SQLite concurrency issues
-        os.makedirs(journal_storage_dir, exist_ok=True)
-        
-        # Get worker ID to potentially create worker-specific database files
-        worker_id = os.environ.get('SLURM_PROCID', '0')
-        
-        # Use a single database with optimized locking parameters for SLURM parallel jobs
-        db_path = os.path.join(journal_storage_dir, f"{study_name}.db")
-        
-        # Optuna connection pooling is disabled by default in sqlite
-        # These optimized parameters significantly improve parallel access:
-        # - timeout=600: 10 minutes wait on locks (prevents early failures)
-        # - isolation_level=IMMEDIATE: Reduces deadlocks by starting transaction immediately
-        # - connect_args: Additional SQLite configuration for better concurrency
-        storage_url = f"sqlite:///{db_path}?timeout=600&isolation_level=IMMEDIATE"
-        
-        # Log the database file size for monitoring
-        if os.path.exists(db_path):
-            db_size_mb = os.path.getsize(db_path) / (1024 * 1024)
-            logging.info(f"SQLite database size: {db_size_mb:.2f} MB")
-        
-        # Check if database already exists and initialize WAL mode directly
-        if not os.path.exists(db_path):
-            try:
-                import sqlite3
-                # Create the database manually first with WAL settings
-                conn = sqlite3.connect(db_path, timeout=300000)  # 5 minutes timeout
-                conn.execute("PRAGMA journal_mode=WAL")
-                conn.execute("PRAGMA synchronous=NORMAL")  # Less durability but faster
-                conn.execute("PRAGMA cache_size=10000")    # Larger cache
-                conn.execute("PRAGMA temp_store=MEMORY")   # Use memory for temp operations
-                conn.execute("PRAGMA busy_timeout=300000") # 5 minutes busy timeout
-                conn.execute("PRAGMA wal_autocheckpoint=1000") # Less frequent checkpoints
-                conn.execute("PRAGMA mmap_size=30000000000") # Memory mapping for large DB
-                conn.commit()
-                conn.close()
-                logging.info(f"Created SQLite database with optimized settings at {db_path}")
-            except Exception as e:
-                logging.error(f"Error initializing SQLite database: {e}")
-                
-        # Log worker assignment for debugging
-        logging.info(f"Worker {worker_id} using SQLite database at {db_path}")
-        
-        return storage_url
-    else:
-        # Journal storage implementation with URL format
-        os.makedirs(journal_storage_dir, exist_ok=True)
-        journal_file = os.path.join(journal_storage_dir, f"{study_name}.journal")
-        
-        # Create a valid storage URL for the journal file
-        # Format: journal:///path/to/journal/file
-        storage_url = f"journal:///{journal_file}"
-        logging.info(f"Using journal storage at {journal_file}")
-        
-        return storage_url
-    
-def check_wal_mode(db_path):
-    """Verify that WAL mode is working on the filesystem."""
-    import sqlite3
-    try:
-        conn = sqlite3.connect(db_path)
-        cursor = conn.cursor()
-        cursor.execute("PRAGMA journal_mode")
-        result = cursor.fetchone()[0]
-        conn.close()
-        
-        if result.upper() != 'WAL':
-            logging.warning(f"WAL mode not supported on {db_path}! Using {result} instead.")
-            return False
-        else:
-            logging.info(f"Successfully confirmed WAL mode on {db_path}")
-            return True
-    except Exception as e:
-        logging.error(f"Error checking WAL mode: {e}")
-        return False
-
-def get_tuned_params(use_rdb, study_name, journal_storage_dir=None):
-    storage_url = get_storage(use_rdb=use_rdb, study_name=study_name, journal_storage_dir=journal_storage_dir)
-    try:
-        from optuna import load_study
-        study = load_study(study_name=study_name, storage=storage_url)
-        return study.best_trial.params
-    except Exception as e:
-        logging.error(f"Error retrieving tuned parameters: {e}")
-        raise FileNotFoundError(f"Optuna study {study_name} not found. Please run tune_hyperparameters_multi for all outputs first.")
-
-def tune_model(model, config, lightning_module_class, estimator_class, 
-               max_epochs, limit_train_batches, 
-               distr_output_class, data_module, context_length_choices, 
-               journal_storage_dir, use_rdb=True, restart_study=False, metric="mean_wQuantileLoss", 
-               direction="minimize", n_trials=10, trial_protection_callback=None, seed=42):
-    
-    # Make sure the journal directory exists
-    os.makedirs(journal_storage_dir, exist_ok=True)
+# Update signature: Add optuna_storage_url, remove journal_storage_dir, use_rdb, restart_study
+def tune_model(model, config, optuna_storage_url: str, lightning_module_class, estimator_class,
+               max_epochs, limit_train_batches,
+               distr_output_class, data_module, context_length_choices,
+               metric="mean_wQuantileLoss", direction="minimize", n_trials=10,
+               trial_protection_callback=None, seed=42):
     
     # Ensure WandB is correctly initialized with the proper directory
     if "logging" in config and "wandb_dir" in config["logging"]:
@@ -347,36 +234,15 @@ def tune_model(model, config, lightning_module_class, estimator_class,
         logging.info(f"WandB will create logs in {os.path.join(wandb_dir, 'wandb')}")
     
     study_name = config["optuna"]["study_name"]
-    logging.info(f"Allocating storage for Optuna study {study_name} in {journal_storage_dir}")  
+    # Log safely without credentials if they were included (they aren't for socket trust)
+    log_storage_url = optuna_storage_url.split('@')[0] + '@...' if '@' in optuna_storage_url else optuna_storage_url
+    logging.info(f"Using Optuna storage URL: {log_storage_url}")
     
-    # Handle restarting the study differently for SQLite
-    if restart_study:
-        if use_rdb:
-            # For SQLite, we can drop and recreate the DB
-            db_path = os.path.join(journal_storage_dir, f"{study_name}.db")
-            wal_path = f"{db_path}-wal"
-            shm_path = f"{db_path}-shm"
-            
-            # Remove the database and associated WAL files if they exist
-            for path in [db_path, wal_path, shm_path]:
-                if os.path.exists(path):
-                    try:
-                        os.remove(path)
-                        logging.info(f"Deleted {path}")
-                    except Exception as e:
-                        logging.warning(f"Could not delete {path}: {e}")
-        else:
-            # Original journal file handling
-            journal_file = os.path.join(journal_storage_dir, f"{study_name}.journal")
-            if os.path.exists(journal_file):
-                try:
-                    os.remove(journal_file)
-                    logging.info(f"Deleted journal file {journal_file}")
-                except Exception as e:
-                    logging.warning(f"Could not delete journal file {journal_file}: {e}")
+    # NOTE: Restarting the study is now handled in the Slurm script by deleting the PGDATA directory
+    # if the --restart_tuning flag is set. No specific handling needed here.
     
-    # Get storage after potential deletions
-    storage_url = get_storage(use_rdb=use_rdb, study_name=study_name, journal_storage_dir=journal_storage_dir)
+    # Use the provided storage URL directly
+    storage_url = optuna_storage_url
     
     # Configure pruner based on settings
     pruner = None
@@ -464,13 +330,22 @@ def tune_model(model, config, lightning_module_class, estimator_class,
             
             # Determine output directory
             visualization_dir = config["optuna"]["visualization"].get("output_dir")
-            if not visualization_dir:
-                visualization_dir = os.path.join(journal_storage_dir, "visualizations")
             
-            # Expand variable references if present
+            # Use optuna_dir from logging config as fallback/base if output_dir not set
+            optuna_base_dir = config.get("logging", {}).get("optuna_dir", ".") # Default to current dir if not set
+            
+            if not visualization_dir:
+                # Default to a 'visualizations' subdirectory within the optuna log directory
+                visualization_dir = os.path.join(optuna_base_dir, "visualizations")
+                logging.info(f"Visualization output_dir not set, defaulting to: {visualization_dir}")
+            
+            # Expand variable references if present, using optuna_base_dir
             if isinstance(visualization_dir, str) and "${" in visualization_dir:
                 if "${logging.optuna_dir}" in visualization_dir:
-                    visualization_dir = visualization_dir.replace("${logging.optuna_dir}", journal_storage_dir)
+                    visualization_dir = visualization_dir.replace("${logging.optuna_dir}", optuna_base_dir)
+                    logging.info(f"Resolved visualization_dir to: {visualization_dir}")
+
+            os.makedirs(visualization_dir, exist_ok=True) # Ensure directory exists
             
             # Generate plots
             logging.info(f"Generating Optuna visualizations in {visualization_dir}")

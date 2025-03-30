@@ -17,6 +17,11 @@ import glob # Needed for checkpoint loading from HEAD
 import pandas as pd # Needed for checkpoint loading from HEAD
 import re # Needed for checkpoint loading from HEAD
 import shutil # Needed for checkpoint loading from HEAD
+import atexit # For registering DB cleanup
+import time   # For synchronization sleep
+
+# Internal imports
+from wind_forecasting.utils import db_utils # Import the new DB utility
 
 from gluonts.torch.distributions import LowRankMultivariateNormalOutput, StudentTOutput
 from gluonts.model.forecast_generator import DistributionForecastGenerator
@@ -51,7 +56,18 @@ except:
 # @profile
 def main():
     
-    RUN_ONCE = (mpi_exists and (MPI.COMM_WORLD.Get_rank()) == 0)
+    # Determine worker rank (using WORKER_RANK set in Slurm script, fallback to 0)
+    # This is crucial for coordinating DB setup
+    try:
+        # Use the WORKER_RANK variable set explicitly in the Slurm script's nohup block
+        rank = int(os.environ.get('WORKER_RANK', '0'))
+    except ValueError:
+        logging.warning("Could not parse WORKER_RANK, assuming rank 0.")
+        rank = 0
+    logging.info(f"Determined worker rank from WORKER_RANK: {rank}")
+
+    # Flag for rank 0 execution
+    IS_RANK_ZERO = (rank == 0)
     
     # Parse arguments
     parser = argparse.ArgumentParser(description="Run a model on a dataset")
@@ -67,10 +83,10 @@ def main():
     parser.add_argument("--predictor_path", type=str, help="Path to a saved predictor for evaluation", default=None)
     parser.add_argument("-s", "--seed", type=int, help="Seed for random number generator", default=42)
     parser.add_argument("--save_to", type=str, help="Path to save the predicted output", default=None)
-    parser.add_argument("--init_only", action="store_true", help="Only initialize the database/study and exit")
     parser.add_argument("--single_gpu", action="store_true", help="Force using only a single GPU (the one specified by CUDA_VISIBLE_DEVICES)")
 
     args = parser.parse_args()
+
     
     # %% SETUP SEED
     logging.info(f"Setting random seed to {args.seed}")
@@ -234,7 +250,87 @@ def main():
                 config["trainer"]["default_root_dir"] = checkpoint_dir
         else:
             config["trainer"]["default_root_dir"] = checkpoint_dir
-    
+
+    # --- Database Setup (Rank 0) & Synchronization ---
+    optuna_storage_url = None # Initialize for all ranks
+    sync_file_path = None     # Initialize sync file path
+
+    if "tune" in args.mode: # Only setup DB if tuning
+        storage_backend = config.get("optuna", {}).get("storage", {}).get("backend", "sqlite") # Default to sqlite if not specified
+        logging.info(f"Optuna storage backend configured as: {storage_backend}")
+
+        if storage_backend == "postgresql":
+            # Define path for synchronization file (using TMPDIR for node-local comms)
+            sync_dir = os.environ.get("TMPDIR", "/tmp")
+            sync_file_path = os.path.join(sync_dir, f"optuna_pg_ready_{os.environ.get('SLURM_JOB_ID', os.getpid())}.sync")
+
+            if IS_RANK_ZERO:
+                logging.info("Rank 0: Managing PostgreSQL instance...")
+                try:
+                    # Ensure sync file doesn't exist from a previous failed run
+                    if os.path.exists(sync_file_path):
+                        os.remove(sync_file_path)
+
+                    # Manage instance (init, start, setup user/db)
+                    # Pass restart flag from args
+                    optuna_storage_url = db_utils.manage_postgres_instance(config, restart=args.restart_tuning)
+
+                    # Create sync file to signal readiness
+                    with open(sync_file_path, 'w') as f:
+                        f.write('ready')
+                    logging.info(f"Rank 0: PostgreSQL ready. Created sync file: {sync_file_path}")
+
+                except Exception as e:
+                    logging.error(f"Rank 0: Failed to setup PostgreSQL: {e}")
+                    # Create sync file with error state? Or just let others timeout?
+                    # For now, let others timeout or fail on connection.
+                    # Consider writing 'error' to sync file for faster failure propagation.
+                    raise # Re-raise the exception to stop rank 0
+            else:
+                # Worker ranks wait for Rank 0 to signal DB readiness
+                logging.info(f"Rank {rank}: Waiting for PostgreSQL sync file: {sync_file_path}")
+                max_wait_time = 300 # seconds (5 minutes)
+                wait_interval = 5   # seconds
+                waited_time = 0
+                while not os.path.exists(sync_file_path):
+                    time.sleep(wait_interval)
+                    waited_time += wait_interval
+                    if waited_time >= max_wait_time:
+                        logging.error(f"Rank {rank}: Timed out waiting for sync file {sync_file_path}")
+                        raise TimeoutError("Timed out waiting for Rank 0 PostgreSQL setup.")
+                logging.info(f"Rank {rank}: Sync file found. Proceeding.")
+                # All ranks get the URL (Rank 0 already has it, others construct it)
+                optuna_storage_url = db_utils.get_optuna_storage_url(config)
+
+        elif storage_backend == "sqlite":
+            # Handle SQLite setup if needed (using legacy --init_only logic?)
+            # For now, assume SQLite path is handled by Optuna directly based on config
+            # Construct the SQLite URL based on config
+            sqlite_rel_path = config.get("optuna", {}).get("storage", {}).get("sqlite_path", "logging/optuna/optuna_study.db")
+            project_root = config.get("experiment", {}).get("project_root", os.getcwd())
+            sqlite_abs_path = os.path.abspath(os.path.join(project_root, sqlite_rel_path))
+            os.makedirs(os.path.dirname(sqlite_abs_path), exist_ok=True)
+            optuna_storage_url = f"sqlite:///{sqlite_abs_path}"
+            logging.info(f"Using SQLite storage URL: {optuna_storage_url}")
+            # Handle restart for SQLite
+            if IS_RANK_ZERO and args.restart_tuning and os.path.exists(sqlite_abs_path):
+                 logging.warning(f"Rank 0: --restart_tuning set. Removing existing SQLite DB: {sqlite_abs_path}")
+                 try:
+                     os.remove(sqlite_abs_path)
+                     # Remove WAL files if they exist
+                     for suffix in ["-wal", "-shm"]:
+                          wal_path = sqlite_abs_path + suffix
+                          if os.path.exists(wal_path):
+                              os.remove(wal_path)
+                 except OSError as e:
+                     logging.error(f"Failed to remove SQLite file {sqlite_abs_path}: {e}")
+
+
+        else:
+             raise ValueError(f"Unsupported optuna storage backend: {storage_backend}")
+
+    # --- End Database Setup ---
+
     # %% CREATE DATASET
     logging.info("Creating datasets")
     data_module = DataModule(data_path=config["dataset"]["data_path"], n_splits=config["dataset"]["n_splits"],
@@ -418,62 +514,11 @@ def main():
                 logging.error(f"Trial {trial.number} failed with unexpected error: {type(e).__name__}: {str(e)}")
                 raise
         
-        # If --init_only flag is set, just initialize the database and exit
-        if args.init_only:
-            # Disable WandB for the initialization step to avoid creating an extra run
-            os.environ["WANDB_MODE"] = "disabled"
-            
-            from wind_forecasting.run_scripts.tuning import get_storage, check_wal_mode
-            
-            logging.info("Initializing Optuna database only (--init_only flag detected). WandB disabled.")
-            
-            # Ensure the journal_dir is properly set in config
-            if "optuna" not in config:
-                config["optuna"] = {}
-            
-            if "journal_dir" not in config["optuna"] or config["optuna"]["journal_dir"] is None:
-                # If journal_dir is not set, use the optuna_dir from logging if available
-                if "logging" in config and "optuna_dir" in config["logging"]:
-                    config["optuna"]["journal_dir"] = config["logging"]["optuna_dir"]
-                else:
-                    # Fallback to a default path if neither is available
-                    config["optuna"]["journal_dir"] = os.path.join(config["experiment"]["log_dir"], "optuna")
-                logging.info(f"Setting journal_dir to {config['optuna']['journal_dir']}")
-            
-            # Create directory if it doesn't exist
-            os.makedirs(config["optuna"]["journal_dir"], exist_ok=True)
-            
-            # Set up storage
-            storage = get_storage(
-                use_rdb=config["optuna"]["use_rdb"],
-                study_name=config["optuna"]["study_name"],
-                journal_storage_dir=config["optuna"]["journal_dir"]
-            )
-            
-            # If using SQLite, verify the WAL mode works
-            if config["optuna"]["use_rdb"]:
-                db_path = os.path.join(config["optuna"]["journal_dir"], f"{config['optuna']['study_name']}.db")
-                if os.path.exists(db_path):
-                    check_wal_mode(db_path)
-                    
-            # Create the study if needed but don't run any trials
-            from optuna import create_study
-            from optuna.samplers import TPESampler
-            
-            logging.info(f"Creating/accessing study '{config['optuna']['study_name']}' with {config['optuna']['direction']} direction")
-            study = create_study(
-                study_name=config["optuna"]["study_name"],
-                storage=storage,
-                direction=config["optuna"]["direction"],
-                load_if_exists=True,
-                sampler=TPESampler(seed=args.seed)
-            )
-            
-            logging.info(f"Study initialization complete. Exiting without running trials.")
-            return  # Exit the function early
+        # Removed --init_only block as DB initialization is now handled by rank 0 using db_utils
         
-        # Normal execution - pass the OOM protection wrapper to tune_model
+        # Normal execution - pass the OOM protection wrapper and constructed storage URL
         tune_model(model=args.model, config=config,
+                    storage_url=optuna_storage_url, # Pass the constructed URL
                     lightning_module_class=LightningModuleClass,
                     estimator_class=EstimatorClass,
                     distr_output_class=DistrOutputClass,
@@ -484,9 +529,6 @@ def main():
                     direction=config["optuna"]["direction"],
                     context_length_choices=[int(data_module.prediction_length * i) for i in config["optuna"]["context_length_choice_factors"]],
                     n_trials=config["optuna"]["n_trials"],
-                    journal_storage_dir=config["optuna"]["journal_dir"],
-                    use_rdb=config["optuna"]["use_rdb"],
-                    restart_study=args.restart_tuning,
                     trial_protection_callback=handle_trial_with_oom_protection,
                     seed=args.seed)
         
