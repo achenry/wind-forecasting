@@ -6,7 +6,7 @@ experiment:
 
 optuna:
   journal_dir: /scratch/alpine/aohe7145/optuna
-  storage_type: sqlite # or mysql, or journal
+  storage_type: mysql # sqlite, mysql, or journal
   n_trials: 2
   metric: mean_wQuantileLoss
   direction: minimize

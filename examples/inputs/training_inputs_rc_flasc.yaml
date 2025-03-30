@@ -6,7 +6,7 @@ experiment:
 
 optuna:
   journal_dir: /pl/active/paolab/wind_forecasting/optuna
-  storage_type: sqlite # or mysql, or journal
+  storage_type: mysql # sqlite, mysql, or journal
   n_trials: 100
   metric: mean_wQuantileLoss
   direction: minimize
