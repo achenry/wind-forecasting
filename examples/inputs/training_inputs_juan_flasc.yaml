@@ -11,7 +11,7 @@ logging:
 
 optuna:
   study_name: "windfarm_debug_juan_flasc"
-  journal_dir: /user/taed7566/wind-forecasting/logging/optuna/ # Changed from variable reference
+  journal_dir: /user/taed7566/wind-forecasting/logging/optuna/
   use_rdb: True               # Whether to use RDB storage for Optuna
   n_trials: 40                # trials to fit ~24h
   max_epochs: 5               # epochs per trial

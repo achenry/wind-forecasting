@@ -1,4 +1,8 @@
 #!/bin/bash
+
+# Create job ID directory for logs
+mkdir -p /user/taed7566/wind-forecasting/logging/slurm_logs/${SLURM_JOB_ID}
+
 #SBATCH --partition=all_gpu.p         # Partition for H100/A100 GPUs cfdg.p / all_gpu.p
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=4         # Match number of GPUs requested below
@@ -7,8 +11,8 @@
 #SBATCH --gres=gpu:h100:4           # Request 4 H100 GPUs
 #SBATCH --time=1-00:00              # Time limit (1 day)
 #SBATCH --job-name=informer_tune_flasc
-#SBATCH --output=/user/taed7566/wind-forecasting/logging/slurm_logs/informer_tune_flasc_%j.out
-#SBATCH --error=/user/taed7566/wind-forecasting/logging/slurm_logs/informer_tune_flasc_%j.err
+#SBATCH --output=/user/taed7566/wind-forecasting/logging/slurm_logs/${SLURM_JOB_ID}/informer_tune_flasc_%j.out
+#SBATCH --error=/user/taed7566/wind-forecasting/logging/slurm_logs/${SLURM_JOB_ID}/informer_tune_flasc_%j.err
 #SBATCH --hint=nomultithread        # Disable hyperthreading
 #SBATCH --distribution=block:block  # Improve GPU-CPU affinity
 #SBATCH --gres-flags=enforce-binding # Enforce binding of GPUs to tasks
@@ -159,7 +163,7 @@ for i in $(seq 0 $((${NUM_GPUS}-1))); do
             echo \"Worker ${i} COMPLETED successfully\"
         fi
         exit \$status
-    " > "${LOG_DIR}/slurm_logs/worker_${i}_${SLURM_JOB_ID}.log" 2>&1 &
+    " > "${LOG_DIR}/slurm_logs/${SLURM_JOB_ID}/worker_${i}_${SLURM_JOB_ID}.log" 2>&1 &
 
     # Store the process ID
     WORKER_PIDS+=($!)
