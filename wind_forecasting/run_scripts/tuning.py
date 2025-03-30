@@ -9,12 +9,30 @@ import torch
 import gc
 
 # Imports for Optuna
+import optuna # Import the base optuna module for type hints
 from optuna import create_study, load_study
 from optuna.samplers import TPESampler
 from optuna.pruners import HyperbandPruner, MedianPruner, PercentilePruner, NopPruner
 from optuna.integration import PyTorchLightningPruningCallback
+import lightning.pytorch as pl # Import pl alias
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+# Wrapper class to safely pass the Optuna pruning callback to PyTorch Lightning
+class SafePruningCallback(pl.Callback):
+    def __init__(self, trial: optuna.trial.Trial, monitor: str):
+        super().__init__()
+        # Instantiate the actual Optuna callback internally
+        self.optuna_pruning_callback = PyTorchLightningPruningCallback(trial, monitor)
+
+    # Delegate the relevant callback method(s)
+    def on_validation_end(self, trainer: "pl.Trainer", pl_module: "pl.LightningModule") -> None:
+        # Call the corresponding method on the wrapped Optuna callback
+        self.optuna_pruning_callback.on_validation_end(trainer, pl_module)
+
+    # Delegate check_pruned if needed
+    def check_pruned(self) -> None:
+        self.optuna_pruning_callback.check_pruned()
 
 class MLTuningObjective:
     def __init__(self, *, model, config, lightning_module_class, estimator_class, distr_output_class, max_epochs, limit_train_batches, data_module, metric, context_length_choices, seed=42):
@@ -101,8 +119,9 @@ class MLTuningObjective:
             if not isinstance(self.config["trainer"]["callbacks"], list):
                 self.config["trainer"]["callbacks"] = [self.config["trainer"]["callbacks"]]
             
-            # Create PyTorch Lightning pruning callback
-            pruning_callback = PyTorchLightningPruningCallback(
+            # Create the SAFE wrapper for the PyTorch Lightning pruning callback
+            # This ensures it inherits directly from pl.Callback
+            pruning_callback = SafePruningCallback(
                 trial,
                 monitor=self.metric  # Use the same metric for pruning as for optimization
             )
@@ -149,11 +168,12 @@ class MLTuningObjective:
         
         # Log GPU stats before training
         self.log_gpu_stats(stage=f"Trial {trial.number} Before Training")
-        
+
         train_output = estimator.train(
             training_data=self.data_module.train_dataset,
             validation_data=self.data_module.val_dataset,
             forecast_generator=DistributionForecastGenerator(estimator.distr_output)
+            # Note: The trainer_kwargs including callbacks are passed internally by the estimator
         )
         
         # Log GPU stats after training
