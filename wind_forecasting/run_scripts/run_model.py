@@ -167,7 +167,7 @@ def main():
     wandb_logger = WandbLogger(
         project="wind_forecasting",
         name=run_name,
-        log_model=True,
+        log_model="all",
         save_dir=config["logging"]["wandb_dir"],  # Use the dedicated wandb directory
         group=config['experiment']['run_name'],   # Group all workers under the same experiment
         tags=[f"worker_{worker_id}", f"gpu_{gpu_id}", args.model]  # Add tags for easier filtering
@@ -208,21 +208,6 @@ def main():
     config["logging"]["wandb_dir"] = wandb_dir
     config["logging"]["optuna_dir"] = optuna_dir
     config["logging"]["checkpoint_dir"] = checkpoint_dir
-    
-    # Add a ModelCheckpoint callback to explicitly save checkpoints to the correct directory
-    from lightning.pytorch.callbacks import ModelCheckpoint
-    if "trainer" in config and "callbacks" not in config["trainer"]:
-        config["trainer"]["callbacks"] = []
-    
-    checkpoint_callback = ModelCheckpoint(
-        dirpath=checkpoint_dir,
-        filename='{epoch}-{step}',
-        save_top_k=3,
-        verbose=True,
-        monitor='val_loss',
-        mode='min'
-    )
-    config["trainer"].setdefault("callbacks", []).append(checkpoint_callback)
     
     # Configure WandB to use the specified directory structure
     os.environ["WANDB_DIR"] = wandb_dir
