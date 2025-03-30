@@ -15,7 +15,7 @@
 
 # --- Configuration ---
 # Set this to "--restart_tuning" to clear and restart the Optuna study, otherwise set to ""
-RESTART_TUNING_FLAG="--restart_tuning" # Or "--restart_tuning"
+RESTART_TUNING_FLAG="--restart_tuning" # "" Or "--restart_tuning"
 
 # --- Base Directories ---
 BASE_DIR="/user/taed7566/wind-forecasting"
@@ -87,6 +87,8 @@ date +"%Y-%m-%d %H:%M:%S"
       ${RESTART_TUNING_FLAG} \
       --init_only
 
+    sleep 2
+
     INIT_STATUS=$?
     if [ $INIT_STATUS -ne 0 ]; then
         echo "DATABASE INITIALIZATION FAILED with status $INIT_STATUS"
@@ -115,7 +117,7 @@ echo "Launching ${NUM_GPUS} tuning workers..."
 
 for i in $(seq 0 $((${NUM_GPUS}-1))); do
     # Create a unique seed for this worker
-    CURRENT_WORKER_SEED=$((12 + i*10)) # Base seed + offset per worker
+    CURRENT_WORKER_SEED=$((12 + i*100)) # Base seed + offset per worker (increased multiplier to avoid trials overlap on workers)
 
     echo "Starting worker ${i} on assigned GPU ${i} with seed ${CURRENT_WORKER_SEED}"
 
