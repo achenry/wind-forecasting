@@ -1,8 +1,5 @@
 #!/bin/bash
 
-# Create job ID directory for logs
-mkdir -p /user/taed7566/wind-forecasting/logging/slurm_logs/${SLURM_JOB_ID}
-
 #SBATCH --partition=all_gpu.p       # Partition for H100/A100 GPUs cfdg.p / all_gpu.p / mpcg.p(not allowed)
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=4         # Match number of GPUs requested below
@@ -11,8 +8,8 @@ mkdir -p /user/taed7566/wind-forecasting/logging/slurm_logs/${SLURM_JOB_ID}
 #SBATCH --gres=gpu:4           # Request 4 H100 GPUs
 #SBATCH --time=1-00:00              # Time limit (1 day)
 #SBATCH --job-name=informer_tune_flasc
-#SBATCH --output=/user/taed7566/wind-forecasting/logging/slurm_logs/${SLURM_JOB_ID}/informer_tune_flasc_%j.out
-#SBATCH --error=/user/taed7566/wind-forecasting/logging/slurm_logs/${SLURM_JOB_ID}/informer_tune_flasc_%j.err
+#SBATCH --output=/user/taed7566/wind-forecasting/logging/slurm_logs/informer_tune_flasc_%j.out
+#SBATCH --error=/user/taed7566/wind-forecasting/logging/slurm_logs/informer_tune_flasc_%j.err
 #SBATCH --hint=nomultithread        # Disable hyperthreading
 #SBATCH --distribution=block:block  # Improve GPU-CPU affinity
 #SBATCH --gres-flags=enforce-binding # Enforce binding of GPUs to tasks
@@ -29,7 +26,10 @@ export CONFIG_FILE="${BASE_DIR}/examples/inputs/training_inputs_juan_flasc.yaml"
 export MODEL_NAME="informer"
 
 # --- Create Logging Directories ---
+# Ensure the main slurm_logs directory exists
 mkdir -p ${LOG_DIR}/slurm_logs
+# Create the job-specific directory for worker logs and final main logs
+mkdir -p ${LOG_DIR}/slurm_logs/${SLURM_JOB_ID}
 mkdir -p ${LOG_DIR}/optuna
 mkdir -p ${LOG_DIR}/checkpoints
 
@@ -220,5 +220,11 @@ fi
 
 echo "=== TUNING SCRIPT COMPLETED ==="
 date +"%Y-%m-%d %H:%M:%S"
+
+# --- Move main SLURM logs to the job ID directory ---
+echo "Moving main SLURM logs to ${LOG_DIR}/slurm_logs/${SLURM_JOB_ID}/"
+mv ${LOG_DIR}/slurm_logs/informer_tune_flasc_${SLURM_JOB_ID}.out ${LOG_DIR}/slurm_logs/${SLURM_JOB_ID}/ 2>/dev/null || echo "Warning: Could not move .out file."
+mv ${LOG_DIR}/slurm_logs/informer_tune_flasc_${SLURM_JOB_ID}.err ${LOG_DIR}/slurm_logs/${SLURM_JOB_ID}/ 2>/dev/null || echo "Warning: Could not move .err file."
+echo "--------------------------------------------------"
 
 exit $FINAL_EXIT_CODE
