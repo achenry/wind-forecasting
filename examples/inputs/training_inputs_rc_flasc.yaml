@@ -1,7 +1,7 @@
 
 
 experiment:
-  run_name: windfarm_debug
+  run_name: rc_flac
   log_dir: /projects/aohe7145/toolboxes/wind_forecasting_env/wind-forecasting/examples/logging/
 
 optuna:
@@ -97,7 +97,7 @@ trainer:
     # debug: False 
     # accumulate: 1.0
     max_epochs: 10 # Maximum number of epochs to train 100
-    limit_train_batches: 500
+    limit_train_batches: 1000
     default_root_dir: /projects/aohe7145/toolboxes/wind_forecasting_env/wind-forecasting/examples/checkpoints
     # precision: 32-true # 16-mixed enables mixed precision training 32-true is full precision
     # batch_size: 32 # larger = more stable gradients
