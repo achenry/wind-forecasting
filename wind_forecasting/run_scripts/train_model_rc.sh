@@ -4,7 +4,7 @@
 #SBATCH --ntasks=3 # necessary for gpus on rc
 #SBATCH --ntasks-per-node=3 # this needs to match Trainer(devices=...)
 ##SBATCH --mem-per-cpu=85G TODO what can I ask for here?
-#SBATCH --time=01:00:00
+#SBATCH --time=16:00:00
 #SBATCH --output=%j-%x.log
 #SBATCH --partition=aa100
 
