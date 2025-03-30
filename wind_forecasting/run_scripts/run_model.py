@@ -100,6 +100,10 @@ def main():
                                     per_turbine_target=config["dataset"]["per_turbine_target"], dtype=pl.Float32)
     # if RUN_ONCE:
     data_module.generate_splits()
+    
+    if rank_zero_only.rank == 0:
+        config["trainer"]["default_root_dir"] = os.path.join(config["trainer"]["default_root_dir"], f"{args.model}_{config['experiment']['run_name']}")
+        os.makedirs(config["trainer"]["default_root_dir"], exist_ok=True) # create the directory for saving checkpoints if it doesn't exist
 
     # %% DEFINE ESTIMATOR
     if args.mode in ["train", "test"]:
@@ -132,8 +136,6 @@ def main():
         elif rank_zero_only.rank == 0:
             logging.info(f"Declaring estimator {args.model.capitalize()} with default parameters")
          
-        if rank_zero_only.rank == 0:
-            os.makedirs(config["trainer"]["default_root_dir"], exist_ok=True) # create the directory for saving checkpoints if it doesn't exist
         
         estimator = globals()[f"{args.model.capitalize()}Estimator"](
             freq=data_module.freq, 
