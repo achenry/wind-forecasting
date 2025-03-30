@@ -1,5 +1,5 @@
 import os
-from pytorch_lightning.utilities.model_summary import summarize
+from lightning.pytorch.utilities.model_summary import summarize
 from gluonts.evaluation import MultivariateEvaluator, make_evaluation_predictions
 from gluonts.model.forecast_generator import DistributionForecastGenerator
 from gluonts.time_feature._base import second_of_minute, minute_of_hour, hour_of_day, day_of_year
