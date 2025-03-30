@@ -25,8 +25,31 @@ def _run_cmd(command, cwd=None, shell=False, check=True):
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
-            env=os.environ.copy() # Pass parent environment to find commands
+            # Construct environment, ensuring LD_LIBRARY_PATH is set correctly
+            env=os.environ.copy() # Start with a copy of the current environment
         )
+        # Modify the env dict *before* passing it to subprocess.run
+        env_copy = os.environ.copy()
+        captured_ld_path = os.environ.get("CAPTURED_LD_LIBRARY_PATH")
+        if captured_ld_path:
+            env_copy["LD_LIBRARY_PATH"] = captured_ld_path
+            logging.info(f"Setting LD_LIBRARY_PATH for subprocess: {captured_ld_path}")
+        elif "LD_LIBRARY_PATH" in env_copy:
+             logging.info(f"Using existing LD_LIBRARY_PATH for subprocess: {env_copy['LD_LIBRARY_PATH']}")
+        else:
+             logging.warning("LD_LIBRARY_PATH not found in environment for subprocess.")
+
+        process = subprocess.run(
+            command,
+            cwd=cwd,
+            shell=shell,
+            check=check,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            env=env_copy # Pass the modified environment
+        )
+
         if process.stdout:
             logging.info(f"Command stdout:\n{process.stdout.strip()}")
         if process.stderr:
@@ -147,15 +170,76 @@ def delete_postgres_data(config):
             stop_postgres(config, raise_on_error=False) # Don't fail if stop fails
         except Exception as e:
             logging.warning(f"Ignoring error during pre-delete server stop: {e}")
-
+        
+        # Convert pathlib.Path to string for system commands
+        pgdata_str = str(pgdata)
+        
+        # FORCEFUL APPROACH: Use system rm command
+        logging.warning("Using forceful system-level removal to clear PGDATA")
+        
+        # 1. Try shutil.rmtree as base attempt
         try:
             shutil.rmtree(pgdata)
-            logging.info(f"Successfully removed PostgreSQL data directory: {pgdata}")
+            logging.info("Initial shutil.rmtree attempt completed")
         except Exception as e:
-            logging.error(f"Failed to remove PostgreSQL data directory {pgdata}: {e}")
-            raise
+            logging.warning(f"Initial shutil.rmtree failed: {e}")
+                
+        # 2. Force sync filesystem to flush caches
+        try:
+            # This forces all filesystem buffers to be flushed to disk
+            logging.info("Forcing filesystem sync...")
+            os.sync()
+        except Exception as e:
+            logging.warning(f"os.sync() failed: {e}")
+        
+        # 3. If directory still exists, use system rm command
+        if os.path.exists(pgdata):
+            logging.warning(f"Directory {pgdata} still exists after rmtree, using 'rm -rf' command")
+            try:
+                # Use subprocess directly to ensure command is executed correctly
+                # Force removal using system rm (which might handle corner cases better)
+                rm_cmd = ["rm", "-rf", pgdata_str]
+                subprocess.run(rm_cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                logging.info("System rm command completed")
+            except Exception as e:
+                logging.error(f"System rm command failed: {e}")
+                
+        # 4. Give system time to fully process the removal
+        time.sleep(3)
+        
+        # 5. Verify using multiple methods
+        exists_by_python = os.path.exists(pgdata)
+        
+        # Check if the directory exists using system ls command
+        try:
+            ls_result = subprocess.run(["ls", "-la", os.path.dirname(pgdata_str)],
+                                      stdout=subprocess.PIPE,
+                                      stderr=subprocess.PIPE,
+                                      text=True)
+            exists_by_ls = pgdata_str.split('/')[-1] in ls_result.stdout
+            logging.info(f"Directory existence check: Python={exists_by_python}, ls={exists_by_ls}")
+        except Exception as e:
+            logging.warning(f"ls verification failed: {e}")
+            exists_by_ls = False
+        
+        # Final unified check
+        if exists_by_python or exists_by_ls:
+            logging.error(f"CRITICAL: Directory {pgdata} STILL EXISTS despite multiple removal attempts!")
+            # One last attempt - try to at least empty it
+            try:
+                # Use find command to delete everything under the directory
+                find_cmd = ["find", pgdata_str, "-mindepth", "1", "-delete"]
+                subprocess.run(find_cmd, check=False)
+                logging.warning("Used 'find -delete' as last resort to empty directory")
+            except Exception as e:
+                logging.error(f"Final cleanup attempt failed: {e}")
+                
+            # Just log the error but continue - let initdb handle the result
+            logging.error("Continuing despite directory persistence - let initdb handle it")
+        else:
+            logging.info(f"Successfully confirmed removal of PostgreSQL data directory: {pgdata}")
     else:
-        logging.info(f"PostgreSQL data directory {pgdata} does not exist, nothing to remove.")
+        logging.info(f"PostgreSQL data directory {pgdata} does not exist initially, nothing to remove.")
 
 
 def init_postgres(config):

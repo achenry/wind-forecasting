@@ -69,6 +69,10 @@ module load Mamba/24.3.0-0
 module load CUDA/12.4.0
 echo "Modules loaded."
 
+# Capture LD_LIBRARY_PATH after modules are loaded
+export CAPTURED_LD_LIBRARY_PATH=$LD_LIBRARY_PATH
+echo "Captured LD_LIBRARY_PATH: ${CAPTURED_LD_LIBRARY_PATH}"
+
 # Find PostgreSQL binary directory after loading the module
 PG_INITDB_PATH=$(which initdb)
 if [[ -z "$PG_INITDB_PATH" ]]; then
