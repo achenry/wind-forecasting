@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# Create job ID directory for logs
+mkdir -p /user/taed7566/wind-forecasting/logging/slurm_logs/${SLURM_JOB_ID}
+
 #SBATCH --partition=all_gpu.p       # Partition for H100/A100 GPUs cfdg.p / all_gpu.p / mpcg.p(not allowed)
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=4         # Match number of GPUs requested below
@@ -13,9 +16,6 @@
 #SBATCH --hint=nomultithread        # Disable hyperthreading
 #SBATCH --distribution=block:block  # Improve GPU-CPU affinity
 #SBATCH --gres-flags=enforce-binding # Enforce binding of GPUs to tasks
-
-# Create job ID directory for logs
-mkdir -p /user/taed7566/wind-forecasting/logging/slurm_logs/${SLURM_JOB_ID}
 
 # --- Configuration ---
 # Set this to "--restart_tuning" to clear and restart the Optuna study, otherwise set to "" to continue previous one
