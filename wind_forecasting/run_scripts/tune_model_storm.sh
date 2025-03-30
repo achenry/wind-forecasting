@@ -10,9 +10,9 @@ mkdir -p /user/taed7566/wind-forecasting/logging/slurm_logs/${SLURM_JOB_ID}
 #SBATCH --mem-per-cpu=8016          # Memory per CPU (Total Mem = ntasks * cpus-per-task * mem-per-cpu)
 #SBATCH --gres=gpu:h100:4           # Request 4 H100 GPUs
 #SBATCH --time=1-00:00              # Time limit (1 day)
-#SBATCH --job-name=informer_tune_flasc
-#SBATCH --output=/user/taed7566/wind-forecasting/logging/slurm_logs/${SLURM_JOB_ID}/informer_tune_flasc_%j.out
-#SBATCH --error=/user/taed7566/wind-forecasting/logging/slurm_logs/${SLURM_JOB_ID}/informer_tune_flasc_%j.err
+#SBATCH --job-name=informer_tune_flasc_prune
+#SBATCH --output=/user/taed7566/wind-forecasting/logging/slurm_logs/${SLURM_JOB_ID}/informer_tune_flasc_prune_%j.out
+#SBATCH --error=/user/taed7566/wind-forecasting/logging/slurm_logs/${SLURM_JOB_ID}/informer_tune_flasc_prune_%j.err
 #SBATCH --hint=nomultithread        # Disable hyperthreading
 #SBATCH --distribution=block:block  # Improve GPU-CPU affinity
 #SBATCH --gres-flags=enforce-binding # Enforce binding of GPUs to tasks
