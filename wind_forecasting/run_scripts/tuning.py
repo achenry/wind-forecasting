@@ -17,6 +17,7 @@ from optuna.integration import PyTorchLightningPruningCallback
 import lightning.pytorch as pl # Import pl alias
 
 from wind_forecasting.utils.optuna_visualization import launch_optuna_dashboard
+from wind_forecasting.utils.trial_utils import handle_trial_with_oom_protection
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -373,7 +374,7 @@ def tune_model(model, config, optuna_storage_url: str, lightning_module_class, e
         if study:
             try:
                 from wind_forecasting.utils.optuna_visualization import generate_visualizations
-                # Import the path resolution helper from db_utils
+                # Import the path resolution helper from db_utils or optuna_db_utils
                 from wind_forecasting.utils.db_utils import _resolve_path
 
                 vis_config = config["optuna"]["visualization"]

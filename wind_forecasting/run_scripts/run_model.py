@@ -8,21 +8,13 @@ import random
 import numpy as np
 
 import polars as pl
-# import wandb
 from lightning.pytorch.loggers import WandbLogger
 from lightning.pytorch.utilities import rank_zero_only
-# wandb.login()
-# wandb.login(relogin=True)
 import yaml
-import glob # Needed for checkpoint loading from HEAD
-import pandas as pd # Needed for checkpoint loading from HEAD
-import re # Needed for checkpoint loading from HEAD
-import shutil # Needed for checkpoint loading from HEAD
-import atexit # For registering DB cleanup
-import time   # For synchronization sleep
 
 # Internal imports
-from wind_forecasting.utils import db_utils # Import the new DB utility
+from wind_forecasting.utils.trial_utils import handle_trial_with_oom_protection
+from wind_forecasting.utils.optuna_db_utils import setup_optuna_storage
 
 from gluonts.torch.distributions import LowRankMultivariateNormalOutput, StudentTOutput
 from gluonts.model.forecast_generator import DistributionForecastGenerator
@@ -32,7 +24,6 @@ from gluonts.transform import ExpectedNumInstanceSampler, ValidationSplitSampler
 from torch import set_float32_matmul_precision
 set_float32_matmul_precision('medium') # or high to trade off performance for precision
 
-# Duplicate import removed (was line 29 in original conflict)
 from pytorch_transformer_ts.informer.lightning_module import InformerLightningModule
 from pytorch_transformer_ts.informer.estimator import InformerEstimator
 from pytorch_transformer_ts.autoformer.estimator import AutoformerEstimator
@@ -42,12 +33,10 @@ from pytorch_transformer_ts.spacetimeformer.lightning_module import Spacetimefor
 from pytorch_transformer_ts.tactis_2.estimator import TACTiS2Estimator as TactisEstimator
 from pytorch_transformer_ts.tactis_2.lightning_module import TACTiS2LightningModule as TactisLightningModule
 from wind_forecasting.preprocessing.data_module import DataModule
-from wind_forecasting.run_scripts.testing import test_model, get_checkpoint # Moved import earlier for clarity
+from wind_forecasting.run_scripts.testing import test_model, get_checkpoint
 
-# Configure logging and matplotlib backend
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-# MPI check remains, but rank detection below uses environment variables primarily
 mpi_exists = False
 try:
     from mpi4py import MPI
@@ -59,7 +48,6 @@ except:
 def main():
     
     # Determine worker rank (using WORKER_RANK set in Slurm script, fallback to 0)
-    # This is crucial for coordinating DB setup
     try:
         # Use the WORKER_RANK variable set explicitly in the Slurm script's nohup block
         rank = int(os.environ.get('WORKER_RANK', '0'))
@@ -86,7 +74,6 @@ def main():
     parser.add_argument("--single_gpu", action="store_true", help="Force using only a single GPU (the one specified by CUDA_VISIBLE_DEVICES)")
 
     args = parser.parse_args()
-
     
     # %% SETUP SEED
     logging.info(f"Setting random seed to {args.seed}")
@@ -154,7 +141,7 @@ def main():
         (config["dataset"]["target_turbine_ids"].lower() == "none") or (config["dataset"]["target_turbine_ids"].lower() == "all")):
         config["dataset"]["target_turbine_ids"] = None # select all turbines
 
-    # %% SETUP LOGGING (Using advanced logic from HEAD)
+    # %% SETUP LOGGING
     logging.info("Setting up logging")
     if not os.path.exists(config["experiment"]["log_dir"]):
         os.makedirs(config["experiment"]["log_dir"])
@@ -229,7 +216,6 @@ def main():
     os.environ["WANDB_DIR"] = wandb_dir
     
     # Configure WandB to save runs in a standard location
-    # Note: This is critical to avoid WandB creating its own path structure
     os.environ["WANDB_CHECKPOINT_PATH"] = checkpoint_dir
     
     # Ensure optuna journal_dir is set correctly with absolute path
@@ -251,129 +237,8 @@ def main():
         else:
             config["trainer"]["default_root_dir"] = checkpoint_dir
 
-    # --- Database Setup (Rank 0) & Synchronization ---
-    optuna_storage_url = None # Initialize for all ranks
-    pg_config = None          # Initialize pg_config
-
-    if "tune" in args.mode: # Only setup DB if tuning
-        storage_backend = config.get("optuna", {}).get("storage", {}).get("backend", "sqlite") # Default to sqlite if not specified
-        logging.info(f"Optuna storage backend configured as: {storage_backend}")
-
-        if storage_backend == "postgresql":
-            @rank_zero_only
-            def setup_postgres_rank_zero():
-                logging.info("Rank 0: Managing PostgreSQL instance...")
-                try:
-                    # Manage instance (init, start, setup user/db, register cleanup)
-                    # Pass restart flag from args. register_cleanup=True is default for rank 0.
-                    optuna_storage_url, pg_config = db_utils.manage_postgres_instance(
-                        config,
-                        restart=args.restart_tuning,
-                        register_cleanup=True # Explicitly register cleanup for rank 0
-                    )
-
-                    # Ensure sync file doesn't exist from a previous failed run
-                    sync_file_path = pg_config.get("sync_file")
-                    if not sync_file_path:
-                         raise ValueError("Sync file path not generated in pg_config.")
-                    if os.path.exists(sync_file_path):
-                        logging.warning(f"Removing existing sync file: {sync_file_path}")
-                        os.remove(sync_file_path)
-
-                    # Create sync file to signal readiness
-                    with open(sync_file_path, 'w') as f:
-                        f.write('ready')
-                    logging.info(f"Rank 0: PostgreSQL ready. Created sync file: {sync_file_path}")
-
-                except Exception as e:
-                    logging.error(f"Rank 0: Failed to setup PostgreSQL: {e}", exc_info=True)
-                    # Attempt to signal error via sync file if possible
-                    if pg_config and pg_config.get("sync_file"):
-                         try:
-                              with open(pg_config["sync_file"], 'w') as f: f.write('error')
-                         except Exception as e_sync:
-                              logging.error(f"Rank 0: Failed to write error state to sync file: {e_sync}")
-                    raise # Re-raise the exception to stop rank 0
-
-            setup_postgres_rank_zero()
-
-            # Worker ranks: Generate config to find sync file and wait
-            try:
-                # Generate config but DO NOT manage the instance or register cleanup
-                # This call primarily resolves paths and gets the sync_file location
-                pg_config = db_utils._generate_pg_config(config)
-                sync_file_path = pg_config.get("sync_file")
-                if not sync_file_path:
-                     raise ValueError("Sync file path not generated in pg_config for worker.")
-
-                logging.info(f"Rank {rank}: Waiting for PostgreSQL sync file: {sync_file_path}")
-                max_wait_time = 300 # seconds (5 minutes)
-                wait_interval = 5   # seconds
-                waited_time = 0
-                sync_status = None
-                while waited_time < max_wait_time:
-                    if os.path.exists(sync_file_path):
-                        try:
-                            with open(sync_file_path, 'r') as f:
-                                sync_status = f.read().strip()
-                            if sync_status == 'ready':
-                                logging.info(f"Rank {rank}: Sync file found and indicates 'ready'. Proceeding.")
-                                break
-                            elif sync_status == 'error':
-                                 logging.error(f"Rank {rank}: Sync file indicates 'error' from Rank 0. Aborting.")
-                                 raise RuntimeError("Rank 0 failed PostgreSQL setup.")
-                            else:
-                                 # File exists but content is unexpected, wait briefly and re-check
-                                 logging.warning(f"Rank {rank}: Sync file found but content is '{sync_status}'. Waiting...")
-
-                        except Exception as e_read:
-                            logging.warning(f"Rank {rank}: Error reading sync file '{sync_file_path}': {e_read}. Retrying...")
-
-                    time.sleep(wait_interval)
-                    waited_time += wait_interval
-                    
-                if sync_status != 'ready':
-                     logging.error(f"Rank {rank}: Timed out waiting for sync file '{sync_file_path}' or file did not indicate 'ready'.")
-                     raise TimeoutError("Timed out waiting for Rank 0 PostgreSQL setup.")
-
-                # Generate the storage URL using the generated config
-                optuna_storage_url = db_utils.get_optuna_storage_url(pg_config)
-
-            except Exception as e:
-                logging.error(f"Rank {rank}: Failed during PostgreSQL sync/config generation: {e}", exc_info=True)
-                raise
-
-        elif storage_backend == "sqlite":
-            # Handle SQLite setup if needed (using legacy --init_only logic?)
-            # For now, assume SQLite path is handled by Optuna directly based on config
-            # Construct the SQLite URL based on config
-            # Use _resolve_path for consistency, getting project_root from config or default
-            sqlite_rel_path = config.get("optuna", {}).get("storage", {}).get("sqlite_path", "logging/optuna/optuna_study.db")
-            sqlite_abs_path = db_utils._resolve_path(config, f"optuna.storage.sqlite_path", default=sqlite_rel_path)
-            # Ensure project_root is handled within _resolve_path based on experiment.project_root or CWD
-            os.makedirs(os.path.dirname(sqlite_abs_path), exist_ok=True)
-            optuna_storage_url = f"sqlite:///{sqlite_abs_path}"
-            logging.info(f"Using SQLite storage URL: {optuna_storage_url}")
-            # Handle restart for SQLite
-            @rank_zero_only
-            def restart_sqlite_rank_zero():
-                if args.restart_tuning and os.path.exists(sqlite_abs_path):
-                     logging.warning(f"Rank 0: --restart_tuning set. Removing existing SQLite DB: {sqlite_abs_path}")
-                     try:
-                         os.remove(sqlite_abs_path)
-                         # Remove WAL files if they exist
-                         for suffix in ["-wal", "-shm"]:
-                              wal_path = sqlite_abs_path + suffix
-                              if os.path.exists(wal_path):
-                                  os.remove(wal_path)
-                     except OSError as e:
-                         logging.error(f"Failed to remove SQLite file {sqlite_abs_path}: {e}")
-            restart_sqlite_rank_zero()
-
-
-        else:
-             raise ValueError(f"Unsupported optuna storage backend: {storage_backend}")
-
+    # --- Database Setup & Synchronization ---
+    optuna_storage_url, pg_config = setup_optuna_storage(args, config, rank)
     # --- End Database Setup ---
 
     # %% CREATE DATASET
@@ -408,7 +273,7 @@ def main():
         else:
             logging.info(f"Declaring estimator {args.model.capitalize()} with default parameters")
         
-        # Use globals() to fetch the estimator class dynamically (Aoife comment #2)
+        # Use globals() to fetch the estimator class dynamically
         EstimatorClass = globals()[f"{args.model.capitalize()}Estimator"]
         estimator = EstimatorClass(
             freq=data_module.freq, 
@@ -509,57 +374,12 @@ def main():
         if not os.path.exists(config["optuna"]["journal_dir"]):
             os.makedirs(config["optuna"]["journal_dir"]) 
 
-        # Use globals() to fetch the module and estimator classes dynamically (Aoife comment #3)
+        # Use globals() to fetch the module and estimator classes dynamically
         LightningModuleClass = globals()[f"{args.model.capitalize()}LightningModule"]
         EstimatorClass = globals()[f"{args.model.capitalize()}Estimator"]
         DistrOutputClass = globals()[config["model"]["distr_output"]["class"]]
         
-        def handle_trial_with_oom_protection(tuning_objective, trial):
-            try:
-                # Log GPU memory at the start of each trial
-                if torch.cuda.is_available():
-                    device = torch.cuda.current_device()
-                    logging.info(f"Trial {trial.number} - Starting GPU Memory: {torch.cuda.memory_allocated(device)/1e9:.2f}GB / {torch.cuda.get_device_properties(device).total_memory/1e9:.2f}GB")
-                
-                result = tuning_objective(trial)
-                
-                # Log GPU memory after trial completes
-                if torch.cuda.is_available():
-                    device = torch.cuda.current_device()
-                    logging.info(f"Trial {trial.number} - Ending GPU Memory: {torch.cuda.memory_allocated(device)/1e9:.2f}GB / {torch.cuda.get_device_properties(device).total_memory/1e9:.2f}GB")
-                    
-                # Add explicit garbage collection after each trial
-                gc.collect()
-                return result
-            except RuntimeError as e:
-                if "CUDA out of memory" in str(e):
-                    logging.warning(f"Trial {trial.number} failed with CUDA OOM error")
-                    if torch.cuda.is_available():
-                        logging.warning(f"OOM at memory usage: {torch.cuda.memory_allocated()/1e9:.2f}GB")
-                    # Force garbage collection
-                    torch.cuda.empty_cache()
-                    gc.collect()
-                    # Return a very poor score
-                    return float('inf') if config["optuna"]["direction"] == "minimize" else float('-inf')
-                raise e
-            except Exception as e:
-                # Catch GPU configuration errors and other exceptions
-                if "MisconfigurationException" in str(type(e)) and "gpu" in str(e):
-                    logging.error(f"Trial {trial.number} failed with GPU configuration error: {str(e)}")
-                    logging.error("This is likely due to a mismatch between requested GPUs and available GPUs.")
-                    logging.error("Please check the --single_gpu flag and CUDA_VISIBLE_DEVICES setting.")
-                    
-                    # Return a poor score to allow the study to continue
-                    return float('inf') if config["optuna"]["direction"] == "minimize" else float('-inf')
-                elif "MisconfigurationException" in str(type(e)):
-                    logging.error(f"Trial {trial.number} failed with configuration error: {str(e)}")
-                    return float('inf') if config["optuna"]["direction"] == "minimize" else float('-inf')
-                
-                # For any other unexpected errors, log details and re-raise
-                logging.error(f"Trial {trial.number} failed with unexpected error: {type(e).__name__}: {str(e)}")
-                raise
-        
-        # Removed --init_only block as DB initialization is now handled by rank 0 using db_utils
+        # handle_trial_with_oom_protection is now imported from wind_forecasting.utils.trial_utils
         
         # Normal execution - pass the OOM protection wrapper and constructed storage URL
         tune_model(model=args.model, config=config,
