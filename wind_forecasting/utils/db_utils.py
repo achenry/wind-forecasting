@@ -496,10 +496,6 @@ def manage_postgres_instance(config, restart=False, register_cleanup=True):
         logging.info("Performing cleanup due to --restart_tuning flag.")
         delete_postgres_data(pg_config) # Initial cleanup if restarting
 
-    # Attempt cleanup before init, just in case of leftovers from failed runs.
-    logging.info("Performing pre-initialization cleanup check...")
-    delete_postgres_data(pg_config, raise_on_error=False) # Use consistent config, don't fail job if this cleanup has issues
-
     # Pass the consistent pg_config
     needs_setup = init_postgres(pg_config)
     start_postgres(pg_config)
