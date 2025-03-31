@@ -10,6 +10,7 @@ import numpy as np
 import polars as pl
 # import wandb
 from lightning.pytorch.loggers import WandbLogger
+from lightning.pytorch.utilities import rank_zero_only
 # wandb.login()
 # wandb.login(relogin=True)
 import yaml
@@ -66,9 +67,6 @@ def main():
         logging.warning("Could not parse WORKER_RANK, assuming rank 0.")
         rank = 0
     logging.info(f"Determined worker rank from WORKER_RANK: {rank}")
-
-    # Flag for rank 0 execution
-    IS_RANK_ZERO = (rank == 0)
     
     # Parse arguments
     parser = argparse.ArgumentParser(description="Run a model on a dataset")
@@ -262,7 +260,8 @@ def main():
         logging.info(f"Optuna storage backend configured as: {storage_backend}")
 
         if storage_backend == "postgresql":
-            if IS_RANK_ZERO:
+            @rank_zero_only
+            def setup_postgres_rank_zero():
                 logging.info("Rank 0: Managing PostgreSQL instance...")
                 try:
                     # Manage instance (init, start, setup user/db, register cleanup)
@@ -295,52 +294,54 @@ def main():
                          except Exception as e_sync:
                               logging.error(f"Rank 0: Failed to write error state to sync file: {e_sync}")
                     raise # Re-raise the exception to stop rank 0
-            else:
-                # Worker ranks: Generate config to find sync file and wait
-                try:
-                    # Generate config but DO NOT manage the instance or register cleanup
-                    # This call primarily resolves paths and gets the sync_file location
-                    pg_config = db_utils._generate_pg_config(config)
-                    sync_file_path = pg_config.get("sync_file")
-                    if not sync_file_path:
-                         raise ValueError("Sync file path not generated in pg_config for worker.")
 
-                    logging.info(f"Rank {rank}: Waiting for PostgreSQL sync file: {sync_file_path}")
-                    max_wait_time = 300 # seconds (5 minutes)
-                    wait_interval = 5   # seconds
-                    waited_time = 0
-                    sync_status = None
-                    while waited_time < max_wait_time:
-                        if os.path.exists(sync_file_path):
-                            try:
-                                with open(sync_file_path, 'r') as f:
-                                    sync_status = f.read().strip()
-                                if sync_status == 'ready':
-                                    logging.info(f"Rank {rank}: Sync file found and indicates 'ready'. Proceeding.")
-                                    break
-                                elif sync_status == 'error':
-                                     logging.error(f"Rank {rank}: Sync file indicates 'error' from Rank 0. Aborting.")
-                                     raise RuntimeError("Rank 0 failed PostgreSQL setup.")
-                                else:
-                                     # File exists but content is unexpected, wait briefly and re-check
-                                     logging.warning(f"Rank {rank}: Sync file found but content is '{sync_status}'. Waiting...")
+            setup_postgres_rank_zero()
 
-                            except Exception as e_read:
-                                logging.warning(f"Rank {rank}: Error reading sync file '{sync_file_path}': {e_read}. Retrying...")
+            # Worker ranks: Generate config to find sync file and wait
+            try:
+                # Generate config but DO NOT manage the instance or register cleanup
+                # This call primarily resolves paths and gets the sync_file location
+                pg_config = db_utils._generate_pg_config(config)
+                sync_file_path = pg_config.get("sync_file")
+                if not sync_file_path:
+                     raise ValueError("Sync file path not generated in pg_config for worker.")
 
-                        time.sleep(wait_interval)
-                        waited_time += wait_interval
-                        
-                    if sync_status != 'ready':
-                         logging.error(f"Rank {rank}: Timed out waiting for sync file '{sync_file_path}' or file did not indicate 'ready'.")
-                         raise TimeoutError("Timed out waiting for Rank 0 PostgreSQL setup.")
+                logging.info(f"Rank {rank}: Waiting for PostgreSQL sync file: {sync_file_path}")
+                max_wait_time = 300 # seconds (5 minutes)
+                wait_interval = 5   # seconds
+                waited_time = 0
+                sync_status = None
+                while waited_time < max_wait_time:
+                    if os.path.exists(sync_file_path):
+                        try:
+                            with open(sync_file_path, 'r') as f:
+                                sync_status = f.read().strip()
+                            if sync_status == 'ready':
+                                logging.info(f"Rank {rank}: Sync file found and indicates 'ready'. Proceeding.")
+                                break
+                            elif sync_status == 'error':
+                                 logging.error(f"Rank {rank}: Sync file indicates 'error' from Rank 0. Aborting.")
+                                 raise RuntimeError("Rank 0 failed PostgreSQL setup.")
+                            else:
+                                 # File exists but content is unexpected, wait briefly and re-check
+                                 logging.warning(f"Rank {rank}: Sync file found but content is '{sync_status}'. Waiting...")
 
-                    # Generate the storage URL using the generated config
-                    optuna_storage_url = db_utils.get_optuna_storage_url(pg_config)
+                        except Exception as e_read:
+                            logging.warning(f"Rank {rank}: Error reading sync file '{sync_file_path}': {e_read}. Retrying...")
 
-                except Exception as e:
-                    logging.error(f"Rank {rank}: Failed during PostgreSQL sync/config generation: {e}", exc_info=True)
-                    raise
+                    time.sleep(wait_interval)
+                    waited_time += wait_interval
+                    
+                if sync_status != 'ready':
+                     logging.error(f"Rank {rank}: Timed out waiting for sync file '{sync_file_path}' or file did not indicate 'ready'.")
+                     raise TimeoutError("Timed out waiting for Rank 0 PostgreSQL setup.")
+
+                # Generate the storage URL using the generated config
+                optuna_storage_url = db_utils.get_optuna_storage_url(pg_config)
+
+            except Exception as e:
+                logging.error(f"Rank {rank}: Failed during PostgreSQL sync/config generation: {e}", exc_info=True)
+                raise
 
         elif storage_backend == "sqlite":
             # Handle SQLite setup if needed (using legacy --init_only logic?)
@@ -354,17 +355,20 @@ def main():
             optuna_storage_url = f"sqlite:///{sqlite_abs_path}"
             logging.info(f"Using SQLite storage URL: {optuna_storage_url}")
             # Handle restart for SQLite
-            if IS_RANK_ZERO and args.restart_tuning and os.path.exists(sqlite_abs_path):
-                 logging.warning(f"Rank 0: --restart_tuning set. Removing existing SQLite DB: {sqlite_abs_path}")
-                 try:
-                     os.remove(sqlite_abs_path)
-                     # Remove WAL files if they exist
-                     for suffix in ["-wal", "-shm"]:
-                          wal_path = sqlite_abs_path + suffix
-                          if os.path.exists(wal_path):
-                              os.remove(wal_path)
-                 except OSError as e:
-                     logging.error(f"Failed to remove SQLite file {sqlite_abs_path}: {e}")
+            @rank_zero_only
+            def restart_sqlite_rank_zero():
+                if args.restart_tuning and os.path.exists(sqlite_abs_path):
+                     logging.warning(f"Rank 0: --restart_tuning set. Removing existing SQLite DB: {sqlite_abs_path}")
+                     try:
+                         os.remove(sqlite_abs_path)
+                         # Remove WAL files if they exist
+                         for suffix in ["-wal", "-shm"]:
+                              wal_path = sqlite_abs_path + suffix
+                              if os.path.exists(wal_path):
+                                  os.remove(wal_path)
+                     except OSError as e:
+                         logging.error(f"Failed to remove SQLite file {sqlite_abs_path}: {e}")
+            restart_sqlite_rank_zero()
 
 
         else:
