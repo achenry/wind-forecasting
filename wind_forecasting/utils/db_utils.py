@@ -21,7 +21,7 @@ def _run_cmd(command, cwd=None, shell=False, check=True, env_override=None):
         # Ensure PATH is present
         if "PATH" not in cmd_env:
             logging.warning("PATH not found in environment, command might fail.")
-            # Attempt to reconstruct a basic PATH if missing entirely
+            # Attempt to reconstruct a basic PATH if missing
             cmd_env["PATH"] = os.defpath
 
         # Prioritize CAPTURED_LD_LIBRARY_PATH if available
@@ -291,12 +291,6 @@ def _resolve_path(key_config, key, full_config, default=None):
     """
     Resolves a path potentially containing variables like ${logging.optuna_dir},
     using the full_config for variable lookups and project root determination.
-
-    Args:
-        key_config: The sub-dictionary where the path key is located (e.g., config['optuna']['storage']).
-        key: The key of the path string within key_config (e.g., "socket_dir_base").
-        full_config: The complete configuration dictionary.
-        default: The default value if the key is not found.
     """
     path_str = key_config.get(key, default)
     if not path_str:
@@ -320,13 +314,6 @@ def _resolve_path(key_config, key, full_config, default=None):
                  optuna_dir = str((Path(project_root_str_for_optuna) / Path(optuna_dir)).resolve())
             path_str = path_str.replace("${logging.optuna_dir}", optuna_dir)
             substituted = True
-
-        # Add more variable substitutions here if needed (e.g., ${experiment.project_root})
-        # elif "${experiment.project_root}" in path_str:
-        #     proj_root = full_config.get("experiment", {}).get("project_root")
-        #     if not proj_root: raise ValueError(...)
-        #     path_str = path_str.replace("${experiment.project_root}", proj_root)
-        #     substituted = True
 
         if not substituted: # No substitution happened, break loop
              break
@@ -446,7 +433,6 @@ def _generate_pg_config(config):
     sync_file = str(sync_dir_path / f"optuna_pg_ready_{os.environ.get('SLURM_JOB_ID', os.getpid())}.sync")
     logging.info(f"Using sync file: {sync_file}")
 
-
     # --- Other Settings ---
     db_name = storage_config.get("db_name", "optuna_study_db")
     db_user = storage_config.get("db_user", "optuna_user")
@@ -499,16 +485,7 @@ def _cleanup_postgres():
 
 def manage_postgres_instance(config, restart=False, register_cleanup=True):
     """
-    Main function to manage the lifecycle of the PostgreSQL instance for a job.
-    Should typically be called only by rank 0.
-
-    Args:
-        config: The main configuration dictionary.
-        restart: Boolean flag to indicate if the database should be cleared.
-        register_cleanup: Boolean flag to register the atexit cleanup handler.
-
-    Returns:
-        Tuple: (Optuna storage URL, pg_config dictionary)
+    Main function to manage the PostgreSQL instance for a job called only by rank 0.
     """
     logging.info("Managing PostgreSQL instance...")
     # Generate the config dictionary
