@@ -17,6 +17,7 @@ module purge
 ml PrgEnv-intel
 ml mamba
 mamba activate wind_forecasting
+export WANDB_API_KEY=a9aec8e98a88077de29031385225167c720030f7
 #cd /home/ahenry/toolboxes/wind_forecasting_env/wind-forecasting/wind_forecasting/models/pytorch-transformer-ts/informer
 
 echo "SLURM_NTASKS=${SLURM_NTASKS}"
