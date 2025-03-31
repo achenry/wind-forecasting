@@ -324,26 +324,26 @@ def tune_model(model, config, optuna_storage_url: str, lightning_module_class, e
     logging.info(f"Worker {worker_id} completed optimization")
     
     # Generate visualizations if enabled (primary worker only)
-    if worker_id == '0' and "visualization" in config["optuna"] and config["optuna"]["visualization"].get("enabled", False):
+    if worker_id == '0' and config.get("optuna", {}).get("visualization", {}).get("enabled", False):
         try:
             from wind_forecasting.utils.optuna_visualization import generate_visualizations
-            
-            # Determine output directory
-            visualization_dir = config["optuna"]["visualization"].get("output_dir")
-            
-            # Use optuna_dir from logging config as fallback/base if output_dir not set
-            optuna_base_dir = config.get("logging", {}).get("optuna_dir", ".") # Default to current dir if not set
-            
+            # Import the path resolution helper from db_utils
+            from wind_forecasting.utils.db_utils import _resolve_path
+
+            vis_config = config["optuna"]["visualization"]
+
+            # Resolve the output directory using the helper function
+            # Default to "${logging.optuna_dir}/visualizations" if not explicitly set
+            default_vis_path = os.path.join(config.get("logging", {}).get("optuna_dir", "logging/optuna"), "visualizations")
+            visualization_dir = _resolve_path(vis_config, "output_dir", default=default_vis_path)
+
             if not visualization_dir:
-                # Default to a 'visualizations' subdirectory within the optuna log directory
-                visualization_dir = os.path.join(optuna_base_dir, "visualizations")
-                logging.info(f"Visualization output_dir not set, defaulting to: {visualization_dir}")
-            
-            # Expand variable references if present, using optuna_base_dir
-            if isinstance(visualization_dir, str) and "${" in visualization_dir:
-                if "${logging.optuna_dir}" in visualization_dir:
-                    visualization_dir = visualization_dir.replace("${logging.optuna_dir}", optuna_base_dir)
-                    logging.info(f"Resolved visualization_dir to: {visualization_dir}")
+                 logging.error("Could not determine visualization output directory.")
+                 # Decide how to handle this - skip visualization or raise error?
+                 # For now, log error and skip.
+                 raise ValueError("Visualization output directory could not be resolved.")
+
+            logging.info(f"Resolved visualization output directory: {visualization_dir}")
 
             os.makedirs(visualization_dir, exist_ok=True) # Ensure directory exists
             

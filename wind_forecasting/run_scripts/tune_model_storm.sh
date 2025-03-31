@@ -88,47 +88,6 @@ conda activate wf_env_2
 echo "Conda environment 'wf_env_2' activated."
 # --- End Main Environment Setup ---
 
-# --- Define PostgreSQL Variables (needed for trap) ---
-# Define PGDATA and PG_SOCKET_DIR here in the main scope and export them
-# Use paths consistent with db_utils.py and YAML config
-export PGDATA="${BASE_DIR}/logging/optuna/pg_data_study"
-# Use SLURM_JOB_ID for socket uniqueness in TMPDIR
-export PG_SOCKET_DIR="${TMPDIR}/pg_socket_${SLURM_JOB_ID}"
-# Note: Python script (db_utils) will also calculate these paths based on config,
-# ensure consistency. Exporting here makes them available to the trap.
-echo "Exported PGDATA=${PGDATA}"
-echo "Exported PG_SOCKET_DIR=${PG_SOCKET_DIR}"
-# --- End PostgreSQL Variables ---
-
-# --- Slurm Cleanup Function ---
-# This function will run when the job exits (normally or via signal)
-# It ensures the PostgreSQL server managed by Python (rank 0) is stopped.
-cleanup() {
-    echo "SLURM EXIT/TERM/INT received. Running cleanup..."
-    # Check if PGDATA is set and directory exists before attempting stop
-    if [[ -n "$PGDATA" ]] && [[ -d "$PGDATA" ]]; then
-        echo "Attempting to stop PostgreSQL server ($PGDATA)..."
-        # Need to load modules again in case trap environment is minimal
-        module load hpc-env/13.1 &>/dev/null || echo "Trap: Failed to load hpc-env"
-        module load PostgreSQL/16.1-GCCcore-13.1.0 &>/dev/null || echo "Trap: Failed to load PostgreSQL"
-        pg_ctl stop -w -D "$PGDATA" -m fast || echo "Trap: pg_ctl stop failed (maybe server was not running or PGDATA invalid?)."
-        echo "PostgreSQL server stop command issued."
-    else
-        echo "Trap: PGDATA not set or directory does not exist, skipping pg_ctl stop."
-    fi
-    # Clean up socket directory if path is set
-    if [[ -n "$PG_SOCKET_DIR" ]] && [[ -d "$PG_SOCKET_DIR" ]]; then
-         echo "Trap: Removing socket directory $PG_SOCKET_DIR..."
-         rm -rf "$PG_SOCKET_DIR"
-    fi
-    echo "Slurm cleanup finished: $(date)"
-}
-
-# Trap signals to ensure cleanup runs AFTER the main script and workers finish
-trap cleanup EXIT TERM INT
-echo "Slurm cleanup trap registered."
-# --- End Cleanup Setup ---
-
 echo "=== STARTING PARALLEL OPTUNA TUNING WORKERS ==="
 date +"%Y-%m-%d %H:%M:%S"
 
@@ -168,7 +127,7 @@ for i in $(seq 0 $((${NUM_GPUS}-1))); do
         echo \"Worker ${i}: Running python script with WORKER_RANK=${WORKER_RANK}...\"
         # --- Run the tuning script ---
         # Workers connect to the already initialized study using the PG URL
-        # Do NOT pass --restart_tuning or --init_only here
+        # Pass --restart_tuning flag from the main script environment
         python ${WORK_DIR}/run_scripts/run_model.py \\
           --config ${CONFIG_FILE} \\
           --model ${MODEL_NAME} \\
