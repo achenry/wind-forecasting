@@ -8,10 +8,6 @@ import logging
 import torch
 import gc
 import time # Added for load_study retry delay
-import subprocess # For launching dashboard
-import atexit # For cleaning up dashboard process
-from pathlib import Path # For resolving log path
-
 # Imports for Optuna
 import optuna # Import the base optuna module for type hints
 from optuna import create_study, load_study
@@ -20,10 +16,9 @@ from optuna.pruners import HyperbandPruner, MedianPruner, PercentilePruner, NopP
 from optuna.integration import PyTorchLightningPruningCallback
 import lightning.pytorch as pl # Import pl alias
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+from wind_forecasting.utils.optuna_visualization import launch_optuna_dashboard
 
-# --- Dashboard Auto-Launch Globals ---
-_dashboard_process = None
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # Wrapper class to safely pass the Optuna pruning callback to PyTorch Lightning
 class SafePruningCallback(pl.Callback):
@@ -217,110 +212,6 @@ class MLTuningObjective:
             return float('inf') if self.config["optuna"]["direction"] == "minimize" else float('-inf')
 
 
-# --- Dashboard Auto-Launch Functions ---
-
-def _terminate_optuna_dashboard():
-    """Terminate the background optuna-dashboard process if it's running."""
-    global _dashboard_process
-    if _dashboard_process and _dashboard_process.poll() is None: # Check if process exists and is running
-        logging.info("Terminating Optuna dashboard process...")
-        try:
-            _dashboard_process.terminate() # Send SIGTERM
-            _dashboard_process.wait(timeout=5) # Wait a bit for graceful shutdown
-            logging.info("Optuna dashboard process terminated.")
-        except subprocess.TimeoutExpired:
-            logging.warning("Optuna dashboard process did not terminate gracefully, sending SIGKILL.")
-            _dashboard_process.kill() # Force kill
-        except Exception as e:
-            logging.error(f"Error terminating Optuna dashboard process: {e}")
-        _dashboard_process = None
-
-def _launch_optuna_dashboard(config, storage_url):
-    """Launch optuna-dashboard as a background process."""
-    global _dashboard_process
-    dashboard_config = config.get("optuna", {}).get("dashboard", {})
-
-    if not dashboard_config.get("enabled", False):
-        logging.info("Optuna dashboard auto-launch is disabled in the configuration.")
-        return
-
-    if _dashboard_process and _dashboard_process.poll() is None:
-        logging.warning("Optuna dashboard process seems to be already running.")
-        return
-
-    port = dashboard_config.get("port", 8088) # Default to 8088 if not specified
-    log_file_path_str = dashboard_config.get("log_file", None)
-
-    # Resolve log file path using similar logic to db_utils._resolve_path
-    if log_file_path_str:
-        # Basic variable substitution (can be enhanced if more variables are needed)
-        if "${logging.optuna_dir}" in log_file_path_str:
-            optuna_dir = config.get("logging", {}).get("optuna_dir")
-            if not optuna_dir:
-                 logging.error("Cannot resolve dashboard log_file path: logging.optuna_dir not defined.")
-                 return
-            # Ensure optuna_dir is absolute
-            if not Path(optuna_dir).is_absolute():
-                 project_root_str = config.get("experiment", {}).get("project_root", os.getcwd())
-                 optuna_dir = str((Path(project_root_str) / Path(optuna_dir)).resolve())
-            log_file_path_str = log_file_path_str.replace("${logging.optuna_dir}", optuna_dir)
-
-        # Resolve relative to project root if not absolute
-        log_file_path = Path(log_file_path_str)
-        if not log_file_path.is_absolute():
-            project_root_str = config.get("experiment", {}).get("project_root", os.getcwd())
-            log_file_path = (Path(project_root_str) / log_file_path).resolve()
-        else:
-            log_file_path = log_file_path.resolve()
-
-        # Ensure log directory exists
-        log_file_path.parent.mkdir(parents=True, exist_ok=True)
-        log_file_path_str = str(log_file_path)
-        logging.info(f"Optuna dashboard log file: {log_file_path_str}")
-    else:
-        logging.warning("Optuna dashboard log_file not specified. Output will not be saved.")
-        log_file_path_str = os.devnull # Redirect to null device if no log file specified
-
-    # Construct the command
-    # Ensure storage_url is correctly formatted for the command line
-    # (especially handling potential special characters if not using sockets)
-    cmd = [
-        "optuna-dashboard",
-        "--port", str(port),
-        storage_url # Pass the full storage URL
-    ]
-
-    logging.info(f"Launching Optuna dashboard in background: {' '.join(cmd)}")
-    logging.info(f"Dashboard will listen on port {port}. Use SSH tunneling to access.")
-
-    try:
-        # Open the log file for writing stdout/stderr
-        log_handle = open(log_file_path_str, 'a') if log_file_path_str != os.devnull else subprocess.DEVNULL
-
-        # Launch the process in the background
-        _dashboard_process = subprocess.Popen(
-            cmd,
-            stdout=log_handle,
-            stderr=log_handle,
-            # Close file descriptors in the child process to avoid issues
-            close_fds=True,
-            # Use current environment, assuming necessary paths (like conda env bin) are set
-            env=os.environ.copy()
-        )
-        logging.info(f"Optuna dashboard process started (PID: {_dashboard_process.pid}).")
-
-        # Register cleanup function to terminate the dashboard on exit
-        atexit.register(_terminate_optuna_dashboard)
-
-    except FileNotFoundError:
-        logging.error("Error: 'optuna-dashboard' command not found. Is it installed and in the PATH?")
-        _dashboard_process = None
-    except Exception as e:
-        logging.error(f"Failed to launch Optuna dashboard: {e}")
-        _dashboard_process = None
-        if log_file_path_str != os.devnull and 'log_handle' in locals():
-            log_handle.close() # Close the handle if opened
-
 # Update signature: Add optuna_storage_url, remove journal_storage_dir, use_rdb, restart_study
 def tune_model(model, config, optuna_storage_url: str, lightning_module_class, estimator_class,
                max_epochs, limit_train_batches,
@@ -397,7 +288,7 @@ def tune_model(model, config, optuna_storage_url: str, lightning_module_class, e
             logging.info(f"Rank 0: Study '{study_name}' created or loaded successfully.")
 
             # --- Launch Dashboard (Rank 0 only) ---
-            _launch_optuna_dashboard(config, storage_url)
+            launch_optuna_dashboard(config, storage_url) # Call imported function
             # --------------------------------------
         else:
             # Non-rank-0 workers MUST load the study created by rank 0
