@@ -980,7 +980,7 @@ def main():
         cols = df_query.select(cs.starts_with("ws_horz"), cs.starts_with("ws_vert")).collect_schema().names()
         if config["filters"]["std_range_flag"]["over"] == "asset":
             total_rows = df_query.select(pl.len()).collect().item()
-            chunk_size = total_rows # process a number of cells equal to the total row number at a time ,1_000_000_000
+            chunk_size = total_rows * 2 # process a number of cells equal to the twice total row number at a time ,1_000_000_000
             row_chunk_size = int(chunk_size // len(cols))
             filenames = np.arange(len(np.arange(0, total_rows, row_chunk_size)))
         else:
