@@ -253,27 +253,31 @@ def main():
 
     # --- Database Setup (Rank 0) & Synchronization ---
     optuna_storage_url = None # Initialize for all ranks
-    sync_file_path = None     # Initialize sync file path
+    pg_config = None          # Initialize pg_config
 
     if "tune" in args.mode: # Only setup DB if tuning
         storage_backend = config.get("optuna", {}).get("storage", {}).get("backend", "sqlite") # Default to sqlite if not specified
         logging.info(f"Optuna storage backend configured as: {storage_backend}")
 
         if storage_backend == "postgresql":
-            # Define path for synchronization file (using TMPDIR for node-local comms)
-            sync_dir = os.environ.get("TMPDIR", "/tmp")
-            sync_file_path = os.path.join(sync_dir, f"optuna_pg_ready_{os.environ.get('SLURM_JOB_ID', os.getpid())}.sync")
-
             if IS_RANK_ZERO:
                 logging.info("Rank 0: Managing PostgreSQL instance...")
                 try:
-                    # Ensure sync file doesn't exist from a previous failed run
-                    if os.path.exists(sync_file_path):
-                        os.remove(sync_file_path)
+                    # Manage instance (init, start, setup user/db, register cleanup)
+                    # Pass restart flag from args. register_cleanup=True is default for rank 0.
+                    optuna_storage_url, pg_config = db_utils.manage_postgres_instance(
+                        config,
+                        restart=args.restart_tuning,
+                        register_cleanup=True # Explicitly register cleanup for rank 0
+                    )
 
-                    # Manage instance (init, start, setup user/db)
-                    # Pass restart flag from args
-                    optuna_storage_url = db_utils.manage_postgres_instance(config, restart=args.restart_tuning)
+                    # Ensure sync file doesn't exist from a previous failed run
+                    sync_file_path = pg_config.get("sync_file")
+                    if not sync_file_path:
+                         raise ValueError("Sync file path not generated in pg_config.")
+                    if os.path.exists(sync_file_path):
+                        logging.warning(f"Removing existing sync file: {sync_file_path}")
+                        os.remove(sync_file_path)
 
                     # Create sync file to signal readiness
                     with open(sync_file_path, 'w') as f:
@@ -281,42 +285,69 @@ def main():
                     logging.info(f"Rank 0: PostgreSQL ready. Created sync file: {sync_file_path}")
 
                 except Exception as e:
-                    logging.error(f"Rank 0: Failed to setup PostgreSQL: {e}")
-                    # Create sync file with error state? Or just let others timeout?
-                    # For now, let others timeout or fail on connection.
-                    # Consider writing 'error' to sync file for faster failure propagation.
+                    logging.error(f"Rank 0: Failed to setup PostgreSQL: {e}", exc_info=True)
+                    # Attempt to signal error via sync file if possible
+                    if pg_config and pg_config.get("sync_file"):
+                         try:
+                              with open(pg_config["sync_file"], 'w') as f: f.write('error')
+                         except Exception as e_sync:
+                              logging.error(f"Rank 0: Failed to write error state to sync file: {e_sync}")
                     raise # Re-raise the exception to stop rank 0
             else:
-                # Worker ranks wait for Rank 0 to signal DB readiness
-                logging.info(f"Rank {rank}: Waiting for PostgreSQL sync file: {sync_file_path}")
-                max_wait_time = 300 # seconds (5 minutes)
-                wait_interval = 5   # seconds
-                waited_time = 0
-                while not os.path.exists(sync_file_path):
-                    time.sleep(wait_interval)
-                    waited_time += wait_interval
-                    if waited_time >= max_wait_time:
-                        logging.error(f"Rank {rank}: Timed out waiting for sync file {sync_file_path}")
-                        raise TimeoutError("Timed out waiting for Rank 0 PostgreSQL setup.")
-                    logging.info(f"Rank {rank}: Sync file found. Proceeding.")
-                    # Non-rank-0 workers need to generate pg_config to get the URL
-                    try:
-                        # Replicate the config generation logic here
-                        # Note: This assumes db_utils has the necessary imports (Path, os, getpass, uuid, time)
-                        # which it should already have.
-                        pg_config = db_utils._generate_pg_config(config) # We'll need to extract this logic into a helper
-                        optuna_storage_url = db_utils.get_optuna_storage_url(pg_config)
-                    except Exception as e:
-                        logging.error(f"Rank {rank}: Failed to generate PostgreSQL config/URL: {e}")
-                        raise
+                # Worker ranks: Generate config to find sync file and wait
+                try:
+                    # Generate config but DO NOT manage the instance or register cleanup
+                    # This call primarily resolves paths and gets the sync_file location
+                    pg_config = db_utils._generate_pg_config(config)
+                    sync_file_path = pg_config.get("sync_file")
+                    if not sync_file_path:
+                         raise ValueError("Sync file path not generated in pg_config for worker.")
+
+                    logging.info(f"Rank {rank}: Waiting for PostgreSQL sync file: {sync_file_path}")
+                    max_wait_time = 300 # seconds (5 minutes)
+                    wait_interval = 5   # seconds
+                    waited_time = 0
+                    sync_status = None
+                    while waited_time < max_wait_time:
+                        if os.path.exists(sync_file_path):
+                            try:
+                                with open(sync_file_path, 'r') as f:
+                                    sync_status = f.read().strip()
+                                if sync_status == 'ready':
+                                    logging.info(f"Rank {rank}: Sync file found and indicates 'ready'. Proceeding.")
+                                    break
+                                elif sync_status == 'error':
+                                     logging.error(f"Rank {rank}: Sync file indicates 'error' from Rank 0. Aborting.")
+                                     raise RuntimeError("Rank 0 failed PostgreSQL setup.")
+                                else:
+                                     # File exists but content is unexpected, wait briefly and re-check
+                                     logging.warning(f"Rank {rank}: Sync file found but content is '{sync_status}'. Waiting...")
+
+                            except Exception as e_read:
+                                logging.warning(f"Rank {rank}: Error reading sync file '{sync_file_path}': {e_read}. Retrying...")
+
+                        time.sleep(wait_interval)
+                        waited_time += wait_interval
+                        
+                    if sync_status != 'ready':
+                         logging.error(f"Rank {rank}: Timed out waiting for sync file '{sync_file_path}' or file did not indicate 'ready'.")
+                         raise TimeoutError("Timed out waiting for Rank 0 PostgreSQL setup.")
+
+                    # Generate the storage URL using the generated config
+                    optuna_storage_url = db_utils.get_optuna_storage_url(pg_config)
+
+                except Exception as e:
+                    logging.error(f"Rank {rank}: Failed during PostgreSQL sync/config generation: {e}", exc_info=True)
+                    raise
 
         elif storage_backend == "sqlite":
             # Handle SQLite setup if needed (using legacy --init_only logic?)
             # For now, assume SQLite path is handled by Optuna directly based on config
             # Construct the SQLite URL based on config
+            # Use _resolve_path for consistency, getting project_root from config or default
             sqlite_rel_path = config.get("optuna", {}).get("storage", {}).get("sqlite_path", "logging/optuna/optuna_study.db")
-            project_root = config.get("experiment", {}).get("project_root", os.getcwd())
-            sqlite_abs_path = os.path.abspath(os.path.join(project_root, sqlite_rel_path))
+            sqlite_abs_path = db_utils._resolve_path(config, f"optuna.storage.sqlite_path", default=sqlite_rel_path)
+            # Ensure project_root is handled within _resolve_path based on experiment.project_root or CWD
             os.makedirs(os.path.dirname(sqlite_abs_path), exist_ok=True)
             optuna_storage_url = f"sqlite:///{sqlite_abs_path}"
             logging.info(f"Using SQLite storage URL: {optuna_storage_url}")
@@ -526,7 +557,7 @@ def main():
         
         # Normal execution - pass the OOM protection wrapper and constructed storage URL
         tune_model(model=args.model, config=config,
-                    optuna_storage_url=optuna_storage_url, # Pass the constructed URL (Corrected keyword)
+                    optuna_storage_url=optuna_storage_url, # Pass the constructed URL
                     lightning_module_class=LightningModuleClass,
                     estimator_class=EstimatorClass,
                     distr_output_class=DistrOutputClass,

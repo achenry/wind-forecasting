@@ -1,6 +1,7 @@
 experiment:
   run_name: windfarm_juan_flasc_tune_pruning_sql
-  log_dir: /user/taed7566/wind-forecasting/logging/
+  log_dir: /user/taed7566/wind-forecasting/logging/ # Base directory for all logs
+  project_root: /user/taed7566/wind-forecasting    # Explicit project root directory
 
 logging:
   # WandB will create a 'wandb' subdirectory here automatically
@@ -44,7 +45,14 @@ optuna:
     db_name: "optuna_study_db"
     db_user: "optuna_user"
     use_socket: true      # Use Unix domain socket for local connection (recommended on single node)
-    # socket_dir_base: "/tmp" Optional: Base dir for socket, defaults to $TMPDIR if not set
+    socket_dir_base: "${logging.optuna_dir}/sockets" # Base directory for socket files (relative to project_root)
+    sync_dir: "${logging.optuna_dir}/sync"           # Directory for synchronization files (relative to project_root)
+    # --- Optional TCP/IP Settings (if use_socket is false) ---
+    # use_tcp: false
+    # db_host: "localhost"
+    # db_port: 5432
+    # --- Optional Command Execution Settings ---
+    # run_cmd_shell: false # Set to true if specific commands require shell=True
 
     # --- SQLite Specific Settings (Example - not used if backend is postgresql) ---
     # sqlite_path: "logging/optuna/study.db" Relative path for SQLite file if backend="sqlite"
