@@ -74,10 +74,11 @@ def main():
     parser.add_argument("--config", type=str, help="Path to config file", default="examples/inputs/training_inputs_aoifemac_flasc.yaml")
     parser.add_argument("-md", "--mode", choices=["tune", "train", "test"], required=True,
                         help="Mode to run: 'tune' for hyperparameter optimization with Optuna, 'train' to train a model, 'test' to evaluate a model")
-    parser.add_argument("-chk", "--checkpoint", type=str, required=False, default=None)
+    parser.add_argument("-chk", "--checkpoint", type=str, required=False, default="latest", 
+                        help="Which checkpoint to use: can be equal to 'latest', 'best', or an existing checkpoint path.")
     parser.add_argument("-m", "--model", type=str, choices=["informer", "autoformer", "spacetimeformer", "tactis"], required=True)
     parser.add_argument("-rt", "--restart_tuning", action="store_true")
-    parser.add_argument("-tp", "--use_tuned_parameters", action="store_true")
+    parser.add_argument("-tp", "--use_tuned_parameters", action="store_true", help="Use parameters tuned from Optuna optimization, otherwise use defaults set in Module class.")
     parser.add_argument("--tune_first", action="store_true", help="Whether to use tuned parameters", default=False)
     parser.add_argument("--model_path", type=str, help="Path to a saved model checkpoint to load from", default=None)
     parser.add_argument("--predictor_path", type=str, help="Path to a saved predictor for evaluation", default=None)
@@ -96,8 +97,8 @@ def main():
     
     # %% PARSE CONFIG
     logging.info(f"Parsing configuration from yaml and command line arguments")
-    with open(args.config, "r") as f:
-        config = yaml.safe_load(f)
+    with open(args.config, "r") as file:
+        config = yaml.safe_load(file)
         
     # TODO create function to check config params and set defaults
     assert args.checkpoint is None or args.checkpoint in ["best", "latest"] or os.path.exists(args.checkpoint), "Checkpoint argument, if provided, must equal 'best', 'latest', or an existing checkpoint path."
