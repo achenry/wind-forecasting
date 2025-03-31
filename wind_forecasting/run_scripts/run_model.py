@@ -46,6 +46,7 @@ from wind_forecasting.run_scripts.testing import test_model, get_checkpoint # Mo
 # Configure logging and matplotlib backend
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
+# MPI check remains, but rank detection below uses environment variables primarily
 mpi_exists = False
 try:
     from mpi4py import MPI
@@ -685,4 +686,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-# %%
