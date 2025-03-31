@@ -1,6 +1,12 @@
 ssh ahenry@kestrel-gpu.hpc.nrel.gov
 # https://docs.github.com/en/authentication/connecting-to-github-with-ssh/generating-a-new-ssh-key-and-adding-it-to-the-ssh-agent?platform=linux
 
+## FOR WANDB ONLY
+export WANDB_API_KEY=a9aec8e98a88077de29031385225167c720030f7
+pip install wandb
+wandb login
+## END WANDB
+
 ## FOR PREPROCESSING ONLY
 mkdir /home/ahenry/.conda
 chmod a=rx /home/ahenry/.conda
@@ -37,8 +43,8 @@ ml mamba
 mamba create --prefix=/projects/ssc/ahenry/conda/envs/wind_forecasting --y
 mamba activate wind_forecasting
 mamba install conda-forge::cuda-version=12.4 nvidia/label/cuda-12.4.0::cuda-toolkit performer-pytorch pytorch torchvision torchaudio torchmetrics pytorch-cuda=12.4 lightning -c pytorch -c nvidia --y
-mamba install polars windrose statsmodels scikit-learn jupyterlab nb_conda_kernels pyyaml matplotlib numpy seaborn opt_einsum netcdf4 scipy h5pyd pyarrow wandb einops --y 
-pip install openmpi mpi4py impi_rt opencv-python floris memory_profiler optuna mysqlclient mysql-connector-python filterpy
+mamba install mysqlclient mysql-connector-python polars windrose statsmodels scikit-learn jupyterlab nb_conda_kernels pyyaml matplotlib numpy seaborn opt_einsum netcdf4 scipy h5pyd pyarrow wandb einops --y 
+pip install openmpi mpi4py impi_rt opencv-python floris memory_profiler optuna filterpy
 
 brew install mysql  && brew services start mysql
 
