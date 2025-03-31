@@ -5,7 +5,6 @@ import time
 import shutil
 import getpass  # To get current username for initdb/psql
 import atexit   # To register cleanup function
-import uuid     # For unique path generation
 from pathlib import Path # Import Path for robust path calculation
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -288,31 +287,67 @@ def stop_postgres(pg_config, raise_on_error=True):
 # Global variable to hold the generated config for atexit cleanup
 _managed_pg_config = None
 
-def _resolve_path(config, key, default=None):
-    """Resolves a path potentially containing variables like ${logging.optuna_dir}."""
-    path_str = config.get(key, default)
+def _resolve_path(key_config, key, full_config, default=None):
+    """
+    Resolves a path potentially containing variables like ${logging.optuna_dir},
+    using the full_config for variable lookups and project root determination.
+
+    Args:
+        key_config: The sub-dictionary where the path key is located (e.g., config['optuna']['storage']).
+        key: The key of the path string within key_config (e.g., "socket_dir_base").
+        full_config: The complete configuration dictionary.
+        default: The default value if the key is not found.
+    """
+    path_str = key_config.get(key, default)
     if not path_str:
         return None
 
-    # Basic variable substitution (add more complex logic if needed)
-    if "${logging.optuna_dir}" in path_str:
-        optuna_dir = config.get("logging", {}).get("optuna_dir")
-        if not optuna_dir:
-            raise ValueError(f"Cannot resolve path '{path_str}': logging.optuna_dir is not defined.")
-        path_str = path_str.replace("${logging.optuna_dir}", optuna_dir)
+    # --- Variable Substitution ---
+    max_iterations = 5
+    iterations = 0
+    while "${" in path_str and iterations < max_iterations:
+        original_path_str = path_str # Keep track for error messages
+        substituted = False # Flag to check if any substitution happened in this iteration
 
-    # Add more substitutions here if needed (e.g., ${experiment.project_root})
+        if "${logging.optuna_dir}" in path_str:
+            # Look up in the full config dictionary
+            optuna_dir = full_config.get("logging", {}).get("optuna_dir")
+            if not optuna_dir:
+                raise ValueError(f"Cannot resolve variable in path '{original_path_str}': logging.optuna_dir is not defined in the configuration.")
+            # Ensure optuna_dir itself is an absolute path before substituting
+            if not Path(optuna_dir).is_absolute():
+                 project_root_str_for_optuna = full_config.get("experiment", {}).get("project_root", os.getcwd())
+                 optuna_dir = str((Path(project_root_str_for_optuna) / Path(optuna_dir)).resolve())
+            path_str = path_str.replace("${logging.optuna_dir}", optuna_dir)
+            substituted = True
 
-    # Ensure the path is absolute relative to project root
-    project_root_str = config.get("experiment", {}).get("project_root")
-    if not project_root_str:
-         logging.warning("experiment.project_root not defined in config, assuming current working directory.")
-         project_root = Path(os.getcwd())
+        # Add more variable substitutions here if needed (e.g., ${experiment.project_root})
+        # elif "${experiment.project_root}" in path_str:
+        #     proj_root = full_config.get("experiment", {}).get("project_root")
+        #     if not proj_root: raise ValueError(...)
+        #     path_str = path_str.replace("${experiment.project_root}", proj_root)
+        #     substituted = True
+
+        if not substituted: # No substitution happened, break loop
+             break
+        iterations += 1
+
+    if iterations >= max_iterations:
+         logging.warning(f"Path resolution exceeded max iterations for '{key_config.get(key, default)}'. Result: '{path_str}'")
+
+    # --- Resolve to Absolute Path ---
+    if Path(path_str).is_absolute():
+        resolved_path = Path(path_str)
     else:
-         project_root = Path(project_root_str)
+        project_root_str = full_config.get("experiment", {}).get("project_root")
+        if not project_root_str:
+             logging.warning("experiment.project_root not defined in full_config, assuming current working directory for relative path resolution.")
+             project_root = Path(os.getcwd())
+        else:
+             project_root = Path(project_root_str)
+        resolved_path = (project_root / Path(path_str)).resolve()
 
-    resolved_path = project_root / Path(path_str)
-    return str(resolved_path.resolve())
+    return str(resolved_path)
 
 
 def _generate_pg_config(config):
@@ -345,12 +380,18 @@ def _generate_pg_config(config):
         raise ValueError("Missing 'pgdata_path' in optuna.storage configuration.")
     # Base path is relative to project root
     pgdata_base_abs = (project_root / Path(pgdata_path_rel).parent).resolve()
-    # Generate unique directory name within the base path
-    job_id_for_path = os.environ.get("SLURM_JOB_ID", f"local_{os.getpid()}") # More robust fallback
-    unique_name = f"pg_data_{job_id_for_path}_{int(time.time())}_{uuid.uuid4().hex[:8]}"
-    pgdata_path_abs = pgdata_base_abs / unique_name
-    os.makedirs(pgdata_base_abs, exist_ok=True) # Ensure parent directory exists
-    logging.info(f"Using PGDATA path: {pgdata_path_abs}")
+    # Generate directory name based on Optuna study name for persistence
+    study_name = config.get("optuna", {}).get("study_name")
+    if not study_name:
+        raise ValueError("Missing 'study_name' in optuna configuration, needed for PGDATA path.")
+    # Make study name filesystem-safe (replace spaces, slashes, etc.)
+    safe_study_name = "".join(c if c.isalnum() or c in ('_', '-') else '_' for c in study_name)
+    pgdata_dir_name = f"pg_data_{safe_study_name}" # Consistent name based on study
+    pgdata_path_abs = pgdata_base_abs / pgdata_dir_name
+    # Ensure the base directory exists (parent of the specific study data dir)
+    os.makedirs(pgdata_base_abs, exist_ok=True)
+    # The specific study data directory (pgdata_path_abs) will be created by initdb if it doesn't exist
+    logging.info(f"Using persistent PGDATA path based on study name: {pgdata_path_abs}")
 
     # --- Socket/TCP Configuration ---
     use_socket = storage_config.get("use_socket", True)
@@ -367,7 +408,8 @@ def _generate_pg_config(config):
 
     if use_socket:
         # Resolve socket_dir_base relative to project root
-        socket_base_str = _resolve_path(config["optuna"]["storage"], "socket_dir_base")
+        # Pass the sub-dictionary containing the key, the key itself, and the full config
+        socket_base_str = _resolve_path(storage_config, "socket_dir_base", full_config=config) # Pass full config explicitly
         if not socket_base_str:
              # Default to $TMPDIR or /tmp if not specified
              tmp_dir = os.environ.get("TMPDIR", "/tmp")
@@ -388,12 +430,17 @@ def _generate_pg_config(config):
         logging.info(f"Using TCP/IP connection: host={db_host}, port={db_port}")
 
     # --- Sync Directory ---
-    sync_dir_str = _resolve_path(config["optuna"]["storage"], "sync_dir")
+    # Resolve sync_dir using the full config
+    sync_dir_str = _resolve_path(storage_config, "sync_dir", full_config=config) # Pass full config explicitly
     if not sync_dir_str:
         # Default to a 'sync' subdir within optuna_dir if sync_dir not specified
-        optuna_dir_str = _resolve_path(config["logging"], "optuna_dir", default="logging/optuna")
-        sync_dir_str = str((Path(optuna_dir_str) / "sync").resolve())
-        logging.info(f"sync_dir not specified, defaulting to: {sync_dir_str}")
+        # Resolve optuna_dir first using the full config
+        optuna_dir_str = _resolve_path(config.get("logging", {}), "optuna_dir", full_config=config, default="logging/optuna") # Pass full config
+        if not optuna_dir_str:
+             raise ValueError("Cannot determine default sync_dir because logging.optuna_dir is not defined.")
+        # Default path is relative to resolved optuna_dir
+        sync_dir_str = str((Path(optuna_dir_str) / "sync").resolve()) # This should be fine as optuna_dir_str is now absolute
+        logging.info(f"sync_dir not specified, defaulting relative to resolved optuna_dir: {sync_dir_str}")
     sync_dir_path = Path(sync_dir_str)
     os.makedirs(sync_dir_path, exist_ok=True)
     sync_file = str(sync_dir_path / f"optuna_pg_ready_{os.environ.get('SLURM_JOB_ID', os.getpid())}.sync")
