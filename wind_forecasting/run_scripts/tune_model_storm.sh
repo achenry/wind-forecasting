@@ -100,13 +100,7 @@ echo "Exported PGDATA=${PGDATA}"
 echo "Exported PG_SOCKET_DIR=${PG_SOCKET_DIR}"
 # --- End PostgreSQL Variables ---
 
-
-# --- Removed PostgreSQL Setup Block ---
-# Database setup (init, start, stop, URL generation) is now handled within the Python script (run_model.py)
-# based on the configuration in the YAML file.
-# The necessary PostgreSQL module is loaded above.
-
-# --- Define Slurm Cleanup Function ---
+# --- Slurm Cleanup Function ---
 # This function will run when the job exits (normally or via signal)
 # It ensures the PostgreSQL server managed by Python (rank 0) is stopped.
 cleanup() {
@@ -250,7 +244,7 @@ fi
 echo "=== TUNING SCRIPT COMPLETED ==="
 date +"%Y-%m-%d %H:%M:%S"
 
-# --- Move main SLURM logs to the job ID directory ---
+# --- Move main SLURM logs to the job ID directory with rest of worker logs ---
 echo "Moving main SLURM logs to ${LOG_DIR}/slurm_logs/${SLURM_JOB_ID}/"
 mv ${LOG_DIR}/slurm_logs/informer_tune_flasc_${SLURM_JOB_ID}.out ${LOG_DIR}/slurm_logs/${SLURM_JOB_ID}/ 2>/dev/null || echo "Warning: Could not move .out file."
 mv ${LOG_DIR}/slurm_logs/informer_tune_flasc_${SLURM_JOB_ID}.err ${LOG_DIR}/slurm_logs/${SLURM_JOB_ID}/ 2>/dev/null || echo "Warning: Could not move .err file."
