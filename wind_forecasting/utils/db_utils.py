@@ -3,35 +3,42 @@ import subprocess
 import logging
 import time
 import shutil
-import getpass # To get current username for initdb/psql
+import getpass  # To get current username for initdb/psql
+import atexit   # To register cleanup function
+import uuid     # For unique path generation
 from pathlib import Path # Import Path for robust path calculation
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-def _run_cmd(command, cwd=None, shell=False, check=True):
+def _run_cmd(command, cwd=None, shell=False, check=True, env_override=None):
     """Helper function to run shell commands and log output/errors."""
     log_cmd = ' '.join(command) if isinstance(command, list) else command
     logging.info(f"Running command (shell={shell}): {log_cmd}")
     try:
-        # --- Create a minimal environment for the subprocess ---
-        minimal_env = {}
-        if "PATH" in os.environ:
-            minimal_env["PATH"] = os.environ["PATH"]
-        else:
-            logging.warning("PATH not found in environment, command might fail.")
+        # --- Create environment for the subprocess ---
+        # Start with current environment or an empty dict
+        cmd_env = os.environ.copy() if env_override is None else env_override.copy()
 
+        # Ensure PATH is present
+        if "PATH" not in cmd_env:
+            logging.warning("PATH not found in environment, command might fail.")
+            # Attempt to reconstruct a basic PATH if missing entirely
+            cmd_env["PATH"] = os.defpath
+
+        # Prioritize CAPTURED_LD_LIBRARY_PATH if available
         captured_ld_path = os.environ.get("CAPTURED_LD_LIBRARY_PATH")
         if captured_ld_path:
-            minimal_env["LD_LIBRARY_PATH"] = captured_ld_path
-            logging.info(f"Setting minimal LD_LIBRARY_PATH for subprocess: {captured_ld_path}")
-        elif "LD_LIBRARY_PATH" in os.environ:
-             minimal_env["LD_LIBRARY_PATH"] = os.environ["LD_LIBRARY_PATH"]
-             logging.warning(f"Using current LD_LIBRARY_PATH for subprocess (capture might have failed): {minimal_env['LD_LIBRARY_PATH']}")
+            cmd_env["LD_LIBRARY_PATH"] = captured_ld_path
+            logging.info(f"Using captured LD_LIBRARY_PATH for subprocess: {captured_ld_path}")
+        elif "LD_LIBRARY_PATH" in cmd_env:
+             logging.info(f"Using existing LD_LIBRARY_PATH for subprocess: {cmd_env['LD_LIBRARY_PATH']}")
         else:
              logging.warning("LD_LIBRARY_PATH not found in environment for subprocess.")
+
+        # Ensure essential user variables are present
         for env_var in ["USER", "LOGNAME", "HOME"]:
-             if env_var in os.environ:
-                 minimal_env[env_var] = os.environ[env_var]
+             if env_var not in cmd_env and env_var in os.environ:
+                 cmd_env[env_var] = os.environ[env_var]
 
         process = subprocess.run(
             command,
@@ -41,7 +48,7 @@ def _run_cmd(command, cwd=None, shell=False, check=True):
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
-            env=minimal_env
+            env=cmd_env
         )
 
         if process.stdout:
@@ -69,11 +76,20 @@ def get_optuna_storage_url(pg_config):
         socket_dir = pg_config["socket_dir"]
         if not socket_dir:
              raise ValueError("Socket directory is not defined for socket connection.")
+        # Construct URL using socket path
         url = f"postgresql://{db_user}@/{db_name}?host={socket_dir}"
-        logging.info(f"Constructed PostgreSQL Optuna URL (socket): {url}")
+        logging.info(f"Constructed PostgreSQL Optuna URL (socket): {url.split('@')[0]}@...") # Log safely
+        return url
+    elif pg_config.get("use_tcp", False):
+        # Construct URL using TCP/IP
+        db_host = pg_config.get("db_host", "localhost")
+        db_port = pg_config.get("db_port", 5432)
+        # Assuming no password needed due to trust auth or other methods handled by pg_hba.conf
+        url = f"postgresql://{db_user}@{db_host}:{db_port}/{db_name}"
+        logging.info(f"Constructed PostgreSQL Optuna URL (TCP/IP): {url.split('@')[0]}@...") # Log safely
         return url
     else:
-        raise NotImplementedError("TCP/IP connection for PostgreSQL is not implemented in this utility.")
+        raise ValueError("PostgreSQL connection type (socket or TCP) not specified or supported.")
 
 def delete_postgres_data(pg_config, raise_on_error=True):
     """Stops server and removes PGDATA directory."""
@@ -116,7 +132,7 @@ def init_postgres(pg_config):
             "-D", str(pgdata)
         ]
 
-        _run_cmd(init_cmd) # Uses shell=False by default now
+        _run_cmd(init_cmd, shell=pg_config.get("run_cmd_shell", False))
         logging.info("PostgreSQL data directory initialized.")
         hba_conf_path = os.path.join(pgdata, "pg_hba.conf")
 
@@ -179,7 +195,7 @@ def setup_db_user(pg_config):
             psql_path, "-h", socket_dir, "-U", job_owner, "-d", "postgres",
             "-c", f"CREATE USER {db_user};"
         ]
-        _run_cmd(create_user_cmd_list)
+        _run_cmd(create_user_cmd_list, shell=pg_config.get("run_cmd_shell", False))
         logging.info(f"Created PostgreSQL user: {db_user}")
     else:
         logging.info(f"PostgreSQL user {db_user} already exists.")
@@ -196,7 +212,7 @@ def setup_db_user(pg_config):
             psql_path, "-h", socket_dir, "-U", job_owner, "-d", "postgres",
             "-c", f"CREATE DATABASE {db_name} OWNER {db_user};"
         ]
-        _run_cmd(create_db_cmd_list)
+        _run_cmd(create_db_cmd_list, shell=pg_config.get("run_cmd_shell", False))
         logging.info(f"Created PostgreSQL database: {db_name} owned by {db_user}")
     else:
         logging.info(f"PostgreSQL database {db_name} already exists.")
@@ -218,7 +234,7 @@ def start_postgres(pg_config):
     logging.info("Starting PostgreSQL server...")
     # Check if server is already running
     status_cmd = [pg_ctl_path, "status", "-D", str(pgdata)]
-    status_result = _run_cmd(status_cmd, check=False) # Uses shell=False
+    status_result = _run_cmd(status_cmd, check=False, shell=pg_config.get("run_cmd_shell", False))
 
     if status_result.returncode == 0:
         logging.info("PostgreSQL server is already running.")
@@ -233,7 +249,7 @@ def start_postgres(pg_config):
             "-l", logfile,
             "-o", f"-c unix_socket_directories='{socket_dir}'"
         ]
-        _run_cmd(start_cmd_list)
+        _run_cmd(start_cmd_list, shell=pg_config.get("run_cmd_shell", False))
         logging.info("PostgreSQL server started successfully.")
     else:
         logging.error(f"pg_ctl status returned unexpected code {status_result.returncode}. Check logs.")
@@ -254,7 +270,7 @@ def stop_postgres(pg_config, raise_on_error=True):
         "-m", "fast"
     ]
     try:
-        _run_cmd(stop_cmd_list)
+        _run_cmd(stop_cmd_list, shell=pg_config.get("run_cmd_shell", False))
         logging.info("PostgreSQL server stopped.")
     except Exception as e:
         logging.warning(f"pg_ctl stop failed (maybe server was not running?): {e}")
@@ -269,88 +285,187 @@ def stop_postgres(pg_config, raise_on_error=True):
             except Exception as e:
                 logging.warning(f"Failed to remove socket directory {socket_dir}: {e}")
 
-def _generate_pg_config(config):
-    """Generates the pg_config dictionary from the main config."""
+# Global variable to hold the generated config for atexit cleanup
+_managed_pg_config = None
 
-    # Generate config dictionary used by other functions
+def _resolve_path(config, key, default=None):
+    """Resolves a path potentially containing variables like ${logging.optuna_dir}."""
+    path_str = config.get(key, default)
+    if not path_str:
+        return None
+
+    # Basic variable substitution (add more complex logic if needed)
+    if "${logging.optuna_dir}" in path_str:
+        optuna_dir = config.get("logging", {}).get("optuna_dir")
+        if not optuna_dir:
+            raise ValueError(f"Cannot resolve path '{path_str}': logging.optuna_dir is not defined.")
+        path_str = path_str.replace("${logging.optuna_dir}", optuna_dir)
+
+    # Add more substitutions here if needed (e.g., ${experiment.project_root})
+
+    # Ensure the path is absolute relative to project root
+    project_root_str = config.get("experiment", {}).get("project_root")
+    if not project_root_str:
+         logging.warning("experiment.project_root not defined in config, assuming current working directory.")
+         project_root = Path(os.getcwd())
+    else:
+         project_root = Path(project_root_str)
+
+    resolved_path = project_root / Path(path_str)
+    return str(resolved_path.resolve())
+
+
+def _generate_pg_config(config):
+    """
+    Generates the pg_config dictionary from the main config, resolving paths
+    and handling defaults.
+    """
+    global _managed_pg_config # Allow modification of the global var
+
     storage_config = config.get("optuna", {}).get("storage", {})
     if storage_config.get("backend") != "postgresql":
         raise ValueError("Database backend is not configured as 'postgresql' in YAML.")
 
-    try:
-        project_root = Path(__file__).resolve().parents[2]
-        logging.info(f"Determined project root: {project_root}")
-    except IndexError:
-        logging.error("Could not determine project root based on script location. Falling back to CWD.")
-        project_root = Path(os.getcwd())
+    # Determine Project Root
+    project_root_str = config.get("experiment", {}).get("project_root")
+    if not project_root_str:
+        try:
+            project_root = Path(__file__).resolve().parents[2]
+            logging.info(f"Determined project root from script location: {project_root}")
+        except IndexError:
+            logging.warning("Could not determine project root from script location. Falling back to CWD.")
+            project_root = Path(os.getcwd())
+    else:
+        project_root = Path(project_root_str).resolve()
+        logging.info(f"Using project root from config: {project_root}")
 
+    # --- PGDATA Path ---
     pgdata_path_rel = storage_config.get("pgdata_path")
     if not pgdata_path_rel:
         raise ValueError("Missing 'pgdata_path' in optuna.storage configuration.")
-
-    # Generate UNIQUE path in Persistent Storage
-    # Base path is determined relative to the project root using the config value
-    pgdata_base_abs = project_root / Path(pgdata_path_rel).parent
-
-    import uuid
-    timestamp = int(time.time())
-    job_id_for_path = os.environ.get("SLURM_JOB_ID", "local") # Use Slurm job ID for uniqueness
-    unique_name = f"pg_data_{job_id_for_path}_{timestamp}_{uuid.uuid4().hex[:8]}"
+    # Base path is relative to project root
+    pgdata_base_abs = (project_root / Path(pgdata_path_rel).parent).resolve()
+    # Generate unique directory name within the base path
+    job_id_for_path = os.environ.get("SLURM_JOB_ID", f"local_{os.getpid()}") # More robust fallback
+    unique_name = f"pg_data_{job_id_for_path}_{int(time.time())}_{uuid.uuid4().hex[:8]}"
     pgdata_path_abs = pgdata_base_abs / unique_name
-    # Ensure parent directory exists
-    os.makedirs(pgdata_base_abs, exist_ok=True)
+    os.makedirs(pgdata_base_abs, exist_ok=True) # Ensure parent directory exists
     logging.info(f"Using PGDATA path: {pgdata_path_abs}")
 
-    db_name = storage_config.get("db_name", "optuna_study_db")
-    db_user = storage_config.get("db_user", "optuna_user")
+    # --- Socket/TCP Configuration ---
     use_socket = storage_config.get("use_socket", True)
+    use_tcp = storage_config.get("use_tcp", False)
+    if use_socket and use_tcp:
+        raise ValueError("Cannot configure both use_socket=true and use_tcp=true.")
+    if not use_socket and not use_tcp:
+        logging.info("Neither use_socket nor use_tcp specified, defaulting to use_socket=true.")
+        use_socket = True
 
     socket_dir = None
+    db_host = None
+    db_port = None
+
     if use_socket:
-        socket_base = storage_config.get("socket_dir_base")
+        # Resolve socket_dir_base relative to project root
+        socket_base_str = _resolve_path(config["optuna"]["storage"], "socket_dir_base")
+        if not socket_base_str:
+             # Default to $TMPDIR or /tmp if not specified
+             tmp_dir = os.environ.get("TMPDIR", "/tmp")
+             logging.info(f"socket_dir_base not specified, using system temp dir: {tmp_dir}")
+             socket_base_path = Path(tmp_dir)
+        else:
+             socket_base_path = Path(socket_base_str)
+
         job_id_for_socket = os.environ.get("SLURM_JOB_ID", os.getpid()) # Unique socket per job
         socket_dir_name = f"pg_socket_{job_id_for_socket}"
-        if socket_base:
-             socket_dir = os.path.join(socket_base, socket_dir_name)
-        elif "TMPDIR" in os.environ:
-             socket_dir = os.path.join(os.environ["TMPDIR"], socket_dir_name)
-        else:
-             socket_dir = os.path.join("/tmp", socket_dir_name)
-        os.makedirs(socket_dir, exist_ok=True)
+        socket_dir_path = (socket_base_path / socket_dir_name).resolve()
+        os.makedirs(socket_dir_path, exist_ok=True)
+        socket_dir = str(socket_dir_path)
+        logging.info(f"Using socket directory: {socket_dir}")
+    elif use_tcp:
+        db_host = storage_config.get("db_host", "localhost")
+        db_port = storage_config.get("db_port", 5432)
+        logging.info(f"Using TCP/IP connection: host={db_host}, port={db_port}")
 
+    # --- Sync Directory ---
+    sync_dir_str = _resolve_path(config["optuna"]["storage"], "sync_dir")
+    if not sync_dir_str:
+        # Default to a 'sync' subdir within optuna_dir if sync_dir not specified
+        optuna_dir_str = _resolve_path(config["logging"], "optuna_dir", default="logging/optuna")
+        sync_dir_str = str((Path(optuna_dir_str) / "sync").resolve())
+        logging.info(f"sync_dir not specified, defaulting to: {sync_dir_str}")
+    sync_dir_path = Path(sync_dir_str)
+    os.makedirs(sync_dir_path, exist_ok=True)
+    sync_file = str(sync_dir_path / f"optuna_pg_ready_{os.environ.get('SLURM_JOB_ID', os.getpid())}.sync")
+    logging.info(f"Using sync file: {sync_file}")
+
+
+    # --- Other Settings ---
+    db_name = storage_config.get("db_name", "optuna_study_db")
+    db_user = storage_config.get("db_user", "optuna_user")
+    run_cmd_shell = storage_config.get("run_cmd_shell", False) # Get shell preference
+
+    # --- PostgreSQL Binaries ---
     pg_bin_dir = os.environ.get("POSTGRES_BIN_DIR")
     if not pg_bin_dir or not os.path.isdir(pg_bin_dir):
-        logging.error(f"POSTGRES_BIN_DIR environment variable not set or invalid: '{pg_bin_dir}'.")
+        logging.error(f"POSTGRES_BIN_DIR environment variable not set or invalid: '{pg_bin_dir}'. Cannot find PostgreSQL executables.")
         raise ValueError("POSTGRES_BIN_DIR environment variable not set or invalid.")
 
     pg_config = {
-        "pgdata": pgdata_path_abs,
+        "pgdata": str(pgdata_path_abs),
         "dbname": db_name,
         "dbuser": db_user,
         "use_socket": use_socket,
         "socket_dir": socket_dir,
+        "use_tcp": use_tcp,
+        "db_host": db_host,
+        "db_port": db_port,
         "job_owner": getpass.getuser(),
         "initdb_path": os.path.join(pg_bin_dir, "initdb"),
         "pg_ctl_path": os.path.join(pg_bin_dir, "pg_ctl"),
         "psql_path": os.path.join(pg_bin_dir, "psql"),
+        "run_cmd_shell": run_cmd_shell, # Store shell preference
+        "sync_file": sync_file, # Store sync file path
     }
 
     # Verify executables exist
     for key, path in pg_config.items():
-        if key.endswith("_path") and not os.path.exists(path):
-             logging.error(f"PostgreSQL executable not found at expected path: {path}")
-             raise FileNotFoundError(f"PostgreSQL executable not found at expected path: {path}")
+        if key.endswith("_path") and path and not os.path.exists(path):
+             logging.error(f"PostgreSQL executable not found at expected path: {path} (derived from POSTGRES_BIN_DIR={pg_bin_dir})")
+             raise FileNotFoundError(f"PostgreSQL executable '{os.path.basename(path)}' not found at expected path: {path}")
+
+    _managed_pg_config = pg_config # Store globally for atexit
     return pg_config
 
-def manage_postgres_instance(config, restart=False):
+def _cleanup_postgres():
+    """Function to be called by atexit to stop the server and clean up."""
+    global _managed_pg_config
+    if _managed_pg_config:
+        logging.info("atexit: Running PostgreSQL cleanup...")
+        try:
+            stop_postgres(_managed_pg_config, raise_on_error=False)
+        except Exception as e:
+            logging.error(f"atexit: Error during PostgreSQL cleanup: {e}")
+        _managed_pg_config = None # Prevent duplicate cleanup
+    else:
+        logging.info("atexit: No managed PostgreSQL instance found to clean up.")
+
+def manage_postgres_instance(config, restart=False, register_cleanup=True):
     """
     Main function to manage the lifecycle of the PostgreSQL instance for a job.
     Should typically be called only by rank 0.
-    Returns the Optuna storage URL.
+
+    Args:
+        config: The main configuration dictionary.
+        restart: Boolean flag to indicate if the database should be cleared.
+        register_cleanup: Boolean flag to register the atexit cleanup handler.
+
+    Returns:
+        Tuple: (Optuna storage URL, pg_config dictionary)
     """
     logging.info("Managing PostgreSQL instance...")
     # Generate the config dictionary
-    pg_config = _generate_pg_config(config)
+    pg_config = _generate_pg_config(config) # This also sets _managed_pg_config
 
     if restart: # If --restart_tuning flag was passed
         # Pass the consistent pg_config
@@ -372,4 +487,10 @@ def manage_postgres_instance(config, restart=False):
     # Pass the consistent pg_config
     storage_url = get_optuna_storage_url(pg_config)
     logging.info("PostgreSQL instance is ready.")
-    return storage_url
+
+    # Register cleanup function if requested (usually only for rank 0)
+    if register_cleanup:
+        logging.info("Registering atexit cleanup hook for PostgreSQL.")
+        atexit.register(_cleanup_postgres)
+
+    return storage_url, pg_config # Return URL and the generated config
