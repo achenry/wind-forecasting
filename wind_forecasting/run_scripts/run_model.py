@@ -418,80 +418,15 @@ def main():
     elif args.mode == "test":
         logging.info("Starting model testing...")
         # %% TEST MODEL
-        from wind_forecasting.run_scripts.testing import test_model
-        from glob import glob
-        import pandas as pd
-        import re
-        import shutil
+        from wind_forecasting.run_scripts.testing import test_model, get_checkpoint
         
+        # Set up parameters for checkpoint finding
         metric = "val_loss_epoch"
         mode = "min"
+        log_dir = config["trainer"]["default_root_dir"]
         
-        if args.checkpoint in ["best", "latest"]:
-            version_dirs = glob(os.path.join(config["trainer"]["default_root_dir"], "lightning_logs", "version_*"))
-            if not version_dirs:
-                raise TypeError("Must provide a valid --checkpoint argument to load from.")
-        
-        if args.checkpoint == "best":
-            best_metric_value = float('inf') if mode == "min" else float('-inf')
-            checkpoint = None  # Initialize checkpoint to avoid UnboundLocalError
-            for version_dir in version_dirs:
-                if not os.path.exists(os.path.join(version_dir, "metrics.csv")):
-                    logging.info(f"Metrics table {os.path.join(version_dir, 'metrics.csv')} does not exist, removing invalid version dir {version_dir}.")
-                    shutil.rmtree(version_dir) 
-                    continue
-                
-                metrics = pd.read_csv(os.path.join(version_dir, "metrics.csv"), index_col=None)
-
-                best_chk_metrics = metrics.loc[metrics[metric].idxmin() if mode == "min" else metrics[metric].idxmax(), 
-                                  ["epoch", "step", metric]]
-                
-                if (mode == "min" and best_chk_metrics[metric] < best_metric_value) \
-                    or (mode == "max" and best_chk_metrics[metric] > best_metric_value):
-                    checkpoint = os.path.join(version_dir, "checkpoints", 
-                                            f"epoch={int(best_chk_metrics['epoch'])}-step={int(best_chk_metrics['step'])}.ckpt")
-                    best_metric_value = best_chk_metrics[metric] 
-
-            if checkpoint is None:
-                raise FileNotFoundError("No valid checkpoints found.")
-            elif os.path.exists(checkpoint):
-                logging.info(f"Found best pretrained model: {checkpoint}")
-            else:
-                # If exact filename not found, try to find a matching checkpoint
-                checkpoint_dir = os.path.dirname(checkpoint)
-                checkpoint_pattern = f"epoch={int(best_chk_metrics['epoch'])}-step=*.ckpt"
-                matching_checkpoints = glob(os.path.join(checkpoint_dir, checkpoint_pattern))
-                
-                if matching_checkpoints:
-                    checkpoint = matching_checkpoints[0]
-                    logging.info(f"Found closest matching checkpoint: {checkpoint}")
-                else:
-                    raise FileNotFoundError(f"Best checkpoint {checkpoint} does not exist and no matching alternatives found.")
-                
-        elif args.checkpoint == "latest":
-            logging.info("Fetching latest pretrained model...")
-            pattern = r'(?<=version_)\d+'
-            # Extract version numbers from the full paths
-            version_numbers = [int(re.search(pattern, vd).group(0)) for vd in version_dirs]
-            # Get the highest version number
-            latest_version = max(version_numbers)
-            # Find the full path of the version directory with the highest number
-            version_dir = [vd for vd in version_dirs if f"version_{latest_version}" in vd][0]
-            
-            checkpoint_paths = glob(os.path.join(version_dir, "checkpoints", "*.ckpt"))
-            checkpoint_stats = [(int(re.search(r'(?<=epoch=)(\d+)', cp).group(0)),
-                                 int(re.search(r'(?<=step=)(\d+)', cp).group(0))) for cp in checkpoint_paths]
-            checkpoint = checkpoint_paths[checkpoint_stats.index(sorted(checkpoint_stats)[-1])]
-            
-            if os.path.exists(checkpoint):
-                logging.info(f"Found latest pretrained model: {checkpoint}")
-            else:
-                raise FileNotFoundError(f"Last checkpoint {checkpoint} does not exist.")
-             
-        elif os.path.exists(args.checkpoint):
-            logging.info("Fetching pretrained model...")
-            checkpoint = args.checkpoint
-            logging.info(f"Found given pretrained model: {checkpoint}")
+        # Use the get_checkpoint function to handle checkpoint finding
+        checkpoint = get_checkpoint(args.checkpoint, metric, mode, log_dir)
             
         test_model(data_module=data_module,
                     checkpoint=checkpoint,
