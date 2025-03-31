@@ -7,6 +7,7 @@ import getpass # To get current username for initdb/psql
 from pathlib import Path # Import Path for robust path calculation
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
 def _run_cmd(command, cwd=None, shell=False, check=True):
     """Helper function to run shell commands and log output/errors."""
     log_cmd = ' '.join(command) if isinstance(command, list) else command
@@ -72,7 +73,6 @@ def get_optuna_storage_url(pg_config):
         logging.info(f"Constructed PostgreSQL Optuna URL (socket): {url}")
         return url
     else:
-        # TCP/IP connection not implemented for this use case
         raise NotImplementedError("TCP/IP connection for PostgreSQL is not implemented in this utility.")
 
 def delete_postgres_data(pg_config, raise_on_error=True):
@@ -85,7 +85,6 @@ def delete_postgres_data(pg_config, raise_on_error=True):
         except Exception as e:
             logging.warning(f"Ignoring error during pre-delete server stop: {e}")
 
-        # Use standard shutil.rmtree for removal
         try:
             shutil.rmtree(pgdata)
             logging.info(f"Successfully removed PostgreSQL data directory: {pgdata}")
@@ -95,12 +94,9 @@ def delete_postgres_data(pg_config, raise_on_error=True):
                  raise
     else:
         logging.info(f"PostgreSQL data directory {pgdata} does not exist, nothing to remove.")
-# Removed blank line
-
 
 def init_postgres(pg_config):
     """Initializes a new PostgreSQL database cluster."""
-    # pg_config is now passed directly
     pgdata = pg_config["pgdata"]
     db_name = pg_config["dbname"]
     db_user = pg_config["dbuser"]
@@ -240,7 +236,6 @@ def start_postgres(pg_config):
         _run_cmd(start_cmd_list)
         logging.info("PostgreSQL server started successfully.")
     else:
-        # Unexpected status code
         logging.error(f"pg_ctl status returned unexpected code {status_result.returncode}. Check logs.")
         raise RuntimeError("Failed to determine PostgreSQL server status.")
 
