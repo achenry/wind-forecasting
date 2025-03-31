@@ -5,7 +5,8 @@ import optuna
 import subprocess # For launching dashboard
 import atexit # For cleaning up dashboard process
 from pathlib import Path # For resolving log path
-
+import getpass # To get current username
+import socket # To get current hostname (compute node)
 from optuna.visualization import (
     plot_optimization_history,
     plot_param_importances,
@@ -109,6 +110,38 @@ def launch_optuna_dashboard(config, storage_url):
             env=os.environ.copy()
         )
         logging.info(f"Optuna dashboard process started (PID: {_dashboard_process.pid}).")
+
+        # --- Log SSH Tunnel Instructions ---
+        try:
+            username = getpass.getuser()
+            compute_node_hostname = socket.gethostname() # Get the hostname where this script is running
+            local_port = port # Use the same port locally for simplicity
+            login_node_placeholder = "YOUR_LOGIN_NODE_ADDRESS" # Placeholder
+
+            logging.info("----------------------------------------------------------------------")
+            logging.info("Optuna Dashboard Access Instructions:")
+            logging.info(f"Dashboard is running on compute node '{compute_node_hostname}' on port {port}.")
+            logging.info("To access it from your local machine, set up a double SSH tunnel:")
+            logging.info("")
+            logging.info("1. **First Tunnel (Local PC to Login Node):**")
+            logging.info("   Open a terminal on your LOCAL machine and run:")
+            logging.info(f"   ssh -L {local_port}:localhost:{port} {username}@{login_node_placeholder}")
+            logging.info(f"   (Replace {login_node_placeholder} with the actual login node address you use)")
+            logging.info("   Keep this terminal open.")
+            logging.info("")
+            logging.info("2. **Second Tunnel (Login Node to Compute Node):**")
+            logging.info("   Open ANOTHER terminal, SSH into the LOGIN node, and then run:")
+            logging.info(f"   ssh -L {port}:localhost:{port} {username}@{compute_node_hostname}")
+            logging.info("   Keep this terminal open.")
+            logging.info("")
+            logging.info("3. **Access Dashboard:**")
+            logging.info("   Open a web browser on your LOCAL machine and go to:")
+            logging.info(f"   http://localhost:{local_port}")
+            logging.info("----------------------------------------------------------------------")
+
+        except Exception as log_e:
+            logging.warning(f"Could not generate full SSH instructions: {log_e}")
+        # -----------------------------------
 
         # Register cleanup function to terminate the dashboard on exit
         atexit.register(_terminate_optuna_dashboard)
