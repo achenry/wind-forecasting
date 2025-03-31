@@ -59,6 +59,12 @@ optuna:
     # sqlite_wal: true  Enable WAL mode for SQLite
     # sqlite_timeout: 600  Timeout in seconds for SQLite locks
 
+  # Optuna Dashboard auto-launch configuration
+  dashboard:
+    enabled: true             # Set to true to automatically launch the dashboard on rank 0
+    port: 8088                # Port for the dashboard web server
+    log_file: "${logging.optuna_dir}/optuna_dashboard.log" # Log file for the dashboard process
+
 dataset:
     data_path: /user/taed7566/wind-forecasting/examples/inputs/SMARTEOLE-WFC-open-dataset/processed/SMARTEOLE_WakeSteering_SCADA_1minData_normalized.parquet
     normalization_consts_path:  /user/taed7566/wind-forecasting/examples/inputs/SMARTEOLE-WFC-open-dataset/processed/SMARTEOLE_WakeSteering_SCADA_1minData_normalization_consts.csv
