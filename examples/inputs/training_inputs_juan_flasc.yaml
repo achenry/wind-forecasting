@@ -22,7 +22,7 @@ optuna:
   pruning:
     enabled: true             # Whether to enable pruning
     type: "hyperband"         # Options: "hyperband", "median", "percentile", "none"
-    min_resource: 1           # Minimum epochs before pruning can occur
+    min_resource: 1           # Minimum epochs before pruning can occur (default: 2)
     reduction_factor: 3       # Hyperband reduction factor (default: 3)
   
   # Optuna visualization configuration (additional to wandb)
