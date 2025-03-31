@@ -7,6 +7,7 @@ from gluonts.transform import ExpectedNumInstanceSampler, ValidationSplitSampler
 import logging
 import torch
 import gc
+import time # Added for load_study retry delay
 
 # Imports for Optuna
 import optuna # Import the base optuna module for type hints
@@ -50,14 +51,14 @@ class MLTuningObjective:
 
         self.config["trainer"]["max_epochs"] = max_epochs
         self.config["trainer"]["limit_train_batches"] = limit_train_batches
-        
+
         # Store pruning configuration
         self.pruning_enabled = "pruning" in config["optuna"] and config["optuna"]["pruning"].get("enabled", False)
         if self.pruning_enabled:
             logging.info(f"Pruning is enabled using {config['optuna']['pruning'].get('type', 'hyperband')} pruner")
         else:
             logging.info("Pruning is disabled")
-        
+
         # Add GPU monitoring
         self.gpu_available = torch.cuda.is_available()
         if self.gpu_available:
@@ -65,27 +66,27 @@ class MLTuningObjective:
             self.gpu_name = torch.cuda.get_device_name(self.device)
             self.total_memory = torch.cuda.get_device_properties(self.device).total_memory
             logging.info(f"GPU monitoring initialized for {self.gpu_name}")
-    
+
     def log_gpu_stats(self, stage=""):
         """Log GPU memory usage at different stages of training"""
         if not self.gpu_available:
             return
-            
+
         # Memory in GB
         allocated = torch.cuda.memory_allocated(self.device) / 1e9
         reserved = torch.cuda.memory_reserved(self.device) / 1e9
         max_allocated = torch.cuda.max_memory_allocated(self.device) / 1e9
         total = self.total_memory / 1e9
-        
+
         # Calculate utilization percentage
         utilization_percent = (allocated / total) * 100
-        
+
         logging.info(f"GPU Stats {stage}: "
                     f"Current Memory: {allocated:.2f}GB ({utilization_percent:.1f}%), "
                     f"Reserved: {reserved:.2f}GB, "
                     f"Peak: {max_allocated:.2f}GB, "
                     f"Total: {total:.2f}GB")
-     
+
     def __call__(self, trial):
         # Set random seeds for reproducibility within each trial
         # Use different but deterministic seeds for each trial by combining base seed with trial number
@@ -97,46 +98,34 @@ class MLTuningObjective:
         random.seed(trial_seed)
         np.random.seed(trial_seed)
         logging.info(f"Set random seed for trial {trial.number} to {trial_seed}")
-        
+
         # Log GPU stats at the beginning of the trial
         self.log_gpu_stats(stage=f"Trial {trial.number} Start")
-        
+
         # params = self.get_params(trial)
         params = self.estimator_class.get_params(trial, self.context_length_choices)
         self.config["dataset"].update({k: v for k, v in params.items() if k in self.config["dataset"]})
         self.config["model"][self.model].update({k: v for k, v in params.items() if k in self.config["model"][self.model]})
         self.config["trainer"].update({k: v for k, v in params.items() if k in self.config["trainer"]})
-        
+
         # Configure trainer_kwargs to include pruning callback if enabled
+        # Make a copy of callbacks to avoid modifying the original list across trials
+        current_callbacks = list(self.config["trainer"].get("callbacks", []))
         if self.pruning_enabled:
-            # Initialize callbacks list if it doesn't exist
-            if "callbacks" not in self.config["trainer"]:
-                self.config["trainer"]["callbacks"] = []
-            elif self.config["trainer"]["callbacks"] is None:
-                self.config["trainer"]["callbacks"] = []
-            
-            # Check if callbacks is already a list, if not convert it
-            if not isinstance(self.config["trainer"]["callbacks"], list):
-                self.config["trainer"]["callbacks"] = [self.config["trainer"]["callbacks"]]
-            
             # Create the SAFE wrapper for the PyTorch Lightning pruning callback
-            # This ensures it inherits directly from pl.Callback
             pruning_callback = SafePruningCallback(
                 trial,
                 monitor=self.metric  # Use the same metric for pruning as for optimization
             )
-            
-            # Add to callbacks list
-            self.config["trainer"]["callbacks"].append(pruning_callback)
+            current_callbacks.append(pruning_callback)
             logging.info(f"Added pruning callback for trial {trial.number}, monitoring {self.metric}")
-        
+
         # Verify GPU configuration before creating estimator
         if torch.cuda.is_available():
             device = torch.cuda.current_device()
             logging.info(f"Creating estimator using GPU {device}: {torch.cuda.get_device_name(device)}")
-            
+
             # Ensure we have the right GPU configuration in trainer_kwargs
-            # This helps avoid the "You requested gpu: [0, 1, 2, 3] But your machine only has: [0]" error
             if "devices" in self.config["trainer"] and self.config["trainer"]["devices"] > 1:
                 if "CUDA_VISIBLE_DEVICES" in os.environ and len(os.environ["CUDA_VISIBLE_DEVICES"].split(",")) == 1:
                     logging.warning(f"Overriding trainer devices={self.config['trainer']['devices']} to 1 due to CUDA_VISIBLE_DEVICES")
@@ -144,7 +133,11 @@ class MLTuningObjective:
                     self.config["trainer"]["strategy"] = "auto"
         else:
             logging.warning("No CUDA available for estimator creation")
-    
+
+        # Create a copy of trainer_kwargs for this trial to avoid side effects
+        trial_trainer_kwargs = self.config["trainer"].copy()
+        trial_trainer_kwargs["callbacks"] = current_callbacks # Use the potentially modified list
+
         estimator = self.estimator_class(
             freq=self.data_module.freq,
             prediction_length=self.data_module.prediction_length,
@@ -157,15 +150,15 @@ class MLTuningObjective:
             scaling=False,
 
             batch_size=self.config["dataset"].setdefault("batch_size", 128),
-            num_batches_per_epoch=self.config["trainer"]["limit_train_batches"],
+            num_batches_per_epoch=trial_trainer_kwargs["limit_train_batches"], # Use value from trial_trainer_kwargs
             train_sampler=ExpectedNumInstanceSampler(num_instances=1.0, min_past=self.config["dataset"]["context_length"], min_future=self.data_module.prediction_length),
             validation_sampler=ValidationSplitSampler(min_past=self.config["dataset"]["context_length"], min_future=self.data_module.prediction_length),
             time_features=[second_of_minute, minute_of_hour, hour_of_day, day_of_year],
             distr_output=self.distr_output_class(dim=self.data_module.num_target_vars, **self.config["model"]["distr_output"]["kwargs"]),
-            trainer_kwargs=self.config["trainer"],
+            trainer_kwargs=trial_trainer_kwargs, # Pass the trial-specific kwargs
             **self.config["model"][self.model]
         )
-        
+
         # Log GPU stats before training
         self.log_gpu_stats(stage=f"Trial {trial.number} Before Training")
 
@@ -175,10 +168,10 @@ class MLTuningObjective:
             forecast_generator=DistributionForecastGenerator(estimator.distr_output)
             # Note: The trainer_kwargs including callbacks are passed internally by the estimator
         )
-        
+
         # Log GPU stats after training
         self.log_gpu_stats(stage=f"Trial {trial.number} After Training")
-        
+
         model = self.lightning_module_class.load_from_checkpoint(train_output.trainer.checkpoint_callback.best_model_path)
         transformation = estimator.create_transformation(use_lazyframe=False)
         predictor = estimator.create_predictor(transformation, model,
@@ -199,10 +192,10 @@ class MLTuningObjective:
         # Log available metrics for debugging
         logging.info(f"Trial {trial.number} - Aggregated metrics calculated: {list(agg_metrics.keys())}")
 
-              
+
         # Log GPU stats at the end of the trial
         self.log_gpu_stats(stage=f"Trial {trial.number} End")
-        
+
         # Force garbage collection at the end of each trial
         gc.collect()
         torch.cuda.empty_cache()
@@ -224,7 +217,7 @@ def tune_model(model, config, optuna_storage_url: str, lightning_module_class, e
                distr_output_class, data_module, context_length_choices,
                metric="mean_wQuantileLoss", direction="minimize", n_trials=10,
                trial_protection_callback=None, seed=42):
-    
+
     # Ensure WandB is correctly initialized with the proper directory
     if "logging" in config and "wandb_dir" in config["logging"]:
         wandb_dir = config["logging"]["wandb_dir"]
@@ -232,26 +225,26 @@ def tune_model(model, config, optuna_storage_url: str, lightning_module_class, e
         os.environ["WANDB_DIR"] = wandb_dir
         logging.info(f"Set WANDB_DIR to {wandb_dir}")
         logging.info(f"WandB will create logs in {os.path.join(wandb_dir, 'wandb')}")
-    
+
     study_name = config["optuna"]["study_name"]
     # Log safely without credentials if they were included (they aren't for socket trust)
     log_storage_url = optuna_storage_url.split('@')[0] + '@...' if '@' in optuna_storage_url else optuna_storage_url
     logging.info(f"Using Optuna storage URL: {log_storage_url}")
-    
+
     # NOTE: Restarting the study is now handled in the Slurm script by deleting the PGDATA directory
     # if the --restart_tuning flag is set. No specific handling needed here.
-    
+
     # Use the provided storage URL directly
     storage_url = optuna_storage_url
-    
+
     # Configure pruner based on settings
     pruner = None
     if "pruning" in config["optuna"] and config["optuna"]["pruning"].get("enabled", False):
         pruning_type = config["optuna"]["pruning"].get("type", "hyperband").lower()
         min_resource = config["optuna"]["pruning"].get("min_resource", 2)
-        
+
         logging.info(f"Configuring pruner: type={pruning_type}, min_resource={min_resource}")
-        
+
         if pruning_type == "hyperband":
             reduction_factor = config["optuna"]["pruning"].get("reduction_factor", 3)
             pruner = HyperbandPruner(
@@ -273,32 +266,76 @@ def tune_model(model, config, optuna_storage_url: str, lightning_module_class, e
     else:
         logging.info("Pruning is disabled, using NopPruner")
         pruner = NopPruner()
-    
-    # Create or load the study with standard hyperparameters
+
+    # Get worker ID for study creation/loading logic
+    # Use WORKER_RANK consistent with run_model.py. Default to '0' if not set.
+    worker_id = os.environ.get('WORKER_RANK', '0')
+
+    # Create study on rank 0, load on other ranks
+    study = None # Initialize study variable
     try:
-        logging.info(f"Creating Optuna study {study_name} with pruner: {type(pruner).__name__}")
-        study = create_study(
-            study_name=study_name,
-            storage=storage_url,
-            direction=direction,
-            load_if_exists=True,
-            sampler=TPESampler(seed=seed),  # Use the seed provided as an argument
-            pruner=pruner  # Add the pruner
-        )
-        logging.info(f"Study successfully created or loaded: {study_name}")
+        if worker_id == '0':
+            logging.info(f"Rank 0: Creating/loading Optuna study '{study_name}' with pruner: {type(pruner).__name__}")
+            study = create_study(
+                study_name=study_name,
+                storage=storage_url,
+                direction=direction,
+                load_if_exists=True, # Rank 0 handles creation or loading
+                sampler=TPESampler(seed=seed),
+                pruner=pruner
+            )
+            logging.info(f"Rank 0: Study '{study_name}' created or loaded successfully.")
+        else:
+            # Non-rank-0 workers MUST load the study created by rank 0
+            logging.info(f"Rank {worker_id}: Attempting to load existing Optuna study '{study_name}'")
+            # Add a small delay and retry mechanism for loading, in case rank 0 is slightly delayed
+            max_retries = 6 # Increased retries slightly
+            retry_delay = 10 # Increased delay slightly
+            for attempt in range(max_retries):
+                try:
+                    study = load_study(
+                        study_name=study_name,
+                        storage=storage_url,
+                        sampler=TPESampler(seed=seed), # Sampler might be needed for load_study too
+                        pruner=pruner
+                    )
+                    logging.info(f"Rank {worker_id}: Study '{study_name}' loaded successfully on attempt {attempt+1}.")
+                    break # Exit loop on success
+                except KeyError as e: # Optuna <3.0 raises KeyError if study doesn't exist yet
+                     if attempt < max_retries - 1:
+                          logging.warning(f"Rank {worker_id}: Study '{study_name}' not found yet (attempt {attempt+1}/{max_retries}). Retrying in {retry_delay}s... Error: {e}")
+                          time.sleep(retry_delay)
+                     else:
+                          logging.error(f"Rank {worker_id}: Failed to load study '{study_name}' after {max_retries} attempts (KeyError). Aborting.")
+                          raise
+                except Exception as e: # Catch other potential loading errors (e.g., DB connection issues)
+                     logging.error(f"Rank {worker_id}: An unexpected error occurred while loading study '{study_name}' on attempt {attempt+1}: {e}", exc_info=True)
+                     # Decide whether to retry on other errors or raise immediately
+                     if attempt < max_retries - 1:
+                          logging.warning(f"Retrying in {retry_delay}s...")
+                          time.sleep(retry_delay)
+                     else:
+                          logging.error(f"Rank {worker_id}: Failed to load study '{study_name}' after {max_retries} attempts due to persistent errors. Aborting.")
+                          raise # Re-raise other errors after retries
+
+            # Check if study was successfully loaded after the loop
+            if study is None:
+                 # This condition should ideally be caught by the error handling within the loop, but added for safety.
+                 raise RuntimeError(f"Rank {worker_id}: Could not load study '{study_name}' after multiple retries.")
+
     except Exception as e:
-        logging.error(f"Error creating study: {str(e)}")
-        logging.error(f"Error type: {type(e).__name__}")
-        logging.error(f"Storage type: {type(storage_url).__name__}")
-        logging.error(f"Storage value: {storage_url}")
+        # Log error with rank information
+        logging.error(f"Rank {worker_id}: Error creating/loading study '{study_name}': {str(e)}", exc_info=True)
+        # Log storage URL safely
+        log_storage_url_safe = str(storage_url).split('@')[0] + '@...' if '@' in str(storage_url) else str(storage_url)
+        logging.error(f"Error details - Type: {type(e).__name__}, Storage: {log_storage_url_safe}")
         raise
-    
-    # Get worker ID for logging
-    worker_id = os.environ.get('SLURM_PROCID', '0')
-    
+
+    # Worker ID already fetched above for study creation/loading
+
     logging.info(f"Worker {worker_id}: Participating in Optuna study {study_name}")
-    
-    tuning_objective = MLTuningObjective(model=model, config=config, 
+
+    tuning_objective = MLTuningObjective(model=model, config=config,
                                         lightning_module_class=lightning_module_class,
                                         estimator_class=estimator_class,
                                         distr_output_class=distr_output_class,
@@ -308,60 +345,63 @@ def tune_model(model, config, optuna_storage_url: str, lightning_module_class, e
                                         context_length_choices=context_length_choices,
                                         metric=metric,
                                         seed=seed)
-    
+
     # Use the trial protection callback if provided
     objective_fn = (lambda trial: trial_protection_callback(tuning_objective, trial)) if trial_protection_callback else tuning_objective
-    
+
     try:
-        # Let Optuna handle trial distribution - each worker will get trials automatically
-        study.optimize(objective_fn, n_trials=n_trials, show_progress_bar=True)
+        # Let Optuna handle trial distribution - each worker will ask the storage for a trial
+        # Show progress bar only on rank 0 to avoid cluttered logs
+        study.optimize(objective_fn, n_trials=n_trials, show_progress_bar=(worker_id=='0'))
     except Exception as e:
-        logging.error(f"Worker {worker_id} failed with error: {str(e)}")
-        logging.error(f"Error details: {type(e).__name__}")
+        logging.error(f"Worker {worker_id}: Failed during study optimization: {str(e)}", exc_info=True)
+        # Optionally, report trial as failed if possible? Optuna might handle this internally.
+        # Consider adding: if 'trial' in locals(): trial.report(float('inf'), step=0); trial.storage.set_trial_state(trial._trial_id, optuna.trial.TrialState.FAIL)
         raise
 
     # All workers log their contribution
     logging.info(f"Worker {worker_id} completed optimization")
-    
-    # Generate visualizations if enabled (primary worker only)
+
+    # Generate visualizations if enabled (only rank 0 should do this)
     if worker_id == '0' and config.get("optuna", {}).get("visualization", {}).get("enabled", False):
-        try:
-            from wind_forecasting.utils.optuna_visualization import generate_visualizations
-            # Import the path resolution helper from db_utils
-            from wind_forecasting.utils.db_utils import _resolve_path
+        # Ensure study object is available (it should be, unless loading failed catastrophically)
+        if study:
+            try:
+                from wind_forecasting.utils.optuna_visualization import generate_visualizations
+                # Import the path resolution helper from db_utils
+                from wind_forecasting.utils.db_utils import _resolve_path
 
-            vis_config = config["optuna"]["visualization"]
+                vis_config = config["optuna"]["visualization"]
 
-            # Resolve the output directory using the helper function
-            # Default to "${logging.optuna_dir}/visualizations" if not explicitly set
-            default_vis_path = os.path.join(config.get("logging", {}).get("optuna_dir", "logging/optuna"), "visualizations")
-            visualization_dir = _resolve_path(vis_config, "output_dir", default=default_vis_path)
+                # Resolve the output directory using the helper function and full config
+                default_vis_path = os.path.join(config.get("logging", {}).get("optuna_dir", "logging/optuna"), "visualizations")
+                # Pass vis_config as the dict containing 'output_dir', key 'output_dir', and the full 'config'
+                visualization_dir = _resolve_path(vis_config, "output_dir", full_config=config, default=default_vis_path)
 
-            if not visualization_dir:
-                 logging.error("Could not determine visualization output directory.")
-                 # Decide how to handle this - skip visualization or raise error?
-                 # For now, log error and skip.
-                 raise ValueError("Visualization output directory could not be resolved.")
+                if not visualization_dir:
+                     logging.error("Rank 0: Could not determine visualization output directory. Skipping visualization.")
+                else:
+                    logging.info(f"Rank 0: Resolved visualization output directory: {visualization_dir}")
+                    os.makedirs(visualization_dir, exist_ok=True) # Ensure directory exists
 
-            logging.info(f"Resolved visualization output directory: {visualization_dir}")
+                    # Generate plots
+                    logging.info(f"Rank 0: Generating Optuna visualizations in {visualization_dir}")
+                    summary_path = generate_visualizations(study, visualization_dir, vis_config) # Pass vis_config
 
-            os.makedirs(visualization_dir, exist_ok=True) # Ensure directory exists
-            
-            # Generate plots
-            logging.info(f"Generating Optuna visualizations in {visualization_dir}")
-            summary_path = generate_visualizations(study, visualization_dir, config["optuna"]["visualization"])
-            
-            if summary_path:
-                logging.info(f"Generated Optuna visualizations - summary available at: {summary_path}")
-            else:
-                logging.warning("No visualizations were generated - study may not have enough completed trials")
-        except Exception as e:
-            logging.error(f"Failed to generate Optuna visualizations: {e}")
-            import traceback
-            logging.error(traceback.format_exc())
-    
-    # Only log best trial once
-    if worker_id == '0':
+                    if summary_path:
+                        logging.info(f"Rank 0: Generated Optuna visualizations - summary available at: {summary_path}")
+                    else:
+                        logging.warning("Rank 0: No visualizations were generated - study may not have enough completed trials or an error occurred.")
+
+            except ImportError:
+                 logging.warning("Rank 0: Could not import visualization modules. Skipping visualization generation.")
+            except Exception as e:
+                logging.error(f"Rank 0: Failed to generate Optuna visualizations: {e}", exc_info=True)
+        else:
+             logging.warning("Rank 0: Study object not available, cannot generate visualizations.")
+
+    # Log best trial details (only rank 0)
+    if worker_id == '0' and study: # Check if study object exists
         if len(study.trials) > 0:
             logging.info("Number of finished trials: {}".format(len(study.trials)))
             logging.info("Best trial:")
@@ -372,5 +412,5 @@ def tune_model(model, config, optuna_storage_url: str, lightning_module_class, e
                 logging.info("    {}: {}".format(key, value))
         else:
             logging.warning("No trials were completed")
-        
+
     return study.best_params
