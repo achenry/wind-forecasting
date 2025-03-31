@@ -298,9 +298,17 @@ def main():
                     if waited_time >= max_wait_time:
                         logging.error(f"Rank {rank}: Timed out waiting for sync file {sync_file_path}")
                         raise TimeoutError("Timed out waiting for Rank 0 PostgreSQL setup.")
-                logging.info(f"Rank {rank}: Sync file found. Proceeding.")
-                # All ranks get the URL (Rank 0 already has it, others construct it)
-                optuna_storage_url = db_utils.get_optuna_storage_url(config)
+                    logging.info(f"Rank {rank}: Sync file found. Proceeding.")
+                    # Non-rank-0 workers need to generate pg_config to get the URL
+                    try:
+                        # Replicate the config generation logic here
+                        # Note: This assumes db_utils has the necessary imports (Path, os, getpass, uuid, time)
+                        # which it should already have.
+                        pg_config = db_utils._generate_pg_config(config) # We'll need to extract this logic into a helper
+                        optuna_storage_url = db_utils.get_optuna_storage_url(pg_config)
+                    except Exception as e:
+                        logging.error(f"Rank {rank}: Failed to generate PostgreSQL config/URL: {e}")
+                        raise
 
         elif storage_backend == "sqlite":
             # Handle SQLite setup if needed (using legacy --init_only logic?)
@@ -518,7 +526,7 @@ def main():
         
         # Normal execution - pass the OOM protection wrapper and constructed storage URL
         tune_model(model=args.model, config=config,
-                    storage_url=optuna_storage_url, # Pass the constructed URL
+                    optuna_storage_url=optuna_storage_url, # Pass the constructed URL (Corrected keyword)
                     lightning_module_class=LightningModuleClass,
                     estimator_class=EstimatorClass,
                     distr_output_class=DistrOutputClass,
