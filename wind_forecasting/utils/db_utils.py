@@ -191,7 +191,6 @@ def init_postgres(pg_config):
         logging.info(f"Initializing PostgreSQL data directory ({pgdata})...")
         init_cmd = [
             initdb_path, # Use full path
-            # "-d", # debug flag (very verbose!)
             "--no-locale",
             "--auth=trust", # Use trust auth for local socket simplicity
             "-E UTF8",
@@ -210,29 +209,7 @@ def init_postgres(pg_config):
              logging.error(f"Error explicitly creating directory {pgdata_str}: {e}")
              # Decide if we should raise here or let initdb try anyway
              # For now, let initdb try.
-        # --- ADD DELAY (Moved inside TRY block) ---
-        logging.info("Adding a 1-second delay after directory creation...")
-        time.sleep(1)
-        # --- END DELAY ---
         # --- End Pre-create ---
-
-        # --- Diagnostic Logging (Now should always find the directory) ---
-        logging.info(f"Checking state of target directory before initdb: {pgdata_str}")
-        try:
-            if os.path.exists(pgdata_str):
-                contents = os.listdir(pgdata_str)
-                logging.info(f"Directory exists. Contents: {contents}")
-                if not contents:
-                    logging.info("Directory exists and is empty.") # Expect this now
-                else:
-                    # This would be very strange now
-                    logging.warning("Directory exists BUT IS NOT EMPTY before initdb call, despite pre-creation!")
-            else:
-                 # This should not happen now
-                logging.error("Directory does not exist before initdb call, despite pre-creation attempt!")
-        except Exception as e:
-            logging.error(f"Error checking directory state before initdb: {e}")
-        # --- End Diagnostic Logging ---
 
         _run_cmd(init_cmd) # Uses shell=False by default now
         logging.info("PostgreSQL data directory initialized.")
@@ -431,20 +408,20 @@ def _generate_pg_config(config):
     if not pgdata_path_rel:
         raise ValueError("Missing 'pgdata_path' in optuna.storage configuration.")
 
-    # --- Generate UNIQUE path ONCE in TMPDIR ---
-    tmp_dir_base = os.environ.get("TMPDIR")
-    if not tmp_dir_base:
-        logging.warning("TMPDIR environment variable not set, falling back to /tmp for PGDATA.")
-        tmp_dir_base = "/tmp"
+    # --- Generate UNIQUE path ONCE in Persistent Storage ---
+    # Get the base directory from the config (relative to project root)
+    pgdata_base_rel = Path(pgdata_path_rel).parent
+    pgdata_base_abs = project_root / pgdata_base_rel
 
     import uuid
     timestamp = int(time.time())
     job_id_for_path = os.environ.get("SLURM_JOB_ID", "local") # Use consistent job ID source
     unique_name = f"pg_data_{job_id_for_path}_{timestamp}_{uuid.uuid4().hex[:8]}"
-    # Create PGDATA inside the TMPDIR base
-    pgdata_path_abs = Path(tmp_dir_base) / unique_name
-    # No need to create pgdata_base_path, TMPDIR should exist. We create the final dir later.
-    logging.info(f"Using UNIQUE PGDATA path in node-local temp storage: {pgdata_path_abs}")
+    # Create PGDATA inside the persistent logging directory
+    pgdata_path_abs = pgdata_base_abs / unique_name
+    # Ensure the parent directory exists (needed for persistent storage)
+    os.makedirs(pgdata_base_abs, exist_ok=True)
+    logging.info(f"Using UNIQUE PGDATA path in persistent storage: {pgdata_path_abs}")
     # --- End PGDATA path generation ---
 
     db_name = storage_config.get("db_name", "optuna_study_db")
