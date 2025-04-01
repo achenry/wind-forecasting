@@ -115,12 +115,13 @@ class MLTuningObjective:
         current_callbacks = list(self.config["trainer"].get("callbacks", []))
         if self.pruning_enabled:
             # Create the SAFE wrapper for the PyTorch Lightning pruning callback
+            pruning_monitor_metric = "val_loss"
             pruning_callback = SafePruningCallback(
                 trial,
-                monitor=self.metric  # Use the same metric for pruning as for optimization
+                monitor=pruning_monitor_metric
             )
             current_callbacks.append(pruning_callback)
-            logging.info(f"Added pruning callback for trial {trial.number}, monitoring {self.metric}")
+            logging.info(f"Added pruning callback for trial {trial.number}, monitoring '{pruning_monitor_metric}' (Objective metric: '{self.metric}')")
 
         # Verify GPU configuration before creating estimator
         if torch.cuda.is_available():
