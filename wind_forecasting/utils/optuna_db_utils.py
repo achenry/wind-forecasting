@@ -3,6 +3,8 @@ import logging
 import time
 import atexit
 import torch
+from pathlib import Path
+import optuna
 from wind_forecasting.utils import db_utils
 from lightning.pytorch.utilities import rank_zero_only
 
@@ -11,23 +13,39 @@ def setup_optuna_storage(args, config, rank):
     Sets up the Optuna storage backend based on configuration and handles synchronization
     between workers.
     """
-    optuna_storage_url = None  # Initialize for all ranks
-    pg_config = None           # Initialize pg_config
+    storage_target = None  # Initialize for all ranks (can be URL string or storage object)
+    pg_config = None       # Initialize pg_config
 
     if "tune" not in args.mode:  # Only setup DB if tuning
-        return optuna_storage_url, pg_config
+        return storage_target, pg_config
         
-    storage_backend = config.get("optuna", {}).get("storage", {}).get("backend", "sqlite")  # Default to sqlite
-    logging.info(f"Optuna storage backend configured as: {storage_backend}")
+    # Read new storage type
+    storage_type = config.get("optuna", {}).get("storage", {}).get("type", "sqlite")
+    logging.info(f"Optuna storage type configured as: {storage_type}")
 
-    if storage_backend == "postgresql":
-        # Setup for PostgreSQL database
-        return setup_postgresql(args, config, rank)
-    elif storage_backend == "sqlite":
-        # Setup for SQLite database
+    if storage_type == "postgresql" or storage_type == "mysql":
+        # RDB storage (PostgreSQL or MySQL)
+        connection_method = config.get("optuna", {}).get("storage", {}).get("rdb", {}).get("connection_method", "local_managed")
+        logging.info(f"RDB connection method: {connection_method}")
+        
+        if connection_method == "local_managed":
+            if storage_type != "postgresql":
+                raise ValueError(f"Local managed instance is only supported for PostgreSQL, not for {storage_type}")
+            # Setup using PostgreSQL management
+            return setup_postgresql(args, config, rank)
+        elif connection_method == "external_tcp":
+            # Setup external TCP connection to existing RDB
+            return setup_rdb_external_tcp(config, rank, storage_type)
+        else:
+            raise ValueError(f"Unsupported RDB connection method: {connection_method}")
+    elif storage_type == "sqlite":
+        # SQLite storage
         return setup_sqlite(args, config)
+    elif storage_type == "journal":
+        # JournalStorage
+        return setup_journal(args, config)
     else:
-        raise ValueError(f"Unsupported optuna storage backend: {storage_backend}")
+        raise ValueError(f"Unsupported optuna storage type: {storage_type}")
 
 @rank_zero_only
 def setup_postgresql_rank_zero(config, restart=False, register_cleanup=True):
@@ -151,16 +169,245 @@ def setup_sqlite(args, config):
     """
     Sets up SQLite storage for Optuna.
     """
-    # Construct the SQLite URL based on config
-    # Use _resolve_path for consistency, getting project_root from config or default
-    sqlite_rel_path = config.get("optuna", {}).get("storage", {}).get("sqlite_path", "logging/optuna/optuna_study.db")
-    sqlite_abs_path = db_utils._resolve_path(config, f"optuna.storage.sqlite_path", default=sqlite_rel_path)
-    # Ensure project_root is handled within _resolve_path based on experiment.project_root or CWD
+    # Get SQLite-specific configuration
+    sqlite_config = config.get("optuna", {}).get("storage", {}).get("sqlite", {})
+    
+    # Read path with variable substitution support
+    sqlite_rel_path = sqlite_config.get("path", "logging/optuna/optuna_study.db")
+    
+    # Substitute ${optuna.study_name}
+    if "${optuna.study_name}" in sqlite_rel_path:
+        study_name = config.get("optuna", {}).get("study_name", "optuna_study")
+        # Make study_name filesystem-safe
+        safe_study_name = "".join(c if c.isalnum() or c in ('_', '-') else '_' for c in study_name)
+        sqlite_rel_path = sqlite_rel_path.replace("${optuna.study_name}", safe_study_name)
+    
+    # Resolve path to absolute
+    sqlite_abs_path = db_utils._resolve_path(sqlite_config, "path", full_config=config, default=sqlite_rel_path)
+    
+    # Ensure parent directory exists
     os.makedirs(os.path.dirname(sqlite_abs_path), exist_ok=True)
+    
+    # Build URL with optional parameters
+    url_params = []
+    
+    # Add WAL mode if enabled
+    if sqlite_config.get("use_wal", False):
+        url_params.append("journal_mode=WAL")
+    
+    # Add timeout if specified
+    if "timeout" in sqlite_config:
+        try:
+            timeout = float(sqlite_config["timeout"])
+            url_params.append(f"timeout={timeout}")
+        except ValueError:
+             logging.warning(f"Invalid SQLite timeout value: {sqlite_config['timeout']}. Ignoring.")
+    
+    # Construct final URL
     optuna_storage_url = f"sqlite:///{sqlite_abs_path}"
+    if url_params:
+        optuna_storage_url += "?" + "&".join(url_params)
+    
     logging.info(f"Using SQLite storage URL: {optuna_storage_url}")
     
     # Handle restart for SQLite on rank 0
     restart_sqlite_rank_zero(sqlite_abs_path, restart=args.restart_tuning)
     
     return optuna_storage_url, None
+
+def setup_journal(args, config):
+    """
+    Sets up JournalStorage for Optuna.
+    Returns the storage object itself, not a URL.
+    """
+    # Get JournalStorage-specific configuration
+    journal_config = config.get("optuna", {}).get("storage", {}).get("journal", {})
+    
+    # Read path with variable substitution support
+    journal_rel_path = journal_config.get("path", "logging/optuna/journal")
+    
+    # Substitute ${optuna.study_name} if present in the path
+    if "${optuna.study_name}" in journal_rel_path:
+        study_name = config.get("optuna", {}).get("study_name", "optuna_study")
+        # Make study_name filesystem-safe
+        safe_study_name = "".join(c if c.isalnum() or c in ('_', '-') else '_' for c in study_name)
+        journal_rel_path = journal_rel_path.replace("${optuna.study_name}", safe_study_name)
+    
+    # Resolve path to absolute using the helper function from db_utils
+    journal_abs_path = db_utils._resolve_path(journal_config, "path", full_config=config, default=journal_rel_path)
+    
+    # Ensure directory exists
+    os.makedirs(journal_abs_path, exist_ok=True)
+    
+    # Create JournalStorage
+    try:
+        logging.info(f"Using JournalStorage with path: {journal_abs_path}")
+        
+        # Create the storage object using JournalFileStorage
+        # TODO: Consider allowing configuration of the file storage backend if needed
+        journal_storage = optuna.storages.JournalStorage(
+            optuna.storages.JournalFileStorage(journal_abs_path)
+        )
+        
+        # Return the storage object and None for pg_config
+        return journal_storage, None
+    except ImportError as e:
+        logging.error(f"Failed to create JournalStorage. Please ensure optuna is installed correctly: {e}")
+        raise
+    except Exception as e:
+        logging.error(f"Failed to create JournalStorage at path '{journal_abs_path}': {e}", exc_info=True)
+        raise
+
+def setup_rdb_external_tcp(config, rank, storage_type):
+    """
+    Sets up an external TCP connection to existing PostgreSQL or MySQL database.
+    """
+    # Get the external_tcp configuration
+    external_config = config.get("optuna", {}).get("storage", {}).get("rdb", {}).get("external_tcp", {})
+    
+    # Required parameters
+    host = external_config.get("host")
+    port = external_config.get("port")
+    database = external_config.get("database")
+    username = external_config.get("username")
+    password = external_config.get("password", "")  # Default to empty string if not provided
+    
+    # Validate required parameters
+    missing_params = [p for p in ["host", "port", "database", "username"] if not external_config.get(p)]
+    if missing_params:
+        raise ValueError(f"External TCP connection requires parameters: {', '.join(missing_params)}")
+    
+    # Construct database URL based on storage type
+    # Ensure necessary database drivers are installed (e.g., psycopg2 for postgresql, mysql-connector-python for mysql)
+    try:
+        if storage_type == "postgresql":
+            # Format: postgresql+psycopg2://username:password@host:port/database
+            # Using default driver psycopg2
+            storage_url = f"postgresql://{username}:{password}@{host}:{port}/{database}"
+            
+            # Add driver options if specified (e.g., for SSL)
+            driver_options = external_config.get("driver_options", {})
+            if driver_options:
+                options_str = "&".join(f"{k}={v}" for k, v in driver_options.items())
+                storage_url += f"?{options_str}"
+        
+        elif storage_type == "mysql":
+            # Format: mysql+mysqlconnector://username:password@host:port/database
+            # Using default driver mysqlconnector
+            storage_url = f"mysql+mysqlconnector://{username}:{password}@{host}:{port}/{database}"
+            
+            # Add driver options if specified
+            driver_options = external_config.get("driver_options", {})
+            if driver_options:
+                options_str = "&".join(f"{k}={v}" for k, v in driver_options.items())
+                storage_url += f"?{options_str}"
+        
+        else:
+            raise ValueError(f"Unsupported storage type for external TCP connection: {storage_type}")
+            
+    except Exception as e:
+         logging.error(f"Error constructing database URL for {storage_type}: {e}")
+         raise
+
+    # Log safely without credentials
+    safe_url = storage_url.replace(f":{password}@", ":***@")
+    logging.info(f"Rank {rank}: Using external {storage_type} via TCP: {safe_url}")
+    
+    # Return URL and None for pg_config
+    return storage_url, None
+
+def setup_journal(args, config):
+    """
+    Sets up JournalStorage for Optuna.
+    """
+    # Get JournalStorage-specific configuration
+    journal_config = config.get("optuna", {}).get("storage", {}).get("journal", {})
+    
+    # Read path with variable substitution support
+    journal_rel_path = journal_config.get("path", "logging/optuna/journal")
+    
+    # Substitute ${optuna.study_name}
+    if "${optuna.study_name}" in journal_rel_path:
+        study_name = config.get("optuna", {}).get("study_name", "optuna_study")
+        # Make study_name filesystem-safe
+        safe_study_name = "".join(c if c.isalnum() or c in ('_', '-') else '_' for c in study_name)
+        journal_rel_path = journal_rel_path.replace("${optuna.study_name}", safe_study_name)
+    
+    # Resolve path to absolute
+    journal_abs_path = db_utils._resolve_path(config, "optuna.storage.journal.path", full_config=config, default=journal_rel_path)
+    
+    # Ensure directory exists
+    os.makedirs(journal_abs_path, exist_ok=True)
+    
+    # Create JournalStorage
+    try:
+        logging.info(f"Using JournalStorage with path: {journal_abs_path}")
+        
+        # Create the storage object
+        journal_storage = optuna.storages.JournalStorage(
+            optuna.storages.JournalFileStorage(journal_abs_path)
+        )
+        
+        return journal_storage, None
+    except ImportError as e:
+        logging.error(f"Failed to create JournalStorage. Please ensure optuna is installed with the right version: {e}")
+        raise
+    except Exception as e:
+        logging.error(f"Failed to create JournalStorage: {e}")
+        raise
+
+def setup_rdb_external_tcp(config, rank, storage_type):
+    """
+    Sets up an external TCP connection to existing PostgreSQL or MySQL database.
+    """
+    # Get the external_tcp configuration
+    external_config = config.get("optuna", {}).get("storage", {}).get("rdb", {}).get("external_tcp", {})
+    
+    # Required parameters
+    host = external_config.get("host")
+    port = external_config.get("port")
+    database = external_config.get("database")
+    username = external_config.get("username")
+    password = external_config.get("password", "")
+    
+    # Validate required parameters
+    if not host:
+        raise ValueError("External TCP connection requires 'host' parameter")
+    if not port:
+        raise ValueError("External TCP connection requires 'port' parameter")
+    if not database:
+        raise ValueError("External TCP connection requires 'database' parameter")
+    if not username:
+        raise ValueError("External TCP connection requires 'username' parameter")
+    
+    # Construct database URL based on storage type
+    if storage_type == "postgresql":
+        # Build PostgreSQL connection URL
+        # Format: postgresql+psycopg2://username:password@host:port/database
+        storage_url = f"postgresql://{username}:{password}@{host}:{port}/{database}"
+        
+        # Add driver options if specified
+        driver_options = external_config.get("driver_options", {})
+        if driver_options:
+            options_str = "&".join(f"{k}={v}" for k, v in driver_options.items())
+            storage_url += f"?{options_str}"
+    
+    elif storage_type == "mysql":
+        # Build MySQL connection URL
+        # Format: mysql+mysqlconnector://username:password@host:port/database
+        storage_url = f"mysql+mysqlconnector://{username}:{password}@{host}:{port}/{database}"
+        
+        # Add driver options if specified
+        driver_options = external_config.get("driver_options", {})
+        if driver_options:
+            options_str = "&".join(f"{k}={v}" for k, v in driver_options.items())
+            storage_url += f"?{options_str}"
+    
+    else:
+        raise ValueError(f"Unsupported storage type for external TCP connection: {storage_type}")
+    
+    # Log safely without credentials
+    safe_url = storage_url.replace(f":{password}@", ":***@")
+    logging.info(f"Using external {storage_type} via TCP: {safe_url}")
+    
+    return storage_url, None

@@ -33,30 +33,64 @@ optuna:
       optimization_history: true
       parameter_importance: true
       slice_plot: true
-      
-  # Storage backend configuration
-  storage:
-    backend: "postgresql"  # Options: "postgresql", "sqlite"
-    # --- PostgreSQL Specific Settings ---
-    # Path relative to project root (e.g., /user/taed7566/wind-forecasting)
-    pgdata_path: "logging/optuna/pg_data_study"
-    db_name: "optuna_study_db"
-    db_user: "optuna_user"
-    use_socket: true      # Use Unix domain socket for local connection (recommended on single node)
-    socket_dir_base: "${logging.optuna_dir}/sockets" # Base directory for socket files
-    sync_dir: "${logging.optuna_dir}/sync"           # Directory for synchronization files
-
-    # --- Optional TCP/IP Settings (if use_socket is false) ---
-    # use_tcp: false
-    # db_host: "localhost"
-    # db_port: 5432
-
-    # --- Optional Command Execution Settings ---
-    # run_cmd_shell: false # Set to true if specific commands require shell=True
-
-    # --- SQLite Specific Settings (not used if backend is postgresql) ---
-    # sqlite_path: "logging/optuna/study.db" Relative path for SQLite file if backend="sqlite"
-    # sqlite_wal: true  Enable WAL mode for SQLite
+      # Storage backend configuration
+      storage:
+        # Options: sqlite, journal, postgresql, mysql
+        type: "postgresql"
+    
+        # --- SQLite Specific Settings (Used only if type: sqlite) ---
+        sqlite:
+          # Path relative to project root or absolute.
+          path: "logging/optuna/study_${optuna.study_name}.db"
+          # Optional: Enable Write-Ahead Logging (improves concurrency)
+          use_wal: true
+          # Optional: Timeout for acquiring locks (seconds)
+          timeout: 60.0
+    
+        # --- JournalStorage Specific Settings (Used only if type: journal) ---
+        journal:
+          # Path to the directory where journal files will be stored.
+          # Path relative to project_root or absolute.
+          path: "logging/optuna/journal_${optuna.study_name}"
+          # Optional: Specify a specific file storage backend for the journal
+          # file_storage_backend: "FileSystemStorage" # or other compatible backend
+    
+        # --- RDB (PostgreSQL/MySQL) Settings (Used if type: postgresql or mysql) ---
+        rdb:
+          # --- Connection Method ---
+          # Choose ONE: local_managed or external_tcp
+          connection_method: "local_managed"
+    
+          # --- Settings for connection_method: local_managed (PostgreSQL ONLY) ---
+          local_managed:
+            # Path relative to project root for PGDATA (will be appended with study name)
+            pgdata_path_base: "logging/optuna/pg_data"
+            db_name: "optuna_study_${optuna.study_name}"
+            db_user: "optuna_user"
+            # --- Choose connection type for the LOCAL instance ---
+            # Options: "socket" or "tcp"
+            connection_type: "socket"
+            # --- Socket specific (only used if connection_type: socket) ---
+            socket_dir_base: "${logging.optuna_dir}/sockets"
+            # --- TCP specific (only used if connection_type: tcp) ---
+            # db_host: "localhost"
+            # db_port: 5432
+            # --- Other local settings ---
+            sync_dir: "${logging.optuna_dir}/sync"
+            # Optional: Command execution settings
+            # run_cmd_shell: false # Set to true if specific commands require shell=True
+    
+          # --- Settings for connection_method: external_tcp (PostgreSQL or MySQL) ---
+          # These settings connect to an EXISTING external database via TCP/IP.
+          external_tcp:
+            host: "localhost"
+            port: 5432 # 5432 for PostgreSQL, 3306 for MySQL
+            database: "optuna_db"
+            username: "optuna_user"
+            password: ""
+            # Optional: Add driver-specific arguments if needed (like SSL)
+            # driver_options:
+            #   sslmode: 'require'
     # sqlite_timeout: 600  Timeout in seconds for SQLite locks
 
   # Optuna Dashboard auto-launch configuration

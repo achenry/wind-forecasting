@@ -238,7 +238,7 @@ def main():
             config["trainer"]["default_root_dir"] = checkpoint_dir
 
     # --- Database Setup & Synchronization ---
-    optuna_storage_url, pg_config = setup_optuna_storage(args, config, rank)
+    optuna_storage_target, pg_config = setup_optuna_storage(args, config, rank)
     # --- End Database Setup ---
 
     # %% CREATE DATASET
@@ -383,7 +383,7 @@ def main():
         
         # Normal execution - pass the OOM protection wrapper and constructed storage URL
         tune_model(model=args.model, config=config,
-                    optuna_storage_url=optuna_storage_url, # Pass the constructed URL
+                    optuna_storage_target=optuna_storage_target, # Pass the URL string or storage object
                     lightning_module_class=LightningModuleClass,
                     estimator_class=EstimatorClass,
                     distr_output_class=DistrOutputClass,

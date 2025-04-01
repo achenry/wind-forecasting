@@ -168,50 +168,62 @@ def init_postgres(pg_config):
 
 def setup_db_user(pg_config):
     """Creates the Optuna database and user if they don't exist."""
-    socket_dir = pg_config["socket_dir"]
     job_owner = pg_config["job_owner"]
     db_user = pg_config["dbuser"]
     db_name = pg_config["dbname"]
+    psql_path = pg_config["psql_path"]
+    run_cmd_shell = pg_config.get("run_cmd_shell", False)
 
-    if not socket_dir:
-        raise ValueError("Socket directory required for database/user setup.")
+    # Connection parameters for psql
+    psql_conn_opts = []
+    if pg_config.get("use_socket"):
+        socket_dir = pg_config.get("socket_dir")
+        if not socket_dir:
+            raise ValueError("Socket directory required for database/user setup when using socket connection.")
+        psql_conn_opts.extend(["-h", socket_dir])
+    elif pg_config.get("use_tcp"):
+        db_host = pg_config.get("db_host")
+        db_port = pg_config.get("db_port")
+        if not db_host or not db_port:
+             raise ValueError("Host and Port required for database/user setup when using TCP connection.")
+        psql_conn_opts.extend(["-h", db_host, "-p", str(db_port)])
+    else:
+        raise ValueError("Could not determine connection type (socket/tcp) for database/user setup.")
 
     logging.info("Performing first-time database setup (User/DB creation)...")
     # Wait for server startup
     time.sleep(2)
 
-    psql_path = pg_config["psql_path"]
-
     # Create Optuna User (db_user) if it doesn't exist
-    check_user_cmd_list = [
-        psql_path, "-h", socket_dir, "-U", job_owner, "-d", "postgres",
+    check_user_cmd_list = [psql_path] + psql_conn_opts + [
+        "-U", job_owner, "-d", "postgres",
         "-tAc", f"SELECT 1 FROM pg_roles WHERE rolname='{db_user}'"
     ]
     user_exists = _run_cmd(check_user_cmd_list, check=False).stdout.strip() == '1'
 
     if not user_exists:
-        create_user_cmd_list = [
-            psql_path, "-h", socket_dir, "-U", job_owner, "-d", "postgres",
+        create_user_cmd_list = [psql_path] + psql_conn_opts + [
+            "-U", job_owner, "-d", "postgres",
             "-c", f"CREATE USER {db_user};"
         ]
-        _run_cmd(create_user_cmd_list, shell=pg_config.get("run_cmd_shell", False))
+        _run_cmd(create_user_cmd_list, shell=run_cmd_shell)
         logging.info(f"Created PostgreSQL user: {db_user}")
     else:
         logging.info(f"PostgreSQL user {db_user} already exists.")
 
     # Create Optuna Database (db_name) if it doesn't exist
-    check_db_cmd_list = [
-        psql_path, "-h", socket_dir, "-U", job_owner, "-d", "postgres",
+    check_db_cmd_list = [psql_path] + psql_conn_opts + [
+        "-U", job_owner, "-d", "postgres",
         "-tAc", f"SELECT 1 FROM pg_database WHERE datname='{db_name}'"
     ]
     db_exists = _run_cmd(check_db_cmd_list, check=False).stdout.strip() == '1'
 
     if not db_exists:
-        create_db_cmd_list = [
-            psql_path, "-h", socket_dir, "-U", job_owner, "-d", "postgres",
+        create_db_cmd_list = [psql_path] + psql_conn_opts + [
+            "-U", job_owner, "-d", "postgres",
             "-c", f"CREATE DATABASE {db_name} OWNER {db_user};"
         ]
-        _run_cmd(create_db_cmd_list, shell=pg_config.get("run_cmd_shell", False))
+        _run_cmd(create_db_cmd_list, shell=run_cmd_shell)
         logging.info(f"Created PostgreSQL database: {db_name} owned by {db_user}")
     else:
         logging.info(f"PostgreSQL database {db_name} already exists.")
@@ -222,18 +234,17 @@ def setup_db_user(pg_config):
 def start_postgres(pg_config):
     """Starts the PostgreSQL server if not already running."""
     pgdata = pg_config["pgdata"]
-    socket_dir = pg_config["socket_dir"]
     logfile = os.path.join(pgdata, "logfile.log")
-
-    if not socket_dir:
-        raise ValueError("Socket directory required to start PostgreSQL.")
-
     pg_ctl_path = pg_config["pg_ctl_path"]
+    run_cmd_shell = pg_config.get("run_cmd_shell", False)
+
+    # Base start options
+    start_opts = ["-w", "-D", str(pgdata), "-l", logfile]
 
     logging.info("Starting PostgreSQL server...")
     # Check if server is already running
     status_cmd = [pg_ctl_path, "status", "-D", str(pgdata)]
-    status_result = _run_cmd(status_cmd, check=False, shell=pg_config.get("run_cmd_shell", False))
+    status_result = _run_cmd(status_cmd, check=False, shell=run_cmd_shell)
 
     if status_result.returncode == 0:
         logging.info("PostgreSQL server is already running.")
@@ -241,14 +252,23 @@ def start_postgres(pg_config):
 
     # If not running (exit code 3), try starting
     if status_result.returncode == 3:
-        # Construct start command
-        start_cmd_list = [
-            pg_ctl_path, "start", "-w",
-            "-D", str(pgdata),
-            "-l", logfile,
-            "-o", f"-c unix_socket_directories='{socket_dir}'"
-        ]
-        _run_cmd(start_cmd_list, shell=pg_config.get("run_cmd_shell", False))
+        # Add connection-specific options
+        if pg_config.get("use_socket"):
+            socket_dir = pg_config.get("socket_dir")
+            if not socket_dir:
+                 raise ValueError("Socket directory required to start PostgreSQL with socket connection.")
+            start_opts.extend(["-o", f"-c unix_socket_directories='{socket_dir}'"])
+            logging.info(f"Starting PostgreSQL with socket directory: {socket_dir}")
+        elif pg_config.get("use_tcp"):
+            db_host = pg_config.get("db_host", "localhost") # Use configured host/port for logging
+            db_port = pg_config.get("db_port", 5432)
+            logging.info(f"Starting PostgreSQL (expecting TCP connection on {db_host}:{db_port} based on config)...")
+            # No specific pg_ctl options added here for TCP listening by default
+        else:
+             raise ValueError("Could not determine connection type (socket/tcp) for starting PostgreSQL.")
+
+        start_cmd_list = [pg_ctl_path, "start"] + start_opts
+        _run_cmd(start_cmd_list, shell=run_cmd_shell)
         logging.info("PostgreSQL server started successfully.")
     else:
         logging.error(f"pg_ctl status returned unexpected code {status_result.returncode}. Check logs.")
@@ -339,14 +359,16 @@ def _resolve_path(key_config, key, full_config, default=None):
 
 def _generate_pg_config(config):
     """
-    Generates the pg_config dictionary from the main config, resolving paths
-    and handling defaults.
+    Generates the pg_config dictionary for a LOCAL MANAGED PostgreSQL instance.
     """
     global _managed_pg_config # Allow modification of the global var
 
     storage_config = config.get("optuna", {}).get("storage", {})
-    if storage_config.get("backend") != "postgresql":
-        raise ValueError("Database backend is not configured as 'postgresql' in YAML.")
+    rdb_config = storage_config.get("rdb", {})
+    local_managed_config = rdb_config.get("local_managed", {})
+
+    if storage_config.get("type") != "postgresql" or rdb_config.get("connection_method") != "local_managed":
+         raise ValueError("This function should only be called for storage type 'postgresql' with connection method 'local_managed'.")
 
     # Determine Project Root
     project_root_str = config.get("experiment", {}).get("project_root")
@@ -362,16 +384,16 @@ def _generate_pg_config(config):
         logging.info(f"Using project root from config: {project_root}")
 
     # --- PGDATA Path ---
-    pgdata_path_rel = storage_config.get("pgdata_path")
-    if not pgdata_path_rel:
-        raise ValueError("Missing 'pgdata_path' in optuna.storage configuration.")
+    pgdata_path_base_rel = local_managed_config.get("pgdata_path_base")
+    if not pgdata_path_base_rel:
+        raise ValueError("Missing 'pgdata_path_base' in optuna.storage.rdb.local_managed configuration.")
     # Base path is relative to project root
-    pgdata_base_abs = (project_root / Path(pgdata_path_rel).parent).resolve()
+    pgdata_base_abs = (project_root / Path(pgdata_path_base_rel)).resolve()
     # Generate directory name based on Optuna study name for persistence
     study_name = config.get("optuna", {}).get("study_name")
     if not study_name:
         raise ValueError("Missing 'study_name' in optuna configuration, needed for PGDATA path.")
-    # Make study name filesystem-safe (replace spaces, slashes, etc.)
+    # Make study name filesystem-safe
     safe_study_name = "".join(c if c.isalnum() or c in ('_', '-') else '_' for c in study_name)
     pgdata_dir_name = f"pg_data_{safe_study_name}" # Consistent name based on study
     pgdata_path_abs = pgdata_base_abs / pgdata_dir_name
@@ -380,23 +402,21 @@ def _generate_pg_config(config):
     # The specific study data directory (pgdata_path_abs) will be created by initdb if it doesn't exist
     logging.info(f"Using persistent PGDATA path based on study name: {pgdata_path_abs}")
 
-    # --- Socket/TCP Configuration ---
-    use_socket = storage_config.get("use_socket", True)
-    use_tcp = storage_config.get("use_tcp", False)
-    if use_socket and use_tcp:
-        raise ValueError("Cannot configure both use_socket=true and use_tcp=true.")
-    if not use_socket and not use_tcp:
-        logging.info("Neither use_socket nor use_tcp specified, defaulting to use_socket=true.")
-        use_socket = True
+    # --- Connection Type Configuration (Socket/TCP) ---
+    connection_type = local_managed_config.get("connection_type", "socket").lower()
+    if connection_type not in ["socket", "tcp"]:
+        raise ValueError(f"Invalid connection_type '{connection_type}' in local_managed config. Must be 'socket' or 'tcp'.")
+
+    use_socket = (connection_type == "socket")
+    use_tcp = (connection_type == "tcp")
 
     socket_dir = None
     db_host = None
     db_port = None
 
     if use_socket:
-        # Resolve socket_dir_base relative to project root
-        # Pass the sub-dictionary containing the key, the key itself, and the full config
-        socket_base_str = _resolve_path(storage_config, "socket_dir_base", full_config=config) # Pass full config explicitly
+        # Resolve socket_dir_base relative to project root using local_managed_config
+        socket_base_str = _resolve_path(local_managed_config, "socket_dir_base", full_config=config)
         if not socket_base_str:
              # Default to $TMPDIR or /tmp if not specified
              tmp_dir = os.environ.get("TMPDIR", "/tmp")
@@ -412,13 +432,14 @@ def _generate_pg_config(config):
         socket_dir = str(socket_dir_path)
         logging.info(f"Using socket directory: {socket_dir}")
     elif use_tcp:
-        db_host = storage_config.get("db_host", "localhost")
-        db_port = storage_config.get("db_port", 5432)
-        logging.info(f"Using TCP/IP connection: host={db_host}, port={db_port}")
+        # Read host/port from local_managed_config
+        db_host = local_managed_config.get("db_host", "localhost")
+        db_port = local_managed_config.get("db_port", 5432)
+        logging.info(f"Configured for local TCP/IP connection: host={db_host}, port={db_port}")
 
     # --- Sync Directory ---
-    # Resolve sync_dir using the full config
-    sync_dir_str = _resolve_path(storage_config, "sync_dir", full_config=config) # Pass full config explicitly
+    # Resolve sync_dir using local_managed_config
+    sync_dir_str = _resolve_path(local_managed_config, "sync_dir", full_config=config)
     if not sync_dir_str:
         # Default to a 'sync' subdir within optuna_dir if sync_dir not specified
         # Resolve optuna_dir first using the full config
@@ -434,9 +455,13 @@ def _generate_pg_config(config):
     logging.info(f"Using sync file: {sync_file}")
 
     # --- Other Settings ---
-    db_name = storage_config.get("db_name", "optuna_study_db")
-    db_user = storage_config.get("db_user", "optuna_user")
-    run_cmd_shell = storage_config.get("run_cmd_shell", False) # Get shell preference
+    # Get DB name and user from local_managed_config
+    db_name = local_managed_config.get("db_name", "optuna_study_db")
+    # Substitute ${optuna.study_name} if present in the db_name
+    if "${optuna.study_name}" in db_name:
+         db_name = db_name.replace("${optuna.study_name}", safe_study_name) # Use safe_study_name generated earlier
+    db_user = local_managed_config.get("db_user", "optuna_user")
+    run_cmd_shell = local_managed_config.get("run_cmd_shell", False) # Get shell preference
 
     # --- PostgreSQL Binaries ---
     pg_bin_dir = os.environ.get("POSTGRES_BIN_DIR")

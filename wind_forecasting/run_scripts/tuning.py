@@ -252,8 +252,8 @@ class MLTuningObjective:
             return float('inf') if self.config["optuna"]["direction"] == "minimize" else float('-inf')
 
 
-# Update signature: Add optuna_storage_url, remove journal_storage_dir, use_rdb, restart_study
-def tune_model(model, config, optuna_storage_url: str, lightning_module_class, estimator_class,
+# Update signature: Accept optuna_storage_target (URL string or storage object)
+def tune_model(model, config, optuna_storage_target, lightning_module_class, estimator_class,
                max_epochs, limit_train_batches,
                distr_output_class, data_module, context_length_choices,
                metric="mean_wQuantileLoss", direction="minimize", n_trials=10,
@@ -268,15 +268,27 @@ def tune_model(model, config, optuna_storage_url: str, lightning_module_class, e
         logging.info(f"WandB will create logs in {os.path.join(wandb_dir, 'wandb')}")
 
     study_name = config["optuna"]["study_name"]
-    # Log safely without credentials if they were included (they aren't for socket trust)
-    log_storage_url = optuna_storage_url.split('@')[0] + '@...' if '@' in optuna_storage_url else optuna_storage_url
-    logging.info(f"Using Optuna storage URL: {log_storage_url}")
+    # Log storage target safely
+    if isinstance(optuna_storage_target, str):
+        # log safely without credentials
+        log_storage_info = optuna_storage_target.split('@')[0] + '@...' if '@' in optuna_storage_target else optuna_storage_target
+        logging.info(f"Using Optuna storage URL: {log_storage_info}")
+    elif isinstance(optuna_storage_target, optuna.storages.BaseStorage):
+        # It's a storage object
+        log_storage_info = f"Optuna storage object: {type(optuna_storage_target).__name__}"
+        if hasattr(optuna_storage_target, 'storage') and hasattr(optuna_storage_target.storage, 'path'):
+             # for JournalStorage
+             log_storage_info += f" (path: {optuna_storage_target.storage.path})"
+        logging.info(log_storage_info)
+    else:
+        logging.warning(f"Unknown Optuna storage target type: {type(optuna_storage_target)}")
+        log_storage_info = str(optuna_storage_target) # Fallback to string representation
 
     # NOTE: Restarting the study is now handled in the Slurm script by deleting the PGDATA directory
     # if the --restart_tuning flag is set. No specific handling needed here.
 
-    # Use the provided storage URL directly
-    storage_url = optuna_storage_url
+    # Use the provided storage target (URL string or object) directly
+    storage_target = optuna_storage_target
 
     # Configure pruner based on settings
     pruner = None
@@ -319,7 +331,7 @@ def tune_model(model, config, optuna_storage_url: str, lightning_module_class, e
             logging.info(f"Rank 0: Creating/loading Optuna study '{study_name}' with pruner: {type(pruner).__name__}")
             study = create_study(
                 study_name=study_name,
-                storage=storage_url,
+                storage=storage_target, # Pass URL string or storage object
                 direction=direction,
                 load_if_exists=True, # Rank 0 handles creation or loading
                 sampler=TPESampler(seed=seed),
@@ -328,7 +340,11 @@ def tune_model(model, config, optuna_storage_url: str, lightning_module_class, e
             logging.info(f"Rank 0: Study '{study_name}' created or loaded successfully.")
 
             # --- Launch Dashboard (Rank 0 only) ---
-            launch_optuna_dashboard(config, storage_url) # Call imported function
+            # Launch dashboard only if storage is a URL
+            if isinstance(storage_target, str):
+                 launch_optuna_dashboard(config, storage_target)
+            else:
+                 logging.info("Skipping Optuna dashboard launch (not supported for non-URL storage types like JournalStorage).")
             # --------------------------------------
         else:
             # Non-rank-0 workers MUST load the study created by rank 0
@@ -340,7 +356,7 @@ def tune_model(model, config, optuna_storage_url: str, lightning_module_class, e
                 try:
                     study = load_study(
                         study_name=study_name,
-                        storage=storage_url,
+                        storage=storage_target, # Pass URL string or storage object
                         sampler=TPESampler(seed=seed), # Sampler might be needed for load_study too
                         pruner=pruner
                     )
@@ -372,8 +388,15 @@ def tune_model(model, config, optuna_storage_url: str, lightning_module_class, e
         # Log error with rank information
         logging.error(f"Rank {worker_id}: Error creating/loading study '{study_name}': {str(e)}", exc_info=True)
         # Log storage URL safely
-        log_storage_url_safe = str(storage_url).split('@')[0] + '@...' if '@' in str(storage_url) else str(storage_url)
-        logging.error(f"Error details - Type: {type(e).__name__}, Storage: {log_storage_url_safe}")
+        if isinstance(storage_target, str):
+             log_storage_info_safe = storage_target.split('@')[0] + '@...' if '@' in storage_target else storage_target
+        elif isinstance(storage_target, optuna.storages.BaseStorage):
+             log_storage_info_safe = f"Optuna storage object: {type(storage_target).__name__}"
+             if hasattr(storage_target, 'storage') and hasattr(storage_target.storage, 'path'):
+                  log_storage_info_safe += f" (path: {storage_target.storage.path})"
+        else:
+             log_storage_info_safe = str(storage_target)
+        logging.error(f"Error details - Type: {type(e).__name__}, Storage: {log_storage_info_safe}")
         raise
 
     # Worker ID already fetched above for study creation/loading
