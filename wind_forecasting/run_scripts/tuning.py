@@ -188,6 +188,44 @@ class MLTuningObjective:
 
         forecasts = list(forecast_it)
         tss = list(ts_it)
+
+        # --- BUG Debugging: Inspect forecasts and distribution parameters before evaluation ---
+        logging.info(f"Trial {trial.number}: Inspecting {len(forecasts)} forecasts before evaluation...")
+        problematic_indices = []
+        for i, (ts, forecast) in enumerate(zip(tss, forecasts)):
+            try:
+                # Attempt the operation that might fail (related to distribution/copy_dim)
+                # Accessing distribution parameters might be enough to trigger calculation
+                _ = forecast.distribution.mean # Access a property to potentially trigger internal calculations
+                _ = forecast.distribution.variance # Access variance
+                # Explicitly try the copy_dim operation if needed, though accessing params might suffice
+                # _ = forecast.copy_dim(0)
+            except torch._C._LinAlgError as e:
+                logging.error(f"Trial {trial.number}: LinAlgError encountered inspecting forecast index {i} (start_date: {forecast.start_date})")
+                logging.error(f"Error: {e}")
+                problematic_indices.append(i)
+                # Log distribution parameters if possible
+                try:
+                    dist = forecast.distribution
+                    if hasattr(dist, 'cov_factor'):
+                         logging.error(f"  cov_factor shape: {dist.cov_factor.shape}, has NaNs: {torch.isnan(dist.cov_factor).any()}, has Infs: {torch.isinf(dist.cov_factor).any()}")
+                         # Log a small sample of the data if helpful, be careful with large tensors
+                         # logging.error(f"  cov_factor sample: {dist.cov_factor.flatten()[:10]}")
+                    if hasattr(dist, 'cov_diag'):
+                         logging.error(f"  cov_diag shape: {dist.cov_diag.shape}, has NaNs: {torch.isnan(dist.cov_diag).any()}, has Infs: {torch.isinf(dist.cov_diag).any()}")
+                         logging.error(f"  cov_diag values: {dist.cov_diag.flatten()}") # Diag is usually smaller
+                except Exception as log_e:
+                    logging.error(f"  Could not log distribution parameters: {log_e}")
+            except Exception as other_e:
+                 logging.warning(f"Trial {trial.number}: Unexpected error inspecting forecast index {i}: {other_e}")
+                 problematic_indices.append(i) # Mark as problematic even for other errors
+
+        if problematic_indices:
+             logging.warning(f"Trial {trial.number}: Found {len(problematic_indices)} potentially problematic forecasts at indices: {problematic_indices}")
+        else:
+             logging.info(f"Trial {trial.number}: No immediate errors found during forecast inspection.")
+        # --- End Debugging ---
+        
         agg_metrics, _ = self.evaluator(iter(tss), iter(forecasts), num_series=self.data_module.num_target_vars)
         agg_metrics["trainable_parameters"] = summarize(estimator.create_lightning_module()).trainable_parameters
         self.metrics.append(agg_metrics.copy())
