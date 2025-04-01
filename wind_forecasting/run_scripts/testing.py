@@ -240,7 +240,7 @@ def get_checkpoint(checkpoint, metric, mode, log_dir):
     else:
         logging.info("Fetching pretrained model...")
         if os.path.exists(checkpoint):
-            logging.info(f"Found given pretrained model: {checkpoint_path}")
+            logging.info(f"Found given pretrained model: {checkpoint}")
             checkpoint_path = checkpoint
         else:
             raise FileNotFoundError(f"Given checkpoint {checkpoint} does not exist.")
