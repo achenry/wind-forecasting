@@ -1,5 +1,5 @@
 experiment:
-  run_name: windfarm_flasc_tune_autoformer
+  run_name: windfarm_flasc_tune_spacetimeformer
   log_dir: /user/taed7566/wind-forecasting/logging/
   project_root: /user/taed7566/wind-forecasting
 
@@ -10,8 +10,8 @@ logging:
   slurm_output_dir: /user/taed7566/wind-forecasting/logging/slurm_logs/
 
 optuna:
-  study_name: "windfarm_flasc_tune_autoformer"
-  n_trials: 4                # trials to fit ~24h
+  study_name: "windfarm_flasc_tune_spacetimeformer"
+  n_trials: 3                # trials per worker (multiply by number of workers)
   max_epochs: 3               # epochs per trial
   limit_train_batches: 100    # batches per epoch
   metric: "mean_wQuantileLoss" # The metric to optimize
