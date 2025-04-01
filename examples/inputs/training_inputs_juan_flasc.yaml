@@ -16,82 +16,51 @@ optuna:
   limit_train_batches: 100    # batches per epoch
   metric: "mean_wQuantileLoss" # The metric to optimize
   direction: "minimize"       # Whether to minimize or maximize the metric
-  context_length_choice_factors: [1, 2, 3, 4]  # Factors to multiply prediction_length by
-  
-  # Pruning configuration
+  context_length_choice_factors: [1, 2, 3, 4]  # Factors to multiply prediction_length by 
+   
   pruning:
     enabled: true             # Whether to enable pruning
     type: "hyperband"         # Options: "hyperband", "median", "percentile", "none"
     min_resource: 2           # Minimum epochs before pruning can occur (default: 2)
     reduction_factor: 3       # Hyperband reduction factor (default: 3)
-  
-  # Optuna visualization configuration (additional to wandb)
+
   visualization:
     enabled: true
     output_dir: ${logging.optuna_dir}/visualizations
     plots:
       optimization_history: true
       parameter_importance: true
-      slice_plot: true
-      # Storage backend configuration
-      storage:
-        # Options: sqlite, journal, postgresql, mysql
-        type: "postgresql"
-    
-        # --- SQLite Specific Settings (Used only if type: sqlite) ---
-        sqlite:
-          # Path relative to project root or absolute.
-          path: "logging/optuna/study_${optuna.study_name}.db"
-          # Optional: Enable Write-Ahead Logging (improves concurrency)
-          use_wal: true
-          # Optional: Timeout for acquiring locks (seconds)
-          timeout: 60.0
-    
-        # --- JournalStorage Specific Settings (Used only if type: journal) ---
-        journal:
-          # Path to the directory where journal files will be stored.
-          # Path relative to project_root or absolute.
-          path: "logging/optuna/journal_${optuna.study_name}"
-          # Optional: Specify a specific file storage backend for the journal
-          # file_storage_backend: "FileSystemStorage" # or other compatible backend
-    
-        # --- RDB (PostgreSQL/MySQL) Settings (Used if type: postgresql or mysql) ---
-        rdb:
-          # --- Connection Method ---
-          # Choose ONE: local_managed or external_tcp
-          connection_method: "local_managed"
-    
-          # --- Settings for connection_method: local_managed (PostgreSQL ONLY) ---
-          local_managed:
-            # Path relative to project root for PGDATA (will be appended with study name)
-            pgdata_path_base: "logging/optuna/pg_data"
-            db_name: "optuna_study_${optuna.study_name}"
-            db_user: "optuna_user"
-            # --- Choose connection type for the LOCAL instance ---
-            # Options: "socket" or "tcp"
-            connection_type: "socket"
-            # --- Socket specific (only used if connection_type: socket) ---
-            socket_dir_base: "${logging.optuna_dir}/sockets"
-            # --- TCP specific (only used if connection_type: tcp) ---
-            # db_host: "localhost"
-            # db_port: 5432
-            # --- Other local settings ---
-            sync_dir: "${logging.optuna_dir}/sync"
-            # Optional: Command execution settings
-            # run_cmd_shell: false # Set to true if specific commands require shell=True
-    
-          # --- Settings for connection_method: external_tcp (PostgreSQL or MySQL) ---
-          # These settings connect to an EXISTING external database via TCP/IP.
-          external_tcp:
-            host: "localhost"
-            port: 5432 # 5432 for PostgreSQL, 3306 for MySQL
-            database: "optuna_db"
-            username: "optuna_user"
-            password: ""
-            # Optional: Add driver-specific arguments if needed (like SSL)
-            # driver_options:
-            #   sslmode: 'require'
-    # sqlite_timeout: 600  Timeout in seconds for SQLite locks
+      slice_plot: True
+
+  storage:
+    type: "postgresql" # sqlite, journal, postgresql OR mysql
+    sqlite:
+      path: "logging/optuna/study_${optuna.study_name}.db" # Path relative to root or abs.
+      use_wal: true # Enable write-ahead logging for improved concurrency
+      timeout: 60.0
+    journal:
+      path: "logging/optuna/journal_${optuna.study_name}"
+      # file_storage_backend: "FileSystemStorage" # Optional
+    rdb:
+      connection_method: "local_managed" # local_managed or external_tcp
+      local_managed:
+        pgdata_path_base: "logging/optuna/pg_data" # Path will be appended with study name
+        db_name: "optuna_study_${optuna.study_name}"
+        db_user: "optuna_user"
+        connection_type: "socket" # socket or tcp
+        socket_dir_base: "${logging.optuna_dir}/sockets"
+        # db_host: "localhost"
+        # db_port: 5432
+        sync_dir: "${logging.optuna_dir}/sync"
+        # run_cmd_shell: false # Optional, Set to true if specific commands require shell=True
+      external_tcp:
+        host: "localhost"
+        port: 5432 # 5432 for PostgreSQL, 3306 for MySQL
+        database: "optuna_db"
+        username: "optuna_user"
+        password: ""
+        # driver_options: # Optional: Add driver-specific arguments if needed (like SSL)
+        #   sslmode: 'require'
 
   # Optuna Dashboard auto-launch configuration
   dashboard:
@@ -117,7 +86,7 @@ dataset:
 
 model:
   distr_output:
-    class: "LowRankMultivariateNormalOutput"
+    class: "LowRankMultivariateNormalOutput" # LowRankMultivariateNormalOutput or StudentTOutput
     kwargs:
       rank: 5
       sigma_init: 0.2
