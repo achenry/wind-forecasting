@@ -23,7 +23,7 @@ BASE_DIR="/user/taed7566/wind-forecasting"
 export WORK_DIR="${BASE_DIR}/wind_forecasting"
 export LOG_DIR="${BASE_DIR}/logging"
 export CONFIG_FILE="${BASE_DIR}/examples/inputs/training_inputs_juan_flasc.yaml"
-export MODEL_NAME="spacetimeformer"
+export MODEL_NAME="tactis"
 
 # --- Create Logging Directories ---
 # Ensure the main slurm_logs directory exists
