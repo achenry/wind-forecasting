@@ -1,23 +1,25 @@
 experiment:
-  run_name: windfarm_flasc_tune_spacetimeformer
-  log_dir: /user/taed7566/wind-forecasting/logging/
+  run_name: windfarm_flasc_tune_tactis  
   project_root: /user/taed7566/wind-forecasting
+  log_dir: ${experiment.project_root}/logging
 
 logging:
-  wandb_dir: /user/taed7566/wind-forecasting/logging/ # WandB will create a 'wandb' subdirectory here automatically
-  optuna_dir: /user/taed7566/wind-forecasting/logging/optuna/
-  checkpoint_dir: /user/taed7566/wind-forecasting/logging/checkpoints/
-  slurm_output_dir: /user/taed7566/wind-forecasting/logging/slurm_logs/
+  wandb_dir: ${experiment.log_dir} # WandB will create a 'wandb' subdirectory here automatically
+  optuna_dir: ${experiment.log_dir}/optuna
+  tensorboard_dir: ${experiment.log_dir}
+  checkpoint_dir: ${experiment.log_dir}/checkpoints
+  slurm_output_dir: ${experiment.log_dir}/slurm_logs
 
 optuna:
-  study_name: "windfarm_flasc_tune_spacetimeformer"
+  study_name: ${experiment.run_name}
+  journal_dir: ${logging.optuna_dir}
   n_trials: 3                # trials per worker (multiply by number of workers)
   max_epochs: 3               # epochs per trial
   limit_train_batches: 100    # batches per epoch
   metric: "mean_wQuantileLoss" # The metric to optimize
   direction: "minimize"       # Whether to minimize or maximize the metric
   context_length_choice_factors: [1, 2, 3, 4]  # Factors to multiply prediction_length by 
-   
+
   pruning:
     enabled: true             # Whether to enable pruning
     type: "hyperband"         # Options: "hyperband", "median", "percentile", "none"
@@ -69,8 +71,8 @@ optuna:
     log_file: "${logging.optuna_dir}/optuna_dashboard.log" # Log file for the dashboard process
 
 dataset:
-    data_path: /user/taed7566/wind-forecasting/examples/inputs/SMARTEOLE-WFC-open-dataset/processed/SMARTEOLE_WakeSteering_SCADA_1minData_normalized.parquet
-    normalization_consts_path:  /user/taed7566/wind-forecasting/examples/inputs/SMARTEOLE-WFC-open-dataset/processed/SMARTEOLE_WakeSteering_SCADA_1minData_normalization_consts.csv
+    data_path: ${experiment.project_root}/examples/inputs/SMARTEOLE-WFC-open-dataset/processed/SMARTEOLE_WakeSteering_SCADA_1minData_normalized.parquet
+    normalization_consts_path:  ${experiment.project_root}/examples/inputs/SMARTEOLE-WFC-open-dataset/processed/SMARTEOLE_WakeSteering_SCADA_1minData_normalization_consts.csv
     context_length: 20 # 120=10 minutes for 5 sec sample size
     prediction_length: 20 # 120=10 minutes for 5 sec sample size
     target_turbine_ids: # or leave blank to capture all
@@ -102,7 +104,8 @@ model:
     data_normalization: "series"
     loss_normalization: "series"
     initial_stage: 1
-    stage2_start_epoch: 10  
+    stage2_start_epoch: 10
+
   informer:
     # embedding_dimension: 32 # Determines dimension of the embedding space
     num_encoder_layers: 3 # Number of transformer blocks stacked
@@ -111,6 +114,7 @@ model:
     d_model: 128 # Increased from 64 to better utilize H100 GPUs
     dim_feedforward: 128 # Increased from 64 to better utilize H100 GPUs
     activation: relu
+
   autoformer:
     # embedding_dimension: 32 # Determines dimension of the embedding space
     num_encoder_layers: 3 # Number of transformer blocks stacked
@@ -118,6 +122,7 @@ model:
     n_heads: 4 # Number of heads for spatio-temporal attention
     dim_feedforward: 64
     activation: relu
+
   spacetimeformer:
     # embedding_dimension: 32 # Determines dimension of the embedding space
     num_encoder_layers: 3 # Number of transformer blocks stacked
