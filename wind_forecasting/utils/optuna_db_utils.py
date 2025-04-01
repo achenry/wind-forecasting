@@ -36,12 +36,14 @@ def setup_postgresql_rank_zero(config, restart=False, register_cleanup=True):
     """
     logging.info("Rank 0: Managing PostgreSQL instance...")
     try:
-        # Manage instance (init, start, setup user/db, register cleanup)
-        # Pass restart flag from args. register_cleanup=True is default for rank 0.
+        # Manage instance (init, start, setup user/db)
+        # Pass restart flag from args.
+        # Explicitly set register_cleanup=False to prevent premature DB shutdown by worker 0's atexit.
+        # Cleanup should be handled externally after all workers finish.
         optuna_storage_url, pg_config = db_utils.manage_postgres_instance(
             config,
             restart=restart,
-            register_cleanup=register_cleanup  # Explicitly register cleanup for rank 0
+            register_cleanup=False # Disable atexit registration for Optuna runs
         )
 
         # Ensure sync file doesn't exist from a previous failed run
