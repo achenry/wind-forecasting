@@ -3,7 +3,13 @@
 experiment:
   run_name: aoifemac_awaken
   log_dir: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/logging/
+  project_root: /Users/ahenry/Documents/toolboxes/wind_forecasting
 
+logging:
+  wandb_dir: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/logging/ # WandB will create a 'wandb' subdirectory here automatically
+  optuna_dir: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/logging/optuna/
+  checkpoint_dir: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/logging/checkpoints/
+  slurm_output_dir: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/logging/slurm_logs/
 optuna:
   journal_dir: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/optuna
   storage_type: sqlite # or mysql, or journal
