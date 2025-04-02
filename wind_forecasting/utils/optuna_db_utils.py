@@ -5,8 +5,12 @@ import atexit
 import torch
 from wind_forecasting.utils import db_utils
 from lightning.pytorch.utilities import rank_zero_only
+from mysql.connector import connect as sql_connect
+from optuna.storages import JournalStorage, RDBStorage
+from optuna.storages.journal import JournalFileBackend
 
-def setup_optuna_storage(args, config, rank):
+# TODO JUAN, passing 'args' and 'config' is confusing - its hard to follow what arguments are needed, better to give arguments needed from args, and then the subset needed from config
+def setup_optuna_storage(mode, config, rank):
     """
     Sets up the Optuna storage backend based on configuration and handles synchronization
     between workers.
@@ -14,7 +18,7 @@ def setup_optuna_storage(args, config, rank):
     optuna_storage_url = None  # Initialize for all ranks
     pg_config = None           # Initialize pg_config
 
-    if "tune" not in args.mode:  # Only setup DB if tuning
+    if "tune" not in mode:  # Only setup DB if tuning
         return optuna_storage_url, pg_config
         
     storage_backend = config.get("optuna", {}).get("storage", {}).get("backend", "sqlite")  # Default to sqlite
@@ -26,9 +30,14 @@ def setup_optuna_storage(args, config, rank):
     elif storage_backend == "sqlite":
         # Setup for SQLite database
         return setup_sqlite(args, config)
+    elif storage_backend == "journal":
+        return setup_journal(args, config)
+    elif storage_backend == "mysql":
+        return setup_mysql(args, config)
     else:
         raise ValueError(f"Unsupported optuna storage backend: {storage_backend}")
 
+# TODO JUAN can't the contents of this function just go directly into the conditional below, since the rank is checked anyway?
 @rank_zero_only
 def setup_postgresql_rank_zero(config, restart=False, register_cleanup=True):
     """
@@ -47,9 +56,11 @@ def setup_postgresql_rank_zero(config, restart=False, register_cleanup=True):
         )
 
         # Ensure sync file doesn't exist from a previous failed run
-        sync_file_path = pg_config.get("sync_file")
-        if not sync_file_path:
+        if "sync_file" not in pg_config:
              raise ValueError("Sync file path not generated in pg_config.")
+        else:
+            sync_file_path = pg_config["sync_file"]
+            
         if os.path.exists(sync_file_path):
             logging.warning(f"Removing existing sync file: {sync_file_path}")
             os.remove(sync_file_path)
@@ -71,7 +82,7 @@ def setup_postgresql_rank_zero(config, restart=False, register_cleanup=True):
                   logging.error(f"Rank 0: Failed to write error state to sync file: {e_sync}")
         raise  # Re-raise the exception to stop rank 0
 
-def setup_postgresql(args, config, rank):
+def setup_postgresql(restart_tuning, config, rank):
     """
     Handles PostgreSQL setup for all ranks.
     """
@@ -80,7 +91,7 @@ def setup_postgresql(args, config, rank):
     
     # Rank 0 is responsible for setting up the database
     if rank == 0:
-        optuna_storage_url, pg_config = setup_postgresql_rank_zero(config, restart=args.restart_tuning)
+        optuna_storage_url, pg_config = setup_postgresql_rank_zero(config, restart=restart_tuning)
     else:
         # Worker ranks: Generate config to find sync file and wait
         try:
@@ -147,13 +158,14 @@ def restart_sqlite_rank_zero(sqlite_abs_path, restart=False):
          except OSError as e:
              logging.error(f"Failed to remove SQLite file {sqlite_abs_path}: {e}")
 
-def setup_sqlite(args, config):
+# TODO JUAN this isn't working
+def setup_sqlite(restart_tuning, sqlite_rel_path):
     """
     Sets up SQLite storage for Optuna.
     """
     # Construct the SQLite URL based on config
     # Use _resolve_path for consistency, getting project_root from config or default
-    sqlite_rel_path = config.get("optuna", {}).get("storage", {}).get("sqlite_path", "logging/optuna/optuna_study.db")
+    # sqlite_rel_path = config.get("optuna", {}).get("storage", {}).get("sqlite_path", "logging/optuna/optuna_study.db")
     sqlite_abs_path = db_utils._resolve_path(config, f"optuna.storage.sqlite_path", default=sqlite_rel_path)
     # Ensure project_root is handled within _resolve_path based on experiment.project_root or CWD
     os.makedirs(os.path.dirname(sqlite_abs_path), exist_ok=True)
@@ -161,6 +173,24 @@ def setup_sqlite(args, config):
     logging.info(f"Using SQLite storage URL: {optuna_storage_url}")
     
     # Handle restart for SQLite on rank 0
-    restart_sqlite_rank_zero(sqlite_abs_path, restart=args.restart_tuning)
+    restart_sqlite_rank_zero(sqlite_abs_path, restart=restart_tuning)
     
     return optuna_storage_url, None
+
+def setup_journal(args, config):
+    # TODO JUAN
+    logging.info(f"Connecting to Journal database {study_name}")
+    storage = JournalStorage(JournalFileBackend(os.path.join(journal_storage_dir, f"{study_name}.log")))
+    
+def setup_mysql(args, config):
+    # TODO JUAN
+    logging.info(f"Connecting to RDB database {study_name}")
+    try:
+        db = sql_connect(host="localhost", user="root",
+                        database=study_name)       
+    except Exception: 
+        db = sql_connect(host="localhost", user="root")
+        cursor = db.cursor()
+        cursor.execute(f"CREATE DATABASE {study_name}") 
+    finally:
+        storage = RDBStorage(url=f"mysql://{db.user}@{db.server_host}:{db.server_port}/{study_name}")

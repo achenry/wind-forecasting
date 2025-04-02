@@ -16,6 +16,11 @@ from optuna.pruners import HyperbandPruner, MedianPruner, PercentilePruner, NopP
 from optuna.integration import PyTorchLightningPruningCallback
 import lightning.pytorch as pl # Import pl alias
 
+from optuna import create_study
+from mysql.connector import connect as sql_connect
+from optuna.storages import JournalStorage, RDBStorage
+from optuna.storages.journal import JournalFileBackend
+
 from wind_forecasting.utils.optuna_visualization import launch_optuna_dashboard
 from wind_forecasting.utils.trial_utils import handle_trial_with_oom_protection
 
@@ -213,6 +218,63 @@ class MLTuningObjective:
             # Return a value indicating failure based on optimization direction
             return float('inf') if self.config["optuna"]["direction"] == "minimize" else float('-inf')
 
+def get_storage(storage_type, study_name, journal_storage_dir=None):
+    if storage_type == "mysql":
+        logging.info(f"Connecting to RDB database {study_name}")
+        try:
+            db = sql_connect(host="localhost", user="root",
+                            database=study_name)       
+        except Exception: 
+            db = sql_connect(host="localhost", user="root")
+            cursor = db.cursor()
+            cursor.execute(f"CREATE DATABASE {study_name}") 
+        finally:
+            storage = RDBStorage(url=f"mysql://{db.user}@{db.server_host}:{db.server_port}/{study_name}")
+    elif storage_type == "sqlite":
+        # SQLite with WAL mode - using a simpler URL format
+        os.makedirs(journal_storage_dir, exist_ok=True)
+        db_path = os.path.join(journal_storage_dir, f"{study_name}.db")
+
+        # Use a simplified connection string format that Optuna expects
+        storage_url = f"sqlite:///{db_path}"
+
+        # Check if database already exists and initialize WAL mode directly
+        if not os.path.exists(db_path):
+            try:
+                import sqlite3
+                # Create the database manually first with WAL settings
+                conn = sqlite3.connect(db_path, timeout=60000)
+                conn.execute("PRAGMA journal_mode=WAL")
+                conn.execute("PRAGMA synchronous=NORMAL")
+                conn.execute("PRAGMA cache_size=10000")
+                conn.execute("PRAGMA temp_store=MEMORY")
+                conn.execute("PRAGMA busy_timeout=60000")
+                conn.execute("PRAGMA wal_autocheckpoint=1000")
+                conn.commit()
+                conn.close()
+                logging.info(f"Created SQLite database with WAL mode at {db_path}")
+            except Exception as e:
+                logging.error(f"Error initializing SQLite database: {e}")
+                
+        storage = RDBStorage(url=storage_url)
+        
+    elif storage_type == "journal":
+        logging.info(f"Connecting to Journal database {study_name}")
+        storage = JournalStorage(JournalFileBackend(os.path.join(journal_storage_dir, f"{study_name}.log")))
+    
+    return storage
+
+def get_tuned_params(study_name, storage_type, journal_storage_dir):
+    logging.info(f"Allocating storage for Optuna study {study_name}.")  
+    storage = get_storage(storage_type=storage_type, study_name=study_name, journal_storage_dir=journal_storage_dir)
+    try:
+        study_id = storage.get_study_id_from_name(study_name)
+    except Exception:
+        raise FileNotFoundError(f"Optuna study {study_name} not found. Please run tune_hyperparameters_multi for all outputs first.")
+    # self.model[output].set_params(**storage.get_best_trial(study_id).params)
+    # storage.get_all_studies()[0]._study_id
+    # estimato = self.create_model(**storage.get_best_trial(study_id).params)
+    return storage.get_best_trial(study_id).params 
 
 # Update signature: Add optuna_storage_url, remove journal_storage_dir, use_rdb, restart_study
 def tune_model(model, config, optuna_storage_url: str, lightning_module_class, estimator_class,

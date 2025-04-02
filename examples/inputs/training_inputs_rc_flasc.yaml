@@ -2,7 +2,13 @@
 
 experiment:
   run_name: rc_flac
-  log_dir: /projects/aohe7145/toolboxes/wind_forecasting_env/wind-forecasting/examples/logging/
+  project_root: /projects/aohe7145/toolboxes/wind_forecasting_env/wind-forecasting/
+
+logging:
+  wandb_dir: /pl/active/paolab/wind_forecasting/logging/ # WandB will create a 'wandb' subdirectory here automatically
+  optuna_dir: /pl/active/paolab/wind_forecasting/logging/optuna/
+  checkpoint_dir: /pl/active/paolab/wind_forecasting/logging/checkpoints/
+  slurm_output_dir: /pl/active/paolab/wind_forecasting/logging/slurm_logs/
 
 optuna:
   journal_dir: /pl/active/paolab/wind_forecasting/optuna

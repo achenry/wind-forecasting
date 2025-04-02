@@ -3,6 +3,13 @@
 experiment:
   run_name: kestrel_flasc
   log_dir: /projects/ssc/ahenry/wind_forecasting/logging/
+  project_root: /projects/ssc/ahenry/wind_forecasting/
+
+logging:
+  wandb_dir: /projects/ssc/ahenry/wind_forecasting/logging/ # WandB will create a 'wandb' subdirectory here automatically
+  optuna_dir: /projects/ssc/ahenry/wind_forecasting/logging/optuna/
+  checkpoint_dir: /projects/ssc/ahenry/wind_forecasting/logging/checkpoints/
+  slurm_output_dir: /projects/ssc/ahenry/wind_forecasting/logging/slurm_logs/
 
 optuna:
   journal_dir: /projects/ssc/ahenry/wind_forecasting/optuna
