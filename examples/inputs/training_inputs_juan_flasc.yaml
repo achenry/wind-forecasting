@@ -157,7 +157,7 @@ trainer:
     # accumulate: 1.0
     max_epochs: 5 # Maximum number of epochs to train 100
     limit_train_batches: 100 # Reduced from 100 during tuning INFO @Juan
-    default_root_dir: ${logging.checkpoint_dir}  # Changed from direct path to use log_dir
+    # default_root_dir: ${logging.checkpoint_dir}  # Changed from direct path to use log_dir
     # precision: 16-mixed # 16-mixed enables mixed precision training 32-true is full precision
     # batch_size: 32 # larger = more stable gradients
     # lr: 0.0001 # Step size

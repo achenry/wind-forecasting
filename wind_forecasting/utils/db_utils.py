@@ -287,6 +287,7 @@ def stop_postgres(pg_config, raise_on_error=True):
 # Global variable to hold the generated config for atexit cleanup
 _managed_pg_config = None
 
+# TODO JUAN - this seems more complexity than it's worth for fetching the absolute path, and setting a path in the config files
 def _resolve_path(key_config, key, full_config, default=None):
     """
     Resolves a path potentially containing variables like ${logging.optuna_dir},
@@ -336,21 +337,22 @@ def _resolve_path(key_config, key, full_config, default=None):
 
     return str(resolved_path)
 
-
-def _generate_pg_config(config):
+# TODO JUAN started being more explicit with arguments required, change others to be like this
+def _generate_pg_config(*, backend, project_root, pgdata_path_rel, study_name, 
+                        use_socket=True, use_tcp=False, db_host="localhost", db_port=5432,
+                        db_name="optuna_study_db", db_user="optuna_user",
+                        run_cmd_shell=False):
     """
     Generates the pg_config dictionary from the main config, resolving paths
     and handling defaults.
     """
     global _managed_pg_config # Allow modification of the global var
 
-    storage_config = config.get("optuna", {}).get("storage", {})
-    if storage_config.get("backend") != "postgresql":
+    if backend != "postgresql":
         raise ValueError("Database backend is not configured as 'postgresql' in YAML.")
 
     # Determine Project Root
-    project_root_str = config.get("experiment", {}).get("project_root")
-    if not project_root_str:
+    if not project_root:
         try:
             project_root = Path(__file__).resolve().parents[2]
             logging.info(f"Determined project root from script location: {project_root}")
@@ -358,17 +360,15 @@ def _generate_pg_config(config):
             logging.warning("Could not determine project root from script location. Falling back to CWD.")
             project_root = Path(os.getcwd())
     else:
-        project_root = Path(project_root_str).resolve()
+        project_root = Path(project_root).resolve()
         logging.info(f"Using project root from config: {project_root}")
 
     # --- PGDATA Path ---
-    pgdata_path_rel = storage_config.get("pgdata_path")
     if not pgdata_path_rel:
         raise ValueError("Missing 'pgdata_path' in optuna.storage configuration.")
     # Base path is relative to project root
     pgdata_base_abs = (project_root / Path(pgdata_path_rel).parent).resolve()
     # Generate directory name based on Optuna study name for persistence
-    study_name = config.get("optuna", {}).get("study_name")
     if not study_name:
         raise ValueError("Missing 'study_name' in optuna configuration, needed for PGDATA path.")
     # Make study name filesystem-safe (replace spaces, slashes, etc.)
@@ -381,8 +381,6 @@ def _generate_pg_config(config):
     logging.info(f"Using persistent PGDATA path based on study name: {pgdata_path_abs}")
 
     # --- Socket/TCP Configuration ---
-    use_socket = storage_config.get("use_socket", True)
-    use_tcp = storage_config.get("use_tcp", False)
     if use_socket and use_tcp:
         raise ValueError("Cannot configure both use_socket=true and use_tcp=true.")
     if not use_socket and not use_tcp:
@@ -397,6 +395,7 @@ def _generate_pg_config(config):
         # Resolve socket_dir_base relative to project root
         # Pass the sub-dictionary containing the key, the key itself, and the full config
         socket_base_str = _resolve_path(storage_config, "socket_dir_base", full_config=config) # Pass full config explicitly
+        
         if not socket_base_str:
              # Default to $TMPDIR or /tmp if not specified
              tmp_dir = os.environ.get("TMPDIR", "/tmp")
@@ -412,8 +411,6 @@ def _generate_pg_config(config):
         socket_dir = str(socket_dir_path)
         logging.info(f"Using socket directory: {socket_dir}")
     elif use_tcp:
-        db_host = storage_config.get("db_host", "localhost")
-        db_port = storage_config.get("db_port", 5432)
         logging.info(f"Using TCP/IP connection: host={db_host}, port={db_port}")
 
     # --- Sync Directory ---
@@ -434,9 +431,6 @@ def _generate_pg_config(config):
     logging.info(f"Using sync file: {sync_file}")
 
     # --- Other Settings ---
-    db_name = storage_config.get("db_name", "optuna_study_db")
-    db_user = storage_config.get("db_user", "optuna_user")
-    run_cmd_shell = storage_config.get("run_cmd_shell", False) # Get shell preference
 
     # --- PostgreSQL Binaries ---
     pg_bin_dir = os.environ.get("POSTGRES_BIN_DIR")
@@ -489,7 +483,7 @@ def manage_postgres_instance(config, restart=False, register_cleanup=True):
     """
     logging.info("Managing PostgreSQL instance...")
     # Generate the config dictionary
-    pg_config = _generate_pg_config(config) # This also sets _managed_pg_config
+    pg_config = _generate_pg_config(**config) # This also sets _managed_pg_config
 
     if restart: # If --restart_tuning flag was passed
         # Pass the consistent pg_config
