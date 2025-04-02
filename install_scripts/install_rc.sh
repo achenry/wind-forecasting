@@ -5,7 +5,7 @@ mamba activate wind_forecasting
 
 # mamba install conda-forge::cuda-version=12.4 nvidia/label/cuda-12.4.0::cuda-toolkit performer-pytorch pytorch torchvision torchaudio torchmetrics pytorch-cuda=12.4 lightning -c pytorch -c nvidia --y
 mamba install polars windrose statsmodels scikit-learn jupyterlab nb_conda_kernels pyyaml matplotlib numpy seaborn opt_einsum netcdf4 scipy h5pyd wandb einops --y 
-python -m pip install opencv-python floris performer-pytorch psutil memory_profiler optuna mysqlclient mysql-connector-python filterpy
+python -m pip install opencv-python floris performer-pytorch psutil memory_profiler optuna optuna-integration mysqlclient mysql-connector-python filterpy
 
 brew install mysql  && brew services start mysql
 
