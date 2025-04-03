@@ -17,11 +17,11 @@ filters:
     bin_min: 0.01 # factor multiplied by rated power
     bin_max: 0.95 # factor multiplied by rated power
     threshold_type: scalar
-  # std_range_flag:
-  #   threshold: 1
-  #   over: asset 
-  #   r2_threshold: 0.85
-  #   min_correlated_assets: 5
+  std_range_flag:
+    threshold: 1
+    over: asset 
+    r2_threshold: 0.85
+    min_correlated_assets: 5
   split:
     missing_col_thr: 66 # number of missing turbine measurements, from either wind speed or wind direction, (max = 2xn_turbines) above which this subset of data will be omitted, i.e. if many data points are missing omit the data
     missing_duration_thr: 300 # maximum duration for which subsets of data which have missing measurements exceeding missing_col_thr in any feature type will still be included, i.e. if many data points are missing but only for a short time, use the data, seconds
@@ -257,7 +257,7 @@ raw_data_directory:
 - /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/raw_awaken2_data/
 
 # processed_data_path: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/awaken_processed.parquet
-processed_data_path: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/awaken_processed.parquet
+processed_data_path: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/awaken_data/awaken_processed.parquet
 temp_storage_dir: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/temp
 
 raw_data_file_signature: 
