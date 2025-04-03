@@ -8,6 +8,7 @@ import logging
 import torch
 import gc
 import time # Added for load_study retry delay
+import inspect
 # Imports for Optuna
 import optuna # Import the base optuna module for type hints
 from optuna import create_study, load_study
@@ -23,6 +24,9 @@ from optuna.storages.journal import JournalFileBackend
 
 from wind_forecasting.utils.optuna_visualization import launch_optuna_dashboard
 from wind_forecasting.utils.trial_utils import handle_trial_with_oom_protection
+
+import random
+import numpy as np
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -100,8 +104,7 @@ class MLTuningObjective:
         trial_seed = self.seed + trial.number
         torch.manual_seed(trial_seed)
         torch.cuda.manual_seed_all(trial_seed)
-        import random
-        import numpy as np
+        
         random.seed(trial_seed)
         np.random.seed(trial_seed)
         logging.info(f"Set random seed for trial {trial.number} to {trial_seed}")
@@ -111,6 +114,16 @@ class MLTuningObjective:
 
         # params = self.get_params(trial)
         params = self.estimator_class.get_params(trial, self.context_length_choices)
+        
+        estimator_sig = inspect.signature(self.estimator_class.__init__)
+        estimator_params = [param.name for param in estimator_sig.parameters.values()]
+        if "dim_feedforward" not in params and "d_model" in params:
+            # set dim_feedforward to 4x the d_model found in this trial 
+            params["dim_feedforward"] = params["d_model"] * 4
+        elif "d_model" in estimator_params and estimator_sig.parameters["d_model"].default is not inspect.Parameter.empty:
+            # if d_model is not contained in the trial but is a paramter, get the default
+            params["dim_feedforward"] = estimator_sig.parameters["d_model"].default * 4
+            
         self.config["dataset"].update({k: v for k, v in params.items() if k in self.config["dataset"]})
         self.config["model"][self.model].update({k: v for k, v in params.items() if k in self.config["model"][self.model]})
         self.config["trainer"].update({k: v for k, v in params.items() if k in self.config["trainer"]})
@@ -277,21 +290,20 @@ def get_tuned_params(study_name, storage_type, journal_storage_dir):
     return storage.get_best_trial(study_id).params 
 
 # Update signature: Add optuna_storage_url, remove journal_storage_dir, use_rdb, restart_study
-def tune_model(model, config, optuna_storage_url: str, lightning_module_class, estimator_class,
+def tune_model(model, config, study_name, optuna_storage_url: str, lightning_module_class, estimator_class,
                max_epochs, limit_train_batches,
                distr_output_class, data_module, context_length_choices,
                metric="mean_wQuantileLoss", direction="minimize", n_trials=10,
                trial_protection_callback=None, seed=42):
 
     # Ensure WandB is correctly initialized with the proper directory
-    if "logging" in config and "wandb_dir" in config["logging"]:
-        wandb_dir = config["logging"]["wandb_dir"]
-        os.makedirs(wandb_dir, exist_ok=True)
-        os.environ["WANDB_DIR"] = wandb_dir
-        logging.info(f"Set WANDB_DIR to {wandb_dir}")
-        logging.info(f"WandB will create logs in {os.path.join(wandb_dir, 'wandb')}")
+    wandb_dir = config["logging"]["wandb_dir"]
+    os.makedirs(wandb_dir, exist_ok=True)
+    os.environ["WANDB_DIR"] = wandb_dir
+    logging.info(f"Set WANDB_DIR to {wandb_dir}")
+    logging.info(f"WandB will create logs in {os.path.join(wandb_dir, 'wandb')}")
 
-    study_name = config["optuna"]["study_name"]
+    # study_name = config["optuna"]["study_name"]
     # Log safely without credentials if they were included (they aren't for socket trust)
     log_storage_url = optuna_storage_url.split('@')[0] + '@...' if '@' in optuna_storage_url else optuna_storage_url
     logging.info(f"Using Optuna storage URL: {log_storage_url}")
