@@ -40,7 +40,7 @@ try:
 except:
     print("No MPI available on system.")
 
-# @profile
+
 def test_model(*, data_module, checkpoint, lightning_module_class, normalization_consts_path, estimator):
     # TODO denormalize at end
     normalization_consts = pd.read_csv(normalization_consts_path, index_col=None)
@@ -203,10 +203,12 @@ def get_checkpoint(checkpoint, metric, mode, log_dir):
         checkpoint_paths = glob(os.path.join(log_dir, "*/*/*/*.ckpt"))
         # version_dirs = glob(os.path.join(log_dir, "*"))
         if len(checkpoint_paths) == 0:
-            raise FileNotFoundError(f"There are no checkpoint files in {log_dir}.")
+            logging.warning(f"There are no checkpoint files in {log_dir}, returning None.")
+            return None
         
     elif not os.path.exists(checkpoint):
-        raise FileNotFoundError("Must provide a valid --checkpoint argument to load from.")
+        logging.warning(f"There is no checkpoint file at {checkpoint}, returning None.")
+        return None
 
     if checkpoint is None:
         return None

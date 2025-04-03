@@ -48,28 +48,28 @@ model:
       rank: 8
   informer:
     # embedding_dimension: 32 # Determines dimension of the embedding space
-    num_encoder_layers: 3 # Number of transformer blocks stacked
-    num_decoder_layers: 3 # Number of transformer blocks stacked
-    n_heads: 4 # Number of heads for spatio-temporal attention
-    d_model: 64
-    dim_feedforward: 64
+    num_encoder_layers: 2 # Number of transformer blocks stacked
+    num_decoder_layers: 1 # Number of transformer blocks stacked
+    n_heads: 8 # Number of heads for spatio-temporal attention
+    d_model: 512 
+    dim_feedforward: 2048
     activation: relu
   autoformer:
     # embedding_dimension: 32 # Determines dimension of the embedding space
-    num_encoder_layers: 3 # Number of transformer blocks stacked
-    num_decoder_layers: 3 # Number of transformer blocks stacked
-    n_heads: 4 # Number of heads for spatio-temporal attention
-    dim_feedforward: 64
-    activation: relu
+    num_encoder_layers: 2 # Number of transformer blocks stacked
+    num_decoder_layers: 1 # Number of transformer blocks stacked
+    n_heads: 8 # Number of heads for spatio-temporal attention
+    dim_feedforward: 2048
+    activation: gelu
   spacetimeformer:
     # embedding_dimension: 32 # Determines dimension of the embedding space
     num_encoder_layers: 3 # Number of transformer blocks stacked
     num_decoder_layers: 3 # Number of transformer blocks stacked
     n_heads: 3 # Number of heads for spatio-temporal attention
-    d_model: 64
-    dim_feedforward: 64
-    d_queries_keys: 64
-    d_values: 64
+    d_model: 200
+    dim_feedforward: 800
+    d_queries_keys: 30
+    d_values: 30
     dropout_emb: 0.2
     dropout_attn_matrix: 0.0
     dropout_attn_out: 0.0
@@ -83,7 +83,7 @@ model:
     # class_loss_imp: 0.1
     pos_emb_type: abs
     embed_method: spatio-temporal
-    activation: relu
+    activation: gelu
     use_given: False
 
 callbacks: 
