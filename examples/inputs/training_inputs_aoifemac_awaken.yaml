@@ -1,9 +1,15 @@
 
 
 experiment:
-  run_name: windfarm_debug
+  run_name: aoifemac_awaken
   log_dir: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/logging/
+  project_root: /Users/ahenry/Documents/toolboxes/wind_forecasting
 
+logging:
+  wandb_dir: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/logging/ # WandB will create a 'wandb' subdirectory here automatically
+  optuna_dir: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/logging/optuna/
+  checkpoint_dir: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/logging/checkpoints/
+  slurm_output_dir: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/logging/slurm_logs/
 optuna:
   journal_dir: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/optuna
   storage_type: sqlite # or mysql, or journal
@@ -11,7 +17,7 @@ optuna:
   metric: mean_wQuantileLoss
   direction: minimize
   max_epochs: 3
-  limit_train_batches: 100
+  limit_train_batches: 500
   context_length_choice_factors:
     - 1
     - 1.5
@@ -23,7 +29,7 @@ dataset:
     data_path: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/awaken_processed_normalized.parquet
     normalization_consts_path: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/awaken_processed_normalization_consts.csv
     context_length: 20 # 120=10 minutes for 5 sec sample size
-    prediction_length: 20 # 120=10 minutes for 5 sec sample size
+    prediction_length: 10 # 120=10 minutes for 5 sec sample size
     target_turbine_ids:  # or leave blank to capture all
     normalize: False 
     batch_size: 128
@@ -42,34 +48,38 @@ model:
       rank: 8
   informer:
     # embedding_dimension: 32 # Determines dimension of the embedding space
-    num_encoder_layers: 3 # Number of transformer blocks stacked
-    num_decoder_layers: 3 # Number of transformer blocks stacked
-    n_heads: 4 # Number of heads for spatio-temporal attention
-    d_model: 64
-    dim_feedforward: 64
+    num_encoder_layers: 2 # Number of transformer blocks stacked
+    num_decoder_layers: 1 # Number of transformer blocks stacked
+    n_heads: 8 # Number of heads for spatio-temporal attention
+    d_model: 512
+    dim_feedforward: 2048
     activation: relu
   autoformer:
     # embedding_dimension: 32 # Determines dimension of the embedding space
-    num_encoder_layers: 3 # Number of transformer blocks stacked
-    num_decoder_layers: 3 # Number of transformer blocks stacked
-    n_heads: 4 # Number of heads for spatio-temporal attention
-    dim_feedforward: 64
-    activation: relu
+    num_encoder_layers: 2 # Number of transformer blocks stacked
+    num_decoder_layers: 1 # Number of transformer blocks stacked
+    n_heads: 8 # Number of heads for spatio-temporal attention
+    dim_feedforward: 2048
+    activation: gelu
   spacetimeformer:
     # embedding_dimension: 32 # Determines dimension of the embedding space
     num_encoder_layers: 3 # Number of transformer blocks stacked
     num_decoder_layers: 3 # Number of transformer blocks stacked
-    n_heads: 3 # Number of heads for spatio-temporal attention
-    d_model: 64
-    dim_feedforward: 64
-    d_queries_keys: 64
-    d_values: 64
+    n_heads: 4 # Number of heads for spatio-temporal attention
+    d_model: 200
+    dim_feedforward: 800
+    d_queries_keys: 30
+    d_values: 30
     dropout_emb: 0.2
     dropout_attn_matrix: 0.0
     dropout_attn_out: 0.0
     dropout_ff: 0.3
     dropout_qkv: 0.0
     start_token_len: 0
+    global_self_attn: performer
+    global_cross_attn: performer
+    local_self_attn: performer
+    local_cross_attn: performer
     performer_redraw_interval: 100
     use_shifted_time_windows: False
     # decay_factor: 0.25
@@ -77,8 +87,8 @@ model:
     # class_loss_imp: 0.1
     pos_emb_type: abs
     embed_method: spatio-temporal
-    activation: relu
-    use_given: False
+    activation: gelu
+    use_given: False # value in original paper is True
 
 callbacks: 
     progress_bar:  
@@ -97,8 +107,8 @@ trainer:
     # n_workers: auto
     # debug: False 
     # accumulate: 1.0
-    max_epochs: 3 # Maximum number of epochs to train 100
-    limit_train_batches: 100
+    max_epochs: 10 # Maximum number of epochs to train 100
+    limit_train_batches: 1000
     default_root_dir: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/logging/wind_forecasting
     # precision: 32-true # 16-mixed enables mixed precision training 32-true is full precision
     # batch_size: 32 # larger = more stable gradients

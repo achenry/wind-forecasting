@@ -27,6 +27,7 @@ export LOG_DIR="/projects/ssc/ahenry/wind_forecasting/logging"
 # Set paths
 export PYTHONPATH=${WORK_DIR}:${PYTHONPATH}
 export WANDB_DIR=${LOG_DIR}/wandb
+export WANDB_API_KEY=a9aec8e98a88077de29031385225167c720030f7
 
 # Print environment info
 echo "SLURM_JOB_ID=${SLURM_JOB_ID}"

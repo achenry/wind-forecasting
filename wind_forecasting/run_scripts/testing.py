@@ -40,7 +40,7 @@ try:
 except:
     print("No MPI available on system.")
 
-# @profile
+
 def test_model(*, data_module, checkpoint, lightning_module_class, normalization_consts_path, estimator):
     # TODO denormalize at end
     normalization_consts = pd.read_csv(normalization_consts_path, index_col=None)
@@ -198,16 +198,21 @@ def test_model(*, data_module, checkpoint, lightning_module_class, normalization
     print("here")
 
 def get_checkpoint(checkpoint, metric, mode, log_dir):
+    
     if checkpoint in ["best", "latest"]:
-        checkpoint_paths = glob(os.path.join(log_dir, "*/*/*.ckpt"))
+        checkpoint_paths = glob(os.path.join(log_dir, "*/*/*/*.ckpt"))
         # version_dirs = glob(os.path.join(log_dir, "*"))
         if len(checkpoint_paths) == 0:
-            raise FileNotFoundError(f"There are not checkpoint files in {log_dir}.")
+            logging.warning(f"There are no checkpoint files in {log_dir}, returning None.")
+            return None
         
     elif not os.path.exists(checkpoint):
-        raise FileNotFoundError("Must provide a valid --checkpoint argument to load from.")
-        
-    if checkpoint == "best":
+        logging.warning(f"There is no checkpoint file at {checkpoint}, returning None.")
+        return None
+
+    if checkpoint is None:
+        return None
+    elif checkpoint == "best":
         best_metric_value = float('inf') if mode == "min" else float('-inf')
         best_checkpoint_path = None
         for checkpoint_path in checkpoint_paths:
@@ -237,7 +242,7 @@ def get_checkpoint(checkpoint, metric, mode, log_dir):
     else:
         logging.info("Fetching pretrained model...")
         if os.path.exists(checkpoint):
-            logging.info(f"Found given pretrained model: {checkpoint_path}")
+            logging.info(f"Found given pretrained model: {checkpoint}")
             checkpoint_path = checkpoint
         else:
             raise FileNotFoundError(f"Given checkpoint {checkpoint} does not exist.")
