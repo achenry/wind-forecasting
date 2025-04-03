@@ -70,7 +70,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 ROW_LIMIT = 60 * 60 * 24 * 30 * 3
 
 # %%
-# @profile
+
 def main():
     if (not mpi_exists) or (mpi_exists and MPI.COMM_WORLD.Get_rank() == 0):
         logging.info("Parsing arguments...")
