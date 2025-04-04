@@ -8,6 +8,7 @@ import logging
 import torch
 import gc
 import time # Added for load_study retry delay
+import inspect
 # Imports for Optuna
 import optuna # Import the base optuna module for type hints
 from optuna import create_study, load_study
@@ -23,6 +24,9 @@ from optuna.storages.journal import JournalFileBackend
 
 from wind_forecasting.utils.optuna_visualization import launch_optuna_dashboard
 from wind_forecasting.utils.trial_utils import handle_trial_with_oom_protection
+
+import random
+import numpy as np
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -100,8 +104,7 @@ class MLTuningObjective:
         trial_seed = self.seed + trial.number
         torch.manual_seed(trial_seed)
         torch.cuda.manual_seed_all(trial_seed)
-        import random
-        import numpy as np
+        
         random.seed(trial_seed)
         np.random.seed(trial_seed)
         logging.info(f"Set random seed for trial {trial.number} to {trial_seed}")
@@ -111,6 +114,16 @@ class MLTuningObjective:
 
         # params = self.get_params(trial)
         params = self.estimator_class.get_params(trial, self.context_length_choices)
+        
+        estimator_sig = inspect.signature(self.estimator_class.__init__)
+        estimator_params = [param.name for param in estimator_sig.parameters.values()]
+        if "dim_feedforward" not in params and "d_model" in params:
+            # set dim_feedforward to 4x the d_model found in this trial 
+            params["dim_feedforward"] = params["d_model"] * 4
+        elif "d_model" in estimator_params and estimator_sig.parameters["d_model"].default is not inspect.Parameter.empty:
+            # if d_model is not contained in the trial but is a paramter, get the default
+            params["dim_feedforward"] = estimator_sig.parameters["d_model"].default * 4
+            
         self.config["dataset"].update({k: v for k, v in params.items() if k in self.config["dataset"]})
         self.config["model"][self.model].update({k: v for k, v in params.items() if k in self.config["model"][self.model]})
         self.config["trainer"].update({k: v for k, v in params.items() if k in self.config["trainer"]})
@@ -157,7 +170,8 @@ class MLTuningObjective:
             input_size=self.data_module.num_target_vars,
             scaling=False,
             lags_seq=[0], 
-            batch_size=self.config["dataset"].setdefault("batch_size", 128),
+            use_lazyframe=False,
+            batch_size=self.config["dataset"].get("batch_size", 128),
             num_batches_per_epoch=trial_trainer_kwargs["limit_train_batches"], # Use value from trial_trainer_kwargs
             train_sampler=ExpectedNumInstanceSampler(num_instances=1.0, min_past=self.config["dataset"]["context_length"], min_future=self.data_module.prediction_length),
             validation_sampler=ValidationSplitSampler(min_past=self.config["dataset"]["context_length"], min_future=self.data_module.prediction_length),
@@ -186,9 +200,9 @@ class MLTuningObjective:
                                                 forecast_generator=DistributionForecastGenerator(estimator.distr_output))
 
         forecast_it, ts_it = make_evaluation_predictions(
-            dataset=self.data_module.val_dataset,  # FIXED: Using validation data instead of test data
+            dataset=self.data_module.test_dataset, # NOTE JUAN it is right to use test data here
             predictor=predictor,
-            output_distr_params=True
+            output_distr_params={"loc": "mean", "cov_factor": "cov_factor", "cov_diag": "cov_diag"}
         )
 
         forecasts = list(forecast_it)
@@ -218,22 +232,22 @@ class MLTuningObjective:
             # Return a value indicating failure based on optimization direction
             return float('inf') if self.config["optuna"]["direction"] == "minimize" else float('-inf')
 
-def get_storage(storage_type, study_name, journal_storage_dir=None):
-    if storage_type == "mysql":
+def get_storage(backend, study_name, storage_dir=None):
+    if backend == "mysql":
         logging.info(f"Connecting to RDB database {study_name}")
-        try:
-            db = sql_connect(host="localhost", user="root",
-                            database=study_name)       
-        except Exception: 
-            db = sql_connect(host="localhost", user="root")
-            cursor = db.cursor()
-            cursor.execute(f"CREATE DATABASE {study_name}") 
-        finally:
-            storage = RDBStorage(url=f"mysql://{db.user}@{db.server_host}:{db.server_port}/{study_name}")
-    elif storage_type == "sqlite":
+        # try:
+        db = sql_connect(host="localhost", user="root",
+                        database=study_name)       
+        # except Exception: 
+        #     db = sql_connect(host="localhost", user="root")
+        #     cursor = db.cursor()
+        #     cursor.execute(f"CREATE DATABASE {study_name}") 
+        # finally:
+        storage = RDBStorage(url=f"mysql://{db.user}@{db.server_host}:{db.server_port}/{study_name}")
+    elif backend == "sqlite":
         # SQLite with WAL mode - using a simpler URL format
-        os.makedirs(journal_storage_dir, exist_ok=True)
-        db_path = os.path.join(journal_storage_dir, f"{study_name}.db")
+        # os.makedirs(storage_dir, exist_ok=True)
+        db_path = os.path.join(storage_dir, f"{study_name}.db")
 
         # Use a simplified connection string format that Optuna expects
         storage_url = f"sqlite:///{db_path}"
@@ -258,15 +272,15 @@ def get_storage(storage_type, study_name, journal_storage_dir=None):
                 
         storage = RDBStorage(url=storage_url)
         
-    elif storage_type == "journal":
+    elif backend == "journal":
         logging.info(f"Connecting to Journal database {study_name}")
-        storage = JournalStorage(JournalFileBackend(os.path.join(journal_storage_dir, f"{study_name}.log")))
+        storage = JournalStorage(JournalFileBackend(os.path.join(storage_dir, f"{study_name}.db")))
     
     return storage
 
-def get_tuned_params(study_name, storage_type, journal_storage_dir):
+def get_tuned_params(study_name, backend, storage_dir):
     logging.info(f"Allocating storage for Optuna study {study_name}.")  
-    storage = get_storage(storage_type=storage_type, study_name=study_name, journal_storage_dir=journal_storage_dir)
+    storage = get_storage(backend=backend, study_name=study_name, storage_dir=storage_dir)
     try:
         study_id = storage.get_study_id_from_name(study_name)
     except Exception:
@@ -276,32 +290,20 @@ def get_tuned_params(study_name, storage_type, journal_storage_dir):
     # estimato = self.create_model(**storage.get_best_trial(study_id).params)
     return storage.get_best_trial(study_id).params 
 
-# Update signature: Add optuna_storage_url, remove journal_storage_dir, use_rdb, restart_study
-def tune_model(model, config, optuna_storage_url: str, lightning_module_class, estimator_class,
+# Update signature: Add optuna_storage_url, remove storage_dir, use_rdb, restart_study
+def tune_model(model, config, study_name, optuna_storage, lightning_module_class, estimator_class,
                max_epochs, limit_train_batches,
                distr_output_class, data_module, context_length_choices,
                metric="mean_wQuantileLoss", direction="minimize", n_trials=10,
                trial_protection_callback=None, seed=42):
 
-    # Ensure WandB is correctly initialized with the proper directory
-    if "logging" in config and "wandb_dir" in config["logging"]:
-        wandb_dir = config["logging"]["wandb_dir"]
-        os.makedirs(wandb_dir, exist_ok=True)
-        os.environ["WANDB_DIR"] = wandb_dir
-        logging.info(f"Set WANDB_DIR to {wandb_dir}")
-        logging.info(f"WandB will create logs in {os.path.join(wandb_dir, 'wandb')}")
-
-    study_name = config["optuna"]["study_name"]
     # Log safely without credentials if they were included (they aren't for socket trust)
-    log_storage_url = optuna_storage_url.split('@')[0] + '@...' if '@' in optuna_storage_url else optuna_storage_url
-    logging.info(f"Using Optuna storage URL: {log_storage_url}")
+    if hasattr(optuna_storage, "url"):
+        log_storage_url = optuna_storage.url.split('@')[0] + '@...' if '@' in optuna_storage.url else optuna_storage.url
+        logging.info(f"Using Optuna storage URL: {log_storage_url}")
 
     # NOTE: Restarting the study is now handled in the Slurm script by deleting the PGDATA directory
-    # if the --restart_tuning flag is set. No specific handling needed here.
-
-    # Use the provided storage URL directly
-    storage_url = optuna_storage_url
-
+   
     # Configure pruner based on settings
     pruner = None
     if "pruning" in config["optuna"] and config["optuna"]["pruning"].get("enabled", False):
@@ -343,7 +345,7 @@ def tune_model(model, config, optuna_storage_url: str, lightning_module_class, e
             logging.info(f"Rank 0: Creating/loading Optuna study '{study_name}' with pruner: {type(pruner).__name__}")
             study = create_study(
                 study_name=study_name,
-                storage=storage_url,
+                storage=optuna_storage,
                 direction=direction,
                 load_if_exists=True, # Rank 0 handles creation or loading
                 sampler=TPESampler(seed=seed),
@@ -352,7 +354,8 @@ def tune_model(model, config, optuna_storage_url: str, lightning_module_class, e
             logging.info(f"Rank 0: Study '{study_name}' created or loaded successfully.")
 
             # --- Launch Dashboard (Rank 0 only) ---
-            launch_optuna_dashboard(config, storage_url) # Call imported function
+            if hasattr(optuna_storage, "url"):
+                launch_optuna_dashboard(config, optuna_storage.url) # Call imported function
             # --------------------------------------
         else:
             # Non-rank-0 workers MUST load the study created by rank 0
@@ -364,7 +367,7 @@ def tune_model(model, config, optuna_storage_url: str, lightning_module_class, e
                 try:
                     study = load_study(
                         study_name=study_name,
-                        storage=storage_url,
+                        storage=optuna_storage,
                         sampler=TPESampler(seed=seed), # Sampler might be needed for load_study too
                         pruner=pruner
                     )
@@ -396,8 +399,11 @@ def tune_model(model, config, optuna_storage_url: str, lightning_module_class, e
         # Log error with rank information
         logging.error(f"Rank {worker_id}: Error creating/loading study '{study_name}': {str(e)}", exc_info=True)
         # Log storage URL safely
-        log_storage_url_safe = str(storage_url).split('@')[0] + '@...' if '@' in str(storage_url) else str(storage_url)
-        logging.error(f"Error details - Type: {type(e).__name__}, Storage: {log_storage_url_safe}")
+        if hasattr(optuna_storage, "url"):
+            log_storage_url_safe = str(optuna_storage.url).split('@')[0] + '@...' if '@' in str(optuna_storage.url) else str(optuna_storage.url)
+            logging.error(f"Error details - Type: {type(e).__name__}, Storage: {log_storage_url_safe}")
+        else:
+            logging.error(f"Error details - Type: {type(e).__name__}, Storage: Journal")
         raise
 
     # Worker ID already fetched above for study creation/loading

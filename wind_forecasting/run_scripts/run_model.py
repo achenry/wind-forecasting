@@ -46,7 +46,7 @@ try:
 except:
     print("No MPI available on system.")
 
-# @profile
+
 def main():
     
     # %% DETERMINE WORKER RANK (using WORKER_RANK set in Slurm script, fallback to 0)
@@ -68,9 +68,9 @@ def main():
     parser.add_argument("-m", "--model", type=str, choices=["informer", "autoformer", "spacetimeformer", "tactis"], required=True)
     parser.add_argument("-rt", "--restart_tuning", action="store_true")
     parser.add_argument("-tp", "--use_tuned_parameters", action="store_true", help="Use parameters tuned from Optuna optimization, otherwise use defaults set in Module class.")
-    parser.add_argument("--tune_first", action="store_true", help="Whether to use tuned parameters", default=False)
+    # parser.add_argument("--tune_first", action="store_true", help="Whether to use tuned parameters", default=False)
     parser.add_argument("--model_path", type=str, help="Path to a saved model checkpoint to load from", default=None)
-    parser.add_argument("--predictor_path", type=str, help="Path to a saved predictor for evaluation", default=None)
+    # parser.add_argument("--predictor_path", type=str, help="Path to a saved predictor for evaluation", default=None) # JUAN shouldn't need if we just pass filepath, latest, or best to checkpoint parameter
     parser.add_argument("-s", "--seed", type=int, help="Seed for random number generator", default=42)
     parser.add_argument("--save_to", type=str, help="Path to save the predicted output", default=None)
     parser.add_argument("--single_gpu", action="store_true", help="Force using only a single GPU (the one specified by CUDA_VISIBLE_DEVICES)")
@@ -112,47 +112,53 @@ def main():
         logging.info(f"System has {num_gpus} CUDA device(s): {all_gpus}")
         
         # Verify current device setup
-        device = torch.cuda.current_device()
-        logging.info(f"Using GPU {device}: {torch.cuda.get_device_name(device)}")
+        if torch.cuda.is_available():
+            device = torch.cuda.current_device()
+            logging.info(f"Using GPU {device}: {torch.cuda.get_device_name(device)}")
             
         # Check if CUDA_VISIBLE_DEVICES is set and contains only a single GPU
-        if "CUDA_VISIBLE_DEVICES" in os.environ:
-            cuda_devices = os.environ["CUDA_VISIBLE_DEVICES"]
-            logging.info(f"CUDA_VISIBLE_DEVICES is set to: '{cuda_devices}'")
-            try:
-                # Count the number of GPUs specified in CUDA_VISIBLE_DEVICES
-                visible_gpus = [idx for idx in cuda_devices.split(',') if idx.strip()]
-                num_visible_gpus = len(visible_gpus)
-                
-                if num_visible_gpus > 0:
-                    # Only override if the current configuration doesn't match
-                    if config["trainer"]["devices"] != num_visible_gpus:
-                        logging.warning(f"Adjusting trainer.devices from {config['trainer']['devices']} to {num_visible_gpus} based on CUDA_VISIBLE_DEVICES")
-                        config["trainer"]["devices"] = num_visible_gpus
-                        
-                        # If only one GPU is visible, use auto strategy instead of distributed
-                        if num_visible_gpus == 1 and config["trainer"]["strategy"] != "auto":
-                            logging.warning("Setting strategy to 'auto' since only one GPU is visible")
-                            config["trainer"]["strategy"] = "auto"
+            if "CUDA_VISIBLE_DEVICES" in os.environ:
+                cuda_devices = os.environ["CUDA_VISIBLE_DEVICES"]
+                logging.info(f"CUDA_VISIBLE_DEVICES is set to: '{cuda_devices}'")
+                try:
+                    # Count the number of GPUs specified in CUDA_VISIBLE_DEVICES
+                    visible_gpus = [idx for idx in cuda_devices.split(',') if idx.strip()]
+                    num_visible_gpus = len(visible_gpus)
+                    
+                    if num_visible_gpus > 0:
+                        # Only override if the current configuration doesn't match
+                        if config["trainer"]["devices"] != num_visible_gpus:
+                            logging.warning(f"Adjusting trainer.devices from {config['trainer']['devices']} to {num_visible_gpus} based on CUDA_VISIBLE_DEVICES")
+                            config["trainer"]["devices"] = num_visible_gpus
                             
-                    # Log actual GPU mapping information
-                    if num_visible_gpus == 1:
-                        try:
-                            logging.info(f"Primary GPU is system device {actual_gpu}, mapped to CUDA index {device_id}")
-                            actual_gpu = int(visible_gpus[0])
-                            device_id = 0  # With CUDA_VISIBLE_DEVICES, first visible GPU is always index 0
-                        except ValueError:
-                            logging.warning(f"Could not parse GPU index from CUDA_VISIBLE_DEVICES: {visible_gpus[0]}")
-                else:
-                    logging.warning("CUDA_VISIBLE_DEVICES is set but no valid GPU indices found")
-            except Exception as e:
-                logging.warning(f"Error parsing CUDA_VISIBLE_DEVICES: {e}")
-        else:
-            logging.warning("CUDA_VISIBLE_DEVICES is not set, using default GPU assignment")
-        
-        # Final check to ensure configuration is valid for available GPUs    
-        # num_available_gpus = torch.cuda.device_count() # QUESTION JUAN DON'T NEED TO RELOAD?
-        if config["trainer"]["devices"] > num_gpus:
+                            # If only one GPU is visible, use auto strategy instead of distributed
+                            if num_visible_gpus == 1 and config["trainer"]["strategy"] != "auto":
+                                logging.warning("Setting strategy to 'auto' since only one GPU is visible")
+                                config["trainer"]["strategy"] = "auto"
+                                
+                        # Log actual GPU mapping information
+                        if num_visible_gpus == 1:
+                            try:
+                                logging.info(f"Primary GPU is system device {actual_gpu}, mapped to CUDA index {device_id}")
+                                actual_gpu = int(visible_gpus[0])
+                                device_id = 0  # With CUDA_VISIBLE_DEVICES, first visible GPU is always index 0
+                            except ValueError:
+                                logging.warning(f"Could not parse GPU index from CUDA_VISIBLE_DEVICES: {visible_gpus[0]}")
+                    else:
+                        logging.warning("CUDA_VISIBLE_DEVICES is set but no valid GPU indices found")
+                except Exception as e:
+                    logging.warning(f"Error parsing CUDA_VISIBLE_DEVICES: {e}")
+            else:
+                logging.warning("CUDA_VISIBLE_DEVICES is not set, using default GPU assignment")
+            
+            # Log memory information
+            logging.info(f"GPU Memory: {torch.cuda.memory_allocated(device)/1e9:.2f}GB / {torch.cuda.get_device_properties(device).total_memory/1e9:.2f}GB")
+            
+            # Clear GPU memory before starting
+            torch.cuda.empty_cache()
+            
+        # Final check to ensure configuration is valid for available GPUs
+        if isinstance(config["trainer"]["devices"], int) and config["trainer"]["devices"] > num_gpus:
             logging.warning(f"Requested {config['trainer']['devices']} GPUs but only {num_gpus} are available. Adjusting trainer.devices.")
             config["trainer"]["devices"] = num_gpus
             
@@ -162,11 +168,6 @@ def main():
             
         logging.info(f"Trainer config: devices={config['trainer']['devices']}, strategy={config['trainer'].get('strategy', 'auto')}")
         
-        # Log memory information
-        logging.info(f"GPU Memory: {torch.cuda.memory_allocated(device)/1e9:.2f}GB / {torch.cuda.get_device_properties(device).total_memory/1e9:.2f}GB")
-        
-        # Clear GPU memory before starting
-        torch.cuda.empty_cache()
         gc.collect()
         
         # Multi-GPU configuration from SLURM environment variables (if not overridden above)
@@ -177,9 +178,27 @@ def main():
 
     # %% SETUP LOGGING
     logging.info("Setting up logging")
-    if not os.path.exists(config["experiment"]["log_dir"]):
-        os.makedirs(config["experiment"]["log_dir"])
-        
+    
+    if "logging" not in config:
+        config["logging"] = {}
+     
+    # Set up logging directory - use absolute path, rename logging dirs to group checkpoints and logs by data source and model
+    log_dir = os.path.join(config["experiment"]["log_dir"], f"{args.model}_{config['experiment']['run_name']}")
+    os.makedirs(log_dir, exist_ok=True)
+    
+    # Set up wandb, optuna, checkpoint directories - use absolute paths
+    wandb_parent_dir = os.path.join(config["logging"].get("wandb_dir", log_dir))
+    wandb_dir = os.path.join(wandb_parent_dir, "wandb") # Configure WandB to use the specified directory structure
+    optuna_dir = config["logging"].get("optuna_dir", os.path.join(log_dir, "optuna"))
+    # checkpoint_dir = config["logging"].get("checkpoint_dir", os.path.join(log_dir, "checkpoints")) # NOTE: no need, checkpoints are saved by Model Checkpoint callback in loggers save_dir (wandb_parent_dir)
+    
+    os.makedirs(wandb_parent_dir, exist_ok=True)
+    os.makedirs(wandb_dir, exist_ok=True)
+    os.makedirs(optuna_dir, exist_ok=True)
+    # os.makedirs(checkpoint_dir, exist_ok=True)
+    
+    logging.info(f"WandB will create logs in {os.path.join(wandb_parent_dir, 'wandb')}")
+
     # Get worker info from environment variables
     worker_id = os.environ.get('SLURM_PROCID', '0')
     gpu_id = os.environ.get('CUDA_VISIBLE_DEVICES', '0')
@@ -187,83 +206,57 @@ def main():
     # Create a unique run name for each worker
     run_name = f"{config['experiment']['run_name']}_worker{worker_id}_gpu{gpu_id}"
 
-    # Configure WandB to use the correct checkpoint location
-    os.environ["WANDB_ARTIFACT_DIR"] = config["logging"]["checkpoint_dir"]
-    # This ensures artifacts are saved in the correct checkpoint directory
     
-    # TODO JUAN, do we need to rename logging dirs to group checkpoints and logs by run name and model or not
-    # wandb_parent_dir = os.path.join(config["logging"]["wandb_dir"], f"{args.model}_{config['experiment']['run_name']}")
-    wandb_parent_dir = config["logging"]["wandb_dir"] 
-    os.environ["WANDB_DIR"] = wandb_parent_dir
-    logging.info(f"WandB will create logs in {os.path.join(wandb_parent_dir, 'wandb')}")
     # Set an explicit run directory to avoid nesting issues
     unique_id = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{worker_id}_{gpu_id}"
-    run_dir = os.path.join(config["logging"]["wandb_dir"], f"run_{unique_id}")
+    run_dir = os.path.join(wandb_parent_dir, f"run_{unique_id}")
     os.environ["WANDB_RUN_DIR"] = run_dir
+    
+    # Configure WandB to use the correct checkpoint location
+    # This ensures artifacts are saved in the correct checkpoint directory
+    # os.environ["WANDB_ARTIFACT_DIR"] = checkpoint_dir
+    os.environ["WANDB_DIR"] = wandb_parent_dir
     
     # Create WandB logger with explicit path settings
     wandb_logger = WandbLogger(
         project="wind_forecasting",
         name=run_name,
         log_model="all",
-        save_dir=config["logging"]["wandb_dir"],  # Use the dedicated wandb directory
+        save_dir=wandb_parent_dir,  # Use the dedicated wandb directory
         group=config['experiment']['run_name'],   # Group all workers under the same experiment
         tags=[f"worker_{worker_id}", f"gpu_{gpu_id}", args.model]  # Add tags for easier filtering
     )
     wandb_logger.log_hyperparams(config)
     config["trainer"]["logger"] = wandb_logger
 
-    # Process absolute paths and resolve any variable references in the config
-    log_dir = config["experiment"]["log_dir"]
-    os.makedirs(log_dir, exist_ok=True)
-    
-    # Resolve path variables - ensure all paths are absolute and properly structured
-    if "logging" not in config:
-        config["logging"] = {}
-        
-    # Set up wandb directory - use absolute path
-    wandb_dir = config["logging"].get("wandb_dir", os.path.join(log_dir, "wandb"))
-    os.makedirs(wandb_dir, exist_ok=True)
-    
-    # Set up optuna directory - use absolute path
-    optuna_dir = config["logging"].get("optuna_dir", os.path.join(log_dir, "optuna"))
-    os.makedirs(optuna_dir, exist_ok=True)
-    
-    # Set up checkpoint directory - use absolute path
-    checkpoint_dir = config["logging"].get("checkpoint_dir", os.path.join(log_dir, "checkpoints"))
-    os.makedirs(checkpoint_dir, exist_ok=True)
     
     # Update config with normalized absolute paths
-    config["logging"]["wandb_dir"] = wandb_dir
     config["logging"]["optuna_dir"] = optuna_dir
-    config["logging"]["checkpoint_dir"] = checkpoint_dir
-    
-    # Configure WandB to use the specified directory structure
-    os.environ["WANDB_DIR"] = wandb_dir
+    # config["logging"]["checkpoint_dir"] = checkpoint_dir
+
+    os.environ["WANDB_DIR"] = wandb_dir # JUAN QUESTION TODO why reset this
     
     # Configure WandB to save runs in a standard location
-    os.environ["WANDB_CHECKPOINT_PATH"] = checkpoint_dir
+    # os.environ["WANDB_CHECKPOINT_PATH"] = checkpoint_dir
     
-    # Ensure optuna journal_dir is set correctly with absolute path
-    if "optuna" in config:
-        # Only override journal_dir if it's not explicitly set
-        if "journal_dir" not in config["optuna"] or config["optuna"]["journal_dir"] is None:
-            config["optuna"]["journal_dir"] = optuna_dir
-        else:
-            # Ensure the directory exists
-            os.makedirs(config["optuna"]["journal_dir"], exist_ok=True)
-            logging.info(f"Using explicitly defined Optuna journal_dir: {config['optuna']['journal_dir']}")
+    # Ensure optuna storage_dir is set correctly with absolute path
+    # Only override storage_dir if it's not explicitly set
+    if "storage_dir" not in config["optuna"] or config["optuna"]["storage_dir"] is None:
+        config["optuna"]["storage_dir"] = optuna_dir
+    else:
+        # Ensure the directory exists
+        os.makedirs(config["optuna"]["storage_dir"], exist_ok=True)
+        logging.info(f"Using explicitly defined Optuna storage_dir: {config['optuna']['storage_dir']}")
     
     # Explicitly resolve any variable references in trainer config
     # TODO JUAN it seems messy to replace embedded vars like logging.checkpoint_dir - can we just let the user supply the pathname, check that it exists, and make it absolute?
-    if "trainer" in config:
-        if "default_root_dir" not in config["trainer"]:
-            # Replace ${logging.checkpoint_dir} with the actual path
-            if isinstance(config["trainer"]["default_root_dir"], str) and "${logging.checkpoint_dir}" in config["trainer"]["default_root_dir"]:
-                config["trainer"]["default_root_dir"] = config["trainer"]["default_root_dir"].replace("${logging.checkpoint_dir}", checkpoint_dir)
-            
-        else:
-            config["trainer"]["default_root_dir"] = checkpoint_dir
+    # if "default_root_dir" not in config["trainer"]:
+    #     # Replace ${logging.checkpoint_dir} with the actual path
+    #     if isinstance(config["trainer"]["default_root_dir"], str) and "${logging.checkpoint_dir}" in config["trainer"]["default_root_dir"]:
+    #         config["trainer"]["default_root_dir"] = config["trainer"]["default_root_dir"].replace("${logging.checkpoint_dir}", checkpoint_dir)
+    # else:
+    # config["trainer"]["default_root_dir"] = checkpoint_dir # TODO i think these are saved elsewhere by model checkpoint callback?
+    config["trainer"]["default_root_dir"] = log_dir
 
     # %% CREATE DATASET
     logging.info("Creating datasets")
@@ -273,13 +266,9 @@ def main():
                                 prediction_length=config["dataset"]["prediction_length"], context_length=config["dataset"]["context_length"],
                                 target_prefixes=["ws_horz", "ws_vert"], feat_dynamic_real_prefixes=["nd_cos", "nd_sin"],
                                 freq=config["dataset"]["resample_freq"], target_suffixes=config["dataset"]["target_turbine_ids"],
-                                    per_turbine_target=config["dataset"]["per_turbine_target"], dtype=pl.Float32)
+                                    per_turbine_target=config["dataset"]["per_turbine_target"], as_lazyframe=False, dtype=pl.Float32)
     
     data_module.generate_splits()
-    
-    # %% SETUP & SYNCHRONIZE DATABASE
-    # TODO JUAN this returns an error for me. Also, it is unecessary to pass the full args and config object, just pass the necessary keywords
-    optuna_storage_url, pg_config = setup_optuna_storage(args, config, rank)
 
     # %% DEFINE ESTIMATOR
     if args.mode in ["train", "test"]:
@@ -288,7 +277,7 @@ def main():
         if args.use_tuned_parameters:
             try:
                 logging.info(f"Getting tuned parameters.")
-                tuned_params = get_tuned_params(storage_type=config["optuna"]["storage_type"], study_name=f"tuning_{args.model}_{config['experiment']['run_name']}")
+                tuned_params = get_tuned_params(backend=config["optuna"]["storage"]["backend"], study_name=f"tuning_{args.model}_{config['experiment']['run_name']}")
                 config["dataset"].update({k: v for k, v in tuned_params.items() if k in config["dataset"]})
                 config["model"][args.model].update({k: v for k, v in tuned_params.items() if k in config["model"][args.model]})
                 config["trainer"].update({k: v for k, v in tuned_params.items() if k in config["trainer"]})
@@ -338,6 +327,11 @@ def main():
         )
 
     if args.mode == "tune":
+        # %% SETUP & SYNCHRONIZE DATABASE
+        optuna_storage = setup_optuna_storage(optuna_config=config["optuna"], 
+                                              study_name=f"tuning_{args.model}_{config['experiment']['run_name']}",
+                                              restart_tuning=args.restart_tuning, rank=rank)
+        
         logging.info("Starting Optuna hyperparameter tuning...")
         # NOTE JUAN removed the check for cuda since it is helpful to debug hyperparameter tuning on local machine
         
@@ -351,7 +345,8 @@ def main():
         
         # Normal execution - pass the OOM protection wrapper and constructed storage URL
         tune_model(model=args.model, config=config,
-                    optuna_storage_url=optuna_storage_url, # Pass the constructed URL
+                   study_name=f"tuning_{args.model}_{config['experiment']['run_name']}",
+                    optuna_storage=optuna_storage, # Pass the constructed storage object
                     lightning_module_class=LightningModuleClass,
                     estimator_class=EstimatorClass,
                     distr_output_class=DistrOutputClass,

@@ -44,12 +44,13 @@ class DataModule():
     freq: str
     per_turbine_target: bool # if True, feed multiple datasets to trainer, where each one corresponds to the outputs of a single turbine
     dtype: Type = pl.Float32
+    as_lazyframe: bool = False
     verbose: bool = False
     
     def __post_init__(self):
         self.train_ready_data_path = self.data_path.replace(".parquet", "_train_ready.parquet")
      
-    # @profile
+    
     def generate_datasets(self):
         
         dataset = IterableLazyFrame(data_path=self.data_path, dtype=self.dtype)\
@@ -175,23 +176,38 @@ class DataModule():
                 self.get_df_by_turbine(self.test_dataset[split], turbine_id) 
                 for turbine_id in self.target_suffixes for split in range(len(self.test_dataset))}
 
-            self.train_dataset = PolarsDataset(self.train_dataset, 
-                            target=self.target_prefixes, timestamp="time", freq=self.freq, 
-                            feat_dynamic_real=self.feat_dynamic_real_prefixes, static_features=self.static_features, 
-                            assume_sorted=True, assume_resampled=True, unchecked=True)
-            
-            self.val_dataset = PolarsDataset(self.val_dataset, 
-                            target=self.target_prefixes, timestamp="time", freq=self.freq, 
-                            feat_dynamic_real=self.feat_dynamic_real_prefixes, static_features=self.static_features, 
-                            assume_sorted=True, assume_resampled=True, unchecked=True)
-            
-            self.test_dataset = PolarsDataset(self.test_dataset, 
-                            target=self.target_prefixes, timestamp="time", freq=self.freq, 
-                            feat_dynamic_real=self.feat_dynamic_real_prefixes, static_features=self.static_features, 
-                            assume_sorted=True, assume_resampled=True, unchecked=True)
+            if self.as_lazyframe:
+                self.train_dataset = PolarsDataset(self.train_dataset, 
+                                target=self.target_prefixes, timestamp="time", freq=self.freq, 
+                                feat_dynamic_real=self.feat_dynamic_real_prefixes, static_features=self.static_features, 
+                                assume_sorted=True, assume_resampled=True, unchecked=True)
+                
+                self.val_dataset = PolarsDataset(self.val_dataset, 
+                                target=self.target_prefixes, timestamp="time", freq=self.freq, 
+                                feat_dynamic_real=self.feat_dynamic_real_prefixes, static_features=self.static_features, 
+                                assume_sorted=True, assume_resampled=True, unchecked=True)
+                
+                self.test_dataset = PolarsDataset(self.test_dataset, 
+                                target=self.target_prefixes, timestamp="time", freq=self.freq, 
+                                feat_dynamic_real=self.feat_dynamic_real_prefixes, static_features=self.static_features, 
+                                assume_sorted=True, assume_resampled=True, unchecked=True)
+            else:
+                self.train_dataset = [{"target": self.train_dataset[item_id]._df.select(self.target_prefixes).collect().to_numpy().T,
+                                       "item_id": item_id,
+                                       "start": pd.Period(self.train_dataset[item_id]._df.select(pl.col("time").first()).collect().item(), freq=self.freq),
+                                       "feat_dynamic_real":  self.train_dataset[item_id]._df.select(self.feat_dynamic_real_prefixes).collect().to_numpy().T
+                                       } for item_id in self.train_dataset]
+                self.val_dataset = [{"target": self.val_dataset[item_id]._df.select(self.target_prefixes).collect().to_numpy().T,
+                                       "item_id": item_id,
+                                       "start": pd.Period(self.val_dataset[item_id]._df.select(pl.col("time").first()).collect().item(), freq=self.freq),
+                                       "feat_dynamic_real":  self.val_dataset[item_id]._df.select(self.feat_dynamic_real_prefixes).collect().to_numpy().T
+                                       } for item_id in self.val_dataset]
+                self.test_dataset = [{"target": self.test_dataset[item_id]._df.select(self.target_prefixes).collect().to_numpy().T,
+                                       "item_id": item_id,
+                                       "start": pd.Period(self.test_dataset[item_id]._df.select(pl.col("time").first()).collect().item(), freq=self.freq),
+                                       "feat_dynamic_real":  self.test_dataset[item_id]._df.select(self.feat_dynamic_real_prefixes).collect().to_numpy().T
+                                       } for item_id in self.test_dataset]
 
-
-            
             logging.info(f"Finished splitting datasets for per turbine case.") 
 
         else:
@@ -220,24 +236,41 @@ class DataModule():
             self.test_dataset = {f"SPLIT{split}": self.test_dataset[split].select([pl.col("time")] + self.feat_dynamic_real_cols + self.target_cols) 
                                  for split in range(len(self.test_dataset))}
 
-            self.train_dataset = PolarsDataset(
-                self.train_dataset, 
-                timestamp="time", freq=self.freq, 
-                target=self.target_cols, feat_dynamic_real=self.feat_dynamic_real_cols, static_features=self.static_features, 
-                assume_sorted=True, assume_resampled=True, unchecked=True
-                )
-            
-            self.val_dataset = PolarsDataset(
-                self.val_dataset, 
-                timestamp="time", freq=self.freq, 
-                target=self.target_cols, feat_dynamic_real=self.feat_dynamic_real_cols, static_features=self.static_features, 
-                assume_sorted=True, assume_resampled=True, unchecked=True)
-            
-            self.test_dataset = PolarsDataset(
-                self.test_dataset, 
-                timestamp="time", freq=self.freq, 
-                target=self.target_cols, feat_dynamic_real=self.feat_dynamic_real_cols, static_features=self.static_features, 
-                assume_sorted=True, assume_resampled=True, unchecked=True)
+            if self.as_lazyframe:
+                self.train_dataset = PolarsDataset(
+                    self.train_dataset, 
+                    timestamp="time", freq=self.freq, 
+                    target=self.target_cols, feat_dynamic_real=self.feat_dynamic_real_cols, static_features=self.static_features, 
+                    assume_sorted=True, assume_resampled=True, unchecked=True
+                    )
+                
+                self.val_dataset = PolarsDataset(
+                    self.val_dataset, 
+                    timestamp="time", freq=self.freq, 
+                    target=self.target_cols, feat_dynamic_real=self.feat_dynamic_real_cols, static_features=self.static_features, 
+                    assume_sorted=True, assume_resampled=True, unchecked=True)
+                
+                self.test_dataset = PolarsDataset(
+                    self.test_dataset, 
+                    timestamp="time", freq=self.freq, 
+                    target=self.target_cols, feat_dynamic_real=self.feat_dynamic_real_cols, static_features=self.static_features, 
+                    assume_sorted=True, assume_resampled=True, unchecked=True)
+            else:
+                self.train_dataset = [{"target": self.train_dataset[item_id]._df.select(self.target_cols).collect().to_numpy().T,
+                                       "item_id": item_id,
+                                       "start": pd.Period(self.train_dataset[item_id]._df.select(pl.col("time").first()).collect().item(), freq=self.freq),
+                                       "feat_dynamic_real":  self.train_dataset[item_id]._df.select(self.feat_dynamic_real_cols).collect().to_numpy().T
+                                       } for item_id in self.train_dataset]
+                self.val_dataset = [{"target": self.val_dataset[item_id]._df.select(self.target_cols).collect().to_numpy().T,
+                                       "item_id": item_id,
+                                       "start": pd.Period(self.val_dataset[item_id]._df.select(pl.col("time").first()).collect().item(), freq=self.freq),
+                                       "feat_dynamic_real":  self.val_dataset[item_id]._df.select(self.feat_dynamic_real_cols).collect().to_numpy().T
+                                       } for item_id in self.val_dataset]
+                self.test_dataset = [{"target": self.test_dataset[item_id]._df.select(self.target_cols).collect().to_numpy().T,
+                                       "item_id": item_id,
+                                       "start": pd.Period(self.test_dataset[item_id]._df.select(pl.col("time").first()).collect().item(), freq=self.freq),
+                                       "feat_dynamic_real":  self.test_dataset[item_id]._df.select(self.feat_dynamic_real_cols).collect().to_numpy().T
+                                       } for item_id in self.test_dataset]
             
             logging.info(f"Finished splitting datasets for all turbine case.") 
         
