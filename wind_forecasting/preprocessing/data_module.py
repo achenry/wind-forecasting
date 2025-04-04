@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from typing import List, Type, Optional
 import os
+import re
 import logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -122,17 +123,11 @@ class DataModule():
             self.num_feat_dynamic_real = int(len(self.feat_dynamic_real_cols) / len(self.target_suffixes))
             self.num_feat_static_cat = 1
             self.num_feat_static_real = 0
-            self.target_cols = self.target_prefixes
+            # self.target_cols = self.target_prefixes
             
-            static_index = [f"TURBINE{turbine_id}_SPLIT{split}" for turbine_id in self.target_suffixes for split in range(len(self.train_dataset))]
-            self.static_features = pd.DataFrame(
-                {
-                    "turbine_id": pd.Categorical(turbine_id for turbine_id in self.target_suffixes for split in range(len(self.train_dataset)))
-                },
-                index=static_index
-            )
-
-            self.cardinality = list(self.static_features.select_dtypes("category").nunique().values)
+            # self.cardinality = list(self.static_features.select_dtypes("category").nunique().values)
+            self.static_features = None # allow to generate itself
+            self.cardinality = (len(self.target_suffixes),)
             
         else:
             self.num_feat_dynamic_real = len(self.feat_dynamic_real_cols)
@@ -165,7 +160,6 @@ class DataModule():
             self.train_dataset, self.val_dataset, self.test_dataset = \
                 self.split_dataset([dataset.filter(pl.col("continuity_group") == cg) for cg in self.continuity_groups]) 
             
-            
             self.train_dataset = {f"TURBINE{turbine_id}_SPLIT{split}": 
                 self.get_df_by_turbine(self.train_dataset[split], turbine_id) 
                 for turbine_id in self.target_suffixes for split in range(len(self.train_dataset))}
@@ -175,8 +169,15 @@ class DataModule():
             self.test_dataset = {f"TURBINE{turbine_id}_SPLIT{split}": 
                 self.get_df_by_turbine(self.test_dataset[split], turbine_id) 
                 for turbine_id in self.target_suffixes for split in range(len(self.test_dataset))}
-
+            
             if self.as_lazyframe:
+                static_index = [f"TURBINE{turbine_id}_SPLIT{split}" for turbine_id in self.target_suffixes for split in range(len(self.train_dataset))]
+                self.static_features = pd.DataFrame(
+                    {
+                        "turbine_id": pd.Categorical(turbine_id for turbine_id in self.target_suffixes for split in range(len(self.train_dataset)))
+                    },
+                    index=static_index
+                )
                 self.train_dataset = PolarsDataset(self.train_dataset, 
                                 target=self.target_prefixes, timestamp="time", freq=self.freq, 
                                 feat_dynamic_real=self.feat_dynamic_real_prefixes, static_features=self.static_features, 
@@ -195,16 +196,19 @@ class DataModule():
                 self.train_dataset = [{"target": self.train_dataset[item_id]._df.select(self.target_prefixes).collect().to_numpy().T,
                                        "item_id": item_id,
                                        "start": pd.Period(self.train_dataset[item_id]._df.select(pl.col("time").first()).collect().item(), freq=self.freq),
+                                       "feat_static_cat": [self.target_suffixes.index(re.search("(?<=TURBINE)\\w+(?=_SPLIT)", item_id).group(0))],
                                        "feat_dynamic_real":  self.train_dataset[item_id]._df.select(self.feat_dynamic_real_prefixes).collect().to_numpy().T
                                        } for item_id in self.train_dataset]
                 self.val_dataset = [{"target": self.val_dataset[item_id]._df.select(self.target_prefixes).collect().to_numpy().T,
                                        "item_id": item_id,
                                        "start": pd.Period(self.val_dataset[item_id]._df.select(pl.col("time").first()).collect().item(), freq=self.freq),
+                                       "feat_static_cat": [self.target_suffixes.index(re.search("(?<=TURBINE)\\w+(?=_SPLIT)", item_id).group(0))],
                                        "feat_dynamic_real":  self.val_dataset[item_id]._df.select(self.feat_dynamic_real_prefixes).collect().to_numpy().T
                                        } for item_id in self.val_dataset]
                 self.test_dataset = [{"target": self.test_dataset[item_id]._df.select(self.target_prefixes).collect().to_numpy().T,
                                        "item_id": item_id,
                                        "start": pd.Period(self.test_dataset[item_id]._df.select(pl.col("time").first()).collect().item(), freq=self.freq),
+                                       "feat_static_cat": [self.target_suffixes.index(re.search("(?<=TURBINE)\\w+(?=_SPLIT)", item_id).group(0))],
                                        "feat_dynamic_real":  self.test_dataset[item_id]._df.select(self.feat_dynamic_real_prefixes).collect().to_numpy().T
                                        } for item_id in self.test_dataset]
 
