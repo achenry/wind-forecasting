@@ -109,7 +109,7 @@ class DataLoader:
                                                     re.search(ts, os.path.basename(fp)).group(0) if len(re.findall(ts, os.path.basename(fp))) else 0)) 
                            for dd, fs, ds, ts in zip(data_dir, file_signature, self.datetime_signature, self.turbine_signature)]
          
-    # @profile 
+     
     def read_multi_files(self, temp_save_dir, read_single_files=True, first_merge=True, second_merge=True) -> pl.LazyFrame | None:
         read_start = time.time()
         
@@ -372,7 +372,7 @@ class DataLoader:
                 logging.error("No data successfully processed by read_multi_files.")
                 return None
    
-    # @profile
+    
     def sort_resample_refill(self, df_query):
         
         logging.info(f"Started sorting.")
@@ -400,7 +400,7 @@ class DataLoader:
         
         return df_query
     
-    # @profile 
+     
     def merge_multiple_files(self, file_set_idx, processed_file_paths, i, temp_save_dir):
         
         logging.info(f"✅ Started join of {len(processed_file_paths)} files.")
@@ -442,7 +442,7 @@ class DataLoader:
         
         return merged_path
 
-    # @profile
+    
     def _join_dfs(self, file_suffix, dfs):
         # logging.info(f"✅ Started joins for {file_suffix}-th collection of files.") 
         all_cols = set()
@@ -528,7 +528,7 @@ class DataLoader:
         else:
             return turbine_ids
 
-    # @profile
+    
     def _read_single_file(self, file_set_idx: int, file_number:int, raw_file_path: str, processed_file_path: str) -> pl.LazyFrame:
         
         try:

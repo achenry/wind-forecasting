@@ -70,7 +70,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 ROW_LIMIT = 60 * 60 * 24 * 30 * 3
 
 # %%
-# @profile
+
 def main():
     if (not mpi_exists) or (mpi_exists and MPI.COMM_WORLD.Get_rank() == 0):
         logging.info("Parsing arguments...")
@@ -1278,8 +1278,8 @@ def main():
                 interpolate_missing_features=["ws_horz", "ws_vert", "nd_cos", "nd_sin"], 
                 # interpolate_missing_features=["wind_direction", "wind_speed", "nacelle_direction"], 
                 # parallel="feature",
-                parallel="turbine_id",
-                # parallel=None,
+                # parallel="turbine_id",
+                parallel=None,
                 r2_threshold=config["filters"]["impute_missing_data"]["r2_threshold"])
 
             if RUN_ONCE:
