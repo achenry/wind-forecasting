@@ -1,0 +1,169 @@
+experiment:
+  run_name: windfarm_flasc_tune_pruning
+  log_dir: /user/taed7566/wind-forecasting/logging/
+  project_root: /user/taed7566/wind-forecasting
+
+logging:
+  wandb_dir: /user/taed7566/wind-forecasting/logging/ # WandB will create a 'wandb' subdirectory here automatically
+  optuna_dir: /user/taed7566/wind-forecasting/logging/optuna/
+  checkpoint_dir: /user/taed7566/wind-forecasting/logging/checkpoints/
+  slurm_output_dir: /user/taed7566/wind-forecasting/logging/slurm_logs/
+
+optuna:
+  study_name: "windfarm_flasc_tune_pruning"
+  n_trials: 5                # trials to fit ~24h
+  max_epochs: 2               # epochs per trial
+  limit_train_batches: 100    # batches per epoch
+  metric: "mean_wQuantileLoss" # The metric to optimize
+  direction: "minimize"       # Whether to minimize or maximize the metric
+  context_length_choice_factors: [1, 2, 3, 4]  # Factors to multiply prediction_length by
+  
+  # Pruning configuration
+  pruning:
+    enabled: true             # Whether to enable pruning
+    type: "hyperband"         # Options: "hyperband", "median", "percentile", "none"
+    min_resource: 1           # Minimum epochs before pruning can occur (default: 2)
+    reduction_factor: 3       # Hyperband reduction factor (default: 3)
+  
+  # Optuna visualization configuration (additional to wandb)
+  visualization:
+    enabled: true
+    output_dir: ${logging.optuna_dir}/visualizations
+    plots:
+      optimization_history: true
+      parameter_importance: true
+      slice_plot: true
+      
+  # Storage backend configuration
+  storage:
+    backend: "postgresql"  # Options: "postgresql", "sqlite"
+    # --- PostgreSQL Specific Settings ---
+    # Path relative to project root (e.g., /user/taed7566/wind-forecasting)
+    pgdata_path: "logging/optuna/pg_data_study"
+    db_name: "optuna_study_db"
+    db_user: "optuna_user"
+    use_socket: true      # Use Unix domain socket for local connection (recommended on single node)
+    socket_dir_base: "${logging.optuna_dir}/sockets" # Base directory for socket files
+    sync_dir: "${logging.optuna_dir}/sync"           # Directory for synchronization files
+
+    # --- Optional TCP/IP Settings (if use_socket is false) ---
+    # use_tcp: false
+    # db_host: "localhost"
+    # db_port: 5432
+
+    # --- Optional Command Execution Settings ---
+    # run_cmd_shell: false # Set to true if specific commands require shell=True
+
+    # --- SQLite Specific Settings (not used if backend is postgresql) ---
+    # sqlite_path: "logging/optuna/study.db" Relative path for SQLite file if backend="sqlite"
+    # sqlite_wal: true  Enable WAL mode for SQLite
+    # sqlite_timeout: 600  Timeout in seconds for SQLite locks
+
+  # Optuna Dashboard auto-launch configuration
+  dashboard:
+    enabled: true             # Set to true to automatically launch the dashboard on rank 0
+    port: 8088                # Port for the dashboard web server
+    log_file: "${logging.optuna_dir}/optuna_dashboard.log" # Log file for the dashboard process
+
+dataset:
+    data_path: /user/taed7566/wind-forecasting/examples/inputs/SMARTEOLE-WFC-open-dataset/processed/SMARTEOLE_WakeSteering_SCADA_1minData_normalized.parquet
+    normalization_consts_path:  /user/taed7566/wind-forecasting/examples/inputs/SMARTEOLE-WFC-open-dataset/processed/SMARTEOLE_WakeSteering_SCADA_1minData_normalization_consts.csv
+    context_length: 20 # 120=10 minutes for 5 sec sample size
+    prediction_length: 20 # 120=10 minutes for 5 sec sample size
+    target_turbine_ids: # or leave blank to capture all
+    normalize: False
+    batch_size: 512 # Increased batch size
+    workers: 12 # Consider adjusting based on CPU cores per task
+    overfit: False
+    test_split: 0.20
+    val_split: 0.1
+    resample_freq: 30s
+    n_splits: 1 # how many divisions of each continuity group to make which is further subdivided into training test and validation data
+    per_turbine_target: False
+
+model:
+  distr_output:
+    class: "LowRankMultivariateNormalOutput"
+    kwargs:
+      rank: 5
+      sigma_init: 0.2
+  
+  # Model-specific parameters
+  tactis:
+    flow_series_embedding_dim: 32
+    copula_series_embedding_dim: 32
+    flow_input_encoder_layers: 2
+    copula_input_encoder_layers: 2
+    bagging_size: null
+    input_encoding_normalization: true
+    data_normalization: "series"
+    loss_normalization: "series"
+    initial_stage: 1
+    stage2_start_epoch: 10  
+  informer:
+    # embedding_dimension: 32 # Determines dimension of the embedding space
+    num_encoder_layers: 2 # Number of transformer blocks stacked
+    num_decoder_layers: 1 # Number of transformer blocks stacked
+    n_heads: 8 # Increased from 4 for better model capacity
+    d_model: 128 # Increased from 64 to better utilize H100 GPUs
+    dim_feedforward: 512 # Increased from 64 to better utilize H100 GPUs
+    activation: relu
+  autoformer:
+    # embedding_dimension: 32 # Determines dimension of the embedding space
+    num_encoder_layers: 2 # Number of transformer blocks stacked
+    num_decoder_layers: 1 # Number of transformer blocks stacked
+    n_heads: 8 # Number of heads for spatio-temporal attention
+    dim_feedforward: 64
+    activation: gelu
+  spacetimeformer:
+    # embedding_dimension: 32 # Determines dimension of the embedding space
+    num_encoder_layers: 3 # Number of transformer blocks stacked
+    num_decoder_layers: 3 # Number of transformer blocks stacked
+    n_heads: 3 # Number of heads for spatio-temporal attention
+    d_model: 200
+    dim_feedforward: 800
+    d_queries_keys: 30
+    d_values: 30
+    dropout_emb: 0.2
+    dropout_attn_matrix: 0.0
+    dropout_attn_out: 0.0
+    dropout_ff: 0.3
+    dropout_qkv: 0.0
+    start_token_len: 0
+    performer_redraw_interval: 100
+    use_shifted_time_windows: False
+    # decay_factor: 0.25
+    # l2_coeff: 1e-6
+    # class_loss_imp: 0.1
+    pos_emb_type: abs
+    embed_method: spatio-temporal
+    activation: gelu
+
+callbacks: 
+    progress_bar:  
+    early_stopping:  
+    model_checkpoint:  
+    lr_monitor: True
+trainer:
+    gradient_clip_val: 0.0 # Prevents gradient explosion if > 0. Renamed from grad_clip_norm.
+    # limit_val_batches: 1.0
+    # val_check_interval: 1.0
+    accelerator: gpu
+    devices: auto
+    num_nodes: 1
+    strategy: "ddp"
+    # n_workers: auto
+    # debug: False 
+    # accumulate: 1.0
+    max_epochs: 5 # Maximum number of epochs to train 100
+    limit_train_batches: 100 # Reduced from 100 during tuning INFO @Juan
+    # default_root_dir: ${logging.checkpoint_dir}  # Changed from direct path to use log_dir
+    # precision: 16-mixed # 16-mixed enables mixed precision training 32-true is full precision
+    # batch_size: 32 # larger = more stable gradients
+    # lr: 0.0001 # Step size
+    # dropout: 0.1 # Regularization parameter (prevents overfitting)
+    # patience: 50 # Number of epochs to wait before early stopping
+    # accumulate_grad_batches: 2 # Simulates a larger batch size
+    log_every_n_steps: 10  # Or even log_every_n_steps: 1
+    deterministic: False
+    benchmark: True
