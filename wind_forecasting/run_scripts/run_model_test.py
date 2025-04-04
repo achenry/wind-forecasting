@@ -37,7 +37,7 @@ try:
 except:
     print("No MPI available on system.")
 
-# @profile
+
 def main():
     
     RUN_ONCE = (mpi_exists and (MPI.COMM_WORLD.Get_rank()) == 0)
@@ -123,7 +123,7 @@ def main():
                     logging.info("Getting tuned parameters")
                 tuned_params = get_tuned_params(model=args.model, 
                                                 data_source=os.path.splitext(os.path.basename(config["dataset"]["data_path"]))[0],
-                                                storage_type=config["optuna"]["storage_type"], journal_storage_dir=config["optuna"]["journal_dir"])
+                                                backend=config["optuna"]["backend"], storage_dir=config["optuna"]["storage_dir"])
                 if rank_zero_only.rank == 0:
                     logging.info(f"Declaring estimator {args.model.capitalize()} with tuned parameters")
                 config["dataset"].update({k: v for k, v in tuned_params.items() if k in config["dataset"]})
@@ -162,7 +162,7 @@ def main():
         # %% TUNE MODEL WITH OPTUNA
         from wind_forecasting.run_scripts.tuning import tune_model
         if rank_zero_only.rank == 0:
-            os.makedirs(config["optuna"]["journal_dir"], exist_ok=True) 
+            os.makedirs(config["optuna"]["storage_dir"], exist_ok=True) 
     
         tune_model(model=args.model, config=config, 
                     lightning_module_class=globals()[f"{args.model.capitalize()}LightningModule"], 
@@ -175,8 +175,8 @@ def main():
                     direction=config["optuna"]["direction"],
                     context_length_choices=[int(data_module.prediction_length * i) for i in config["optuna"]["context_length_choice_factors"]],
                     n_trials=config["optuna"]["n_trials"],
-                    journal_storage_dir=config["optuna"]["journal_dir"],
-                    storage_type=config["optuna"]["storage_type"],
+                    storage_dir=config["optuna"]["storage_dir"],
+                    backend=config["optuna"]["backend"],
                     restart_tuning=args.restart_tuning)
         
     elif args.mode == "train":
