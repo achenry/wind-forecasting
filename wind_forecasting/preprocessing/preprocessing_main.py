@@ -1308,7 +1308,7 @@ def main():
                 df_query.collect().write_parquet(config["processed_data_path"].replace(".parquet", "_imputed.parquet"), statistics=False)                
                 df_query = pl.scan_parquet(config["processed_data_path"].replace(".parquet", "_imputed.parquet"))
         elif RUN_ONCE:
-            df_query = pl.scan_parquet(config["processed_data_path"].replace(".parquet", "_imputed_final.parquet"))
+            df_query = pl.scan_parquet(config["processed_data_path"].replace(".parquet", "_imputed.parquet"))
 
     # %% check time series
     if args.verbose:
