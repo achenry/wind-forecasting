@@ -915,6 +915,7 @@ def main():
             data_inspector.plot_time_series(df_query.slice(0, ROW_LIMIT), feature_types=["wind_speed", "wind_direction"], turbine_ids=data_loader.turbine_ids, continuity_groups=None, label="after_nacelle_calibration")
     
     # %% Feature Selection
+    # TODO this conditional isn't quite right, only need to select features if none of the following exist
     if args.reload_data or args.regenerate_filters or \
             ("std_range_flag" in config["filters"] and not os.path.exists(config["processed_data_path"].replace(".parquet", "_stddev.parquet"))) \
             or ("split" in config["filters"] and not os.path.exists(config["processed_data_path"].replace(".parquet", "_split.parquet"))) \
@@ -1284,11 +1285,15 @@ def main():
             
             # else, for each of those split datasets, impute the values using the imputing.impute_all_assets_by_correlation function
             # fill data on single concatenated dataset
-
+            save_path = config["processed_data_path"].replace(".parquet", "_imputed.parquet")
+            if os.path.exists(save_path):
+                df_query = pl.scan_parquet(save_path)
+                
             df_query2 = data_filter._fill_single_missing_dataset(
                 df_idx=0, 
                 df=df_query, 
-                impute_missing_features=["ws_horz", "ws_vert"], 
+                impute_missing_features=["ws_horz", "ws_vert"],
+                save_path=save_path, 
                 # impute_missing_features=["wind_direction", "wind_speed"], 
                 interpolate_missing_features=["ws_horz", "ws_vert", "nd_cos", "nd_sin"], 
                 # interpolate_missing_features=["wind_direction", "wind_speed", "nacelle_direction"], 
