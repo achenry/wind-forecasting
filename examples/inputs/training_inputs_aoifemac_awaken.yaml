@@ -5,23 +5,63 @@ experiment:
   log_dir: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/logging/
   project_root: /Users/ahenry/Documents/toolboxes/wind_forecasting
 
-logging:
-  wandb_dir: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/logging/ # WandB will create a 'wandb' subdirectory here automatically
-  optuna_dir: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/logging/optuna/
-  checkpoint_dir: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/logging/checkpoints/
-  slurm_output_dir: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/logging/slurm_logs/
+# logging:
+#   wandb_dir: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/logging/ # WandB will create a 'wandb' subdirectory here automatically
+#   optuna_dir: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/logging/optuna/
+#   checkpoint_dir: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/logging/checkpoints/
+#   slurm_output_dir: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/logging/slurm_logs/
+
 optuna:
-  journal_dir: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/optuna
-  storage_type: sqlite # or mysql, or journal
+  storage_dir: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/optuna
   n_trials: 2
   metric: mean_wQuantileLoss
   direction: minimize
-  max_epochs: 3
-  limit_train_batches: 500
+  max_epochs: 10
+  limit_train_batches: 1000
   context_length_choice_factors:
     - 1
     - 1.5
     - 2
+  
+  # Pruning configuration
+  pruning:
+    enabled: true             # Whether to enable pruning
+    type: "hyperband"         # Options: "hyperband", "median", "percentile", "none"
+    min_resource: 1           # Minimum epochs before pruning can occur (default: 2)
+    reduction_factor: 3       # Hyperband reduction factor (default: 3)
+    max_resource: 10
+    percentile": 25
+  
+  # Optuna visualization configuration (additional to wandb)
+  visualization:
+    enabled: true
+    output_dir: ${logging.optuna_dir}/visualizations
+    plots:
+      optimization_history: true
+      parameter_importance: true
+      slice_plot: true
+      
+  # Storage backend configuration
+  storage:
+    backend: "sqlite"  # Options: "postgresql", "sqlite", "mysql", "journal"
+    # --- SQLite Specific Settings (not used if backend is postgresql) ---
+    sqlite_wal: true  # Enable WAL mode for SQLite
+    sqlite_timeout: 600 # Timeout in seconds for SQLite locks
+
+    # --- Optional TCP/IP Settings (if use_socket is false) ---
+    # use_tcp: false
+    # db_host: "localhost"
+    # db_port: 5432
+
+    # --- Optional Command Execution Settings ---
+    # run_cmd_shell: false # Set to true if specific commands require shell=True
+
+  # Optuna Dashboard auto-launch configuration
+  dashboard:
+    enabled: true             # Set to true to automatically launch the dashboard on rank 0
+    port: 8088                # Port for the dashboard web server
+    log_file: "${logging.optuna_dir}/optuna_dashboard.log" # Log file for the dashboard process
+
 
 dataset: 
     # data_path: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/preprocessed_awaken_data/short_loaded_data_normalized.parquet
