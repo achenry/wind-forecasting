@@ -47,11 +47,15 @@ class DataModule():
     dtype: Type = pl.Float32
     as_lazyframe: bool = False
     verbose: bool = False
+    denormalize: bool = False
+    normalization_consts_path: Optional[str] = None
     
     def __post_init__(self):
-        self.train_ready_data_path = self.data_path.replace(".parquet", "_train_ready.parquet")
+        if self.denormalize:
+            self.train_ready_data_path = self.data_path.replace(".parquet", "_train_ready_denormalize.parquet")
+        else:
+            self.train_ready_data_path = self.data_path.replace(".parquet", "_train_ready.parquet")
      
-    
     def generate_datasets(self):
         
         dataset = IterableLazyFrame(data_path=self.data_path, dtype=self.dtype)\
@@ -59,6 +63,22 @@ class DataModule():
                     .group_by("time").agg(cs.numeric().mean())\
                     .sort(["continuity_group", "time"])
                     # .collect().write_parquet(self.train_ready_data_path, statistics=False)
+                    
+        if self.denormalize:
+            norm_consts = pd.read_csv(self.normalization_consts_path, index_col=None)
+            norm_min_cols = [col for col in norm_consts if "_min" in col]
+            norm_max_cols = [col for col in norm_consts if "_max" in col]
+            data_min = norm_consts[norm_min_cols].values.flatten()
+            data_max = norm_consts[norm_max_cols].values.flatten()
+            norm_min_cols = [col.replace("_min", "") for col in norm_min_cols]
+            norm_max_cols = [col.replace("_max", "") for col in norm_max_cols]
+            feature_range = (-1, 1)
+            norm_scale = ((feature_range[1] - feature_range[0]) / (data_max - data_min))
+            norm_min = feature_range[0] - (data_min * norm_scale)
+            dataset = dataset.with_columns([(cs.starts_with(col) - norm_min[c]) 
+                                                        / norm_scale[c] 
+                                                        for c, col in enumerate(norm_min_cols)])
+                    
         # TODO if resampling requieres upsampling: historic_measurements.upsample(time_column="time", every=self.data_module.freq).fill_null(strategy="forward")
         # dataset = IterableLazyFrame(data_path=self.train_ready_data_path, dtype=self.dtype) # data stored in RAM
         # gc.collect()
@@ -299,6 +319,10 @@ class DataModule():
                 ) for ds in datasets for turbine_id in self.target_suffixes
         ]
 
+    # def denormalize(self, split):
+    #     assert split in ["train", "test", "val"]
+    #     ds = getattr(self, f"{split}_dataset")
+        
     def split_dataset(self, dataset):
         train_datasets = []
         test_datasets = []
@@ -348,9 +372,12 @@ class DataModule():
             test_offset = round(self.test_split * self.rows_per_split[cg])
 
             # TODO shouldn't test data include history, and just the labels be unseen by training data?
-            train_datasets.append(ds.slice(0, train_offset))
-            val_datasets.append(ds.slice(train_offset, val_offset))
-            test_datasets.append(ds.slice(train_offset + val_offset, test_offset))
+            # train_datasets.append(ds.slice(0, train_offset))
+            # val_datasets.append(ds.slice(train_offset, val_offset))
+            # test_datasets.append(ds.slice(train_offset + val_offset, test_offset))
+            train_datasets += [d.slice(0, train_offset) for d in datasets]
+            val_datasets += [d.slice(train_offset, val_offset) for d in datasets]
+            test_datasets += [d.slice(train_offset + val_offset, test_offset) for d in datasets]
             
             if self.verbose:
                 for t, train_entry in enumerate(iter(train_datasets[-1])):
