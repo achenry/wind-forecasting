@@ -206,7 +206,6 @@ def main():
     # Create a unique run name for each worker
     run_name = f"{config['experiment']['run_name']}_worker{worker_id}_gpu{gpu_id}"
 
-    
     # Set an explicit run directory to avoid nesting issues
     unique_id = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{worker_id}_{gpu_id}"
     run_dir = os.path.join(wandb_parent_dir, f"run_{unique_id}")
