@@ -1291,7 +1291,7 @@ def main():
                 
             df_query2 = data_filter._fill_single_missing_dataset(
                 df_idx=0, 
-                df=df_query, 
+                df=df_query.select(pl.col("time"), *[cs.starts_with(feat_type) for feat_type in ["ws_horz", "ws_vert", "nd_cos", "nd_sin"]]), 
                 impute_missing_features=["ws_horz", "ws_vert"],
                 save_path=save_path, 
                 # impute_missing_features=["wind_direction", "wind_speed"], 
@@ -1308,7 +1308,7 @@ def main():
                 df_query.collect().write_parquet(config["processed_data_path"].replace(".parquet", "_imputed.parquet"), statistics=False)                
                 df_query = pl.scan_parquet(config["processed_data_path"].replace(".parquet", "_imputed.parquet"))
         elif RUN_ONCE:
-            df_query = pl.scan_parquet(config["processed_data_path"].replace(".parquet", "_imputed.parquet"))
+            df_query = pl.scan_parquet(config["processed_data_path"].replace(".parquet", "_imputed_final.parquet"))
 
     # %% check time series
     if args.verbose:
