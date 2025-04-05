@@ -286,7 +286,8 @@ class DataFilter:
                                               data_pl=df.select("time", cs.starts_with(f"{feature}_")), data_pd=None, 
                                     #  data_pd=unpivot_df.select(["time", "turbine_id", feature]).collect().to_pandas().set_index(["time", "turbine_id"]),
                                      impute_col=feature, reference_col=feature,
-                                     asset_id_col="turbine_id", method="linear", r2_threshold=r2_threshold) for feature in impute_missing_features}
+                                     asset_id_col="turbine_id", method="linear", r2_threshold=r2_threshold,
+                                     save_path=save_path) for feature in impute_missing_features}
                 # df_cols = [] 
                 for k, v in futures.items():
                     imputed_vals = v.result()
@@ -305,7 +306,8 @@ class DataFilter:
                                                             impute_col=feat_type, reference_col=feat_type,
                                                             asset_id_col="turbine_id", method="linear", 
                                                             multiprocessor=self.multiprocessor,
-                                                            r2_threshold=r2_threshold)
+                                                            r2_threshold=r2_threshold,
+                                                            save_path=save_path)
                 if imputed_vals is not None:
                     df.update(imputed_vals, on="time").collect().write_parquet(save_path, statistics=False)
                     df = pl.scan_parquet(save_path)
@@ -320,7 +322,8 @@ class DataFilter:
                                                             data_pl=df.select(features_pl), data_pd=None,
                                                             impute_col=feat_type, reference_col=feat_type,
                                                             asset_id_col="turbine_id", method="linear", multiprocessor=None,
-                                                            r2_threshold=r2_threshold)
+                                                            r2_threshold=r2_threshold,
+                                                            save_path=save_path)
                 if imputed_vals is not None:
                     df.update(imputed_vals, on="time").collect().write_parquet(save_path, statistics=False)
                     df = pl.scan_parquet(save_path)
