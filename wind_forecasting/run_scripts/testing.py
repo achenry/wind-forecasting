@@ -57,7 +57,7 @@ def test_model(*, data_module, checkpoint, lightning_module_class, normalization
     forecast_it, ts_it = make_evaluation_predictions(
         dataset=data_module.test_dataset,
         predictor=predictor,
-        output_distr_params=True
+        output_distr_params={"loc": "mean", "cov_factor": "cov_factor", "cov_diag": "cov_diag"}
     )
 
     forecasts = list(forecast_it)
@@ -157,7 +157,7 @@ def test_model(*, data_module, checkpoint, lightning_module_class, normalization
                 pred_df = pd.DataFrame(
                     {
                         "loc": forecast.distribution.loc[:, col_idx].transpose(0, 1).reshape(-1, 1).cpu().numpy().flatten(),
-                        "std_dev": np.sqrt(forecast.distribution.cov_diag[:, col_idx].transpose(0, 1).reshape(-1, 1).cpu().numpy()).flatten()
+                        "std_dev": np.sqrt(forecast.distribution.stddev[:, col_idx].transpose(0, 1).reshape(-1, 1).cpu().numpy()).flatten()
                     },
                     index=np.tile(forecast.index, (len(col_names),)),
                 ).reset_index(names="time").sort_values(["time"])
@@ -166,7 +166,7 @@ def test_model(*, data_module, checkpoint, lightning_module_class, normalization
                     {
                         "turbine_id": pred_turbine_id,
                         "loc": forecast.distribution.loc[:, col_idx].transpose(0, 1).reshape(-1, 1).cpu().numpy().flatten(),
-                        "std_dev": np.sqrt(forecast.distribution.cov_diag[:, col_idx].transpose(0, 1).reshape(-1, 1).cpu().numpy()).flatten()
+                        "std_dev": np.sqrt(forecast.distribution.stddev[:, col_idx].transpose(0, 1).reshape(-1, 1).cpu().numpy()).flatten()
                     },
                     index=np.tile(forecast.index, (len(col_names),)),
                 ).reset_index(names="time").sort_values(["turbine_id", "time"])
