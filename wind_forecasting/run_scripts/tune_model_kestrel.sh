@@ -1,11 +1,11 @@
 #!/bin/bash 
 #SBATCH --account=ssc
-#SBATCH --time=12:00:00
+#SBATCH --time=01:00:00
 #SBATCH --output=%j-%x.log
-##SBATCH --partition=debug
+#SBATCH --partition=debug
 #SBATCH --nodes=1 # this needs to match Trainer(num_nodes...)
-#SBATCH --gres=gpu:4
-#SBATCH --ntasks-per-node=4 # this needs to match Trainer(devices=...)
+#SBATCH --gres=gpu:2
+#SBATCH --ntasks-per-node=2 # this needs to match Trainer(devices=...)
 #SBATCH --mem-per-cpu=85G
 
 ##SBATCH --mem=0 # refers to CPU (not GPU) memory, automatically given all GPU memory in a SLURM job, 85G
