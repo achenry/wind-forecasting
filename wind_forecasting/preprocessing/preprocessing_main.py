@@ -1125,7 +1125,7 @@ def main():
 
     # %%
     if "split" in config["filters"]:
-        
+        # TODO this is producing float continuity groups?
         if args.reload_data or args.regenerate_filters or not os.path.exists(config["processed_data_path"].replace(".parquet", "_split.parquet")):
             # if RUN_ONCE:
             logging.info("Split dataset during time steps for which many turbines have missing data.")
