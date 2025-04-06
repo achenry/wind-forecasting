@@ -1281,7 +1281,7 @@ def main():
         if RUN_ONCE:
              logging.info("Impute/interpolate turbine missing data from correlated measurements.")
         
-        if args.reload_data or args.regenerate_filters or not os.path.exists(config["processed_data_path"].replace(".parquet", "_imputed.parquet")):
+        if True or args.reload_data or args.regenerate_filters or not os.path.exists(config["processed_data_path"].replace(".parquet", "_imputed.parquet")):
             
             # else, for each of those split datasets, impute the values using the imputing.impute_all_assets_by_correlation function
             # fill data on single concatenated dataset
