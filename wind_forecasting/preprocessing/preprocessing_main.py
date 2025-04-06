@@ -1288,7 +1288,7 @@ def main():
             save_path = config["processed_data_path"].replace(".parquet", "_imputed.parquet")
             if os.path.exists(save_path):
                 df_query = pl.scan_parquet(save_path)
-                
+            # NOTE to truly repeat this process, must delete all impute, impute_ws_horz, impute_ws_vert parquets
             df_query2 = data_filter._fill_single_missing_dataset(
                 df_idx=0, 
                 df=df_query.select(pl.col("time"), *[cs.starts_with(feat_type) for feat_type in ["ws_horz", "ws_vert", "nd_cos", "nd_sin"]]), 
@@ -1425,6 +1425,7 @@ def main():
                                         for feature_type in feature_types])
                 
                 df_query.collect().write_parquet(config["processed_data_path"].replace(".parquet", "_normalized.parquet"), statistics=False)
+                logging.info("Finished normalizing features.")
             else:
                 df_query = pl.scan_parquet(config["processed_data_path"].replace(".parquet", "_normalized.parquet"))
 
