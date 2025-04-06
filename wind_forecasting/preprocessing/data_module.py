@@ -52,9 +52,11 @@ class DataModule():
     
     def __post_init__(self):
         if self.denormalize:
-            self.train_ready_data_path = self.data_path.replace(".parquet", f"_train_ready_{self.freq}_denormalize.parquet")
+            self.train_ready_data_path = self.data_path.replace(
+                ".parquet", f"_train_ready_{self.freq}_{'per_turbine' if self.per_turbine_target else 'all_turbine'}_denormalize.parquet")
         else:
-            self.train_ready_data_path = self.data_path.replace(".parquet", f"_train_ready_{self.freq}.parquet")
+            self.train_ready_data_path = self.data_path.replace(
+                ".parquet", f"_train_ready_{self.freq}_{'per_turbine' if self.per_turbine_target else 'all_turbine'}.parquet")
      
     def generate_datasets(self):
         
@@ -121,6 +123,7 @@ class DataModule():
         logging.info("Getting continuity groups.") 
         if self.continuity_groups is None:
             if "continuity_group" in dataset.collect_schema().names():
+                # TODO this is giving floats??
                 self.continuity_groups = dataset.select(pl.col("continuity_group").unique()).collect().to_numpy().flatten()
             else:
                 self.continuity_groups = [0]
