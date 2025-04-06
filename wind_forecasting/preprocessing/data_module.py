@@ -52,9 +52,9 @@ class DataModule():
     
     def __post_init__(self):
         if self.denormalize:
-            self.train_ready_data_path = self.data_path.replace(".parquet", "_train_ready_denormalize.parquet")
+            self.train_ready_data_path = self.data_path.replace(".parquet", f"_train_ready_{self.freq}_denormalize.parquet")
         else:
-            self.train_ready_data_path = self.data_path.replace(".parquet", "_train_ready.parquet")
+            self.train_ready_data_path = self.data_path.replace(".parquet", f"_train_ready_{self.freq}.parquet")
      
     def generate_datasets(self):
         
@@ -303,7 +303,7 @@ class DataModule():
         #         for key in ["target", "feat_dynamic_real"]:
         #             print(f"{split} {key} {ds['item_id']} dataset - num nan/nulls = {ds[key].select(pl.sum_horizontal((cs.numeric().is_null() | cs.numeric().is_nan()).sum())).collect().item()}")
          
-        return None
+        return dataset
         
     def get_df_by_turbine(self, dataset, turbine_id):
         return dataset.select(pl.col("time"), *[col for col in (self.feat_dynamic_real_cols + self.target_cols) if turbine_id in col])\
