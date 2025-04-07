@@ -206,7 +206,6 @@ def main():
     # Create a unique run name for each worker
     run_name = f"{config['experiment']['run_name']}_worker{worker_id}_gpu{gpu_id}"
 
-    
     # Set an explicit run directory to avoid nesting issues
     unique_id = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{worker_id}_{gpu_id}"
     run_dir = os.path.join(wandb_parent_dir, f"run_{unique_id}")
@@ -268,7 +267,7 @@ def main():
                                 freq=config["dataset"]["resample_freq"], target_suffixes=config["dataset"]["target_turbine_ids"],
                                     per_turbine_target=config["dataset"]["per_turbine_target"], as_lazyframe=False, dtype=pl.Float32)
     
-    data_module.generate_splits()
+    data_module.generate_splits(save=True, reload=False)
 
     # %% DEFINE ESTIMATOR
     if args.mode in ["train", "test"]:
