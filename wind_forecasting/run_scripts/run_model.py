@@ -267,7 +267,7 @@ def main():
                                 freq=config["dataset"]["resample_freq"], target_suffixes=config["dataset"]["target_turbine_ids"],
                                     per_turbine_target=config["dataset"]["per_turbine_target"], as_lazyframe=False, dtype=pl.Float32)
     
-    data_module.generate_splits()
+    data_module.generate_splits(save=True, reload=False)
 
     # %% DEFINE ESTIMATOR
     if args.mode in ["train", "test"]:
