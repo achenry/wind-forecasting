@@ -14,7 +14,7 @@ python -m pip install mpi4py opencv-python performer-pytorch psutil memory_profi
 brew install mysql  && brew services start mysql # This only works on MacOS, for windows use official website to download and install MySQL
 =======
 mamba install polars windrose statsmodels scikit-learn jupyterlab nb_conda_kernels pyyaml matplotlib numpy seaborn opt_einsum netcdf4 scipy h5pyd wandb einops --y 
-python -m pip install opencv-python floris performer-pytorch psutil memory_profiler optuna mysqlclient mysql-connector-python filterpy
+python -m pip install opencv-python performer-pytorch psutil memory_profiler optuna optuna-integration mysqlclient mysql-connector-python filterpy plotly optuna-dashboard
 
 brew install mysql  && brew services start mysql
 >>>>>>> 42ff3e6a1df9aa2d2742395aac5592ab345fd00e

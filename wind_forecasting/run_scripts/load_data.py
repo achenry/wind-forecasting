@@ -1,7 +1,7 @@
 import sys
 import argparse
 import logging
-from memory_profiler import profile
+# from memory_profiler import profile
 
 import polars as pl
 import matplotlib
@@ -22,7 +22,7 @@ try:
 except:
     print("No MPI available on system.")
 
-# @profile
+
 def main():
     
     # %% PARSE CONFIGURATION
@@ -59,4 +59,7 @@ def main():
     # logging.info("Finished plotting train/val/test datasets.")
 
 if __name__ == "__main__":
+    # scp -v aohe7145@login.rc.colorado.edu:/pl/active/paolab/wind_forecasting/awaken_data/\*.parquet ahenry@kestrel.hpc.nrel.gov:/projects/ssc/ahenry/wind_forecasting/awaken_data/
+    # scp -v aohe7145@login.rc.colorado.edu:/pl/active/paolab/wind_forecasting/awaken_data/\*.csv ahenry@kestrel.hpc.nrel.gov:/projects/ssc/ahenry/wind_forecasting/awaken_data/
+    # scp -v aohe7145@login.rc.colorado.edu:/pl/active/paolab/wind_forecasting/awaken_data/\*.npy ahenry@kestrel.hpc.nrel.gov:/projects/ssc/ahenry/wind_forecasting/awaken_data/
     main()

@@ -40,7 +40,7 @@ try:
 except:
     print("No MPI available on system.")
 
-# @profile
+
 def test_model(*, data_module, checkpoint, lightning_module_class, normalization_consts_path, estimator):
     # TODO denormalize at end
     normalization_consts = pd.read_csv(normalization_consts_path, index_col=None)
@@ -57,7 +57,7 @@ def test_model(*, data_module, checkpoint, lightning_module_class, normalization
     forecast_it, ts_it = make_evaluation_predictions(
         dataset=data_module.test_dataset,
         predictor=predictor,
-        output_distr_params=True
+        output_distr_params={"loc": "mean", "cov_factor": "cov_factor", "cov_diag": "cov_diag"}
     )
 
     forecasts = list(forecast_it)
@@ -157,7 +157,7 @@ def test_model(*, data_module, checkpoint, lightning_module_class, normalization
                 pred_df = pd.DataFrame(
                     {
                         "loc": forecast.distribution.loc[:, col_idx].transpose(0, 1).reshape(-1, 1).cpu().numpy().flatten(),
-                        "std_dev": np.sqrt(forecast.distribution.cov_diag[:, col_idx].transpose(0, 1).reshape(-1, 1).cpu().numpy()).flatten()
+                        "std_dev": np.sqrt(forecast.distribution.stddev[:, col_idx].transpose(0, 1).reshape(-1, 1).cpu().numpy()).flatten()
                     },
                     index=np.tile(forecast.index, (len(col_names),)),
                 ).reset_index(names="time").sort_values(["time"])
@@ -166,7 +166,7 @@ def test_model(*, data_module, checkpoint, lightning_module_class, normalization
                     {
                         "turbine_id": pred_turbine_id,
                         "loc": forecast.distribution.loc[:, col_idx].transpose(0, 1).reshape(-1, 1).cpu().numpy().flatten(),
-                        "std_dev": np.sqrt(forecast.distribution.cov_diag[:, col_idx].transpose(0, 1).reshape(-1, 1).cpu().numpy()).flatten()
+                        "std_dev": np.sqrt(forecast.distribution.stddev[:, col_idx].transpose(0, 1).reshape(-1, 1).cpu().numpy()).flatten()
                     },
                     index=np.tile(forecast.index, (len(col_names),)),
                 ).reset_index(names="time").sort_values(["turbine_id", "time"])
@@ -203,10 +203,12 @@ def get_checkpoint(checkpoint, metric, mode, log_dir):
         checkpoint_paths = glob(os.path.join(log_dir, "*/*/*/*.ckpt"))
         # version_dirs = glob(os.path.join(log_dir, "*"))
         if len(checkpoint_paths) == 0:
-            raise FileNotFoundError(f"There are no checkpoint files in {log_dir}.")
+            logging.warning(f"There are no checkpoint files in {log_dir}, returning None.")
+            return None
         
     elif not os.path.exists(checkpoint):
-        raise FileNotFoundError("Must provide a valid --checkpoint argument to load from.")
+        logging.warning(f"There is no checkpoint file at {checkpoint}, returning None.")
+        return None
 
     if checkpoint is None:
         return None
@@ -240,7 +242,7 @@ def get_checkpoint(checkpoint, metric, mode, log_dir):
     else:
         logging.info("Fetching pretrained model...")
         if os.path.exists(checkpoint):
-            logging.info(f"Found given pretrained model: {checkpoint_path}")
+            logging.info(f"Found given pretrained model: {checkpoint}")
             checkpoint_path = checkpoint
         else:
             raise FileNotFoundError(f"Given checkpoint {checkpoint} does not exist.")

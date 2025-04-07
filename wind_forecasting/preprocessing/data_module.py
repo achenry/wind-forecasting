@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from typing import List, Type, Optional
 import os
+import re
 import logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -10,6 +11,7 @@ from gluonts.dataset.multivariate_grouper import MultivariateGrouper
 from gluonts.dataset.common import TrainDatasets, MetaData, BasicFeatureInfo, CategoricalFeatureInfo, ListDataset
 from gluonts.dataset.field_names import FieldName
 from gluonts.dataset.util import to_pandas
+import pickle
 # from gluonts.dataset.common import FileDataset
 from gluonts.dataset import Dataset
 
@@ -44,12 +46,19 @@ class DataModule():
     freq: str
     per_turbine_target: bool # if True, feed multiple datasets to trainer, where each one corresponds to the outputs of a single turbine
     dtype: Type = pl.Float32
+    as_lazyframe: bool = False
     verbose: bool = False
+    denormalize: bool = False
+    normalization_consts_path: Optional[str] = None
     
     def __post_init__(self):
-        self.train_ready_data_path = self.data_path.replace(".parquet", "_train_ready.parquet")
+        if self.denormalize:
+            self.train_ready_data_path = self.data_path.replace(
+                ".parquet", f"_train_ready_{self.freq}_{'per_turbine' if self.per_turbine_target else 'all_turbine'}_denormalize.parquet")
+        else:
+            self.train_ready_data_path = self.data_path.replace(
+                ".parquet", f"_train_ready_{self.freq}_{'per_turbine' if self.per_turbine_target else 'all_turbine'}.parquet")
      
-    # @profile
     def generate_datasets(self):
         
         dataset = IterableLazyFrame(data_path=self.data_path, dtype=self.dtype)\
@@ -57,6 +66,22 @@ class DataModule():
                     .group_by("time").agg(cs.numeric().mean())\
                     .sort(["continuity_group", "time"])
                     # .collect().write_parquet(self.train_ready_data_path, statistics=False)
+                    
+        if self.denormalize:
+            norm_consts = pd.read_csv(self.normalization_consts_path, index_col=None)
+            norm_min_cols = [col for col in norm_consts if "_min" in col]
+            norm_max_cols = [col for col in norm_consts if "_max" in col]
+            data_min = norm_consts[norm_min_cols].values.flatten()
+            data_max = norm_consts[norm_max_cols].values.flatten()
+            norm_min_cols = [col.replace("_min", "") for col in norm_min_cols]
+            norm_max_cols = [col.replace("_max", "") for col in norm_max_cols]
+            feature_range = (-1, 1)
+            norm_scale = ((feature_range[1] - feature_range[0]) / (data_max - data_min))
+            norm_min = feature_range[0] - (data_min * norm_scale)
+            dataset = dataset.with_columns([(cs.starts_with(col) - norm_min[c]) 
+                                                        / norm_scale[c] 
+                                                        for c, col in enumerate(norm_min_cols)])
+                    
         # TODO if resampling requieres upsampling: historic_measurements.upsample(time_column="time", every=self.data_module.freq).fill_null(strategy="forward")
         # dataset = IterableLazyFrame(data_path=self.train_ready_data_path, dtype=self.dtype) # data stored in RAM
         # gc.collect()
@@ -99,6 +124,7 @@ class DataModule():
         logging.info("Getting continuity groups.") 
         if self.continuity_groups is None:
             if "continuity_group" in dataset.collect_schema().names():
+                # TODO this is giving floats??
                 self.continuity_groups = dataset.select(pl.col("continuity_group").unique()).collect().to_numpy().flatten()
             else:
                 self.continuity_groups = [0]
@@ -121,17 +147,11 @@ class DataModule():
             self.num_feat_dynamic_real = int(len(self.feat_dynamic_real_cols) / len(self.target_suffixes))
             self.num_feat_static_cat = 1
             self.num_feat_static_real = 0
-            self.target_cols = self.target_prefixes
+            # self.target_cols = self.target_prefixes
             
-            static_index = [f"TURBINE{turbine_id}_SPLIT{split}" for turbine_id in self.target_suffixes for split in range(len(self.train_dataset))]
-            self.static_features = pd.DataFrame(
-                {
-                    "turbine_id": pd.Categorical(turbine_id for turbine_id in self.target_suffixes for split in range(len(self.train_dataset)))
-                },
-                index=static_index
-            )
-
-            self.cardinality = list(self.static_features.select_dtypes("category").nunique().values)
+            # self.cardinality = list(self.static_features.select_dtypes("category").nunique().values)
+            self.static_features = None # allow to generate itself
+            self.cardinality = (len(self.target_suffixes),)
             
         else:
             self.num_feat_dynamic_real = len(self.feat_dynamic_real_cols)
@@ -142,7 +162,10 @@ class DataModule():
             self.static_features = pd.DataFrame()
             self.cardinality = None 
     
-    def generate_splits(self):
+    def generate_splits(self, splits=None, save=False, reload=True):
+        if splits is None:
+            splits = ["train", "val", "test"]
+            
         assert os.path.exists(self.train_ready_data_path), f"Must run generate_datasets before generate_splits to product {self.train_ready_data_path}."
         
         logging.info(f"Scanning dataset {self.train_ready_data_path}.") 
@@ -151,102 +174,182 @@ class DataModule():
         
         self.get_dataset_info(dataset)
         
-        if self.per_turbine_target:
-            logging.info(f"Splitting datasets for per turbine case.") 
+        if reload or not all(os.path.exists(self.train_ready_data_path.replace(".parquet", f"_{split}.parqet")) for split in splits):
+            if self.per_turbine_target:
+                logging.info(f"Splitting datasets for per turbine case.") 
 
-            cg_counts = dataset.select("continuity_group").collect(streaming=True).to_series().value_counts().sort("continuity_group").select("count").to_numpy().flatten()
-            self.rows_per_split = [
-                int(n_rows / self.n_splits) 
-                for turbine_id in self.target_suffixes 
-                for n_rows in cg_counts] # each element corresponds to each continuity group
-            del cg_counts
-            
-            self.train_dataset, self.val_dataset, self.test_dataset = \
-                self.split_dataset([dataset.filter(pl.col("continuity_group") == cg) for cg in self.continuity_groups]) 
-            
-            
-            self.train_dataset = {f"TURBINE{turbine_id}_SPLIT{split}": 
-                self.get_df_by_turbine(self.train_dataset[split], turbine_id) 
-                for turbine_id in self.target_suffixes for split in range(len(self.train_dataset))}
-            self.val_dataset = {f"TURBINE{turbine_id}_SPLIT{split}": 
-                self.get_df_by_turbine(self.val_dataset[split], turbine_id) 
-                for turbine_id in self.target_suffixes for split in range(len(self.val_dataset))}
-            self.test_dataset = {f"TURBINE{turbine_id}_SPLIT{split}": 
-                self.get_df_by_turbine(self.test_dataset[split], turbine_id) 
-                for turbine_id in self.target_suffixes for split in range(len(self.test_dataset))}
+                cg_counts = dataset.select("continuity_group").collect(streaming=True).to_series().value_counts().sort("continuity_group").select("count").to_numpy().flatten()
+                self.rows_per_split = [
+                    int(n_rows / self.n_splits) 
+                    for turbine_id in self.target_suffixes 
+                    for n_rows in cg_counts] # each element corresponds to each continuity group
+                del cg_counts
+                
+                self.train_dataset, self.val_dataset, self.test_dataset = \
+                    self.split_dataset([dataset.filter(pl.col("continuity_group") == cg) for cg in self.continuity_groups]) 
+                
+                if "train" in splits:
+                    self.train_dataset = {f"TURBINE{turbine_id}_SPLIT{split}": 
+                        self.get_df_by_turbine(self.train_dataset[split], turbine_id) 
+                        for turbine_id in self.target_suffixes for split in range(len(self.train_dataset))}
+                if "val" in splits:
+                    self.val_dataset = {f"TURBINE{turbine_id}_SPLIT{split}": 
+                        self.get_df_by_turbine(self.val_dataset[split], turbine_id) 
+                        for turbine_id in self.target_suffixes for split in range(len(self.val_dataset))}
+                if "test" in splits:
+                    self.test_dataset = {f"TURBINE{turbine_id}_SPLIT{split}": 
+                        self.get_df_by_turbine(self.test_dataset[split], turbine_id) 
+                        for turbine_id in self.target_suffixes for split in range(len(self.test_dataset))}
+                
+                if self.as_lazyframe:
+                    static_index = [f"TURBINE{turbine_id}_SPLIT{split}" for turbine_id in self.target_suffixes for split in range(len(self.train_dataset))]
+                    self.static_features = pd.DataFrame(
+                        {
+                            "turbine_id": pd.Categorical(turbine_id for turbine_id in self.target_suffixes for split in range(len(self.train_dataset)))
+                        },
+                        index=static_index
+                    )
+                    if "train" in splits:
+                        self.train_dataset = PolarsDataset(self.train_dataset, 
+                                        target=self.target_prefixes, timestamp="time", freq=self.freq, 
+                                        feat_dynamic_real=self.feat_dynamic_real_prefixes, static_features=self.static_features, 
+                                        assume_sorted=True, assume_resampled=True, unchecked=True)
+                    
+                    if "val" in splits:
+                        self.val_dataset = PolarsDataset(self.val_dataset, 
+                                        target=self.target_prefixes, timestamp="time", freq=self.freq, 
+                                        feat_dynamic_real=self.feat_dynamic_real_prefixes, static_features=self.static_features, 
+                                        assume_sorted=True, assume_resampled=True, unchecked=True)
+                    
+                    if "test" in splits:
+                        self.test_dataset = PolarsDataset(self.test_dataset, 
+                                        target=self.target_prefixes, timestamp="time", freq=self.freq, 
+                                        feat_dynamic_real=self.feat_dynamic_real_prefixes, static_features=self.static_features, 
+                                        assume_sorted=True, assume_resampled=True, unchecked=True)
+                else:
+                    if "train" in splits:
+                        self.train_dataset = [{"target": self.train_dataset[item_id]._df.select(self.target_prefixes).collect().to_numpy().T,
+                                            "item_id": item_id,
+                                            "start": pd.Period(self.train_dataset[item_id]._df.select(pl.col("time").first()).collect().item(), freq=self.freq),
+                                            "feat_static_cat": [self.target_suffixes.index(re.search("(?<=TURBINE)\\w+(?=_SPLIT)", item_id).group(0))],
+                                            "feat_dynamic_real":  self.train_dataset[item_id]._df.select(self.feat_dynamic_real_prefixes).collect().to_numpy().T
+                                            } for item_id in self.train_dataset]
+                    
+                    if "val" in splits:
+                        self.val_dataset = [{"target": self.val_dataset[item_id]._df.select(self.target_prefixes).collect().to_numpy().T,
+                                            "item_id": item_id,
+                                            "start": pd.Period(self.val_dataset[item_id]._df.select(pl.col("time").first()).collect().item(), freq=self.freq),
+                                            "feat_static_cat": [self.target_suffixes.index(re.search("(?<=TURBINE)\\w+(?=_SPLIT)", item_id).group(0))],
+                                            "feat_dynamic_real":  self.val_dataset[item_id]._df.select(self.feat_dynamic_real_prefixes).collect().to_numpy().T
+                                            } for item_id in self.val_dataset]
+                        
+                    if "test" in splits:
+                        self.test_dataset = [{"target": self.test_dataset[item_id]._df.select(self.target_prefixes).collect().to_numpy().T,
+                                            "item_id": item_id,
+                                            "start": pd.Period(self.test_dataset[item_id]._df.select(pl.col("time").first()).collect().item(), freq=self.freq),
+                                            "feat_static_cat": [self.target_suffixes.index(re.search("(?<=TURBINE)\\w+(?=_SPLIT)", item_id).group(0))],
+                                            "feat_dynamic_real":  self.test_dataset[item_id]._df.select(self.feat_dynamic_real_prefixes).collect().to_numpy().T
+                                            } for item_id in self.test_dataset]
 
-            self.train_dataset = PolarsDataset(self.train_dataset, 
-                            target=self.target_prefixes, timestamp="time", freq=self.freq, 
-                            feat_dynamic_real=self.feat_dynamic_real_prefixes, static_features=self.static_features, 
+                logging.info(f"Finished splitting datasets for per turbine case.") 
+
+            else:
+                logging.info(f"Splitting datasets for all turbine case.") 
+                
+                cg_counts = dataset.select("continuity_group").collect().to_series().value_counts().sort("continuity_group").select("count").to_numpy().flatten()
+                self.rows_per_split = [int(n_rows / self.n_splits) for n_rows in cg_counts] # each element corresponds to each continuity group
+                del cg_counts
+                
+                self.train_dataset, self.val_dataset, self.test_dataset = \
+                    self.split_dataset([dataset.filter(pl.col("continuity_group") == cg) for cg in self.continuity_groups])
+
+                # train_grouper = MultivariateGrouper(
+                #     max_target_dim=self.num_target_vars,
+                #     split_on="continuity_group" if len(self.continuity_groups) > 1 else None
+                # )
+
+                if "train" in splits:
+                    self.train_dataset = {f"SPLIT{split}": 
+                        self.train_dataset[split].select([pl.col("time")] + self.feat_dynamic_real_cols + self.target_cols) 
+                        for split in range(len(self.train_dataset))}
+                
+                if "val" in splits:
+                    self.val_dataset = {f"SPLIT{split}": 
+                        self.val_dataset[split].select([pl.col("time")] + self.feat_dynamic_real_cols + self.target_cols) 
+                        for split in range(len(self.val_dataset))}
+                
+                if "test" in splits:
+                    self.test_dataset = {f"SPLIT{split}": self.test_dataset[split].select([pl.col("time")] + self.feat_dynamic_real_cols + self.target_cols) 
+                                        for split in range(len(self.test_dataset))}
+
+                if self.as_lazyframe:
+                    if "train" in splits:
+                        self.train_dataset = PolarsDataset(
+                            self.train_dataset, 
+                            timestamp="time", freq=self.freq, 
+                            target=self.target_cols, feat_dynamic_real=self.feat_dynamic_real_cols, static_features=self.static_features, 
+                            assume_sorted=True, assume_resampled=True, unchecked=True
+                            )
+                    
+                    if "val" in splits:
+                        self.val_dataset = PolarsDataset(
+                            self.val_dataset, 
+                            timestamp="time", freq=self.freq, 
+                            target=self.target_cols, feat_dynamic_real=self.feat_dynamic_real_cols, static_features=self.static_features, 
                             assume_sorted=True, assume_resampled=True, unchecked=True)
-            
-            self.val_dataset = PolarsDataset(self.val_dataset, 
-                            target=self.target_prefixes, timestamp="time", freq=self.freq, 
-                            feat_dynamic_real=self.feat_dynamic_real_prefixes, static_features=self.static_features, 
+                    
+                    if "test" in splits:
+                        self.test_dataset = PolarsDataset(
+                            self.test_dataset, 
+                            timestamp="time", freq=self.freq, 
+                            target=self.target_cols, feat_dynamic_real=self.feat_dynamic_real_cols, static_features=self.static_features, 
                             assume_sorted=True, assume_resampled=True, unchecked=True)
+                        
+                else:
+                    if "train" in splits:
+                        self.train_dataset = [{"target": self.train_dataset[item_id]._df.select(self.target_cols).collect().to_numpy().T,
+                                            "item_id": item_id,
+                                            "start": pd.Period(self.train_dataset[item_id]._df.select(pl.col("time").first()).collect().item(), freq=self.freq),
+                                            "feat_dynamic_real":  self.train_dataset[item_id]._df.select(self.feat_dynamic_real_cols).collect().to_numpy().T
+                                            } for item_id in self.train_dataset]
+                        
+                    if "val" in splits:
+                        self.val_dataset = [{"target": self.val_dataset[item_id]._df.select(self.target_cols).collect().to_numpy().T,
+                                            "item_id": item_id,
+                                            "start": pd.Period(self.val_dataset[item_id]._df.select(pl.col("time").first()).collect().item(), freq=self.freq),
+                                            "feat_dynamic_real":  self.val_dataset[item_id]._df.select(self.feat_dynamic_real_cols).collect().to_numpy().T
+                                            } for item_id in self.val_dataset]
+                        
+                    if "test" in splits:
+                        self.test_dataset = [{"target": self.test_dataset[item_id]._df.select(self.target_cols).collect().to_numpy().T,
+                                            "item_id": item_id,
+                                            "start": pd.Period(self.test_dataset[item_id]._df.select(pl.col("time").first()).collect().item(), freq=self.freq),
+                                            "feat_dynamic_real":  self.test_dataset[item_id]._df.select(self.feat_dynamic_real_cols).collect().to_numpy().T
+                                            } for item_id in self.test_dataset]
+                
+                logging.info(f"Finished splitting datasets for all turbine case.")
             
-            self.test_dataset = PolarsDataset(self.test_dataset, 
-                            target=self.target_prefixes, timestamp="time", freq=self.freq, 
-                            feat_dynamic_real=self.feat_dynamic_real_prefixes, static_features=self.static_features, 
-                            assume_sorted=True, assume_resampled=True, unchecked=True)
-
-
-            
-            logging.info(f"Finished splitting datasets for per turbine case.") 
-
+            if save:
+                for split in splits:
+                    if self.as_lazyframe:
+                        raise NotImplementedError()
+                    else:
+                        with open(self.train_ready_data_path.replace(".parquet", f"_{split}.pkl"), 'wb') as fp:
+                            pickle.dump(getattr(self, f"{split}_dataset"), fp)
         else:
-            logging.info(f"Splitting datasets for all turbine case.") 
-            
-            cg_counts = dataset.select("continuity_group").collect().to_series().value_counts().sort("continuity_group").select("count").to_numpy().flatten()
-            self.rows_per_split = [int(n_rows / self.n_splits) for n_rows in cg_counts] # each element corresponds to each continuity group
-            del cg_counts
-            
-            self.train_dataset, self.val_dataset, self.test_dataset = \
-                self.split_dataset([dataset.filter(pl.col("continuity_group") == cg) for cg in self.continuity_groups])
-
-            # train_grouper = MultivariateGrouper(
-            #     max_target_dim=self.num_target_vars,
-            #     split_on="continuity_group" if len(self.continuity_groups) > 1 else None
-            # )
-
-            self.train_dataset = {f"SPLIT{split}": 
-                self.train_dataset[split].select([pl.col("time")] + self.feat_dynamic_real_cols + self.target_cols) 
-                for split in range(len(self.train_dataset))}
-            
-            self.val_dataset = {f"SPLIT{split}": 
-                self.val_dataset[split].select([pl.col("time")] + self.feat_dynamic_real_cols + self.target_cols) 
-                for split in range(len(self.val_dataset))}
-            
-            self.test_dataset = {f"SPLIT{split}": self.test_dataset[split].select([pl.col("time")] + self.feat_dynamic_real_cols + self.target_cols) 
-                                 for split in range(len(self.test_dataset))}
-
-            self.train_dataset = PolarsDataset(
-                self.train_dataset, 
-                timestamp="time", freq=self.freq, 
-                target=self.target_cols, feat_dynamic_real=self.feat_dynamic_real_cols, static_features=self.static_features, 
-                assume_sorted=True, assume_resampled=True, unchecked=True
-                )
-            
-            self.val_dataset = PolarsDataset(
-                self.val_dataset, 
-                timestamp="time", freq=self.freq, 
-                target=self.target_cols, feat_dynamic_real=self.feat_dynamic_real_cols, static_features=self.static_features, 
-                assume_sorted=True, assume_resampled=True, unchecked=True)
-            
-            self.test_dataset = PolarsDataset(
-                self.test_dataset, 
-                timestamp="time", freq=self.freq, 
-                target=self.target_cols, feat_dynamic_real=self.feat_dynamic_real_cols, static_features=self.static_features, 
-                assume_sorted=True, assume_resampled=True, unchecked=True)
-            
-            logging.info(f"Finished splitting datasets for all turbine case.") 
-        
+            logging.info("Fetching saved split datasets.")
+            for split in splits:
+                with open(self.train_ready_data_path.replace(".parquet", f"_{split}.pkl"), 'rb') as fp:
+                    data = pickle.load(fp)
+                    setattr(self, f"{split}_dataset", data)
+                    
         # for split, datasets in [("train", self.train_dataset), ("val", self.val_dataset), ("test", self.test_dataset)]:
         #     for ds in iter(datasets):
         #         for key in ["target", "feat_dynamic_real"]:
         #             print(f"{split} {key} {ds['item_id']} dataset - num nan/nulls = {ds[key].select(pl.sum_horizontal((cs.numeric().is_null() | cs.numeric().is_nan()).sum())).collect().item()}")
-         
-        return None
+        
+            
+        return dataset
         
     def get_df_by_turbine(self, dataset, turbine_id):
         return dataset.select(pl.col("time"), *[col for col in (self.feat_dynamic_real_cols + self.target_cols) if turbine_id in col])\
@@ -262,6 +365,10 @@ class DataModule():
                 ) for ds in datasets for turbine_id in self.target_suffixes
         ]
 
+    # def denormalize(self, split):
+    #     assert split in ["train", "test", "val"]
+    #     ds = getattr(self, f"{split}_dataset")
+        
     def split_dataset(self, dataset):
         train_datasets = []
         test_datasets = []
@@ -311,9 +418,12 @@ class DataModule():
             test_offset = round(self.test_split * self.rows_per_split[cg])
 
             # TODO shouldn't test data include history, and just the labels be unseen by training data?
-            train_datasets.append(ds.slice(0, train_offset))
-            val_datasets.append(ds.slice(train_offset, val_offset))
-            test_datasets.append(ds.slice(train_offset + val_offset, test_offset))
+            # train_datasets.append(ds.slice(0, train_offset))
+            # val_datasets.append(ds.slice(train_offset, val_offset))
+            # test_datasets.append(ds.slice(train_offset + val_offset, test_offset))
+            train_datasets += [d.slice(0, train_offset) for d in datasets]
+            val_datasets += [d.slice(train_offset, val_offset) for d in datasets]
+            test_datasets += [d.slice(train_offset + val_offset, test_offset) for d in datasets]
             
             if self.verbose:
                 for t, train_entry in enumerate(iter(train_datasets[-1])):

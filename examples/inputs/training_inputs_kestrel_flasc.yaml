@@ -3,19 +3,66 @@
 experiment:
   run_name: kestrel_flasc
   log_dir: /projects/ssc/ahenry/wind_forecasting/logging/
+  project_root: /projects/ssc/ahenry/wind_forecasting/
+
+# logging:
+#   wandb_dir: /projects/ssc/ahenry/wind_forecasting/logging/ # WandB will create a 'wandb' subdirectory here automatically
+#   optuna_dir: /projects/ssc/ahenry/wind_forecasting/logging/optuna/
+#   checkpoint_dir: /projects/ssc/ahenry/wind_forecasting/logging/checkpoints/
+#   slurm_output_dir: /projects/ssc/ahenry/wind_forecasting/logging/slurm_logs/
 
 optuna:
-  journal_dir: /projects/ssc/ahenry/wind_forecasting/optuna
-  storage_type: mysql # sqlite, mysql, or journal
-  n_trials: 2
+  storage_dir: /projects/ssc/ahenry/wind_forecasting/optuna
+  backend: mysql # sqlite, mysql, or journal
+  n_trials: 100
   metric: mean_wQuantileLoss
   direction: minimize
-  max_epochs: 3
-  limit_train_batches: 500
+  max_epochs: 10
+  limit_train_batches: 1000
   context_length_choice_factors:
     - 1
     - 1.5
     - 2
+  
+  # Pruning configuration
+  pruning:
+    enabled: true             # Whether to enable pruning
+    type: "hyperband"         # Options: "hyperband", "median", "percentile", "none"
+    min_resource: 1           # Minimum epochs before pruning can occur (default: 2)
+    reduction_factor: 3       # Hyperband reduction factor (default: 3)
+    max_resource: 10
+    percentile": 25
+  
+  # Optuna visualization configuration (additional to wandb)
+  visualization:
+    enabled: true
+    output_dir: ${logging.optuna_dir}/visualizations
+    plots:
+      optimization_history: true
+      parameter_importance: true
+      slice_plot: true
+      
+  # Storage backend configuration
+  storage:
+    backend: "sqlite"  # Options: "postgresql", "sqlite", "mysql", "journal"
+    # --- SQLite Specific Settings (not used if backend is postgresql) ---
+    sqlite_wal: true  # Enable WAL mode for SQLite
+    sqlite_timeout: 600 # Timeout in seconds for SQLite locks
+
+    # --- Optional TCP/IP Settings (if use_socket is false) ---
+    # use_tcp: false
+    # db_host: "localhost"
+    # db_port: 5432
+
+    # --- Optional Command Execution Settings ---
+    # run_cmd_shell: false # Set to true if specific commands require shell=True
+
+  # Optuna Dashboard auto-launch configuration
+  dashboard:
+    enabled: true             # Set to true to automatically launch the dashboard on rank 0
+    port: 8088                # Port for the dashboard web server
+    log_file: "${logging.optuna_dir}/optuna_dashboard.log" # Log file for the dashboard process
+
 
 dataset: 
     data_path: /projects/ssc/ahenry/wind_forecasting/flasc_data/SMARTEOLE_WakeSteering_SCADA_1minData_normalized.parquet
@@ -41,28 +88,28 @@ model:
       rank: 8
   informer:
     # embedding_dimension: 32 # Determines dimension of the embedding space
-    num_encoder_layers: 3 # Number of transformer blocks stacked
-    num_decoder_layers: 3 # Number of transformer blocks stacked
-    n_heads: 4 # Number of heads for spatio-temporal attention
-    d_model: 64
-    dim_feedforward: 64
+    num_encoder_layers: 2 # Number of transformer blocks stacked
+    num_decoder_layers: 1 # Number of transformer blocks stacked
+    n_heads: 8 # Number of heads for spatio-temporal attention
+    d_model: 512 
+    dim_feedforward: 2048
     activation: relu
   autoformer:
     # embedding_dimension: 32 # Determines dimension of the embedding space
-    num_encoder_layers: 3 # Number of transformer blocks stacked
-    num_decoder_layers: 3 # Number of transformer blocks stacked
-    n_heads: 4 # Number of heads for spatio-temporal attention
-    dim_feedforward: 64
-    activation: relu
+    num_encoder_layers: 2 # Number of transformer blocks stacked
+    num_decoder_layers: 1 # Number of transformer blocks stacked
+    n_heads: 8 # Number of heads for spatio-temporal attention
+    dim_feedforward: 2048
+    activation: gelu
   spacetimeformer:
     # embedding_dimension: 32 # Determines dimension of the embedding space
     num_encoder_layers: 3 # Number of transformer blocks stacked
     num_decoder_layers: 3 # Number of transformer blocks stacked
     n_heads: 3 # Number of heads for spatio-temporal attention
-    d_model: 64
-    dim_feedforward: 64
-    d_queries_keys: 64
-    d_values: 64
+    d_model: 200
+    dim_feedforward: 800
+    d_queries_keys: 30
+    d_values: 30
     dropout_emb: 0.2
     dropout_attn_matrix: 0.0
     dropout_attn_out: 0.0
@@ -76,7 +123,7 @@ model:
     # class_loss_imp: 0.1
     pos_emb_type: abs
     embed_method: spatio-temporal
-    activation: relu
+    activation: gelu
     use_given: False
 
 callbacks: 
@@ -92,7 +139,7 @@ trainer:
     accelerator: gpu
     devices: auto
     num_nodes: 1
-    strategy: ddp
+    strategy: auto 
     # n_workers: auto
     # debug: False 
     # accumulate: 1.0

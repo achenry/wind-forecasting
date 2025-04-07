@@ -1,12 +1,15 @@
 #!/bin/bash
+#SBATCH --partition=aa100
+#SBATCH --qos=normal
 #SBATCH --nodes=1 # this needs to match Trainer(num_nodes...)
-#SBATCH --gres=gpu:3
-#SBATCH --ntasks=3 # necessary for gpus on rc
-#SBATCH --ntasks-per-node=3 # this needs to match Trainer(devices=...)
+#SBATCH --qos=normal
+#SBATCH --gres=gpu:1
+#SBATCH --ntasks=1 # necessary for gpus on rc
+#SBATCH --ntasks-per-node=1 # this needs to match Trainer(devices=...)
 ##SBATCH --mem-per-cpu=85G TODO what can I ask for here?
 #SBATCH --time=16:00:00
 #SBATCH --output=%j-%x.log
-#SBATCH --partition=aa100
+
 
 # sinteractive --partition=atesting_a100 --gres=gpu:1 --ntasks-per-node=1 --ntasks=1 --time=50:00
 
@@ -19,8 +22,6 @@ echo "SLURM_NTASKS=${SLURM_NTASKS}"
 echo "SLURM_JOB_NUM_NODES=${SLURM_JOB_NUM_NODES}"
 echo "SLURM_GPUS_ON_NODE=${SLURM_GPUS_ON_NODE}"
 export WANDB_API_KEY=a9aec8e98a88077de29031385225167c720030f7
-# echo "SLURM_JOB_GPUS=${SLURM_JOB_GPUS}"
-# echo "SLURM_JOB_GRES=${SLURM_JOB_GRES}"
 export PYTHON_EXECUTABLE=$(which python)
 
 # NOTE run the following first: python load_data.py --config ../../examples/inputs/training_inputs_rc_awaken.yaml --reload
