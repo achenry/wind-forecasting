@@ -1,7 +1,9 @@
 
 
 experiment:
-  run_name: kestrel_awaken
+  # run_name: kestrel_awaken
+  # run_name: kestrel_awaken_all_turbine
+  run_name: kestrel_awaken_per_turbine
   log_dir: /projects/ssc/ahenry/wind_forecasting/logging/
   project_root: /projects/ssc/ahenry/wind_forecasting/
 
@@ -14,11 +16,11 @@ experiment:
 optuna:
   storage_dir: /projects/ssc/ahenry/wind_forecasting/optuna
   backend: mysql # sqlite, mysql, or journal
-  n_trials: 2
+  n_trials: 100
   metric: mean_wQuantileLoss
   direction: minimize
-  max_epochs: 3
-  limit_train_batches: 500
+  max_epochs: 10
+  limit_train_batches: 1000
   context_length_choice_factors:
     - 1
     - 1.5
@@ -30,7 +32,7 @@ optuna:
     type: "hyperband"         # Options: "hyperband", "median", "percentile", "none"
     min_resource: 1           # Minimum epochs before pruning can occur (default: 2)
     reduction_factor: 3       # Hyperband reduction factor (default: 3)
-    max_resource: 5
+    max_resource: 10
     percentile": 25
 
   # Optuna visualization configuration (additional to wandb)
@@ -143,7 +145,7 @@ trainer:
     # n_workers: auto
     # debug: False 
     # accumulate: 1.0
-    max_epochs: 10 # Maximum number of epochs to train 100
+    max_epochs: 100 # Maximum number of epochs to train 100
     limit_train_batches: 1000
     default_root_dir: /projects/ssc/ahenry/wind_forecasting/checkpoints
     # precision: 32-true # 16-mixed enables mixed precision training 32-true is full precision
