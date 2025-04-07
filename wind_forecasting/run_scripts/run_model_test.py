@@ -99,7 +99,7 @@ def main():
                                 freq=config["dataset"]["resample_freq"], target_suffixes=config["dataset"]["target_turbine_ids"],
                                     per_turbine_target=config["dataset"]["per_turbine_target"], dtype=pl.Float32)
     # if RUN_ONCE:
-    data_module.generate_splits(save=True, reload=False)
+    data_module.generate_splits()
     
     if rank_zero_only.rank == 0:
         config["trainer"]["default_root_dir"] = os.path.join(config["trainer"]["default_root_dir"], f"{args.model}_{config['experiment']['run_name']}")
