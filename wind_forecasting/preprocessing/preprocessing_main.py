@@ -4,14 +4,14 @@
 # ! mamba activate wind_forecasting_env
 # ! conda install -c conda-forge jupyterlab mpi4py impi_rt
 # git clone https://github.com/achenry/wind-forecasting.git
-# git checkout feature/nacelle_calibration
-# git submodule update --init --recursive
-# ! pip install ./OpenOA # have to change pyproject.toml to allow for python 3.12.7
-# ! pip install floris polars windrose netCDF4 statsmodels h5pyd seaborn pyarrow memory_profiler scikit-learn
+# cd wind-forecasting && git checkout feature/spacetimeformer && pip install -e .
+# git clone https://github.com/achenry/floris.git
+# cd floris && git checkout feature/mpc && pip install -e .
+# git clone https://github.com/achenry/OpenOA.git
+# cd OpenOA && git checkout main && pip install -e .
+# ! pip install polars windrose netCDF4 statsmodels h5pyd seaborn pyyaml memory_profiler numpy scikit-learn
 # ! python -m ipykernel install --user --name=wind_forecasting_env
 # ./run_jupyter_preprocessing.sh && http://localhost:7878/lab
-
-# TODO HIGH check for lambda funcs killing parallelization
 
 import os
 import sys
@@ -22,12 +22,12 @@ import time
 import re
 from memory_profiler import profile
 from shutil import rmtree, move
-import pickle
-from glob import glob
-from time import sleep
+# import pickle
+# from glob import glob
+# from time import sleep
 # from pyarrow.dataset import write_dataset
-from pyarrow.parquet import ParquetWriter, ParquetDataset
-import pyarrow as pa
+# from pyarrow.parquet import ParquetWriter, ParquetDataset
+# import pyarrow as pa
 from psutil import virtual_memory
 
 mpi_exists = False
@@ -56,7 +56,7 @@ from openoa.utils import plot, filters, power_curve
 import polars as pl
 import polars.selectors as cs
 import numpy as np
-import matplotlib
+# import matplotlib
 # matplotlib.use('Agg') # Use TkAgg for interactive plots
 # matplotlib.use('TkAgg')
 import matplotlib.pyplot as plt
@@ -72,8 +72,8 @@ ROW_LIMIT = 60 * 60 * 24 * 30 * 3
 # %%
 # @profile
 def main():
-    if MPI.COMM_WORLD.Get_rank() == 0: 
-     logging.info("Parsing arguments...")
+    if (not mpi_exists) or (mpi_exists and MPI.COMM_WORLD.Get_rank() == 0):
+        logging.info("Parsing arguments...")
     parser = argparse.ArgumentParser(prog="WindFarmForecasting")
     parser.add_argument("-cnf", "--config", type=str)
     parser.add_argument("-m", "--multiprocessor", type=str, choices=["cf", "mpi"], required=False, default=None)
@@ -98,11 +98,10 @@ def main():
     config["farm_input_path"] = os.path.expanduser(config["farm_input_path"])
     
     if RUN_ONCE:
-        for path_key in ["raw_data_directory", "turbine_input_path", "farm_input_path"]:
-            if isinstance(config[path_key], list):
-                assert all(os.path.exists(fp) for fp in config[path_key]), f"One of {config[path_key]} doesn't exist."
-            else:
-                assert os.path.exists(config[path_key]), f"{config[path_key]} doesn't exist."
+        assert (not args.reload_data and os.path.exists(config["processed_data_path"])) or all(os.path.exists(fp) for fp in config[raw_data_directory]), f"One of {config[path_key]} doesn't exist."
+        
+        for path_key in ["turbine_input_path", "farm_input_path"]:
+            assert os.path.exists(config[path_key]), f"{config[path_key]} doesn't exist."
              
     for path_key in ["raw_data_directory", "processed_data_path", "turbine_input_path", "farm_input_path", "temp_storage_dir"]:
         if isinstance(config[path_key], list):
@@ -979,7 +978,7 @@ def main():
         cols = df_query.select(cs.starts_with("ws_horz"), cs.starts_with("ws_vert")).collect_schema().names()
         if config["filters"]["std_range_flag"]["over"] == "asset":
             total_rows = df_query.select(pl.len()).collect().item()
-            chunk_size = 250_000_000
+            chunk_size = total_rows * len(cols)#1_000_000_000
             row_chunk_size = int(chunk_size // len(cols))
             filenames = np.arange(len(np.arange(0, total_rows, row_chunk_size)))
         else:
@@ -1015,7 +1014,7 @@ def main():
                         return_ram=True
                     ) 
                     pl.concat([df_query.slice(start_row, row_chunk_size).select("time"),
-                               df], how="horizontal").collect(_eager=True).write_parquet(os.path.join(std_dev_filter_temp_path, f"{s}.parquet"), statistics=False)
+                               df], how="horizontal").collect(_eager=True).write_parquet(os.path.join(std_dev_filter_target_path, f"{s}.parquet"), statistics=False)
                     del df
                     
                     if RUN_ONCE:
@@ -1039,15 +1038,15 @@ def main():
                         min_correlated_assets=config["filters"]["std_range_flag"]["min_correlated_assets"],
                         return_ram=True
                     )
-                    df.collect(_eager=True).write_parquet(os.path.join(std_dev_filter_temp_path, f"{c}.parquet"), statistics=False)
+                    df.collect(_eager=True).write_parquet(os.path.join(std_dev_filter_target_path, f"{c}.parquet"), statistics=False)
                     del df
                     
                     if RUN_ONCE:
                         logging.info(f"Processing column {c} of {len(cols)} of std_dev_outliers. Maximum RAM used was {max_ram}%.")
                     
             # move from temp location to permanent
-            if RUN_ONCE and len(glob(os.path.join(std_dev_filter_temp_path, "*.parquet"))):
-                move(std_dev_filter_temp_path, std_dev_filter_target_path)
+            # if RUN_ONCE and len(glob(os.path.join(std_dev_filter_temp_path, "*.parquet"))):
+            #     move(std_dev_filter_temp_path, std_dev_filter_target_path)
         
         if RUN_ONCE:
             if config["filters"]["std_range_flag"]["over"] == "asset": 

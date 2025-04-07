@@ -3,7 +3,7 @@ experiment:
   log_dir: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/logging/
 
 optuna:
-  journal_dir: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/optuna
+  journal_dir: C:\Users\20202629\Desktop\Internship\Wind_Forecaster_Folder\wind-forecasting\examples #\optuna 
   storage_type: sqlite # or mysql, or journal
   n_trials: 2
   metric: mean_wQuantileLoss

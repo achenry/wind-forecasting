@@ -6,11 +6,18 @@ eval "$(mamba.exe shell hook --shell bash)" # Intialize mamba for current shell
 mamba activate wind_forecasting
 
 # mamba install conda-forge::cuda-version=12.4 nvidia/label/cuda-12.4.0::cuda-toolkit performer-pytorch pytorch torchvision torchaudio torchmetrics pytorch-cuda=12.4 lightning -c pytorch -c nvidia --y
+<<<<<<< HEAD
 mamba install polars windrose statsmodels scikit-learn jupyterlab nb_conda_kernels pyyaml matplotlib numpy seaborn opt_einsum netcdf4 scipy h5pyd wandb einops # --y this part should not be included
 # Use the following code when experiencing package dependencies: mamba install polars windrose statsmodels scikit-learn jupyterlab nb_conda_kernels pyyaml matplotlib numpy seaborn opt_einsum netcdf4 scipy h5pyd wandb einops -c conda-forge
 module load intel/2022.1.2 impi/2021.5.0
 python -m pip install mpi4py opencv-python performer-pytorch psutil memory_profiler optuna mysqlclient mysql-connector-python filterpy # For windows, leave the MySQL out; removed openmpi since it cannot be installed
 brew install mysql  && brew services start mysql # This only works on MacOS, for windows use official website to download and install MySQL
+=======
+mamba install polars windrose statsmodels scikit-learn jupyterlab nb_conda_kernels pyyaml matplotlib numpy seaborn opt_einsum netcdf4 scipy h5pyd wandb einops --y 
+python -m pip install opencv-python floris performer-pytorch psutil memory_profiler optuna mysqlclient mysql-connector-python filterpy
+
+brew install mysql  && brew services start mysql
+>>>>>>> 42ff3e6a1df9aa2d2742395aac5592ab345fd00e
 
 git clone https://github.com/achenry/wind-forecasting.git
 cd wind-forecasting
