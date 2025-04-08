@@ -25,7 +25,7 @@ from pytorch_transformer_ts.spacetimeformer.lightning_module import Spacetimefor
 from wind_forecasting.preprocessing.data_module import DataModule
 from gluonts.time_feature._base import second_of_minute, minute_of_hour, hour_of_day, day_of_year
 from gluonts.transform import ExpectedNumInstanceSampler, ValidationSplitSampler, SequentialSampler
-from wind_forecasting.postprocessing.probabilistic_metrics import continuous_ranked_probability_score, reliability, resolution, uncertainty, sharpness, pi_coverage_probability, pi_normalized_average_width, coverage_width_criterion 
+from wind_forecasting.postprocessing.probabilistic_metrics import continuous_ranked_probability_score_gaussian, reliability, resolution, uncertainty, sharpness, pi_coverage_probability, pi_normalized_average_width, coverage_width_criterion 
 
 # Configure logging and matplotlib backend
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -71,7 +71,7 @@ def test_model(*, data_module, checkpoint, lightning_module_class, normalization
                 "PICP": (pi_coverage_probability, "mean", "mean"),
                 "PINAW": (pi_normalized_average_width, "mean", "mean"),
                 "CWC": (coverage_width_criterion, "mean", "mean"),
-                "CRPS": (continuous_ranked_probability_score, "mean", "mean"),
+                "CRPS": (continuous_ranked_probability_score_gaussian, "mean", "mean"),
     }
     evaluator = MultivariateEvaluator(num_workers=None, 
         custom_eval_fn=None
