@@ -52,6 +52,7 @@ def setup_postgresql_rank_zero(config, restart=False, register_cleanup=True):
     """
     Sets up PostgreSQL instance on rank 0 (primary worker).
     """
+    pg_config = None # Initialize pg_config to handle potential errors during setup
     logging.info("Rank 0: Managing PostgreSQL instance...")
     try:
         # Manage instance (init, start, setup user/db)

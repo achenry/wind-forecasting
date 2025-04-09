@@ -209,15 +209,15 @@ class DataModule():
             #     split_on="continuity_group" if len(self.continuity_groups) > 1 else None
             # )
 
-            self.train_dataset = {f"SPLIT{split}": 
-                self.train_dataset[split].select([pl.col("time")] + self.feat_dynamic_real_cols + self.target_cols) 
+            self.train_dataset = {f"SPLIT{split}":
+                self.train_dataset[split].select([pl.col("time")] + self.feat_dynamic_real_cols + self.target_cols).collect() # Collect LazyFrame to DataFrame
                 for split in range(len(self.train_dataset))}
             
-            self.val_dataset = {f"SPLIT{split}": 
-                self.val_dataset[split].select([pl.col("time")] + self.feat_dynamic_real_cols + self.target_cols) 
+            self.val_dataset = {f"SPLIT{split}":
+                self.val_dataset[split].select([pl.col("time")] + self.feat_dynamic_real_cols + self.target_cols).collect() # Collect LazyFrame to DataFrame
                 for split in range(len(self.val_dataset))}
             
-            self.test_dataset = {f"SPLIT{split}": self.test_dataset[split].select([pl.col("time")] + self.feat_dynamic_real_cols + self.target_cols) 
+            self.test_dataset = {f"SPLIT{split}": self.test_dataset[split].select([pl.col("time")] + self.feat_dynamic_real_cols + self.target_cols).collect() # Collect LazyFrame to DataFrame
                                  for split in range(len(self.test_dataset))}
 
             self.train_dataset = PolarsDataset(

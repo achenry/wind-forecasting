@@ -257,6 +257,8 @@ def start_postgres(pg_config):
             socket_dir = pg_config.get("socket_dir")
             if not socket_dir:
                  raise ValueError("Socket directory required to start PostgreSQL with socket connection.")
+            # Ensure the socket directory exists before starting
+            os.makedirs(socket_dir, exist_ok=True)
             start_opts.extend(["-o", f"-c unix_socket_directories='{socket_dir}'"])
             logging.info(f"Starting PostgreSQL with socket directory: {socket_dir}")
         elif pg_config.get("use_tcp"):
