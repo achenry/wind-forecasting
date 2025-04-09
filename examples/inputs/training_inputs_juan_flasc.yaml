@@ -68,8 +68,8 @@ optuna:
 dataset:
     data_path: /user/taed7566/wind-forecasting/examples/inputs/SMARTEOLE-WFC-open-dataset/processed/SMARTEOLE_WakeSteering_SCADA_1minData_normalized.parquet
     normalization_consts_path:  /user/taed7566/wind-forecasting/examples/inputs/SMARTEOLE-WFC-open-dataset/processed/SMARTEOLE_WakeSteering_SCADA_1minData_normalization_consts.csv
-    context_length: 20 # 120=10 minutes for 5 sec sample size
-    prediction_length: 20 # 120=10 minutes for 5 sec sample size
+    context_length: 600 # in seconds
+    prediction_length: 300 # in seconds
     target_turbine_ids: # or leave blank to capture all
     normalize: False
     batch_size: 512 # Increased batch size

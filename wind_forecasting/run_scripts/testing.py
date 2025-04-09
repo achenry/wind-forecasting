@@ -42,7 +42,7 @@ except:
 
 
 def test_model(*, data_module, checkpoint, lightning_module_class, normalization_consts_path, estimator):
-    # TODO denormalize at end
+    
     normalization_consts = pd.read_csv(normalization_consts_path, index_col=None)
     if os.path.exists(checkpoint):
         logging.info("Found pretrained model, loading...")
@@ -64,7 +64,7 @@ def test_model(*, data_module, checkpoint, lightning_module_class, normalization
     tss = list(ts_it)
     
     # %%
-    # TODO add custom evaluation functions eg Continuous Ranked Probability Score, Quantile Loss, Pinball Loss/Quantile Score (same as Quantile Loss?), 
+    # add custom evaluation functions eg Continuous Ranked Probability Score, Quantile Loss, Pinball Loss/Quantile Score (same as Quantile Loss?), 
     # Energy Score, PI Coverage Probability (PICP), PI Normalized Average Width (PINAW), Coverage Width Criterion (CWC), Winkler/IntervalScore(IS)
     
     custom_eval_fn={
@@ -74,7 +74,7 @@ def test_model(*, data_module, checkpoint, lightning_module_class, normalization
                 "CRPS": (continuous_ranked_probability_score_gaussian, "mean", "mean"),
     }
     evaluator = MultivariateEvaluator(num_workers=None, 
-        custom_eval_fn=None
+        custom_eval_fn=custom_eval_fn
     )
 
     # %% COMPUTE AGGREGATE METRICS
@@ -106,6 +106,7 @@ def test_model(*, data_module, checkpoint, lightning_module_class, normalization
     # %%
     # forecasts[0].distribution.loc.cpu().numpy()
     # forecasts[0].distribution.cov_diag.cpu().numpy()
+    # TODO denormalize for plots using code from DataModule initialization
     num_forecasts = 4
     fig, axs = plt.subplots(min(len(forecasts), num_forecasts), len(data_module.target_prefixes), figsize=(6, 12))
     axs = axs.flatten()
@@ -199,7 +200,9 @@ def test_model(*, data_module, checkpoint, lightning_module_class, normalization
 
 def get_checkpoint(checkpoint, metric, mode, log_dir):
     
-    if checkpoint in ["best", "latest"]:
+    if checkpoint is None:
+        return None
+    elif checkpoint in ["best", "latest"]:
         checkpoint_paths = glob(os.path.join(log_dir, "*/*/*/*.ckpt"))
         # version_dirs = glob(os.path.join(log_dir, "*"))
         if len(checkpoint_paths) == 0:
@@ -210,9 +213,7 @@ def get_checkpoint(checkpoint, metric, mode, log_dir):
         logging.warning(f"There is no checkpoint file at {checkpoint}, returning None.")
         return None
 
-    if checkpoint is None:
-        return None
-    elif checkpoint == "best":
+    if checkpoint == "best":
         best_metric_value = float('inf') if mode == "min" else float('-inf')
         best_checkpoint_path = None
         for checkpoint_path in checkpoint_paths:
