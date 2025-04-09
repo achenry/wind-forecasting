@@ -58,6 +58,10 @@ class DataModule():
         else:
             self.train_ready_data_path = self.data_path.replace(
                 ".parquet", f"_train_ready_{self.freq}_{'per_turbine' if self.per_turbine_target else 'all_turbine'}.parquet")
+            
+        # convert context and prediction length from seconds to time stesp based on freq
+        self.context_length = int(pd.Timedelta(self.context_length, unit="s") / pd.Timedelta(self.freq))
+        self.prediction_length = int(pd.Timedelta(self.prediction_length, unit="s") / pd.Timedelta(self.freq))
      
     def generate_datasets(self):
         
