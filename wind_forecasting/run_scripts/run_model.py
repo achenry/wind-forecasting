@@ -318,9 +318,9 @@ def main():
             distr_output=globals()[config["model"]["distr_output"]["class"]](dim=data_module.num_target_vars, **config["model"]["distr_output"]["kwargs"]),
             batch_size=config["dataset"].setdefault("batch_size", 128),
             num_batches_per_epoch=config["trainer"].setdefault("limit_train_batches", 50),
-            context_length=config["dataset"]["context_length"],
-            train_sampler=ExpectedNumInstanceSampler(num_instances=1.0, min_past=config["dataset"]["context_length"], min_future=data_module.prediction_length),
-            validation_sampler=ValidationSplitSampler(min_past=config["dataset"]["context_length"], min_future=data_module.prediction_length),
+            context_length=data_module.context_length,
+            train_sampler=ExpectedNumInstanceSampler(num_instances=1.0, min_past=data_module.context_length, min_future=data_module.prediction_length),
+            validation_sampler=ValidationSplitSampler(min_past=data_module.context_length, min_future=data_module.prediction_length),
             trainer_kwargs=config["trainer"],
             **config["model"][args.model]
         )
