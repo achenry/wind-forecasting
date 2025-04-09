@@ -42,6 +42,7 @@ lut/
 wind_forecasting/models/.DS_Store
 wind_forecasting.code-workspace
 
+*.pkl
 *.log
 *.csv
 *.err

@@ -63,8 +63,8 @@ def main():
     parser.add_argument("--config", type=str, help="Path to config file", default="examples/inputs/training_inputs_aoifemac_flasc.yaml")
     parser.add_argument("-md", "--mode", choices=["tune", "train", "test"], required=True,
                         help="Mode to run: 'tune' for hyperparameter optimization with Optuna, 'train' to train a model, 'test' to evaluate a model")
-    parser.add_argument("-chk", "--checkpoint", type=str, required=False, default="latest", 
-                        help="Which checkpoint to use: can be equal to 'latest', 'best', or an existing checkpoint path.")
+    parser.add_argument("-chk", "--checkpoint", type=str, required=False, default=None, 
+                        help="Which checkpoint to use: can be equal to 'None' to start afresh with training mode, 'latest', 'best', or an existing checkpoint path.")
     parser.add_argument("-m", "--model", type=str, choices=["informer", "autoformer", "spacetimeformer", "tactis"], required=True)
     parser.add_argument("-rt", "--restart_tuning", action="store_true")
     parser.add_argument("-tp", "--use_tuned_parameters", action="store_true", help="Use parameters tuned from Optuna optimization, otherwise use defaults set in Module class.")
@@ -93,7 +93,7 @@ def main():
     #     config["dataset"]["target_turbine_ids"] = None # select all turbines
         
     assert args.checkpoint is None or args.checkpoint in ["best", "latest"] or os.path.exists(args.checkpoint), "Checkpoint argument, if provided, must equal 'best', 'latest', or an existing checkpoint path."
-    
+    assert (args.mode == "test" and args.checkpoint is not None) or args.mode != "test", "Must provide a checkpoint path, 'latest', or 'best' for checkpoint argument when mode argument=test."
     # %% Modify configuration for single GPU mode vs. multi-GPU mode
     if args.single_gpu:
         # Force single GPU configuration when --single_gpu flag is set
@@ -317,10 +317,10 @@ def main():
             time_features=[second_of_minute, minute_of_hour, hour_of_day, day_of_year],
             distr_output=globals()[config["model"]["distr_output"]["class"]](dim=data_module.num_target_vars, **config["model"]["distr_output"]["kwargs"]),
             batch_size=config["dataset"].setdefault("batch_size", 128),
-            num_batches_per_epoch=config["trainer"].setdefault("limit_train_batches", 50),
-            context_length=config["dataset"]["context_length"],
-            train_sampler=ExpectedNumInstanceSampler(num_instances=1.0, min_past=config["dataset"]["context_length"], min_future=data_module.prediction_length),
-            validation_sampler=ValidationSplitSampler(min_past=config["dataset"]["context_length"], min_future=data_module.prediction_length),
+            num_batches_per_epoch=config["trainer"].setdefault("limit_train_batches", 1000),
+            context_length=data_module.context_length,
+            train_sampler=ExpectedNumInstanceSampler(num_instances=1.0, min_past=data_module.context_length, min_future=data_module.prediction_length),
+            validation_sampler=ValidationSplitSampler(min_past=data_module.context_length, min_future=data_module.prediction_length),
             trainer_kwargs=config["trainer"],
             **config["model"][args.model]
         )
@@ -345,19 +345,19 @@ def main():
         # Normal execution - pass the OOM protection wrapper and constructed storage URL
         tune_model(model=args.model, config=config,
                    study_name=f"tuning_{args.model}_{config['experiment']['run_name']}",
-                    optuna_storage=optuna_storage, # Pass the constructed storage object
-                    lightning_module_class=LightningModuleClass,
-                    estimator_class=EstimatorClass,
-                    distr_output_class=DistrOutputClass,
-                    data_module=data_module,
-                    max_epochs=config["optuna"]["max_epochs"],
-                    limit_train_batches=config["optuna"]["limit_train_batches"],
-                    metric=config["optuna"]["metric"],
-                    direction=config["optuna"]["direction"],
-                    context_length_choices=[int(data_module.prediction_length * i) for i in config["optuna"]["context_length_choice_factors"]],
-                    n_trials=config["optuna"]["n_trials"],
-                    trial_protection_callback=handle_trial_with_oom_protection,
-                    seed=args.seed)
+                   optuna_storage=optuna_storage, # Pass the constructed storage object
+                   lightning_module_class=LightningModuleClass,
+                   estimator_class=EstimatorClass,
+                   distr_output_class=DistrOutputClass,
+                   data_module=data_module,
+                   max_epochs=config["optuna"]["max_epochs"],
+                   limit_train_batches=config["optuna"]["limit_train_batches"],
+                   metric=config["optuna"]["metric"],
+                   direction=config["optuna"]["direction"],
+                   context_length_choices=[int(data_module.prediction_length * i) for i in config["optuna"]["context_length_choice_factors"]],
+                   n_trials=config["optuna"]["n_trials"],
+                   trial_protection_callback=handle_trial_with_oom_protection,
+                   seed=args.seed)
         
         # After training completes
         torch.cuda.empty_cache()
