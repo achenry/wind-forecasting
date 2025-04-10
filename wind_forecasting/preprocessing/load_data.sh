@@ -31,15 +31,10 @@ echo $SLURM_NTASKS
 # conda activate wind_forecasting_preprocessing
 # python preprocessing_main.py --config /srv/data/nfs/ahenry/wind_forecasting_env/wind-forecasting/examples/inputs/preprocessing_inputs_server_awaken_new.yaml --reload_data --multiprocessor cf 
 
-<<<<<<< HEAD
-#export ntasks = $SLURM_NTASKS * $SLURM_NNODES
-
 mpirun --npernode $SLURM_NTASKS_PER_NODE python preprocessing_main.py --config /$HOME/toolboxes/wind_forecasting_env/wind-forecasting/examples/inputs/preprocessing_inputs_kestrel_awaken_new.yaml --reload_data --multiprocessor mpi
-#mpirun -np $SLURM_NTASKS python preprocessing_main.py --config /$HOME/toolboxes/wind_forecasting_env/wind-forecasting/examples/inputs/preprocessing_inputs_kestrel_flasc.yaml --reload_data --multiprocessor mpi
-=======
+
 #srun python preprocessing_main.py --config /$HOME/toolboxes/wind_forecasting_env/wind-forecasting/examples/inputs/preprocessing_inputs_kestrel_awaken_new.yaml --reload_data --multiprocessor mpi
-srun python preprocessing_main.py --config /$HOME/toolboxes/wind_forecasting_env/wind-forecasting/examples/inputs/preprocessing_inputs_rc_awaken.yaml --reload_data --multiprocessor mpi
->>>>>>> e2ecaa4fa256532a488cbd3f632b1b7ebaf5e2f0
+#srun python preprocessing_main.py --config /$HOME/toolboxes/wind_forecasting_env/wind-forecasting/examples/inputs/preprocessing_inputs_rc_awaken.yaml --reload_data --multiprocessor mpi
 
 #mv /tmp/scratch/$SLURM_JOB_ID/*.parquet /projects/ssc/ahenry/wind_forecasting/awaken_data/ 
 #mv /tmp/scratch/$SLURM_JOB_ID/*.parquet /projects/ssc/ahenry/wind_forecasting/flasc_data/ 
