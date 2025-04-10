@@ -117,9 +117,9 @@ def main():
             logging.info(f"Using GPU {device}: {torch.cuda.get_device_name(device)}")
             
             # Check if CUDA_VISIBLE_DEVICES is set and contains only a single GPU
-            logging.info(f"os.environ = {os.environ}")
+            logging.info(f"os.environ keys = {os.environ.keys()}")
             if "CUDA_VISIBLE_DEVICES" in os.environ:
-                cuda_devices = os.environ["CUDA_VISIBLE_DEVICES"]
+                cuda_devices = os.environ["CUDA_VISIBLE_DEVICES"] # TODO not found in environ on Kestrel for some reason?
                 logging.info(f"CUDA_VISIBLE_DEVICES is set to: '{cuda_devices}'")
                 try:
                     # Count the number of GPUs specified in CUDA_VISIBLE_DEVICES
@@ -268,7 +268,14 @@ def main():
                                 freq=config["dataset"]["resample_freq"], target_suffixes=config["dataset"]["target_turbine_ids"],
                                     per_turbine_target=config["dataset"]["per_turbine_target"], as_lazyframe=False, dtype=pl.Float32)
     
-    data_module.generate_splits(save=True, reload=False)
+    if rank_zero_only.rank == 0:
+        logging.info("Preparing data for tuning")
+        if not os.path.exists(data_module.train_ready_data_path):
+            data_module.generate_datasets()
+            reload = True
+        else:
+            reload = False
+        data_module.generate_splits(save=True, reload=reload)
 
     # %% DEFINE ESTIMATOR
     if args.mode in ["train", "test"]:
@@ -277,7 +284,8 @@ def main():
         if args.use_tuned_parameters:
             try:
                 logging.info(f"Getting tuned parameters.")
-                tuned_params = get_tuned_params(backend=config["optuna"]["storage"]["backend"], study_name=f"tuning_{args.model}_{config['experiment']['run_name']}")
+                tuned_params = get_tuned_params(backend=config["optuna"]["storage"]["backend"], study_name=f"tuning_{args.model}_{config['experiment']['run_name']}", 
+                                                storage_dir=config["optuna"]["storage_dir"])
                 config["dataset"].update({k: v for k, v in tuned_params.items() if k in config["dataset"]})
                 config["model"][args.model].update({k: v for k, v in tuned_params.items() if k in config["model"][args.model]})
                 config["trainer"].update({k: v for k, v in tuned_params.items() if k in config["trainer"]})
@@ -302,6 +310,15 @@ def main():
         
         # Use the get_checkpoint function to handle checkpoint finding
         checkpoint = get_checkpoint(args.checkpoint, metric, mode, log_dir)
+        
+        # TODO test informer {'context_length': 90, 'batch_size': 32, 'num_encoder_layers': 3, 'num_decoder_layers': 3, 'd_model': 128, 'n_heads': 8}
+        config["dataset"]["batch_size"] = 32
+        config["model"][args.model]["num_encoder_layers"] = 3
+        config["model"][args.model]["num_decoder_layers"] = 3
+        config["model"][args.model]["d_model"] = 128
+        config["model"][args.model]["n_heads"] = 8
+        config["model"][args.model]["dim_feedforward"] = 128 * 4
+        data_module.context_length = 15
         
         # Use globals() to fetch the estimator class dynamically
         EstimatorClass = globals()[f"{args.model.capitalize()}Estimator"]
@@ -381,8 +398,7 @@ def main():
     elif args.mode == "test":
         logging.info("Starting model testing...")
         # %% TEST MODEL
-        # informer {'context_length': 90, 'batch_size': 32, 'num_encoder_layers': 3, 'num_decoder_layers': 3, 'd_model': 128, 'n_heads': 8}
-        checkpoint = "/Users/ahenry/Downloads/epoch=9-step=10000.ckpt"
+       
         test_model(data_module=data_module,
                     checkpoint=checkpoint,
                     lightning_module_class=globals()[f"{args.model.capitalize()}LightningModule"], 
