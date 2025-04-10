@@ -189,7 +189,7 @@ class MLTuningObjective:
 
         train_output = estimator.train(
             training_data=self.data_module.train_dataset,
-            validation_data=self.data_module.val_dataset,
+            # validation_data=self.data_module.val_dataset, # omit since it is used to validate by optuna
             forecast_generator=DistributionForecastGenerator(estimator.distr_output)
             # Note: The trainer_kwargs including callbacks are passed internally by the estimator
         )
@@ -197,13 +197,14 @@ class MLTuningObjective:
         # Log GPU stats after training
         self.log_gpu_stats(stage=f"Trial {trial.number} After Training")
 
+        # /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/logging/informer_aoifemac_awaken/wind_forecasting/i0w51is7/checkpoints/epoch=9-step=10000.ckpt
         model = self.lightning_module_class.load_from_checkpoint(train_output.trainer.checkpoint_callback.best_model_path)
         transformation = estimator.create_transformation(use_lazyframe=False)
         predictor = estimator.create_predictor(transformation, model,
                                                 forecast_generator=DistributionForecastGenerator(estimator.distr_output))
 
         forecast_it, ts_it = make_evaluation_predictions(
-            dataset=self.data_module.test_dataset, # NOTE JUAN it is right to use test data here
+            dataset=self.data_module.val_dataset,
             predictor=predictor,
             output_distr_params={"loc": "mean", "cov_factor": "cov_factor", "cov_diag": "cov_diag"}
         )
