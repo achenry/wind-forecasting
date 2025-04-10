@@ -1,7 +1,9 @@
 
 
 experiment:
-  run_name: kestrel_flasc
+  #run_name: kestrel_flasc
+  #run_name: kestrel_flasc
+  run_name: kestrel_flasc_all_turbine
   log_dir: /projects/ssc/ahenry/wind_forecasting/logging/
   project_root: /projects/ssc/ahenry/wind_forecasting/
 
@@ -143,7 +145,7 @@ trainer:
     # n_workers: auto
     # debug: False 
     # accumulate: 1.0
-    max_epochs: 10 # Maximum number of epochs to train 100
+    max_epochs: 100 # Maximum number of epochs to train 100
     limit_train_batches: 1000
     default_root_dir: /projects/ssc/ahenry/wind_forecasting/checkpoints
     # precision: 32-true # 16-mixed enables mixed precision training 32-true is full precision
