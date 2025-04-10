@@ -381,7 +381,8 @@ def main():
     elif args.mode == "test":
         logging.info("Starting model testing...")
         # %% TEST MODEL
-         
+        # informer {'context_length': 90, 'batch_size': 32, 'num_encoder_layers': 3, 'num_decoder_layers': 3, 'd_model': 128, 'n_heads': 8}
+        checkpoint = "/Users/ahenry/Downloads/epoch=9-step=10000.ckpt"
         test_model(data_module=data_module,
                     checkpoint=checkpoint,
                     lightning_module_class=globals()[f"{args.model.capitalize()}LightningModule"], 
