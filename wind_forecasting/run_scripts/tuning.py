@@ -112,23 +112,24 @@ class MLTuningObjective:
         # Log GPU stats at the beginning of the trial
         self.log_gpu_stats(stage=f"Trial {trial.number} Start")
 
-        # params = self.get_params(trial)
-        params = self.estimator_class.get_params(trial, self.context_length_choices)
+        # params = self.get_params(trial) # TODO PUT BACK
+        # params = self.estimator_class.get_params(trial, self.context_length_choices)
         
         estimator_sig = inspect.signature(self.estimator_class.__init__)
         estimator_params = [param.name for param in estimator_sig.parameters.values()]
-        if "dim_feedforward" not in params and "d_model" in params:
-            # set dim_feedforward to 4x the d_model found in this trial 
-            params["dim_feedforward"] = params["d_model"] * 4
-        elif "d_model" in estimator_params and estimator_sig.parameters["d_model"].default is not inspect.Parameter.empty:
-            # if d_model is not contained in the trial but is a paramter, get the default
-            params["dim_feedforward"] = estimator_sig.parameters["d_model"].default * 4
+        # TODO PUT BACK
+        # if "dim_feedforward" not in params and "d_model" in params:
+        #     # set dim_feedforward to 4x the d_model found in this trial 
+        #     params["dim_feedforward"] = params["d_model"] * 4
+        # elif "d_model" in estimator_params and estimator_sig.parameters["d_model"].default is not inspect.Parameter.empty:
+        #     # if d_model is not contained in the trial but is a paramter, get the default
+        #     params["dim_feedforward"] = estimator_sig.parameters["d_model"].default * 4
         
-        logging.info(f"Testing params {tuple((k, v) for k, v in params.items())}")
+        # logging.info(f"Testing params {tuple((k, v) for k, v in params.items())}")
         
-        self.config["dataset"].update({k: v for k, v in params.items() if k in self.config["dataset"]})
-        self.config["model"][self.model].update({k: v for k, v in params.items() if k in self.config["model"][self.model]})
-        self.config["trainer"].update({k: v for k, v in params.items() if k in self.config["trainer"]})
+        # self.config["dataset"].update({k: v for k, v in params.items() if k in self.config["dataset"]})
+        # self.config["model"][self.model].update({k: v for k, v in params.items() if k in self.config["model"][self.model]})
+        # self.config["trainer"].update({k: v for k, v in params.items() if k in self.config["trainer"]})
 
         # Configure trainer_kwargs to include pruning callback if enabled
         # Make a copy of callbacks to avoid modifying the original list across trials
@@ -162,6 +163,15 @@ class MLTuningObjective:
         trial_trainer_kwargs["callbacks"] = current_callbacks # Use the potentially modified list
 
         # context_length = int(pd.Timedelta(self.config["dataset"]["context_length"], unit="s") / pd.Timedelta(self.data_module.freq))
+        # TODO test informer {'context_length': 90, 'batch_size': 32, 'num_encoder_layers': 3, 'num_decoder_layers': 3, 'd_model': 128, 'n_heads': 8}
+        self.config["dataset"]["batch_size"] = 32
+        self.config["model"][self.model]["num_encoder_layers"] = 3
+        self.config["model"][self.model]["num_decoder_layers"] = 3
+        self.config["model"][self.model]["d_model"] = 128
+        self.config["model"][self.model]["n_heads"] = 8
+        self.config["model"][self.model]["dim_feedforward"] = 128 * 4
+        self.config["dataset"]["context_length"] = 15
+        
         estimator = self.estimator_class(
             freq=self.data_module.freq,
             prediction_length=self.data_module.prediction_length,
@@ -187,18 +197,20 @@ class MLTuningObjective:
         # Log GPU stats before training
         self.log_gpu_stats(stage=f"Trial {trial.number} Before Training")
 
-        train_output = estimator.train(
-            training_data=self.data_module.train_dataset,
-            # validation_data=self.data_module.val_dataset, # omit since it is used to validate by optuna
-            forecast_generator=DistributionForecastGenerator(estimator.distr_output)
-            # Note: The trainer_kwargs including callbacks are passed internally by the estimator
-        )
+         # TODO PUT BACK
+        # train_output = estimator.train(
+        #     training_data=self.data_module.train_dataset,
+        #     # validation_data=self.data_module.val_dataset, # omit since it is used to validate by optuna
+        #     forecast_generator=DistributionForecastGenerator(estimator.distr_output)
+        #     # Note: The trainer_kwargs including callbacks are passed internally by the estimator
+        # )
 
         # Log GPU stats after training
         self.log_gpu_stats(stage=f"Trial {trial.number} After Training")
 
         # /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/logging/informer_aoifemac_awaken/wind_forecasting/i0w51is7/checkpoints/epoch=9-step=10000.ckpt
-        model = self.lightning_module_class.load_from_checkpoint(train_output.trainer.checkpoint_callback.best_model_path)
+        # model = self.lightning_module_class.load_from_checkpoint(train_output.trainer.checkpoint_callback.best_model_path) # TODO PUT BACK
+        model = self.lightning_module_class.load_from_checkpoint("/Users/ahenry/Downloads/epoch=9-step=10000.ckpt")
         transformation = estimator.create_transformation(use_lazyframe=False)
         predictor = estimator.create_predictor(transformation, model,
                                                 forecast_generator=DistributionForecastGenerator(estimator.distr_output))
@@ -208,9 +220,9 @@ class MLTuningObjective:
             predictor=predictor,
             output_distr_params={"loc": "mean", "cov_factor": "cov_factor", "cov_diag": "cov_diag"}
         )
-
-        forecasts = list(forecast_it)
-        tss = list(ts_it)
+        from itertools import islice # TODO REMOVE
+        forecasts = list(islice(forecast_it, 0, 2))
+        tss = list(islice(ts_it, 0, 2))
         agg_metrics, _ = self.evaluator(iter(tss), iter(forecasts), num_series=self.data_module.num_target_vars)
         agg_metrics["trainable_parameters"] = summarize(estimator.create_lightning_module()).trainable_parameters
         self.metrics.append(agg_metrics.copy())
