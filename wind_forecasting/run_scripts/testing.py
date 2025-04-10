@@ -59,8 +59,8 @@ def test_model(*, data_module, checkpoint, lightning_module_class, normalization
         predictor=predictor,
         output_distr_params={"loc": "mean", "cov_factor": "cov_factor", "cov_diag": "cov_diag"}
     )
-
-    forecasts = list(forecast_it)
+    from itertools import islice # TODO TESTING
+    forecasts = list(islice(forecast_it, 0, 2))
     tss = list(ts_it)
     
     # %%

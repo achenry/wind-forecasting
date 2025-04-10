@@ -48,16 +48,16 @@ class DataModule():
     dtype: Type = pl.Float32
     as_lazyframe: bool = False
     verbose: bool = False
-    denormalize: bool = False
+    normalized: bool = True
     normalization_consts_path: Optional[str] = None
     
     def __post_init__(self):
-        if self.denormalize:
-            self.train_ready_data_path = self.data_path.replace(
-                ".parquet", f"_train_ready_{self.freq}_{'per_turbine' if self.per_turbine_target else 'all_turbine'}_denormalize.parquet")
-        else:
+        if self.normalized:
             self.train_ready_data_path = self.data_path.replace(
                 ".parquet", f"_train_ready_{self.freq}_{'per_turbine' if self.per_turbine_target else 'all_turbine'}.parquet")
+        else:
+            self.train_ready_data_path = self.data_path.replace(
+                ".parquet", f"_train_ready_{self.freq}_{'per_turbine' if self.per_turbine_target else 'all_turbine'}_denormalize.parquet")
             
         # convert context and prediction length from seconds to time stesp based on freq
         self.context_length = int(pd.Timedelta(self.context_length, unit="s") / pd.Timedelta(self.freq))
@@ -73,7 +73,7 @@ class DataModule():
                     .sort(["continuity_group", "time"])
                     # .collect().write_parquet(self.train_ready_data_path, statistics=False)
                     
-        if self.denormalize:
+        if not self.normalized:
             norm_consts = pd.read_csv(self.normalization_consts_path, index_col=None)
             norm_min_cols = [col for col in norm_consts if "_min" in col]
             norm_max_cols = [col for col in norm_consts if "_max" in col]
