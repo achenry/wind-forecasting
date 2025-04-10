@@ -210,7 +210,9 @@ class MLTuningObjective:
 
         # /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/logging/informer_aoifemac_awaken/wind_forecasting/i0w51is7/checkpoints/epoch=9-step=10000.ckpt
         # model = self.lightning_module_class.load_from_checkpoint(train_output.trainer.checkpoint_callback.best_model_path) # TODO PUT BACK
-        model = self.lightning_module_class.load_from_checkpoint("/Users/ahenry/Downloads/epoch=9-step=10000.ckpt")
+        # checkpoint = "/Users/ahenry/Downloads/epoch=9-step=10000.ckpt"
+        checkpoint = "/projects/ssc/ahenry/wind_forecasting/logging/informer_kestrel_awaken_per_turbine/wind_forecasting/j5v9brpu/checkpoints/epoch=9-step=10000.ckpt"
+        model = self.lightning_module_class.load_from_checkpoint(checkpoint)
         transformation = estimator.create_transformation(use_lazyframe=False)
         predictor = estimator.create_predictor(transformation, model,
                                                 forecast_generator=DistributionForecastGenerator(estimator.distr_output))
@@ -220,10 +222,14 @@ class MLTuningObjective:
             predictor=predictor,
             output_distr_params={"loc": "mean", "cov_factor": "cov_factor", "cov_diag": "cov_diag"}
         )
-        from itertools import islice # TODO REMOVE
-        forecasts = list(islice(forecast_it, 0, 2))
-        tss = list(islice(ts_it, 0, 2))
-        agg_metrics, _ = self.evaluator(iter(tss), iter(forecasts), num_series=self.data_module.num_target_vars)
+        # from itertools import islice # TODO REMOVE
+        # forecasts = list(islice(forecast_it, 0, 2))
+        # tss = list(islice(ts_it, 0, 2))
+        # forecasts = list(forecast_it)
+        # tss = list(ts_it)
+        forecasts = forecast_it
+        tss = ts_it
+        agg_metrics, _ = self.evaluator(tss, forecasts, num_series=self.data_module.num_target_vars)
         agg_metrics["trainable_parameters"] = summarize(estimator.create_lightning_module()).trainable_parameters
         self.metrics.append(agg_metrics.copy())
 
