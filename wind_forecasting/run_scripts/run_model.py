@@ -116,7 +116,8 @@ def main():
             device = torch.cuda.current_device()
             logging.info(f"Using GPU {device}: {torch.cuda.get_device_name(device)}")
             
-        # Check if CUDA_VISIBLE_DEVICES is set and contains only a single GPU
+            # Check if CUDA_VISIBLE_DEVICES is set and contains only a single GPU
+            logging.info(f"os.environ = {os.environ}")
             if "CUDA_VISIBLE_DEVICES" in os.environ:
                 cuda_devices = os.environ["CUDA_VISIBLE_DEVICES"]
                 logging.info(f"CUDA_VISIBLE_DEVICES is set to: '{cuda_devices}'")
