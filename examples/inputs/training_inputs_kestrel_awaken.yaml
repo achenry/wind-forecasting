@@ -78,9 +78,9 @@ dataset:
     overfit: False
     test_split: 0.20
     val_split: 0.1
-    resample_freq: 5s
+    #resample_freq: 5s
     #resample_freq: 15s
-    #resample_freq: 30s
+    resample_freq: 30s
     #resample_freq: 45s
     #resample_freq: 60s
     #resample_freq: 120s
