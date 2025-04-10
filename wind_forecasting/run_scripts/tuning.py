@@ -123,7 +123,9 @@ class MLTuningObjective:
         elif "d_model" in estimator_params and estimator_sig.parameters["d_model"].default is not inspect.Parameter.empty:
             # if d_model is not contained in the trial but is a paramter, get the default
             params["dim_feedforward"] = estimator_sig.parameters["d_model"].default * 4
-            
+        
+        logging.info(f"Testing params {tuple((k, v) for k, v in params.items())}")
+        
         self.config["dataset"].update({k: v for k, v in params.items() if k in self.config["dataset"]})
         self.config["model"][self.model].update({k: v for k, v in params.items() if k in self.config["model"][self.model]})
         self.config["trainer"].update({k: v for k, v in params.items() if k in self.config["trainer"]})
