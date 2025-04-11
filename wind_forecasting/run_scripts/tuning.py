@@ -190,7 +190,7 @@ class MLTuningObjective:
 
         train_output = estimator.train(
             training_data=self.data_module.train_dataset,
-            # validation_data=self.data_module.val_dataset, # omit since it is used to validate by optuna
+            validation_data=self.data_module.val_dataset,
             forecast_generator=DistributionForecastGenerator(estimator.distr_output)
             # Note: The trainer_kwargs including callbacks are passed internally by the estimator
         )
