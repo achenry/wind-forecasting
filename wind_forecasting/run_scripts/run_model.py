@@ -140,9 +140,9 @@ def main():
                         # Log actual GPU mapping information
                         if num_visible_gpus == 1:
                             try:
-                                logging.info(f"Primary GPU is system device {actual_gpu}, mapped to CUDA index {device_id}")
                                 actual_gpu = int(visible_gpus[0])
                                 device_id = 0  # With CUDA_VISIBLE_DEVICES, first visible GPU is always index 0
+                                logging.info(f"Primary GPU is system device {actual_gpu}, mapped to CUDA index {device_id}")
                             except ValueError:
                                 logging.warning(f"Could not parse GPU index from CUDA_VISIBLE_DEVICES: {visible_gpus[0]}")
                     else:
