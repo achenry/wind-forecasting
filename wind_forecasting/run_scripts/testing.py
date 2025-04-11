@@ -59,9 +59,8 @@ def test_model(*, data_module, checkpoint, lightning_module_class, normalization
         predictor=predictor,
         output_distr_params={"loc": "mean", "cov_factor": "cov_factor", "cov_diag": "cov_diag"}
     )
-    from itertools import islice # TODO TESTING
-    forecasts = list(islice(forecast_it, 0, 2))
-    tss = list(ts_it)
+    forecasts = forecast_it
+    tss = ts_it
     
     # %%
     # add custom evaluation functions eg Continuous Ranked Probability Score, Quantile Loss, Pinball Loss/Quantile Score (same as Quantile Loss?), 
@@ -78,7 +77,7 @@ def test_model(*, data_module, checkpoint, lightning_module_class, normalization
     )
 
     # %% COMPUTE AGGREGATE METRICS
-    agg_metrics, ts_metrics = evaluator(iter(tss), iter(forecasts), num_series=data_module.num_target_vars)
+    agg_metrics, ts_metrics = evaluator(tss, forecasts, num_series=data_module.num_target_vars)
 
     # %% PLOT TEST PREDICTIONS
     agg_df = defaultdict(list)
