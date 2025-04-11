@@ -162,7 +162,7 @@ class DataModule():
             self.static_features = pd.DataFrame()
             self.cardinality = None 
     
-    @profile
+    # @profile
     def generate_splits(self, splits=None, save=False, reload=True):
         if splits is None:
             splits = ["train", "val", "test"]
