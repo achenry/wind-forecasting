@@ -1,0 +1,38 @@
+name: wind_forecasting
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - conda-forge::cuda-version=12.4
+  - nvidia/label/cuda-12.4.0::cuda-toolkit
+  - performer-pytorch
+  - pytorch
+  - torchvision
+  - torchaudio
+  - torchmetrics
+  - pytorch-cuda=12.4
+  - lightning=2.5.1
+  - polars
+  - windrose
+  - statsmodels
+  - scikit-learn
+  - jupyterlab
+  - nb_conda_kernels
+  - pyyaml
+  - matplotlib
+  - seaborn
+  - opt_einsum
+  - netcdf4
+  - scipy
+  - h5pyd
+  - pyarrow
+  - wandb
+  - einops
+  - rich
+  - ca-certificates
+  - certifi
+  - openssl
+  - openmpi
+  - mpi4py
+  - numpy==1.26.4
+prefix: /projects/ssc/ahenry/conda/envs/wind_forecasting
