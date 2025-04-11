@@ -117,9 +117,8 @@ def main():
             logging.info(f"Using GPU {device}: {torch.cuda.get_device_name(device)}")
             
             # Check if CUDA_VISIBLE_DEVICES is set and contains only a single GPU
-            logging.info(f"os.environ keys = {os.environ.keys()}")
             if "CUDA_VISIBLE_DEVICES" in os.environ:
-                cuda_devices = os.environ["CUDA_VISIBLE_DEVICES"] # TODO not found in environ on Kestrel for some reason?
+                cuda_devices = os.environ["CUDA_VISIBLE_DEVICES"] # Note: must 'export' variable within nohup to find on Kestrel
                 logging.info(f"CUDA_VISIBLE_DEVICES is set to: '{cuda_devices}'")
                 try:
                     # Count the number of GPUs specified in CUDA_VISIBLE_DEVICES
