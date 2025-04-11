@@ -278,7 +278,6 @@ def main():
 
     # %% DEFINE ESTIMATOR
     if args.mode in ["train", "test"]:
-        # TODO JUAN integrate get_tuned_params, get_storage so we can fetch parameters that have been tuned
         found_tuned_params = True
         if args.use_tuned_parameters:
             try:
@@ -309,15 +308,6 @@ def main():
         
         # Use the get_checkpoint function to handle checkpoint finding
         checkpoint = get_checkpoint(args.checkpoint, metric, mode, log_dir)
-        
-        # TODO test informer {'context_length': 90, 'batch_size': 32, 'num_encoder_layers': 3, 'num_decoder_layers': 3, 'd_model': 128, 'n_heads': 8}
-        config["dataset"]["batch_size"] = 32
-        config["model"][args.model]["num_encoder_layers"] = 3
-        config["model"][args.model]["num_decoder_layers"] = 3
-        config["model"][args.model]["d_model"] = 128
-        config["model"][args.model]["n_heads"] = 8
-        config["model"][args.model]["dim_feedforward"] = 128 * 4
-        data_module.context_length = 15
         
         # Use globals() to fetch the estimator class dynamically
         EstimatorClass = globals()[f"{args.model.capitalize()}Estimator"]
