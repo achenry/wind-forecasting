@@ -21,10 +21,6 @@ optuna:
   direction: minimize
   max_epochs: 10
   limit_train_batches: 1000
-  context_length_choice_factors:
-    - 1
-    - 1.5
-    - 2
   
   # Pruning configuration
   pruning:
@@ -88,6 +84,7 @@ dataset:
     n_splits: 1 # how many divisions of each continuity group to make which is further subdivided into training test and validation data
     per_turbine_target: False
     #per_turbine_target: True
+    context_length_factor: 2
 
 
 model:

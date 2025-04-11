@@ -361,7 +361,6 @@ def main():
                    limit_train_batches=config["optuna"]["limit_train_batches"],
                    metric=config["optuna"]["metric"],
                    direction=config["optuna"]["direction"],
-                   context_length_choices=[int(data_module.prediction_length * i) for i in config["optuna"]["context_length_choice_factors"]],
                    n_trials=config["optuna"]["n_trials"],
                    trial_protection_callback=handle_trial_with_oom_protection,
                    seed=args.seed)
