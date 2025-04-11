@@ -210,8 +210,11 @@ class MLTuningObjective:
 
         # /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/logging/informer_aoifemac_awaken/wind_forecasting/i0w51is7/checkpoints/epoch=9-step=10000.ckpt
         # model = self.lightning_module_class.load_from_checkpoint(train_output.trainer.checkpoint_callback.best_model_path) # TODO PUT BACK
-        # checkpoint = "/Users/ahenry/Downloads/epoch=9-step=10000.ckpt"
-        checkpoint = "/projects/ssc/ahenry/wind_forecasting/logging/informer_kestrel_awaken_per_turbine/wind_forecasting/j5v9brpu/checkpoints/epoch=9-step=10000.ckpt"
+        
+        if os.path.exists("/Users/ahenry/Downloads/epoch=9-step=10000.ckpt"):
+            checkpoint = "/Users/ahenry/Downloads/epoch=9-step=10000.ckpt"
+        else:
+            checkpoint = "/projects/ssc/ahenry/wind_forecasting/logging/informer_kestrel_awaken_per_turbine/wind_forecasting/j5v9brpu/checkpoints/epoch=9-step=10000.ckpt"
         model = self.lightning_module_class.load_from_checkpoint(checkpoint)
         transformation = estimator.create_transformation(use_lazyframe=False)
         predictor = estimator.create_predictor(transformation, model,
