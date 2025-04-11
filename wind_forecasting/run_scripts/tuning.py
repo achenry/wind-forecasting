@@ -47,7 +47,9 @@ class SafePruningCallback(pl.Callback):
         self.optuna_pruning_callback.check_pruned()
 
 class MLTuningObjective:
-    def __init__(self, *, model, config, lightning_module_class, estimator_class, distr_output_class, max_epochs, limit_train_batches, data_module, metric, context_length_choices, seed=42):
+    def __init__(self, *, model, config, lightning_module_class, estimator_class, 
+                 distr_output_class, max_epochs, limit_train_batches, data_module, 
+                 metric, seed=42):
         self.model = model
         self.config = config
         self.lightning_module_class = lightning_module_class
@@ -56,7 +58,6 @@ class MLTuningObjective:
         self.data_module = data_module
         self.metric = metric
         self.evaluator = MultivariateEvaluator(num_workers=None, custom_eval_fn=None)
-        self.context_length_choices = context_length_choices
         self.metrics = []
         self.seed = seed
 
@@ -112,7 +113,7 @@ class MLTuningObjective:
         # Log GPU stats at the beginning of the trial
         self.log_gpu_stats(stage=f"Trial {trial.number} Start")
 
-        params = self.estimator_class.get_params(trial, self.context_length_choices)
+        params = self.estimator_class.get_params(trial)
         
         estimator_sig = inspect.signature(self.estimator_class.__init__)
         estimator_params = [param.name for param in estimator_sig.parameters.values()]
@@ -161,10 +162,11 @@ class MLTuningObjective:
         trial_trainer_kwargs = self.config["trainer"].copy()
         trial_trainer_kwargs["callbacks"] = current_callbacks # Use the potentially modified list
 
+        context_length = self.config["dataset"]["context_length_factor"] * self.data_module.prediction_length
         estimator = self.estimator_class(
             freq=self.data_module.freq,
             prediction_length=self.data_module.prediction_length,
-            context_length=self.config["dataset"]["context_length"],
+            context_length=context_length,
             num_feat_dynamic_real=self.data_module.num_feat_dynamic_real,
             num_feat_static_cat=self.data_module.num_feat_static_cat,
             cardinality=self.data_module.cardinality,
@@ -175,8 +177,8 @@ class MLTuningObjective:
             use_lazyframe=False,
             batch_size=self.config["dataset"].get("batch_size", 128),
             num_batches_per_epoch=trial_trainer_kwargs["limit_train_batches"], # Use value from trial_trainer_kwargs
-            train_sampler=ExpectedNumInstanceSampler(num_instances=1.0, min_past=self.config["dataset"]["context_length"], min_future=self.data_module.prediction_length),
-            validation_sampler=ValidationSplitSampler(min_past=self.config["dataset"]["context_length"], min_future=self.data_module.prediction_length),
+            train_sampler=ExpectedNumInstanceSampler(num_instances=1.0, min_past=context_length, min_future=self.data_module.prediction_length),
+            validation_sampler=ValidationSplitSampler(min_past=context_length, min_future=self.data_module.prediction_length),
             time_features=[second_of_minute, minute_of_hour, hour_of_day, day_of_year],
             distr_output=self.distr_output_class(dim=self.data_module.num_target_vars, **self.config["model"]["distr_output"]["kwargs"]),
             trainer_kwargs=trial_trainer_kwargs, # Pass the trial-specific kwargs
@@ -295,7 +297,7 @@ def get_tuned_params(study_name, backend, storage_dir):
 # Update signature: Add optuna_storage_url, remove storage_dir, use_rdb, restart_study
 def tune_model(model, config, study_name, optuna_storage, lightning_module_class, estimator_class,
                max_epochs, limit_train_batches,
-               distr_output_class, data_module, context_length_choices,
+               distr_output_class, data_module,
                metric="mean_wQuantileLoss", direction="minimize", n_trials=10,
                trial_protection_callback=None, seed=42):
 
@@ -419,7 +421,6 @@ def tune_model(model, config, study_name, optuna_storage, lightning_module_class
                                         max_epochs=max_epochs,
                                         limit_train_batches=limit_train_batches,
                                         data_module=data_module,
-                                        context_length_choices=context_length_choices,
                                         metric=metric,
                                         seed=seed)
 
