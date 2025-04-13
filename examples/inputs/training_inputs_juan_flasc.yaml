@@ -90,16 +90,44 @@ model:
   
   # Model-specific parameters
   tactis:
-    flow_series_embedding_dim: 32
-    copula_series_embedding_dim: 32
-    flow_input_encoder_layers: 2
-    copula_input_encoder_layers: 2
-    bagging_size: null
+    # --- General TACTiS settings ---
+    initial_stage: 1
+    stage2_start_epoch: 10
     input_encoding_normalization: true
     data_normalization: "series"
     loss_normalization: "series"
-    initial_stage: 1
-    stage2_start_epoch: 10  
+    # --- Marginal CDF Encoder ---
+    marginal_encoder:
+      embedding_dim_per_head: 8
+      num_heads: 5
+      num_layers: 4
+      input_encoder_layers: 6
+      ts_embedding_dim: 5
+      # feed_forward_dim: 8 # Implicitly linked to embedding_dim_per_head?
+    # --- Attentional Copula Encoder ---
+    copula_encoder:
+      embedding_dim_per_head: 8
+      num_heads: 5
+      num_layers: 2
+      input_encoder_layers: 1
+      ts_embedding_dim: 48
+      # feed_forward_dim: 8 # Implicitly linked to embedding_dim_per_head?
+    # --- Decoder ---
+    decoder:
+      dsf_num_layers: 2
+      dsf_hidden_dim: 256
+      mlp_num_layers: 3
+      mlp_hidden_dim: 16
+      transformer_num_layers: 3
+      transformer_embedding_dim_per_head: 16
+      transformer_num_heads: 6
+      num_bins: 50
+    # --- Optimizer Params ---
+    optimizer_params:
+      lr_stage1: 0.0018
+      lr_stage2: 0.0007
+      weight_decay_stage1: 0.0
+      weight_decay_stage2: 0.0
   informer:
     # embedding_dimension: 32 # Determines dimension of the embedding space
     num_encoder_layers: 2 # Number of transformer blocks stacked
