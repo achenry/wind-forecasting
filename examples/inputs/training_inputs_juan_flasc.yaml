@@ -128,6 +128,9 @@ model:
       lr_stage2: 0.0007
       weight_decay_stage1: 0.0
       weight_decay_stage2: 0.0
+    # --- Dropout & Clipping ---
+    dropout_rate: 0.1
+    gradient_clip_val: 1.0 # Default 0 for lightning
   informer:
     # embedding_dimension: 32 # Determines dimension of the embedding space
     num_encoder_layers: 2 # Number of transformer blocks stacked
