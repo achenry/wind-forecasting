@@ -96,6 +96,7 @@ model:
     input_encoding_normalization: true
     data_normalization: "series"
     loss_normalization: "series"
+    encoder_type: "standard" # Options: "standard", "temporal"
     # --- Marginal CDF Encoder ---
     marginal_encoder:
       embedding_dim_per_head: 8
