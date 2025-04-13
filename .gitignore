@@ -65,6 +65,7 @@ wind_forecasting.code-workspace
 
 examples/data/*
 .vscode/
+_DOCS/*
 
 
 wind_forecasting/preprocessing/.ipynb_checkpoints/
