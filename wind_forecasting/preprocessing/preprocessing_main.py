@@ -221,7 +221,8 @@ def main():
             
             logging.info(f"Making directory to save_path {os.path.dirname(data_loader.save_path)}")
             os.makedirs(os.path.dirname(data_loader.save_path), exist_ok=True)
-                        
+        
+        # TODO HIGH if different files have intervals between them, don't forward fill, leave as NaN
         df_query = data_loader.read_multi_files(temp_save_dir, read_single_files=True, first_merge=True, second_merge=True) 
         
         if RUN_ONCE:
@@ -273,7 +274,18 @@ def main():
         
         logging.info("🔄 Generating plots.")
         # x = pl.concat([df.slice(0, ROW_LIMIT) for df in df_query.collect().partition_by("file_set_idx")], how="vertical").lazy()
-        data_inspector.plot_wind_farm()
+        if False:
+            data_inspector.plot_wind_farm(
+                turbine_groups=[np.concatenate(config["nacelle_calibration_turbine_pairs"]), [74, 73], [4]],
+                turbine_group_colors=["darkorange", "royalblue", "lime"])
+        
+        # from datetime import datetime
+        # # plotting_interval = pl.datetime_range(start=datetime(2024, 2, 20), end=datetime(2024, 12, 19)).alias("time")
+        # df_query = df_query.with_columns(
+        #     file_set_idx=pl.when(pl.col("time").is_between(
+        #         lower_bound=datetime(year=2024, month=2, day=20), 
+        #         upper_bound=datetime(year=2024, month=12, day=20))).then(pl.lit(1)).otherwise(pl.lit(0)))
+        # file_set_idx=0 (2022/01/01 to 2023/06/30), file_set_idx=1 (2024/02/20 to 2024/12/19)
         if "file_set_idx" in df_query.collect_schema().names():
             file_set_indices = df_query.select("file_set_idx").unique().collect().to_numpy().flatten()
             df_query2 = df_query.with_columns(pl.col("time").dt.round(f"{1}m").alias("time"))\
@@ -680,6 +692,7 @@ def main():
                 data_filter.multiprocessor = None
                 
                 # df_query.select(pl.max_horizontal(cs.starts_with(f"power_output").max())).collect().item()
+                
                 bin_outliers = data_filter.multi_generate_filter(df_query=df_query, filter_func=data_filter._single_generate_bin_filter,
                                                                     feature_types=["wind_speed", "power_output"], turbine_ids=data_loader.turbine_ids,
                                                                     bin_width=config["filters"]["bin_filter"]["bin_width"], 
@@ -715,12 +728,22 @@ def main():
                                                         feature_labels=["Wind Speed (m/s) after Wind Speed-Power Bin Outlier Filter"])
 
                 # plot values outside the power-wind speed bin filter
-                target_turbine_idx = np.argsort(bin_outliers.sum(axis=0))[-1]
-                other_outputs[0][target_turbine_idx] # TODO plot median, mean, need wind speed bins too...
+                bin_outliers = np.load(config["processed_data_path"].replace(".parquet", "_bin_outliers.npy"))
+                out_of_window = np.load(config["processed_data_path"].replace(".parquet", "_out_of_window.npy"))
+                target_turbine_idx = np.argsort(bin_outliers.sum(axis=0))[-1] 
+                # array([87, 82, 30,  0, 13, 24, 35,  4, 66, 27, 50, 38, 44, 45,  8, 15, 69,
+                    # 72, 54, 67, 26, 37, 14, 51, 79, 63, 71, 33, 31, 25, 68, 81, 65, 28,
+                    # 85,  6, 77, 80, 40,  2, 42, 73, 48, 49, 11, 61, 60,  5,  1, 47, 12,
+                    # 58, 83, 20, 76, 55, 84, 19, 75, 64, 56, 53, 36, 52, 78, 62,  3, 86,
+                    # 23, 57,  7, 17, 29, 74, 43, 59,  9, 39])
+                target_turbine_id = list(data_loader.turbine_mapping[0].values())[target_turbine_idx]
+                # other_outputs[0][target_turbine_idx] # TODO plot median, mean, need wind speed bins too...
                 fig, axs = plot.plot_power_curve(
-                    data_inspector.collect_data(df=df_query, feature_types="wind_speed").to_numpy()[:, target_turbine_idx],
-                    data_inspector.collect_data(df=df_query, feature_types="power_output").to_numpy()[:, target_turbine_idx],
-                    flag=bin_outliers[:, target_turbine_idx],
+                    # df_query.select(f"wind_speed_{target_turbine_id}").slice(0, ROW_LIMIT).collect().to_numpy(),
+                    # df_query.select(f"power_output_{target_turbine_id}").slice(0, ROW_LIMIT).collect().to_numpy(),
+                    df_query.select(f"wind_speed_{target_turbine_id}").filter(~out_of_window[:, target_turbine_idx]).slice(0, ROW_LIMIT).collect().to_numpy(),
+                    df_query.select(f"power_output_{target_turbine_id}").filter(~out_of_window[:, target_turbine_idx]).slice(0, ROW_LIMIT).collect().to_numpy(),
+                    flag=bin_outliers[~out_of_window[:, target_turbine_idx], target_turbine_idx][:ROW_LIMIT],
                     flag_labels=("Anomylous Measurements", "Normal Measurements"),
                     xlim=(-1, 30),
                     ylim=(-100, 3000),
@@ -1126,6 +1149,7 @@ def main():
     # %%
     if "split" in config["filters"]:
         # TODO this is producing float continuity groups?
+        # TODO HIGH add minimum number of non-nan values (ie so we don't have NaNs for all turbines)
         if args.reload_data or args.regenerate_filters or not os.path.exists(config["processed_data_path"].replace(".parquet", "_split.parquet")):
             # if RUN_ONCE:
             logging.info("Split dataset during time steps for which many turbines have missing data.")
