@@ -60,10 +60,11 @@ class DataModule():
                 ".parquet", f"_train_ready_{self.freq}_{'per_turbine' if self.per_turbine_target else 'all_turbine'}_denormalize.parquet")
             
         # convert context and prediction length from seconds to time stesp based on freq
+        assert self.context_length >= pd.Timedelta(self.freq).total_seconds(), "context_length must be provided in seconds, and must be greater than resample_freq. Change the value in training_inputs"
+        assert self.prediction_length >= pd.Timedelta(self.freq).total_seconds(), "prediction_length must be provided in seconds, and must be greater than resample_freq. Change the value in training_inputs"
         self.context_length = int(pd.Timedelta(self.context_length, unit="s") / pd.Timedelta(self.freq))
         self.prediction_length = int(pd.Timedelta(self.prediction_length, unit="s") / pd.Timedelta(self.freq))
-        assert self.context_length > 0, "context_length must be provided in seconds, and must be greaterthan resample_freq."
-        assert self.prediction_length > 0, "prediction_length must be provided in seconds, and must be greaterthan resample_freq."
+
      
     def generate_datasets(self):
         
