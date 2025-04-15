@@ -197,11 +197,23 @@ class MLTuningObjective:
         # Log GPU stats before training
         self.log_gpu_stats(stage=f"Trial {trial.number} Before Training")
 
+        # Conditionally Create Forecast Generator
+        if self.model == 'tactis':
+            # TACTiS uses SampleForecastGenerator internally for prediction
+            logging.info(f"Trial {trial.number}: Using SampleForecastGenerator for TACTiS model.")
+            forecast_generator = SampleForecastGenerator()
+        else:
+            # Other models use DistributionForecastGenerator based on their distr_output
+            logging.info(f"Trial {trial.number}: Using DistributionForecastGenerator for {self.model} model.")
+            # Ensure estimator has distr_output before accessing
+            if not hasattr(estimator, 'distr_output'):
+                 raise AttributeError(f"Estimator for model '{self.model}' is missing 'distr_output' attribute needed for DistributionForecastGenerator.")
+            forecast_generator = DistributionForecastGenerator(estimator.distr_output)
+
         train_output = estimator.train(
             training_data=self.data_module.train_dataset,
             validation_data=self.data_module.val_dataset,
-            forecast_generator=DistributionForecastGenerator(estimator.distr_output)
-            # Note: The trainer_kwargs including callbacks are passed internally by the estimator
+            forecast_generator=forecast_generator
         )
 
         # Log GPU stats after training
@@ -209,14 +221,25 @@ class MLTuningObjective:
 
         model = self.lightning_module_class.load_from_checkpoint(train_output.trainer.checkpoint_callback.best_model_path)
         transformation = estimator.create_transformation(use_lazyframe=False)
+        # Use the same conditional forecast_generator for creating the predictor
         predictor = estimator.create_predictor(transformation, model,
-                                                forecast_generator=DistributionForecastGenerator(estimator.distr_output))
+                                                forecast_generator=forecast_generator)
 
-        forecast_it, ts_it = make_evaluation_predictions(
-            dataset=self.data_module.test_dataset, # NOTE JUAN it is right to use test data here
-            predictor=predictor,
-            output_distr_params={"loc": "mean", "cov_factor": "cov_factor", "cov_diag": "cov_diag"}
-        )
+        # Conditional Evaluation Call
+        eval_kwargs = {
+            "dataset": self.data_module.test_dataset,
+            "predictor": predictor,
+        }
+        if self.model == 'tactis':
+            # TACTiS produces SampleForecast, no output_distr_params needed/possible
+            logging.info(f"Trial {trial.number}: Evaluating TACTiS using SampleForecast.")
+        else:
+            # Other models produce DistributionForecast, specify params to extract
+            # Example for LowRankMultivariateNormalOutput, adjust if other distrs are used
+            eval_kwargs["output_distr_params"] = {"loc": "mean", "cov_factor": "cov_factor", "cov_diag": "cov_diag"}
+            logging.info(f"Trial {trial.number}: Evaluating {self.model} using DistributionForecast with params: {eval_kwargs['output_distr_params']}")
+
+        forecast_it, ts_it = make_evaluation_predictions(**eval_kwargs)
 
         forecasts = list(forecast_it)
         tss = list(ts_it)
