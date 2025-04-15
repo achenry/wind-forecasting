@@ -1,7 +1,7 @@
 import os
 from lightning.pytorch.utilities.model_summary import summarize
 from gluonts.evaluation import MultivariateEvaluator, make_evaluation_predictions
-from gluonts.model.forecast_generator import DistributionForecastGenerator
+from gluonts.model.forecast_generator import DistributionForecastGenerator, SampleForecastGenerator
 from gluonts.time_feature._base import second_of_minute, minute_of_hour, hour_of_day, day_of_year
 from gluonts.transform import ExpectedNumInstanceSampler, ValidationSplitSampler
 import logging
@@ -200,6 +200,7 @@ class MLTuningObjective:
         # Conditionally Create Forecast Generator
         if self.model == 'tactis':
             # TACTiS uses SampleForecastGenerator internally for prediction
+            # because its foweard pass returns samples not distribution parameters
             logging.info(f"Trial {trial.number}: Using SampleForecastGenerator for TACTiS model.")
             forecast_generator = SampleForecastGenerator()
         else:

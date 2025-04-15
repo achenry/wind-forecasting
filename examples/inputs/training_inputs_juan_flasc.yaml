@@ -38,7 +38,7 @@ optuna:
   storage:
     backend: "postgresql"  # Options: "postgresql", "sqlite"
     # --- PostgreSQL Specific Settings ---
-    # Path relative to project root (e.g., /user/taed7566/wind-forecasting)
+    # Path relative to project root (e.g., ~/wind-forecasting)
     pgdata_path: "logging/optuna/pg_data_study"
     db_name: "optuna_study_db"
     db_user: "optuna_user"
@@ -88,32 +88,31 @@ model:
       rank: 5
       sigma_init: 0.2
   
-  # Model-specific parameters
+  ########### Model-specific parameters ###########
+  # [ TACTiS-2 ]
   tactis:
-    # --- General TACTiS settings ---
+    # General TACTiS settings
     initial_stage: 1
     stage2_start_epoch: 10
     input_encoding_normalization: true
-    scaling: "std" # Options: "mean", "std", null
+    scaling: null # Options: "mean", "std", null
     loss_normalization: "std"
     encoder_type: "standard" # Options: "standard", "temporal"
     bagging_size: null # Optional, defaults to None in estimator
-
-    # --- Marginal CDF Encoder ---
+    num_parallel_samples: 100 # Num of parallel samples for prediction
+    # Marginal CDF Encoder
     marginal_embedding_dim_per_head: 8
     marginal_num_heads: 5
     marginal_num_layers: 4
     flow_input_encoder_layers: 6
     flow_series_embedding_dim: 5
-
-    # --- Attentional Copula Encoder ---
+    # Attentional Copula Encoder
     copula_embedding_dim_per_head: 8
     copula_num_heads: 5
     copula_num_layers: 2
     copula_input_encoder_layers: 1
     copula_series_embedding_dim: 48
-
-    # --- Decoder ---
+    # Decoder
     decoder_dsf_num_layers: 2
     decoder_dsf_hidden_dim: 256
     decoder_mlp_num_layers: 3
@@ -122,18 +121,17 @@ model:
     decoder_transformer_embedding_dim_per_head: 16
     decoder_transformer_num_heads: 6
     decoder_num_bins: 50
-
-    # --- Optimizer Params ---
+    # Optimizer Params
     lr_stage1: 0.0018
     lr_stage2: 0.0007
     weight_decay_stage1: 0.0
     weight_decay_stage2: 0.0
-
-    # --- Dropout & Clipping ---
+    # Dropout & Clipping
     dropout_rate: 0.1
     gradient_clip_val_stage1: 1000.0
     gradient_clip_val_stage2: 1000.0
-    
+
+  # [ Informer ]
   informer:
     # embedding_dimension: 32 # Determines dimension of the embedding space
     num_encoder_layers: 2 # Number of transformer blocks stacked
@@ -143,6 +141,7 @@ model:
     dim_feedforward: 512 # Increased from 64 to better utilize H100 GPUs
     activation: relu
 
+  # [ Autoformer ]
   autoformer:
     # embedding_dimension: 32 # Determines dimension of the embedding space
     num_encoder_layers: 2 # Number of transformer blocks stacked
@@ -151,6 +150,7 @@ model:
     dim_feedforward: 64
     activation: gelu
     
+  # [ Spacetimeformer ]
   spacetimeformer:
     # embedding_dimension: 32 # Determines dimension of the embedding space
     num_encoder_layers: 3 # Number of transformer blocks stacked
@@ -174,6 +174,7 @@ model:
     pos_emb_type: abs
     embed_method: spatio-temporal
     activation: gelu
+########### END OF MODEL-SPECIFIC PARAMETERS ###########
 
 callbacks: 
     progress_bar:  
