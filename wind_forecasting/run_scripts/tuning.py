@@ -160,27 +160,39 @@ class MLTuningObjective:
         trial_trainer_kwargs["callbacks"] = current_callbacks # Use the potentially modified list
 
         # context_length = int(pd.Timedelta(self.config["dataset"]["context_length"], unit="s") / pd.Timedelta(self.data_module.freq))
-        estimator = self.estimator_class(
-            freq=self.data_module.freq,
-            prediction_length=self.data_module.prediction_length,
-            context_length=self.config["dataset"]["context_length"],
-            num_feat_dynamic_real=self.data_module.num_feat_dynamic_real,
-            num_feat_static_cat=self.data_module.num_feat_static_cat,
-            cardinality=self.data_module.cardinality,
-            num_feat_static_real=self.data_module.num_feat_static_real,
-            input_size=self.data_module.num_target_vars,
-            scaling=False,
-            lags_seq=[0], 
-            use_lazyframe=False,
-            batch_size=self.config["dataset"].get("batch_size", 128),
-            num_batches_per_epoch=trial_trainer_kwargs["limit_train_batches"], # Use value from trial_trainer_kwargs
-            train_sampler=ExpectedNumInstanceSampler(num_instances=1.0, min_past=self.config["dataset"]["context_length"], min_future=self.data_module.prediction_length),
-            validation_sampler=ValidationSplitSampler(min_past=self.config["dataset"]["context_length"], min_future=self.data_module.prediction_length),
-            time_features=[second_of_minute, minute_of_hour, hour_of_day, day_of_year],
-            distr_output=self.distr_output_class(dim=self.data_module.num_target_vars, **self.config["model"]["distr_output"]["kwargs"]),
-            trainer_kwargs=trial_trainer_kwargs, # Pass the trial-specific kwargs
-            **self.config["model"][self.model]
-        )
+        
+        # Estimator Arguments to handle difference between models
+        estimator_args = {
+            "freq": self.data_module.freq,
+            "prediction_length": self.data_module.prediction_length,
+            "context_length": self.config["dataset"]["context_length"],
+            "num_feat_dynamic_real": self.data_module.num_feat_dynamic_real,
+            "num_feat_static_cat": self.data_module.num_feat_static_cat,
+            "cardinality": self.data_module.cardinality,
+            "num_feat_static_real": self.data_module.num_feat_static_real,
+            "input_size": self.data_module.num_target_vars,
+            "scaling": False,
+            "lags_seq": [0],
+            "use_lazyframe": False,
+            "batch_size": self.config["dataset"].get("batch_size", 128),
+            "num_batches_per_epoch": trial_trainer_kwargs["limit_train_batches"], # Use value from trial_trainer_kwargs
+            "train_sampler": ExpectedNumInstanceSampler(num_instances=1.0, min_past=self.config["dataset"]["context_length"], min_future=self.data_module.prediction_length),
+            "validation_sampler": ValidationSplitSampler(min_past=self.config["dataset"]["context_length"], min_future=self.data_module.prediction_length),
+            "time_features": [second_of_minute, minute_of_hour, hour_of_day, day_of_year],
+            # Include distr_output initially, will be removed conditionally
+            "distr_output": self.distr_output_class(dim=self.data_module.num_target_vars, **self.config["model"]["distr_output"]["kwargs"]),
+            "trainer_kwargs": trial_trainer_kwargs, # Pass the trial-specific kwargs
+        }
+        # Add model-specific config from the YAML
+        estimator_args.update(self.config["model"][self.model])
+        
+        # TACTiS manages its own distribution output internally
+        if self.model == 'tactis' and 'distr_output' in estimator_args:
+            estimator_args.pop('distr_output')
+
+        logging.info(f"Trial {trial.number}: Instantiating estimator '{self.model}' with final args: {list(estimator_args.keys())}")
+        
+        estimator = self.estimator_class(**estimator_args)
 
         # Log GPU stats before training
         self.log_gpu_stats(stage=f"Trial {trial.number} Before Training")
