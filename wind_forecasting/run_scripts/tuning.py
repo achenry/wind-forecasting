@@ -182,11 +182,13 @@ class MLTuningObjective:
             # Include distr_output initially, will be removed conditionally
             "distr_output": self.distr_output_class(dim=self.data_module.num_target_vars, **self.config["model"]["distr_output"]["kwargs"]),
             "trainer_kwargs": trial_trainer_kwargs, # Pass the trial-specific kwargs
+            "num_parallel_samples": self.config["model"][self.model].get("num_parallel_samples", 100) if self.model == 'tactis' else 100, # Default 100 if not specified
         }
-        # Add model-specific config from the YAML
-        estimator_args.update(self.config["model"][self.model])
-        
-        # TACTiS manages its own distribution output internally
+        # Add model-specific tunable hyperparameters suggested by Optuna trial
+        # Update with tunable parameters from the current trial
+        estimator_args.update(params) # params contains the trial-suggested values
+
+        # TACTiS manages its own distribution output internally, remove if present
         if self.model == 'tactis' and 'distr_output' in estimator_args:
             estimator_args.pop('distr_output')
 
