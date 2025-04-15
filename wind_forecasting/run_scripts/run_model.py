@@ -305,26 +305,36 @@ def main():
         
         # Use globals() to fetch the estimator class dynamically
         EstimatorClass = globals()[f"{args.model.capitalize()}Estimator"]
-        estimator = EstimatorClass(
-            freq=data_module.freq, 
-            prediction_length=data_module.prediction_length,
-            num_feat_dynamic_real=data_module.num_feat_dynamic_real,
-            num_feat_static_cat=data_module.num_feat_static_cat,
-            cardinality=data_module.cardinality,
-            num_feat_static_real=data_module.num_feat_static_real,
-            input_size=data_module.num_target_vars,
-            scaling=False,
-            lags_seq=[0],
-            time_features=[second_of_minute, minute_of_hour, hour_of_day, day_of_year],
-            distr_output=globals()[config["model"]["distr_output"]["class"]](dim=data_module.num_target_vars, **config["model"]["distr_output"]["kwargs"]),
-            batch_size=config["dataset"].setdefault("batch_size", 128),
-            num_batches_per_epoch=config["trainer"].setdefault("limit_train_batches", 1000),
-            context_length=data_module.context_length,
-            train_sampler=ExpectedNumInstanceSampler(num_instances=1.0, min_past=data_module.context_length, min_future=data_module.prediction_length),
-            validation_sampler=ValidationSplitSampler(min_past=data_module.context_length, min_future=data_module.prediction_length),
-            trainer_kwargs=config["trainer"],
-            **config["model"][args.model]
-        )
+
+        # Prepare all arguments in a dictionary
+        estimator_kwargs = {
+            "freq": data_module.freq,
+            "prediction_length": data_module.prediction_length,
+            "num_feat_dynamic_real": data_module.num_feat_dynamic_real,
+            "num_feat_static_cat": data_module.num_feat_static_cat,
+            "cardinality": data_module.cardinality,
+            "num_feat_static_real": data_module.num_feat_static_real,
+            "input_size": data_module.num_target_vars,
+            "scaling": False, # Scaling handled externally or internally by TACTiS
+            "lags_seq": [0], # TACTiS doesn't typically use lags
+            "time_features": [second_of_minute, minute_of_hour, hour_of_day, day_of_year],
+            "batch_size": config["dataset"].setdefault("batch_size", 128),
+            "num_batches_per_epoch": config["trainer"].setdefault("limit_train_batches", 1000),
+            "context_length": data_module.context_length,
+            "train_sampler": ExpectedNumInstanceSampler(num_instances=1.0, min_past=data_module.context_length, min_future=data_module.prediction_length),
+            "validation_sampler": ValidationSplitSampler(min_past=data_module.context_length, min_future=data_module.prediction_length),
+            "trainer_kwargs": config["trainer"],
+        }
+
+        # Add model-specific arguments from the config YAML
+        estimator_kwargs.update(config["model"][args.model])
+
+        if args.model != 'tactis':
+            estimator_kwargs["distr_output"] = globals()[config["model"]["distr_output"]["class"]](dim=data_module.num_target_vars, **config["model"]["distr_output"]["kwargs"])
+        elif 'distr_output' in estimator_kwargs:
+             del estimator_kwargs['distr_output']
+
+        estimator = EstimatorClass(**estimator_kwargs)
 
     if args.mode == "tune":
         # %% SETUP & SYNCHRONIZE DATABASE
