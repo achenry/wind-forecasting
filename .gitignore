@@ -62,6 +62,8 @@ wind_forecasting.code-workspace
 *.db-wal
 *.db-shm
 *.roomodes
+*.lock
+*.sync
 
 examples/data/*
 .vscode/

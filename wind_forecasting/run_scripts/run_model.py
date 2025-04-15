@@ -7,6 +7,7 @@ import gc
 import random
 import numpy as np
 from datetime import datetime
+from pathlib import Path
 
 import polars as pl
 from lightning.pytorch.loggers import WandbLogger
@@ -327,10 +328,78 @@ def main():
 
     if args.mode == "tune":
         # %% SETUP & SYNCHRONIZE DATABASE
-        optuna_storage = setup_optuna_storage(optuna_config=config["optuna"], 
-                                              study_name=f"tuning_{args.model}_{config['experiment']['run_name']}",
-                                              restart_tuning=args.restart_tuning, rank=rank)
-        
+        # Extract necessary parameters for DB setup explicitly
+        study_name = f"tuning_{args.model}_{config['experiment']['run_name']}"
+        optuna_cfg = config["optuna"]
+        storage_cfg = optuna_cfg.get("storage", {})
+        logging_cfg = config["logging"]
+        experiment_cfg = config["experiment"]
+
+        # Resolve paths relative to project root and substitute known variables
+        project_root = experiment_cfg.get("project_root", os.getcwd())
+
+        # make paths absolute
+        def resolve_path(base_path, path_input):
+            if not path_input: return None
+            # Convert potential Path object back to string if needed
+            path_str = str(path_input)
+            abs_path = Path(path_str)
+            if not abs_path.is_absolute():
+                abs_path = Path(base_path) / abs_path
+            return str(abs_path.resolve())
+
+        # Resolve paths with direct substitution
+        optuna_dir_from_config = logging_cfg.get("optuna_dir")
+        resolved_optuna_dir = resolve_path(project_root, optuna_dir_from_config)
+        if not resolved_optuna_dir:
+             raise ValueError("logging.optuna_dir is required but not found or resolved.")
+
+        pgdata_path_from_config = storage_cfg.get("pgdata_path")
+        resolved_pgdata_path = resolve_path(project_root, pgdata_path_from_config)
+
+        socket_dir_base_from_config = storage_cfg.get("socket_dir_base")
+        if not socket_dir_base_from_config:
+             socket_dir_base_str = os.path.join(resolved_optuna_dir, "sockets")
+        else:
+             socket_dir_base_str = str(socket_dir_base_from_config).replace("${logging.optuna_dir}", resolved_optuna_dir)
+        resolved_socket_dir_base = resolve_path(project_root, socket_dir_base_str) # Make absolute
+
+        sync_dir_from_config = storage_cfg.get("sync_dir")
+        if not sync_dir_from_config:
+             # Default value uses the resolved optuna_dir
+             sync_dir_str = os.path.join(resolved_optuna_dir, "sync")
+        else:
+             # Substitute directly if the variable exists
+             sync_dir_str = str(sync_dir_from_config).replace("${logging.optuna_dir}", resolved_optuna_dir)
+        resolved_sync_dir = resolve_path(project_root, sync_dir_str) # Make absolute
+
+        db_setup_params = {
+            "backend": storage_cfg.get("backend", "sqlite"),
+            "project_root": project_root,
+            "pgdata_path": resolved_pgdata_path,
+            "study_name": study_name,
+            "use_socket": storage_cfg.get("use_socket", True),
+            "use_tcp": storage_cfg.get("use_tcp", False),
+            "db_host": storage_cfg.get("db_host", "localhost"),
+            "db_port": storage_cfg.get("db_port", 5432),
+            "db_name": storage_cfg.get("db_name", "optuna_study_db"),
+            "db_user": storage_cfg.get("db_user", "optuna_user"),
+            "run_cmd_shell": storage_cfg.get("run_cmd_shell", False),
+            "socket_dir_base": resolved_socket_dir_base,
+            "sync_dir": resolved_sync_dir,
+            "storage_dir": resolved_optuna_dir, # For non-postgres backends
+            "sqlite_path": storage_cfg.get("sqlite_path"), # For sqlite
+            "sqlite_wal": storage_cfg.get("sqlite_wal", True), # For sqlite
+            "sqlite_timeout": storage_cfg.get("sqlite_timeout", 600), # For sqlite
+        }
+
+        optuna_storage = setup_optuna_storage(
+            db_setup_params=db_setup_params,
+            study_name=study_name,
+            restart_tuning=args.restart_tuning,
+            rank=rank
+        )
+
         logging.info("Starting Optuna hyperparameter tuning...")
         # NOTE JUAN removed the check for cuda since it is helpful to debug hyperparameter tuning on local machine
         
@@ -343,8 +412,8 @@ def main():
         DistrOutputClass = globals()[config["model"]["distr_output"]["class"]]
         
         # Normal execution - pass the OOM protection wrapper and constructed storage URL
-        tune_model(model=args.model, config=config,
-                   study_name=f"tuning_{args.model}_{config['experiment']['run_name']}",
+        tune_model(model=args.model, config=config, # Pass full config here for model/trainer params
+                   study_name=study_name,
                    optuna_storage=optuna_storage, # Pass the constructed storage object
                    lightning_module_class=LightningModuleClass,
                    estimator_class=EstimatorClass,

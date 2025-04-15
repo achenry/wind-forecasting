@@ -9,24 +9,39 @@ from optuna.storages import JournalStorage, RDBStorage
 from optuna.storages.journal import JournalFileBackend
 
 
-def setup_optuna_storage(optuna_config, study_name, restart_tuning, rank):
+def setup_optuna_storage(db_setup_params, study_name, restart_tuning, rank):
     """
     Sets up the Optuna storage backend based on configuration and handles synchronization
     between workers.
     """
-        
-    storage_backend = optuna_config.get("storage", {}).get("backend", "sqlite")  # Default to sqlite
+    storage_backend = db_setup_params.get("backend", "sqlite")
     logging.info(f"Optuna storage backend configured as: {storage_backend}")
 
     if storage_backend == "postgresql":
         # Setup for PostgreSQL database
-        storage = setup_postgresql(optuna_config=optuna_config, restart_tuning=restart_tuning, rank=rank)
+        # Pass only the necessary parameters for postgresql setup
+        storage = setup_postgresql(
+            db_setup_params=db_setup_params,
+            restart_tuning=restart_tuning,
+            rank=rank
+        )
     elif storage_backend == "sqlite":
         # Setup for SQLite database
-        storage = setup_sqlite(sqlite_storage_dir=optuna_config["storage_dir"], study_name=study_name, restart_tuning=restart_tuning, rank=rank)
+        storage = setup_sqlite(
+            sqlite_storage_dir=db_setup_params["storage_dir"], # Use resolved storage_dir
+            study_name=study_name,
+            restart_tuning=restart_tuning,
+            rank=rank
+        )
     elif storage_backend == "journal":
-        return setup_journal(storage_dir=optuna_config["storage_dir"], study_name=study_name, restart_tuning=restart_tuning, rank=rank)
+        return setup_journal(
+            storage_dir=db_setup_params["storage_dir"], # Use resolved storage_dir
+            study_name=study_name,
+            restart_tuning=restart_tuning,
+            rank=rank
+        )
     elif storage_backend == "mysql":
+        # TODO: Update setup_mysql to accept db_setup_params if needed
         storage = setup_mysql(study_name=study_name, restart_tuning=restart_tuning, rank=rank)
     else:
         raise ValueError(f"Unsupported optuna storage backend: {storage_backend}") 
@@ -39,24 +54,36 @@ def delete_studies(storage):
         storage.delete_study(s._study_id)
 
 @rank_zero_only
-def setup_postgresql_rank_zero(config, restart_tuning=False, register_cleanup=True):
+def setup_postgresql_rank_zero(db_setup_params, restart_tuning=False, register_cleanup=True):
     """
     Sets up PostgreSQL instance on rank 0 (primary worker).
     """
     logging.info("Rank 0: Managing PostgreSQL instance...")
+    pg_config = None # Initialize in case manage_postgres_instance fails early
     try:
+        # Filter db_setup_params to only include keys relevant for PostgreSQL setup
+        pg_params = {
+            k: v for k, v in db_setup_params.items() if k in [
+                "backend", "project_root", "pgdata_path", "study_name",
+                "use_socket", "use_tcp", "db_host", "db_port", "db_name",
+                "db_user", "run_cmd_shell", "socket_dir_base", "sync_dir"
+            ]
+        }
+
         # Manage instance (init, start, setup user/db)
         # Pass restart flag from args.
         # Explicitly set register_cleanup=False to prevent premature DB shutdown by worker 0's atexit.
         # Cleanup should be handled externally after all workers finish.
+        # Pass the filtered explicit parameters needed by manage_postgres_instance
         optuna_storage_url, pg_config = db_utils.manage_postgres_instance(
-            config,
+            db_setup_params=pg_params, # Pass the filtered dict
             restart=restart_tuning,
             register_cleanup=False # Disable atexit registration for Optuna runs
         )
 
         # Ensure sync file doesn't exist from a previous failed run
-        if "sync_file" not in pg_config:
+        # pg_config should be populated by manage_postgres_instance if successful
+        if not pg_config or "sync_file" not in pg_config:
              raise ValueError("Sync file path not generated in pg_config.")
         else:
             sync_file_path = pg_config["sync_file"]
@@ -82,24 +109,34 @@ def setup_postgresql_rank_zero(config, restart_tuning=False, register_cleanup=Tr
                   logging.error(f"Rank 0: Failed to write error state to sync file: {e_sync}")
         raise  # Re-raise the exception to stop rank 0
 
-def setup_postgresql(optuna_config, rank, restart_tuning):
+def setup_postgresql(db_setup_params, rank, restart_tuning):
     """
     Handles PostgreSQL setup for all ranks.
     """
     optuna_storage_url = None
-    pg_config = None
-    
+    pg_config = None # Initialize
+
     # Rank 0 is responsible for setting up the database
     if rank == 0:
-        optuna_storage_url, pg_config = setup_postgresql_rank_zero(optuna_config, restart_tuning=restart_tuning)
+        # Pass the explicit params dict
+        optuna_storage_url, pg_config = setup_postgresql_rank_zero(db_setup_params, restart_tuning=restart_tuning)
         storage = RDBStorage(url=optuna_storage_url)
-        
+
     else:
-        # Worker ranks: Generate config to find sync file and wait
+        # Worker ranks: Generate config *only* to find sync file and wait
         try:
             # Generate config but DO NOT manage the instance or register cleanup
             # This call primarily resolves paths and gets the sync_file location
-            pg_config = db_utils._generate_pg_config(optuna_config)
+            # Filter db_setup_params to only include keys relevant for PostgreSQL setup
+            pg_params = {
+                k: v for k, v in db_setup_params.items() if k in [
+                    "backend", "project_root", "pgdata_path", "study_name",
+                    "use_socket", "use_tcp", "db_host", "db_port", "db_name",
+                    "db_user", "run_cmd_shell", "socket_dir_base", "sync_dir"
+                ]
+            }
+            # Pass the filtered explicit params dict
+            pg_config = db_utils._generate_pg_config(**pg_params) # Unpack the filtered explicit params here
             sync_file_path = pg_config.get("sync_file")
             if not sync_file_path:
                  raise ValueError("Sync file path not generated in pg_config for worker.")
