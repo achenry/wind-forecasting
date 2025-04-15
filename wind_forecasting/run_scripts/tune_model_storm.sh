@@ -7,9 +7,9 @@
 #SBATCH --mem-per-cpu=8016          # Memory per CPU (Total Mem = ntasks * cpus-per-task * mem-per-cpu)
 #SBATCH --gres=gpu:4           # Request 4 H100 GPUs
 #SBATCH --time=1-00:00              # Time limit (1 day)
-#SBATCH --job-name=informer_tune_flasc_sql
-#SBATCH --output=/user/taed7566/wind-forecasting/logging/slurm_logs/informer_tune_flasc_sql_%j.out
-#SBATCH --error=/user/taed7566/wind-forecasting/logging/slurm_logs/informer_tune_flasc_sql_%j.err
+#SBATCH --job-name=tactis_tune_flasc_sql
+#SBATCH --output=/user/taed7566/wind-forecasting/logging/slurm_logs/tactis_tune_flasc_sql_%j.out
+#SBATCH --error=/user/taed7566/wind-forecasting/logging/slurm_logs/tactis_tune_flasc_sql_%j.err
 #SBATCH --hint=nomultithread        # Disable hyperthreading
 #SBATCH --distribution=block:block  # Improve GPU-CPU affinity
 #SBATCH --gres-flags=enforce-binding # Enforce binding of GPUs to tasks
@@ -23,7 +23,8 @@ BASE_DIR="/user/taed7566/wind-forecasting"
 export WORK_DIR="${BASE_DIR}/wind_forecasting"
 export LOG_DIR="${BASE_DIR}/logging"
 export CONFIG_FILE="${BASE_DIR}/examples/inputs/training_inputs_juan_flasc.yaml"
-export MODEL_NAME="informer"
+export MODEL_NAME="tactis"
+export RESTART_TUNING_FLAG="--restart_tuning" # "" Or "--restart_tuning"
 
 # --- Create Logging Directories ---
 # Ensure the main slurm_logs directory exists
