@@ -88,7 +88,7 @@ model:
       rank: 5
       sigma_init: 0.2
   
-  ########### Model-specific parameters ###########
+  ########### MODEL-SPECIFIC PARAMETERS ###########
   # [ TACTiS-2 ]
   tactis:
     # General TACTiS settings

@@ -206,8 +206,12 @@ date +"%Y-%m-%d %H:%M:%S"
 
 # --- Move main SLURM logs to the job ID directory with rest of worker logs ---
 echo "Moving main SLURM logs to ${LOG_DIR}/slurm_logs/${SLURM_JOB_ID}/"
-mv ${LOG_DIR}/slurm_logs/informer_tune_flasc_${SLURM_JOB_ID}.out ${LOG_DIR}/slurm_logs/${SLURM_JOB_ID}/ 2>/dev/null || echo "Warning: Could not move .out file."
-mv ${LOG_DIR}/slurm_logs/informer_tune_flasc_${SLURM_JOB_ID}.err ${LOG_DIR}/slurm_logs/${SLURM_JOB_ID}/ 2>/dev/null || echo "Warning: Could not move .err file."
+for f in ${LOG_DIR}/slurm_logs/*_${SLURM_JOB_ID}.out; do
+    [ -e "$f" ] && mv "$f" "${LOG_DIR}/slurm_logs/${SLURM_JOB_ID}/" || echo "Warning: Could not move .out file."
+done
+for f in ${LOG_DIR}/slurm_logs/*_${SLURM_JOB_ID}.err; do
+    [ -e "$f" ] && mv "$f" "${LOG_DIR}/slurm_logs/${SLURM_JOB_ID}/" || echo "Warning: Could not move .err file."
+done
 echo "--------------------------------------------------"
 
 exit $FINAL_EXIT_CODE
