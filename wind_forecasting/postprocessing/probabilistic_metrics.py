@@ -692,11 +692,18 @@ def coverage_width_criterion(predicted_mean, true_values, predicted_std, confide
     lower_bound = predicted_mean - z_score * predicted_std
 
     # computing PICP
-    covered = np.sum((true_values >= lower_bound) & (true_values <= upper_bound))
-    coverage = covered / len(true_values)
+    picp = pi_coverage_probability(predicted_mean, true_values, predicted_std, confidence_level)
+    
+    # computing pinaw
+    pinaw = pi_normalized_average_width(predicted_mean, true_values, predicted_std, confidence_level)
 
-    interval_width = upper_bound - lower_bound
-    cwc = np.mean(interval_width) * (1 + (coverage < confidence_level) * np.exp(-0.25*(coverage - confidence_level)))
+    # PI normal confidence
+    # mu = 1 - confidence_level
+    
+    # penalty factor
+    eta = 0.25
+    
+    cwc = pinaw * (1 + (picp < confidence_level) * np.exp(-eta*(picp - confidence_level)))
 
     return cwc
 
