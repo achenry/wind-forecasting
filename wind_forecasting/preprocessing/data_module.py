@@ -65,6 +65,19 @@ class DataModule():
         assert self.context_length > 0, "context_length must be provided in seconds, and must be greaterthan resample_freq."
         assert self.prediction_length > 0, "prediction_length must be provided in seconds, and must be greaterthan resample_freq."
      
+    def compute_scaler_params(self):
+        norm_consts = pd.read_csv(self.normalization_consts_path, index_col=None)
+        norm_min_cols = [col for col in norm_consts if "_min" in col]
+        norm_max_cols = [col for col in norm_consts if "_max" in col]
+        data_min = norm_consts[norm_min_cols].values.flatten()
+        data_max = norm_consts[norm_max_cols].values.flatten()
+        norm_min_cols = [col.replace("_min", "") for col in norm_min_cols]
+        norm_max_cols = [col.replace("_max", "") for col in norm_max_cols]
+        feature_range = (-1, 1)
+        self.norm_scale = ((feature_range[1] - feature_range[0]) / (data_max - data_min))
+        self.norm_min = feature_range[0] - (data_min * self.norm_scale)
+        return {"min_": dict(zip(norm_min_cols, self.norm_min)), "scale_": dict(zip(norm_min_cols, self.norm_scale))}
+     
     def generate_datasets(self):
         
         dataset = IterableLazyFrame(data_path=self.data_path, dtype=self.dtype)\
@@ -74,18 +87,9 @@ class DataModule():
                     # .collect().write_parquet(self.train_ready_data_path, statistics=False)
                     
         if not self.normalized:
-            norm_consts = pd.read_csv(self.normalization_consts_path, index_col=None)
-            norm_min_cols = [col for col in norm_consts if "_min" in col]
-            norm_max_cols = [col for col in norm_consts if "_max" in col]
-            data_min = norm_consts[norm_min_cols].values.flatten()
-            data_max = norm_consts[norm_max_cols].values.flatten()
-            norm_min_cols = [col.replace("_min", "") for col in norm_min_cols]
-            norm_max_cols = [col.replace("_max", "") for col in norm_max_cols]
-            feature_range = (-1, 1)
-            norm_scale = ((feature_range[1] - feature_range[0]) / (data_max - data_min))
-            norm_min = feature_range[0] - (data_min * norm_scale)
-            dataset = dataset.with_columns([(cs.starts_with(col) - norm_min[c]) 
-                                                        / norm_scale[c] 
+            self.compute_scaler_params()
+            dataset = dataset.with_columns([(cs.starts_with(col) - self.norm_min[c]) 
+                                                        / self.norm_scale[c] 
                                                         for c, col in enumerate(norm_min_cols)])
                     
         # TODO if resampling requieres upsampling: historic_measurements.upsample(time_column="time", every=self.data_module.freq).fill_null(strategy="forward")

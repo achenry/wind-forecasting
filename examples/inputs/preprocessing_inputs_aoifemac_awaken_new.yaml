@@ -1,3 +1,5 @@
+config_label: aoifemac_awaken_new
+
 filters:
   # nacelle_calibration:
   # unresponsive_sensor:
