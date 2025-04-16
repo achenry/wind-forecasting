@@ -45,7 +45,7 @@ try:
     from mpi4py import MPI
     mpi_exists = True
 except:
-    print("No MPI available on system.")
+    logging.warning("No MPI available on system.")
 
 
 def main():
