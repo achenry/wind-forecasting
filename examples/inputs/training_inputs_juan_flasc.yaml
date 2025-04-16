@@ -72,7 +72,7 @@ dataset:
     prediction_length: 300 # in seconds
     target_turbine_ids: # or leave blank to capture all
     normalize: False
-    batch_size: 512 # Increased batch size
+    batch_size: 256 # Reduced from 512
     workers: 12 # Consider adjusting based on CPU cores per task
     overfit: False
     test_split: 0.20
