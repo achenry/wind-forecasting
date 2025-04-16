@@ -12,7 +12,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 def _run_cmd(command, cwd=None, shell=False, check=True, env_override=None):
     """Helper function to run shell commands and log output/errors."""
     log_cmd = ' '.join(command) if isinstance(command, list) else command
-    logging.info(f"Running command (shell={shell}): {log_cmd}")
+    # logging.info(f"Running command (shell={shell}): {log_cmd}")  # DEBUG
     try:
         # --- Create environment for the subprocess ---
         # Start with current environment or an empty dict
@@ -28,11 +28,11 @@ def _run_cmd(command, cwd=None, shell=False, check=True, env_override=None):
         captured_ld_path = os.environ.get("CAPTURED_LD_LIBRARY_PATH")
         if captured_ld_path:
             cmd_env["LD_LIBRARY_PATH"] = captured_ld_path
-            logging.info(f"Using captured LD_LIBRARY_PATH for subprocess: {captured_ld_path}")
-        elif "LD_LIBRARY_PATH" in cmd_env:
-             logging.info(f"Using existing LD_LIBRARY_PATH for subprocess: {cmd_env['LD_LIBRARY_PATH']}")
+            # logging.info(f"Using captured LD_LIBRARY_PATH for subprocess: {captured_ld_path}") # DEBUG
+        # elif "LD_LIBRARY_PATH" in cmd_env:
+        #      logging.info(f"Using existing LD_LIBRARY_PATH for subprocess: {cmd_env['LD_LIBRARY_PATH']}") # DEBUG
         else:
-             logging.warning("LD_LIBRARY_PATH not found in environment for subprocess.")
+             logging.warning("LD_LIBRARY_PATH not found in environment for subprocess.") # DEBUG
 
         # Ensure essential user variables are present
         for env_var in ["USER", "LOGNAME", "HOME"]:
@@ -50,10 +50,11 @@ def _run_cmd(command, cwd=None, shell=False, check=True, env_override=None):
             env=cmd_env
         )
 
-        if process.stdout:
-            logging.info(f"Command stdout:\n{process.stdout.strip()}")
-        if process.stderr:
-            logging.warning(f"Command stderr:\n{process.stderr.strip()}")
+        # DEBUG
+        # if process.stdout:
+        #     logging.info(f"Command stdout:\n{process.stdout.strip()}")
+        # if process.stderr:
+        #     logging.warning(f"Command stderr:\n{process.stderr.strip()}")
         return process
     except subprocess.CalledProcessError as e:
         logging.error(f"Command failed with exit code {e.returncode}")
