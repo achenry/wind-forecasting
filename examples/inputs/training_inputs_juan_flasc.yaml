@@ -16,7 +16,6 @@ optuna:
   limit_train_batches: 100    # batches per epoch
   metric: "mean_wQuantileLoss" # The metric to optimize
   direction: "minimize"       # Whether to minimize or maximize the metric
-  context_length_choice_factors: [1, 2, 3, 4]  # Factors to multiply prediction_length by
   
   # Pruning configuration
   pruning:
@@ -80,6 +79,7 @@ dataset:
     resample_freq: 60s
     n_splits: 1 # how many divisions of each continuity group to make which is further subdivided into training test and validation data
     per_turbine_target: False
+    context_length_factor: 2  # Factor to multiply prediction_length by
 
 model:
   distr_output:

@@ -584,7 +584,11 @@ class DataInspector:
                 print(f"Weibull shape parameter (k): {shape:.2f}")
                 print(f"Weibull scale parameter (λ): {scale:.2f}")
 
-    def plot_wind_farm(self, wind_directions:list[float]=None, wind_speeds:list[float]|None=None, turbulence_intensities:list[float]|None=None) -> None:
+    def plot_wind_farm(self, wind_directions:list[float]=None, 
+                       wind_speeds:list[float]|None=None, 
+                       turbulence_intensities:list[float]|None=None,
+                       turbine_groups:list[int]|None=None,
+                       turbine_group_colors:list[str|int]|None=None) -> None:
         """_summary_
 
         Returns:
@@ -616,7 +620,10 @@ class DataInspector:
         fig, ax = plt.subplots(figsize=(10, 10))
         
         # Plot the turbine layout
-        layoutviz.plot_turbine_points(self.fmodel, ax=ax)
+        layoutviz.plot_turbine_points(
+            self.fmodel, ax=ax, 
+            highlight_turbine_groups=turbine_groups,
+            highlight_colors=turbine_group_colors)
         
         # Add turbine labels
         # turbine_names = [f"T{i+1}" for i in range(self.fmodel.n_turbines)]
@@ -624,16 +631,26 @@ class DataInspector:
         #     self.fmodel, ax=ax, turbine_names=turbine_names, show_bbox=True, bbox_dict={"facecolor": "white", "alpha": 0.5}
         # )
         
+        # for group_index, turbine_indices in enumerate(turbine_groups):
+        #     turbine_names = [f"P{group_index+1}" if i  == turbine_indices[0] else "" for i in range(self.fmodel.n_turbines)]
+        #     rotor_diameters = self.fmodel.core.farm.rotor_diameters.flatten()
+        #     r = rotor_diameters[0] / 2.0
+        #     label_offset = -(r / 8.0) * 50
+        #     layoutviz.plot_turbine_labels(
+        #         self.fmodel, ax=ax, turbine_names=turbine_names, turbine_indices=turbine_indices,
+        #         label_offset=label_offset
+        #     )
+        
         # Calculate and visualize the flow field
         horizontal_plane = self.fmodel.calculate_horizontal_plane(height=self.fmodel.core.farm.hub_heights[0])
-        visualize_cut_plane(horizontal_plane, ax=ax, min_speed=4, max_speed=10, color_bar=True)
+        visualize_cut_plane(horizontal_plane, ax=ax, min_speed=1, max_speed=10, color_bar=True)
         
         # Plot turbine rotors
         # layoutviz.plot_turbine_rotors(self.fmodel, ax=ax)
         
         ax.set_xlim((horizontal_plane.df.x1.min(), horizontal_plane.df.x1.max()))
         ax.set_ylim((horizontal_plane.df.x2.min(), horizontal_plane.df.x2.max()))
-        
+        # ax.set_aspect("equal")
         # Set plot title and labels
         # ax.set_title('Wind Farm Layout', fontsize=16)
         ax.tick_params(axis='both', which='major', labelsize=20)

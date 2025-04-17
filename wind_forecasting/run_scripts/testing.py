@@ -59,9 +59,8 @@ def test_model(*, data_module, checkpoint, lightning_module_class, normalization
         predictor=predictor,
         output_distr_params={"loc": "mean", "cov_factor": "cov_factor", "cov_diag": "cov_diag"}
     )
-
-    forecasts = list(forecast_it)
-    tss = list(ts_it)
+    forecasts = forecast_it
+    tss = ts_it
     
     # %%
     # add custom evaluation functions eg Continuous Ranked Probability Score, Quantile Loss, Pinball Loss/Quantile Score (same as Quantile Loss?), 
@@ -78,7 +77,7 @@ def test_model(*, data_module, checkpoint, lightning_module_class, normalization
     )
 
     # %% COMPUTE AGGREGATE METRICS
-    agg_metrics, ts_metrics = evaluator(iter(tss), iter(forecasts), num_series=data_module.num_target_vars)
+    agg_metrics, ts_metrics = evaluator(tss, forecasts, num_series=data_module.num_target_vars)
 
     # %% PLOT TEST PREDICTIONS
     agg_df = defaultdict(list)
@@ -203,7 +202,7 @@ def get_checkpoint(checkpoint, metric, mode, log_dir):
     if checkpoint is None:
         return None
     elif checkpoint in ["best", "latest"]:
-        checkpoint_paths = glob(os.path.join(log_dir, "*/*/*/*.ckpt"))
+        checkpoint_paths = glob(os.path.join(log_dir, "*/*/*/*/*.ckpt"))
         # version_dirs = glob(os.path.join(log_dir, "*"))
         if len(checkpoint_paths) == 0:
             logging.warning(f"There are no checkpoint files in {log_dir}, returning None.")
