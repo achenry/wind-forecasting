@@ -116,9 +116,9 @@ def main():
             device = torch.cuda.current_device()
             logging.info(f"Using GPU {device}: {torch.cuda.get_device_name(device)}")
             
-        # Check if CUDA_VISIBLE_DEVICES is set and contains only a single GPU
+            # Check if CUDA_VISIBLE_DEVICES is set and contains only a single GPU
             if "CUDA_VISIBLE_DEVICES" in os.environ:
-                cuda_devices = os.environ["CUDA_VISIBLE_DEVICES"]
+                cuda_devices = os.environ["CUDA_VISIBLE_DEVICES"] # Note: must 'export' variable within nohup to find on Kestrel
                 logging.info(f"CUDA_VISIBLE_DEVICES is set to: '{cuda_devices}'")
                 try:
                     # Count the number of GPUs specified in CUDA_VISIBLE_DEVICES
@@ -139,9 +139,9 @@ def main():
                         # Log actual GPU mapping information
                         if num_visible_gpus == 1:
                             try:
-                                logging.info(f"Primary GPU is system device {actual_gpu}, mapped to CUDA index {device_id}")
                                 actual_gpu = int(visible_gpus[0])
                                 device_id = 0  # With CUDA_VISIBLE_DEVICES, first visible GPU is always index 0
+                                logging.info(f"Primary GPU is system device {actual_gpu}, mapped to CUDA index {device_id}")
                             except ValueError:
                                 logging.warning(f"Could not parse GPU index from CUDA_VISIBLE_DEVICES: {visible_gpus[0]}")
                     else:
@@ -267,16 +267,27 @@ def main():
                                 freq=config["dataset"]["resample_freq"], target_suffixes=config["dataset"]["target_turbine_ids"],
                                     per_turbine_target=config["dataset"]["per_turbine_target"], as_lazyframe=False, dtype=pl.Float32)
     
+    if rank_zero_only.rank == 0:
+        logging.info("Preparing data for tuning")
+        if not os.path.exists(data_module.train_ready_data_path):
+            data_module.generate_datasets()
+            reload = True
+        else:
+            reload = False
+    
+        data_module.generate_splits(save=True, reload=reload) 
+    
     data_module.generate_splits(save=True, reload=False)
 
     # %% DEFINE ESTIMATOR
     if args.mode in ["train", "test"]:
-        # TODO JUAN integrate get_tuned_params, get_storage so we can fetch parameters that have been tuned
         found_tuned_params = True
         if args.use_tuned_parameters:
             try:
                 logging.info(f"Getting tuned parameters.")
-                tuned_params = get_tuned_params(backend=config["optuna"]["storage"]["backend"], study_name=f"tuning_{args.model}_{config['experiment']['run_name']}")
+                tuned_params = get_tuned_params(backend=config["optuna"]["storage"]["backend"], 
+                                                study_name=f"tuning_{args.model}_{config['experiment']['run_name']}", 
+                                                storage_dir=config["optuna"]["storage_dir"])
                 config["dataset"].update({k: v for k, v in tuned_params.items() if k in config["dataset"]})
                 config["model"][args.model].update({k: v for k, v in tuned_params.items() if k in config["model"][args.model]})
                 config["trainer"].update({k: v for k, v in tuned_params.items() if k in config["trainer"]})
@@ -354,7 +365,6 @@ def main():
                    limit_train_batches=config["optuna"]["limit_train_batches"],
                    metric=config["optuna"]["metric"],
                    direction=config["optuna"]["direction"],
-                   context_length_choices=[int(data_module.prediction_length * i) for i in config["optuna"]["context_length_choice_factors"]],
                    n_trials=config["optuna"]["n_trials"],
                    trial_protection_callback=handle_trial_with_oom_protection,
                    seed=args.seed)
@@ -380,7 +390,7 @@ def main():
     elif args.mode == "test":
         logging.info("Starting model testing...")
         # %% TEST MODEL
-         
+       
         test_model(data_module=data_module,
                     checkpoint=checkpoint,
                     lightning_module_class=globals()[f"{args.model.capitalize()}LightningModule"], 
