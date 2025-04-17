@@ -191,7 +191,6 @@ def setup_sqlite(sqlite_storage_dir, study_name, restart_tuning, rank):
     return storage
 
 def setup_journal(storage_dir, study_name, restart_tuning, rank):
-    # TODO add restart capability on rank 0
     if rank == 0:
         logging.info(f"Connecting to Journal database {study_name}")
         optuna_storage_url = os.path.join(storage_dir, f"{study_name}.db")
@@ -202,7 +201,6 @@ def setup_journal(storage_dir, study_name, restart_tuning, rank):
     return storage
     
 def setup_mysql(study_name, restart_tuning, rank):
-    # TODO add restart capability on rank 0
     logging.info(f"Connecting to RDB database {study_name}")
     try:
         db = sql_connect(host="localhost", user="root",

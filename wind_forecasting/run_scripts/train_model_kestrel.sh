@@ -1,10 +1,10 @@
 #!/bin/bash 
 #SBATCH --account=ssc
-#SBATCH --time=12:00:00
-#SBATCH --output=%j-%x.log
+#SBATCH --time=06:00:00
+#SBATCH --output=all_turbine-%j-%x.log
 ##SBATCH --partition=debug
 #SBATCH --nodes=1 # this needs to match Trainer(num_nodes...)
-#SBATCH --gres=gpu:1
+#SBATCH --gres=gpu:4
 #SBATCH --ntasks-per-node=1 # this needs to match Trainer(devices=...)
 #SBATCH --mem-per-cpu=85G
 
@@ -26,7 +26,7 @@ echo "SLURM_GPUS_ON_NODE=${SLURM_GPUS_ON_NODE}"
 echo "SLURM_JOB_GPUS=${SLURM_JOB_GPUS}"
 echo "SLURM_JOB_GRES=${SLURM_JOB_GRES}"
 
-srun python train_model.py --config ../../examples/inputs/training_inputs_kestrel.yaml --mode train --model $1
+srun python run_model.py --config ../../examples/inputs/training_inputs_kestrel_flasc.yaml --mode train --model $1
 # srun python informer.py
 #python train_spacetimeformer.py spacetimeformer windfarm --debug --run_name spacetimeformer_windfarm_debug --context_points 600 --target_points 600
 
