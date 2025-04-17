@@ -230,24 +230,15 @@ def main():
         id=unique_id, # Unique ID for the run, can also use config hyperaparameters for comparison later
         tags=[f"gpu_{gpu_id}", args.model, args.mode, f"seed_{args.seed}"],
     )
-    # Get the underlying WandB run object and its ID
-    wandb_run = wandb_logger.experiment
-    run_id_to_pass = None
-    if wandb_run:
-        run_id_to_pass = wandb_run.id
-        logging.info(f"Retrieved WandB run ID for Optuna callback: {run_id_to_pass}")
-    else:
-        logging.warning("Could not retrieve WandB run object from logger.experiment. Optuna callback might create a new run.")
 
     wandb_logger.log_hyperparams(config)
     config["trainer"]["logger"] = wandb_logger
 
-    
+
     # Update config with normalized absolute paths
     config["logging"]["optuna_dir"] = optuna_dir
     # config["logging"]["checkpoint_dir"] = checkpoint_dir
 
-    os.environ["WANDB_DIR"] = wandb_dir # JUAN QUESTION TODO why reset this
     
     # Configure WandB to save runs in a standard location
     # os.environ["WANDB_CHECKPOINT_PATH"] = checkpoint_dir
@@ -458,8 +449,7 @@ def main():
                    direction=config["optuna"]["direction"],
                    n_trials=config["optuna"]["n_trials"],
                    trial_protection_callback=handle_trial_with_oom_protection,
-                   seed=args.seed,
-                   wandb_run_id=run_id_to_pass) # Pass the WandB run ID
+                   seed=args.seed) # Removed wandb_run_id argument
         
         # After training completes
         torch.cuda.empty_cache()
