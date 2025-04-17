@@ -275,6 +275,8 @@ def main():
         else:
             reload = False
         data_module.generate_splits(save=True, reload=reload)
+        
+    data_module.get_dataset_info()
 
     # %% DEFINE ESTIMATOR
     if args.mode in ["train", "test"]:
