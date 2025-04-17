@@ -61,9 +61,13 @@ wind_forecasting.code-workspace
 *.db
 *.db-wal
 *.db-shm
+*.roomodes
+*.lock
+*.sync
 
 examples/data/*
 .vscode/
+_DOCS/*
 
 
 wind_forecasting/preprocessing/.ipynb_checkpoints/
