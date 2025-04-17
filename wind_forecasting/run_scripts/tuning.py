@@ -478,7 +478,6 @@ def tune_model(model, config, study_name, optuna_storage, lightning_module_class
 
     # Generate visualizations if enabled (only rank 0 should do this)
     if worker_id == '0' and config.get("optuna", {}).get("visualization", {}).get("enabled", False):
-        # Ensure study object is available (it should be, unless loading failed catastrophically)
         if study:
             try:
                 from wind_forecasting.utils.optuna_visualization import generate_visualizations

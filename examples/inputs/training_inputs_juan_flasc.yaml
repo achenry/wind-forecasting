@@ -6,12 +6,12 @@ experiment:
 logging:
   wandb_dir: /user/taed7566/wind-forecasting/logging/ # WandB will create a 'wandb' subdirectory here automatically
   optuna_dir: /user/taed7566/wind-forecasting/logging/optuna/
-  checkpoint_dir: /user/taed7566/wind-forecasting/logging/checkpoints/
+  checkpoint_dir: /user/taed7566/wind-forecasting/logging/checkpoints/ # Currently unused, its handled by wandb
   slurm_output_dir: /user/taed7566/wind-forecasting/logging/slurm_logs/
 
 optuna:
   study_name: "windfarm_flasc_tune_pruning"
-  n_trials: 5                # trials to fit ~24h
+  n_trials: 5
   max_epochs: 2               # epochs per trial
   limit_train_batches: 100    # batches per epoch
   metric: "mean_wQuantileLoss" # The metric to optimize
@@ -72,7 +72,7 @@ dataset:
     prediction_length: 300 # in seconds
     target_turbine_ids: # or leave blank to capture all
     normalize: False
-    batch_size: 256 # Reduced from 512
+    batch_size: 512
     workers: 12 # Consider adjusting based on CPU cores per task
     overfit: False
     test_split: 0.20
@@ -83,7 +83,7 @@ dataset:
 
 model:
   distr_output:
-    class: "LowRankMultivariateNormalOutput"
+    class: "LowRankMultivariateNormalOutput" # Doesn't apply to TACTiS
     kwargs:
       rank: 5
       sigma_init: 0.2
@@ -99,7 +99,7 @@ model:
     loss_normalization: "std" # Options: "series", "timesteps", "both", "none"
     encoder_type: "standard" # Options: "standard", "temporal"
     bagging_size: null # Optional, defaults to None in estimator
-    num_parallel_samples: 100 # Num of parallel samples for prediction
+    num_parallel_samples: 100 # Num of parallel samples for probabilistic prediction
     # Marginal CDF Encoder
     marginal_embedding_dim_per_head: 8
     marginal_num_heads: 5
