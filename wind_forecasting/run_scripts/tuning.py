@@ -206,6 +206,19 @@ class MLTuningObjective:
         
         estimator = self.estimator_class(**estimator_args)
 
+        # Log Optuna trial parameters to WandB config for this specific run
+        if "logger" in self.config["trainer"] and hasattr(self.config["trainer"]["logger"], "experiment"):
+            # Filter out non-scalar params if necessary, although WandB handles dicts/lists
+            wandb_params_to_log = {f"optuna_{k}": v for k, v in params.items()} # Prefix to avoid clashes
+            try:
+                self.config["trainer"]["logger"].experiment.config.update(wandb_params_to_log, allow_val_change=True)
+                logging.info(f"Trial {trial.number}: Logged Optuna parameters to WandB config: {list(wandb_params_to_log.keys())}")
+            except Exception as e:
+                logging.warning(f"Trial {trial.number}: Failed to log Optuna parameters to WandB config: {e}")
+        else:
+            logging.warning(f"Trial {trial.number}: WandB logger not found in config, cannot log Optuna parameters.")
+
+
         # Log GPU stats before training
         self.log_gpu_stats(stage=f"Trial {trial.number} Before Training")
 
@@ -345,7 +358,7 @@ def tune_model(model, config, study_name, optuna_storage, lightning_module_class
                max_epochs, limit_train_batches,
                distr_output_class, data_module,
                metric="mean_wQuantileLoss", direction="minimize", n_trials=10,
-               trial_protection_callback=None, seed=42, wandb_run_id=None): # Added wandb_run_id
+               trial_protection_callback=None, seed=42): # Removed wandb_run_id
 
     # Log safely without credentials if they were included (they aren't for socket trust)
     if hasattr(optuna_storage, "url"):
@@ -473,33 +486,8 @@ def tune_model(model, config, study_name, optuna_storage, lightning_module_class
     # Use the trial protection callback if provided
     objective_fn = (lambda trial: trial_protection_callback(tuning_objective, trial)) if trial_protection_callback else tuning_objective
 
-    # Juan: WandB Integration
-    wandb_callback = None
-    optimize_callbacks = [] # Initialize optimize_callbacks list
-
-    # Conditionally configure and add WandB callback if wandb_run_id is provided
-    if wandb_run_id is not None:
-        logging.info(f"Worker {worker_id}: wandb_run_id '{wandb_run_id}' provided. Configuring WandbCallback.")
-        try:
-            from optuna_integration.wandb import WeightsAndBiasesCallback
-            if WeightsAndBiasesCallback is not None:
-                wandb_callback = WeightsAndBiasesCallback(
-                    metric_name=metric, # Log the primary optimization metric
-                    # Use the provided run ID and allow resuming
-                    wandb_kwargs={"id": wandb_run_id, "resume": "allow"}
-                )
-                optimize_callbacks.append(wandb_callback)
-                logging.info(f"Worker {worker_id}: Configured WandbCallback to resume run '{wandb_run_id}' and log metric '{metric}'")
-            else:
-                 logging.warning(f"Worker {worker_id}: WeightsAndBiasesCallback is None. Skipping WandB integration.")
-        except ModuleNotFoundError:
-            logging.warning(f"Worker {worker_id}: 'optuna_integration.wandb' not found. Skipping WandB integration.")
-        except Exception as e:
-            logging.error(f"Worker {worker_id}: Error initializing WandbCallback: {e}", exc_info=True)
-    else:
-        logging.warning(f"Worker {worker_id}: No wandb_run_id provided. Skipping WandB integration for Optuna.")
-
-    # Add other callbacks here
+    # WandB integration deprecated
+    optimize_callbacks = [] # Ensure optimize_callbacks is an empty list
 
     try:
         # Let Optuna handle trial distribution - each worker will ask the storage for a trial
@@ -507,7 +495,7 @@ def tune_model(model, config, study_name, optuna_storage, lightning_module_class
         study.optimize(
             objective_fn,
             n_trials=n_trials,
-            callbacks=optimize_callbacks, # Pass the list of callbacks
+            callbacks=optimize_callbacks,
             show_progress_bar=(worker_id=='0')
         )
     except Exception as e:
