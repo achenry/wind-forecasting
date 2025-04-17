@@ -10,19 +10,22 @@ import gc
 import time # Added for load_study retry delay
 import inspect
 # Imports for Optuna
-from optuna.trial import Trial as OptunaTrial
+import optuna
 from optuna import create_study, load_study
 from optuna.samplers import TPESampler
 from optuna.pruners import HyperbandPruner, MedianPruner, PercentilePruner, NopPruner
 from optuna_integration import PyTorchLightningPruningCallback
+
 import lightning.pytorch as pl # Import pl alias
+import wandb
+from lightning.pytorch.loggers import WandbLogger
 
 from optuna import create_study
 from mysql.connector import connect as sql_connect
 from optuna.storages import JournalStorage, RDBStorage
 from optuna.storages.journal import JournalFileBackend
 
-from wind_forecasting.utils.optuna_visualization import launch_optuna_dashboard
+from wind_forecasting.utils.optuna_visualization import launch_optuna_dashboard, log_optuna_visualizations_to_wandb
 # from wind_forecasting.utils.trial_utils import handle_trial_with_oom_protection
 
 import random
@@ -32,7 +35,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 
 # Wrapper class to safely pass the Optuna pruning callback to PyTorch Lightning
 class SafePruningCallback(pl.Callback):
-    def __init__(self, trial: OptunaTrial, monitor: str):
+    def __init__(self, trial: optuna.trial.Trial, monitor: str):
         super().__init__()
         # Instantiate the actual Optuna callback internally
         self.optuna_pruning_callback = PyTorchLightningPruningCallback(trial, monitor)
@@ -110,6 +113,9 @@ class MLTuningObjective:
         np.random.seed(trial_seed)
         logging.info(f"Set random seed for trial {trial.number} to {trial_seed}")
 
+        # Initialize wandb logger for this trial only on rank 0
+        wandb_logger_trial = None # Initialize to None for non-rank-0 workers
+
         # Log GPU stats at the beginning of the trial
         self.log_gpu_stats(stage=f"Trial {trial.number} Start")
 
@@ -143,6 +149,42 @@ class MLTuningObjective:
             )
             current_callbacks.append(pruning_callback)
             logging.info(f"Added pruning callback for trial {trial.number}, monitoring '{pruning_monitor_metric}' (Objective metric: '{self.metric}')")
+
+        if os.environ.get('WORKER_RANK', '0') == '0':
+            try:
+                # Construct unique run name and tags
+                run_name = f"{self.config['experiment']['run_name']}_trial_{trial.number}"
+                project_name = self.config['experiment'].get('project', 'wind_forecasting') # Default project name
+                group_name = self.config['experiment']['run_name']
+                wandb_dir = self.config['logging'].get('wandb_dir', './logging/wandb') # Default dir
+                tags = [self.model, f"trial_{trial.number}", f"seed_{trial_seed}"]
+
+                # Initialize a new W&B run for this specific trial
+                wandb.init(
+                    reinit=True,
+                    name=run_name,
+                    project=project_name,
+                    group=group_name,
+                    config=trial.params, # Log Optuna hyperparameters for this trial
+                    dir=wandb_dir,
+                    job_type="optuna_trial",
+                    tags=tags
+                )
+                logging.info(f"Rank 0: Initialized W&B run '{run_name}' for trial {trial.number}")
+
+                # Create a WandbLogger using the current W&B run
+                # log_model=False as we only want metrics for this trial logger
+                wandb_logger_trial = WandbLogger(log_model=False, experiment=wandb.run)
+                logging.info(f"Rank 0: Created WandbLogger for trial {trial.number}")
+
+                # Add the trial-specific logger to the trainer kwargs for rank 0
+                trial_trainer_kwargs["logger"] = wandb_logger_trial
+                logging.info(f"Rank 0: Added trial-specific WandbLogger to trainer_kwargs for trial {trial.number}")
+
+            except Exception as e:
+                logging.error(f"Rank 0: Failed to initialize W&B or create logger for trial {trial.number}: {e}", exc_info=True)
+                # Ensure wandb_logger_trial remains None if setup fails
+                wandb_logger_trial = None
 
         # Verify GPU configuration before creating estimator
         if torch.cuda.is_available():
@@ -205,17 +247,13 @@ class MLTuningObjective:
         
         estimator = self.estimator_class(**estimator_args)
 
-        # Log Optuna trial parameters to WandB config for this specific run
-        if "logger" in self.config["trainer"] and hasattr(self.config["trainer"]["logger"], "experiment"):
-            # Filter out non-scalar params if necessary, although WandB handles dicts/lists
-            wandb_params_to_log = {f"optuna_{k}": v for k, v in params.items()} # Prefix to avoid clashes
+        if os.environ.get('WORKER_RANK', '0') == '0':
             try:
-                self.config["trainer"]["logger"].experiment.config.update(wandb_params_to_log, allow_val_change=True)
-                logging.info(f"Trial {trial.number}: Logged Optuna parameters to WandB config: {list(wandb_params_to_log.keys())}")
-            except Exception as e:
-                logging.warning(f"Trial {trial.number}: Failed to log Optuna parameters to WandB config: {e}")
-        else:
-            logging.warning(f"Trial {trial.number}: WandB logger not found in config, cannot log Optuna parameters.")
+                pass
+            finally:
+                if wandb.run is not None:
+                    logging.info(f"Rank 0: Finishing W&B run for trial {trial.number}")
+                    wandb.finish()
 
 
         # Log GPU stats before training
@@ -500,6 +538,70 @@ def tune_model(model, config, study_name, optuna_storage, lightning_module_class
     except Exception as e:
         logging.error(f"Worker {worker_id}: Failed during study optimization: {str(e)}", exc_info=True)
         raise
+
+    if worker_id == '0' and study:
+        logging.info("Rank 0: Starting W&B summary run creation.")
+        try:
+            # Initialize a new W&B run for the summary
+            run_name = f"{config['experiment']['run_name']}_optuna_summary"
+            project_name = config['experiment'].get('project', 'wind_forecasting')
+            group_name = config['experiment']['run_name']
+            wandb_dir = config['logging'].get('wandb_dir', './logging/wandb')
+            tags = [model, "optuna_summary"]
+
+            # Ensure wandb is not already initialized in a weird state (shouldn't be, but safety check)
+            if wandb.run is not None:
+                logging.warning(f"Rank 0: Found an existing W&B run ({wandb.run.id}) before starting summary run. Finishing it.")
+                wandb.finish()
+
+            wandb.init(
+                name=run_name,
+                project=project_name,
+                group=group_name,
+                job_type="optuna_summary",
+                dir=wandb_dir,
+                tags=tags,
+                reinit=True # Allow reinitialization if needed, though the check above should handle most cases
+            )
+            logging.info(f"Rank 0: Initialized W&B summary run: {wandb.run.name} (ID: {wandb.run.id})")
+
+            try:
+                # Log Optuna visualizations using the helper function
+                logging.info("Rank 0: Logging Optuna visualizations to W&B summary run...")
+                log_optuna_visualizations_to_wandb(study, wandb.run)
+                logging.info("Rank 0: Finished logging Optuna visualizations to W&B.")
+
+                # Log Trials Summary Table
+                logging.info("Rank 0: Creating and logging Optuna trials summary table to W&B...")
+                trial_table = wandb.Table(columns=["Trial Number", "State", "Value", "Parameters"])
+                for trial in study.trials:
+                    # Ensure params are logged as a string representation
+                    params_str = str(trial.params)
+                    trial_table.add_data(trial.number, trial.state.name, trial.value, params_str)
+
+                # Check if the table has rows before logging
+                if trial_table.rows:
+                     wandb.run.log({"optuna_trials_summary": trial_table})
+                     logging.info(f"Rank 0: Logged Optuna trials summary table ({len(study.trials)} trials) to W&B.")
+                else:
+                     logging.warning("Rank 0: No trials found in the study to log to the summary table.")
+
+            except Exception as e_log:
+                 logging.error(f"Rank 0: Error during logging visualizations or trial table to W&B summary run: {e_log}", exc_info=True)
+            finally:
+                # Ensure W&B run is finished even if logging fails
+                if wandb.run is not None:
+                    logging.info(f"Rank 0: Finishing W&B summary run: {wandb.run.name}")
+                    wandb.finish()
+                else:
+                    logging.warning("Rank 0: No active W&B run found to finish in the finally block.")
+
+        except Exception as e_init:
+            logging.error(f"Rank 0: Failed to initialize W&B summary run: {e_init}", exc_info=True)
+            # Ensure wandb is cleaned up if initialization failed partially
+            if wandb.run is not None:
+                wandb.finish()
+    # --- END: Added W&B Summary Run Block ---
 
     # All workers log their contribution
     logging.info(f"Worker {worker_id} completed optimization")
