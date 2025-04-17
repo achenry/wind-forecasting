@@ -19,7 +19,7 @@ import yaml
 from wind_forecasting.utils.trial_utils import handle_trial_with_oom_protection
 from wind_forecasting.utils.optuna_db_utils import setup_optuna_storage
 
-# from gluonts.torch.distributions import LowRankMultivariateNormalOutput
+from gluonts.torch.distributions import LowRankMultivariateNormalOutput
 from gluonts.model.forecast_generator import DistributionForecastGenerator
 from gluonts.time_feature._base import second_of_minute, minute_of_hour, hour_of_day, day_of_year
 from gluonts.transform import ExpectedNumInstanceSampler, ValidationSplitSampler, SequentialSampler
