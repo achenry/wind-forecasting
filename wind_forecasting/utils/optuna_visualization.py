@@ -7,10 +7,15 @@ import atexit # For cleaning up dashboard process
 from pathlib import Path # For resolving log path
 import getpass # To get current username
 import socket # To get current hostname (compute node)
+import wandb # Added for W&B logging
+import plotly.io as pio # Added for Plotly HTML conversion
 from optuna.visualization import (
     plot_optimization_history,
     plot_param_importances,
-    plot_slice
+    plot_slice,
+    plot_parallel_coordinate,
+    plot_contour,
+    plot_intermediate_values
 )
 
 # --- Dashboard Auto-Launch Globals ---
@@ -100,7 +105,7 @@ def launch_optuna_dashboard(config, storage_url):
         log_handle = open(log_file_path_str, 'a') if log_file_path_str != os.devnull else subprocess.DEVNULL
 
         # Launch the process in the background
-       
+
         _dashboard_process = subprocess.Popen(
             cmd,
             stdout=log_handle,
@@ -161,22 +166,22 @@ def launch_optuna_dashboard(config, storage_url):
 def generate_visualizations(study, output_dir, config=None):
     """
     Generate interactive visualization plots for an Optuna study.
-    
+
     Args:
         study: Optuna study object
         output_dir: Directory to save visualizations
         config: Visualization configuration dictionary
-    
+
     Returns:
         Path to the HTML summary file
     """
     # Create the output directory if it doesn't exist
     os.makedirs(output_dir, exist_ok=True)
-    
+
     # Generate timestamp for unique filenames
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     study_name = study.study_name
-    
+
     # Default configuration if none provided
     if not config:
         config = {
@@ -186,17 +191,17 @@ def generate_visualizations(study, output_dir, config=None):
                 "slice_plot": True
             }
         }
-    
+
     logging.info(f"Generating interactive Optuna visualizations in {output_dir}")
-    
+
     # Tracking generated plot files for the index
     generated_plots = []
-    
+
     # Only proceed if we have completed trials
     if len(study.trials) == 0 or not any(t.state == optuna.trial.TrialState.COMPLETE for t in study.trials):
         logging.warning("No completed trials found in study. Skipping visualization generation.")
         return None
-    
+
     # 1. Optimization History
     if config["plots"].get("optimization_history", True):
         try:
@@ -207,7 +212,7 @@ def generate_visualizations(study, output_dir, config=None):
             logging.info(f"Saved interactive optimization history plot to {file_path}")
         except Exception as e:
             logging.error(f"Error generating optimization history plot: {e}")
-    
+
     # 2. Parameter Importance
     if config["plots"].get("parameter_importance", True):
         try:
@@ -218,7 +223,7 @@ def generate_visualizations(study, output_dir, config=None):
             logging.info(f"Saved interactive parameter importance plot to {file_path}")
         except Exception as e:
             logging.error(f"Error generating parameter importance plot: {e}")
-    
+
     # 3. Slice Plot
     if config["plots"].get("slice_plot", True):
         try:
@@ -229,28 +234,28 @@ def generate_visualizations(study, output_dir, config=None):
             logging.info(f"Saved interactive slice plot to {file_path}")
         except Exception as e:
             logging.error(f"Error generating slice plot: {e}")
-    
+
     # Generate HTML summary page with links to all interactive plots
     summary_path = generate_html_summary(study, output_dir, timestamp, generated_plots)
-    
+
     return summary_path
 
 def generate_html_summary(study, output_dir, timestamp, generated_plots):
     """
     Generate an HTML summary page with links to all interactive plots and study details.
-    
+
     Args:
         study: Optuna study object
         output_dir: Directory to save the summary
         timestamp: Timestamp string for unique filenames
         generated_plots: List of tuples (plot_name, plot_filename)
-        
+
     Returns:
         Path to the generated HTML summary file
     """
     # Create the summary file
     html_path = os.path.join(output_dir, f"index_{timestamp}.html")
-    
+
     with open(html_path, 'w') as f:
         f.write(f"""<!DOCTYPE html>
 <html>
@@ -264,7 +269,7 @@ def generate_html_summary(study, output_dir, timestamp, generated_plots):
         th, td {{ text-align: left; padding: 8px; border-bottom: 1px solid #ddd; }}
         th {{ background-color: #f2f2f2; }}
         .plot-container {{ margin-bottom: 30px; }}
-        .plot-link {{ display: block; margin-top: 5px; color: #3498db; text-decoration: none; padding: 8px; 
+        .plot-link {{ display: block; margin-top: 5px; color: #3498db; text-decoration: none; padding: 8px;
                     border: 1px solid #ddd; border-radius: 4px; background-color: #f9f9f9; }}
         .plot-link:hover {{ background-color: #eaeaea; }}
         .best-trial {{ background-color: #e8f4f8; padding: 15px; border-radius: 5px; margin-top: 20px; }}
@@ -286,7 +291,7 @@ def generate_html_summary(study, output_dir, timestamp, generated_plots):
             <tr><th>Generated</th><td>{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</td></tr>
         </table>
 """)
-        
+
         # Add best parameters if available
         if study.best_trial:
             f.write(f"""
@@ -295,20 +300,20 @@ def generate_html_summary(study, output_dir, timestamp, generated_plots):
             <table>
                 <tr><th>Parameter</th><th>Value</th></tr>
 """)
-            
+
             # Add best parameters
             for param, value in study.best_params.items():
                 f.write(f"                <tr><td>{param}</td><td>{value}</td></tr>\n")
-            
+
             f.write("""            </table>
         </div>
 """)
-        
+
         f.write("""    </div>
-    
+
     <h2>Interactive Visualizations</h2>
 """)
-        
+
         # Add links to interactive plots
         if generated_plots:
             for plot_name, plot_filename in generated_plots:
@@ -321,10 +326,10 @@ def generate_html_summary(study, output_dir, timestamp, generated_plots):
 """)
         else:
             f.write("""    <p>No plots were generated.</p>""")
-        
+
         f.write("""</body>
 </html>""")
-    
+
     # Create a simple redirect to the latest index
     latest_index_path = os.path.join(output_dir, "index.html")
     with open(latest_index_path, 'w') as f:
@@ -337,8 +342,45 @@ def generate_html_summary(study, output_dir, timestamp, generated_plots):
     <p>Redirecting to <a href="{os.path.basename(html_path)}">latest visualization</a>...</p>
 </body>
 </html>""")
-    
+
     logging.info(f"Generated HTML summary at {html_path}")
     logging.info(f"Created redirection at {latest_index_path}")
-    
+
     return html_path
+
+def log_optuna_visualizations_to_wandb(study: optuna.Study, wandb_run):
+    """
+    Generates Optuna visualization plots and logs them to an active W&B run.
+
+    Args:
+        study: The Optuna study object.
+        wandb_run: The active wandb.sdk.wandb_run.Run object.
+    """
+    if not any(t.state == optuna.trial.TrialState.COMPLETE for t in study.trials):
+        logging.warning("No completed trials found in study. Skipping W&B visualization logging.")
+        return
+
+    plot_functions = {
+        "optuna_optimization_history": plot_optimization_history,
+        "optuna_param_importances": plot_param_importances,
+        "optuna_parallel_coordinate": plot_parallel_coordinate,
+        "optuna_contour": plot_contour,
+        "optuna_slice": plot_slice,
+        "optuna_intermediate_values": plot_intermediate_values,
+    }
+
+    logging.info(f"Logging Optuna visualizations to W&B run: {wandb_run.id}")
+
+    for plot_key, plot_func in plot_functions.items():
+        try:
+            fig = plot_func(study)
+            html_string = pio.to_html(fig, full_html=False, include_plotlyjs='cdn')
+            wandb_run.log({plot_key: wandb.Html(html_string)})
+            logging.debug(f"Successfully logged Optuna plot '{plot_key}' to W&B.")
+        except ValueError as ve:
+            # Optuna often raises ValueError for plots that cannot be generated
+            # (e.g., param_importances with no completed trials, contour/slice with too few params)
+            logging.warning(f"Could not generate/log Optuna plot '{plot_key}' (likely due to study state): {ve}")
+        except Exception as e:
+            # Catch other potential errors during plot generation or logging
+            logging.warning(f"Could not generate/log Optuna plot '{plot_key}': {e}")
