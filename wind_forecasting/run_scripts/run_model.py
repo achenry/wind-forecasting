@@ -1,5 +1,5 @@
 import argparse
-from calendar import c
+# from calendar import c
 import logging
 from memory_profiler import profile
 import os
@@ -19,13 +19,12 @@ import yaml
 from wind_forecasting.utils.trial_utils import handle_trial_with_oom_protection
 from wind_forecasting.utils.optuna_db_utils import setup_optuna_storage
 
-from gluonts.torch.distributions import LowRankMultivariateNormalOutput
+# from gluonts.torch.distributions import LowRankMultivariateNormalOutput
 from gluonts.model.forecast_generator import DistributionForecastGenerator
 from gluonts.time_feature._base import second_of_minute, minute_of_hour, hour_of_day, day_of_year
 from gluonts.transform import ExpectedNumInstanceSampler, ValidationSplitSampler, SequentialSampler
 
-from torch import set_float32_matmul_precision
-set_float32_matmul_precision('medium') # or high to trade off performance for precision
+torch.set_float32_matmul_precision('medium') # or high to trade off performance for precision
 
 from pytorch_transformer_ts.informer.lightning_module import InformerLightningModule
 from pytorch_transformer_ts.informer.estimator import InformerEstimator

@@ -10,12 +10,11 @@ import gc
 import time # Added for load_study retry delay
 import inspect
 # Imports for Optuna
-import optuna # Import the base optuna module for type hints
+from optuna.trial import Trial as OptunaTrial
 from optuna import create_study, load_study
-from optuna._imports import _INTEGRATION_IMPORT_ERROR_TEMPLATE
 from optuna.samplers import TPESampler
 from optuna.pruners import HyperbandPruner, MedianPruner, PercentilePruner, NopPruner
-from optuna.integration import PyTorchLightningPruningCallback
+from optuna_integration import PyTorchLightningPruningCallback
 import lightning.pytorch as pl # Import pl alias
 
 from optuna import create_study
@@ -24,7 +23,7 @@ from optuna.storages import JournalStorage, RDBStorage
 from optuna.storages.journal import JournalFileBackend
 
 from wind_forecasting.utils.optuna_visualization import launch_optuna_dashboard
-from wind_forecasting.utils.trial_utils import handle_trial_with_oom_protection
+# from wind_forecasting.utils.trial_utils import handle_trial_with_oom_protection
 
 import random
 import numpy as np
@@ -33,7 +32,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 
 # Wrapper class to safely pass the Optuna pruning callback to PyTorch Lightning
 class SafePruningCallback(pl.Callback):
-    def __init__(self, trial: optuna.trial.Trial, monitor: str):
+    def __init__(self, trial: OptunaTrial, monitor: str):
         super().__init__()
         # Instantiate the actual Optuna callback internally
         self.optuna_pruning_callback = PyTorchLightningPruningCallback(trial, monitor)
