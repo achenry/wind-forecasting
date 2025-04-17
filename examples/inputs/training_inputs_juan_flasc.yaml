@@ -4,7 +4,7 @@ experiment:
   project_root: /user/taed7566/wind-forecasting
 
 logging:
-  wandb_dir: /user/taed7566/wind-forecasting/logging/ # WandB will create a 'wandb' subdirectory here automatically
+  wandb_dir: /user/taed7566/wind-forecasting/logging/wandb/
   optuna_dir: /user/taed7566/wind-forecasting/logging/optuna/
   checkpoint_dir: /user/taed7566/wind-forecasting/logging/checkpoints/ # Currently unused, its handled by wandb
   slurm_output_dir: /user/taed7566/wind-forecasting/logging/slurm_logs/
