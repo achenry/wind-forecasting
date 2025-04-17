@@ -1,7 +1,7 @@
 import os
 from lightning.pytorch.utilities.model_summary import summarize
 from gluonts.evaluation import MultivariateEvaluator, make_evaluation_predictions
-from gluonts.model.forecast_generator import DistributionForecastGenerator
+from gluonts.model.forecast_generator import DistributionForecastGenerator, SampleForecastGenerator
 from gluonts.time_feature._base import second_of_minute, minute_of_hour, hour_of_day, day_of_year
 from gluonts.transform import ExpectedNumInstanceSampler, ValidationSplitSampler
 import logging
@@ -163,36 +163,63 @@ class MLTuningObjective:
         trial_trainer_kwargs["callbacks"] = current_callbacks # Use the potentially modified list
 
         context_length = self.config["dataset"]["context_length_factor"] * self.data_module.prediction_length
-        estimator = self.estimator_class(
-            freq=self.data_module.freq,
-            prediction_length=self.data_module.prediction_length,
-            context_length=context_length,
-            num_feat_dynamic_real=self.data_module.num_feat_dynamic_real,
-            num_feat_static_cat=self.data_module.num_feat_static_cat,
-            cardinality=self.data_module.cardinality,
-            num_feat_static_real=self.data_module.num_feat_static_real,
-            input_size=self.data_module.num_target_vars,
-            scaling=False,
-            lags_seq=[0], 
-            use_lazyframe=False,
-            batch_size=self.config["dataset"].get("batch_size", 128),
-            num_batches_per_epoch=trial_trainer_kwargs["limit_train_batches"], # Use value from trial_trainer_kwargs
-            train_sampler=ExpectedNumInstanceSampler(num_instances=1.0, min_past=context_length, min_future=self.data_module.prediction_length),
-            validation_sampler=ValidationSplitSampler(min_past=context_length, min_future=self.data_module.prediction_length),
-            time_features=[second_of_minute, minute_of_hour, hour_of_day, day_of_year],
-            distr_output=self.distr_output_class(dim=self.data_module.num_target_vars, **self.config["model"]["distr_output"]["kwargs"]),
-            trainer_kwargs=trial_trainer_kwargs, # Pass the trial-specific kwargs
-            **self.config["model"][self.model]
-        )
+        
+        # Estimator Arguments to handle difference between models
+        estimator_args = {
+            "freq": self.data_module.freq,
+            "prediction_length": self.data_module.prediction_length,
+            "context_length": context_length,
+            "num_feat_dynamic_real": self.data_module.num_feat_dynamic_real,
+            "num_feat_static_cat": self.data_module.num_feat_static_cat,
+            "cardinality": self.data_module.cardinality,
+            "num_feat_static_real": self.data_module.num_feat_static_real,
+            "input_size": self.data_module.num_target_vars,
+            "scaling": False,
+            "lags_seq": [0],
+            "use_lazyframe": False,
+            "batch_size": self.config["dataset"].get("batch_size", 128),
+            "num_batches_per_epoch": trial_trainer_kwargs["limit_train_batches"], # Use value from trial_trainer_kwargs
+            "train_sampler": ExpectedNumInstanceSampler(num_instances=1.0, min_past=self.config["dataset"]["context_length"], min_future=self.data_module.prediction_length),
+            "validation_sampler": ValidationSplitSampler(min_past=self.config["dataset"]["context_length"], min_future=self.data_module.prediction_length),
+            "time_features": [second_of_minute, minute_of_hour, hour_of_day, day_of_year],
+            # Include distr_output initially, will be removed conditionally
+            "distr_output": self.distr_output_class(dim=self.data_module.num_target_vars, **self.config["model"]["distr_output"]["kwargs"]),
+            "trainer_kwargs": trial_trainer_kwargs, # Pass the trial-specific kwargs
+            "num_parallel_samples": self.config["model"][self.model].get("num_parallel_samples", 100) if self.model == 'tactis' else 100, # Default 100 if not specified
+        }
+        # Add model-specific tunable hyperparameters suggested by Optuna trial
+        # Update with tunable parameters from the current trial
+        estimator_args.update(params) # params contains the trial-suggested values
+
+        # TACTiS manages its own distribution output internally, remove if present
+        if self.model == 'tactis' and 'distr_output' in estimator_args:
+            estimator_args.pop('distr_output')
+
+        logging.info(f"Trial {trial.number}: Instantiating estimator '{self.model}' with final args: {list(estimator_args.keys())}")
+        
+        estimator = self.estimator_class(**estimator_args)
 
         # Log GPU stats before training
         self.log_gpu_stats(stage=f"Trial {trial.number} Before Training")
 
+        # Conditionally Create Forecast Generator
+        if self.model == 'tactis':
+            # TACTiS uses SampleForecastGenerator internally for prediction
+            # because its foweard pass returns samples not distribution parameters
+            logging.info(f"Trial {trial.number}: Using SampleForecastGenerator for TACTiS model.")
+            forecast_generator = SampleForecastGenerator()
+        else:
+            # Other models use DistributionForecastGenerator based on their distr_output
+            logging.info(f"Trial {trial.number}: Using DistributionForecastGenerator for {self.model} model.")
+            # Ensure estimator has distr_output before accessing
+            if not hasattr(estimator, 'distr_output'):
+                 raise AttributeError(f"Estimator for model '{self.model}' is missing 'distr_output' attribute needed for DistributionForecastGenerator.")
+            forecast_generator = DistributionForecastGenerator(estimator.distr_output)
+
         train_output = estimator.train(
             training_data=self.data_module.train_dataset,
             validation_data=self.data_module.val_dataset,
-            forecast_generator=DistributionForecastGenerator(estimator.distr_output)
-            # Note: The trainer_kwargs including callbacks are passed internally by the estimator
+            forecast_generator=forecast_generator
         )
 
         # Log GPU stats after training
@@ -200,18 +227,30 @@ class MLTuningObjective:
 
         model = self.lightning_module_class.load_from_checkpoint(train_output.trainer.checkpoint_callback.best_model_path)
         transformation = estimator.create_transformation(use_lazyframe=False)
+        # Use the same conditional forecast_generator for creating the predictor
         predictor = estimator.create_predictor(transformation, model,
-                                                forecast_generator=DistributionForecastGenerator(estimator.distr_output))
+                                                forecast_generator=forecast_generator)
 
-        forecast_it, ts_it = make_evaluation_predictions(
-            dataset=self.data_module.val_dataset,
-            predictor=predictor,
-            output_distr_params={"loc": "mean", "cov_factor": "cov_factor", "cov_diag": "cov_diag"}
-        )
-        
+        # Conditional Evaluation Call
+        eval_kwargs = {
+            "dataset": self.data_module.val_dataset,
+            "predictor": predictor,
+        }
+        if self.model == 'tactis':
+            # TACTiS produces SampleForecast, no output_distr_params needed/possible
+            logging.info(f"Trial {trial.number}: Evaluating TACTiS using SampleForecast.")
+        else:
+            # Other models produce DistributionForecast, specify params to extract
+            # Example for LowRankMultivariateNormalOutput, adjust if other distrs are used
+            eval_kwargs["output_distr_params"] = {"loc": "mean", "cov_factor": "cov_factor", "cov_diag": "cov_diag"}
+            logging.info(f"Trial {trial.number}: Evaluating {self.model} using DistributionForecast with params: {eval_kwargs['output_distr_params']}")
+      
+        forecast_it, ts_it = make_evaluation_predictions(**eval_kwargs)
+
         forecasts = forecast_it
         tss = ts_it
         agg_metrics, _ = self.evaluator(tss, forecasts, num_series=self.data_module.num_target_vars)
+        
         agg_metrics["trainable_parameters"] = summarize(estimator.create_lightning_module()).trainable_parameters
         self.metrics.append(agg_metrics.copy())
 
@@ -442,7 +481,6 @@ def tune_model(model, config, study_name, optuna_storage, lightning_module_class
 
     # Generate visualizations if enabled (only rank 0 should do this)
     if worker_id == '0' and config.get("optuna", {}).get("visualization", {}).get("enabled", False):
-        # Ensure study object is available (it should be, unless loading failed catastrophically)
         if study:
             try:
                 from wind_forecasting.utils.optuna_visualization import generate_visualizations
