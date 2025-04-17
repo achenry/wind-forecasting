@@ -84,13 +84,13 @@ class DataModule():
                     .with_columns(time=pl.col("time").dt.round(self.freq))\
                     .group_by("time").agg(cs.numeric().mean())\
                     .sort(["continuity_group", "time"])
-                    # .collect().write_parquet(self.train_ready_data_path, statistics=False)
                     
         if not self.normalized:
-            self.compute_scaler_params()
-            dataset = dataset.with_columns([(cs.starts_with(col) - self.norm_min[c]) 
-                                                        / self.norm_scale[c] 
-                                                        for c, col in enumerate(norm_min_cols)])
+            scaler_params = self.compute_scaler_params()
+            feat_types = list(scaler_params["min_"])
+            dataset = dataset.with_columns([(cs.starts_with(feat_type) - scaler_params["min_"][feat_type]) 
+                                                        / scaler_params["scale_"][feat_type] 
+                                                        for feat_type in feat_types])
                     
         # TODO if resampling requieres upsampling: historic_measurements.upsample(time_column="time", every=self.data_module.freq).fill_null(strategy="forward")
         # dataset = IterableLazyFrame(data_path=self.train_ready_data_path, dtype=self.dtype) # data stored in RAM

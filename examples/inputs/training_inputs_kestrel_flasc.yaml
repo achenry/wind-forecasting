@@ -138,7 +138,7 @@ trainer:
     accelerator: gpu
     devices: auto
     num_nodes: 1
-    strategy: auto 
+    strategy: ddp 
     # n_workers: auto
     # debug: False 
     # accumulate: 1.0
