@@ -109,7 +109,7 @@ def launch_optuna_dashboard(config, storage_url):
             close_fds=True,
             # Use current environment, assuming necessary paths (like conda env bin) are set
             env=os.environ.copy(),
-            shell=True # CHANGE TODO does this work on linux
+            # shell=True # CHANGE TODO shel work on linux?
         )
         logging.info(f"Optuna dashboard process started (PID: {_dashboard_process.pid}).")
 

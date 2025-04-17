@@ -282,7 +282,8 @@ def main():
         if args.use_tuned_parameters:
             try:
                 logging.info(f"Getting tuned parameters.")
-                tuned_params = get_tuned_params(backend=config["optuna"]["storage"]["backend"], study_name=f"tuning_{args.model}_{config['experiment']['run_name']}", 
+                tuned_params = get_tuned_params(backend=config["optuna"]["storage"]["backend"], 
+                                                study_name=f"tuning_{args.model}_{config['experiment']['run_name']}", 
                                                 storage_dir=config["optuna"]["storage_dir"])
                 config["dataset"].update({k: v for k, v in tuned_params.items() if k in config["dataset"]})
                 config["model"][args.model].update({k: v for k, v in tuned_params.items() if k in config["model"][args.model]})

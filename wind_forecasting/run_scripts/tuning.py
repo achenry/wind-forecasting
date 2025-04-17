@@ -283,7 +283,7 @@ def get_storage(backend, study_name, storage_dir=None):
     return storage
 
 def get_tuned_params(study_name, backend, storage_dir):
-    logging.info(f"Allocating storage for Optuna study {study_name}.")  
+    logging.info(f"Getting storage for Optuna study {study_name}.")  
     storage = get_storage(backend=backend, study_name=study_name, storage_dir=storage_dir)
     try:
         study_id = storage.get_study_id_from_name(study_name)
