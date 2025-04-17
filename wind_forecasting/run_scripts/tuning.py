@@ -496,7 +496,6 @@ def tune_model(model, config, study_name, optuna_storage, lightning_module_class
             logging.warning(f"Worker {worker_id}: 'optuna_integration.wandb' not found. Skipping WandB integration.")
         except Exception as e:
             logging.error(f"Worker {worker_id}: Error initializing WandbCallback: {e}", exc_info=True)
-            # Ensure wandb_callback remains None and is not added to optimize_callbacks
     else:
         logging.warning(f"Worker {worker_id}: No wandb_run_id provided. Skipping WandB integration for Optuna.")
 
@@ -513,8 +512,6 @@ def tune_model(model, config, study_name, optuna_storage, lightning_module_class
         )
     except Exception as e:
         logging.error(f"Worker {worker_id}: Failed during study optimization: {str(e)}", exc_info=True)
-        # Optionally, report trial as failed if possible? Optuna might handle this internally.
-        # Consider adding: if 'trial' in locals(): trial.report(float('inf'), step=0); trial.storage.set_trial_state(trial._trial_id, optuna.trial.TrialState.FAIL)
         raise
 
     # All workers log their contribution
