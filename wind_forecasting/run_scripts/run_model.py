@@ -18,7 +18,7 @@ import yaml
 from wind_forecasting.utils.trial_utils import handle_trial_with_oom_protection
 from wind_forecasting.utils.optuna_db_utils import setup_optuna_storage
 
-from gluonts.torch.distributions import LowRankMultivariateNormalOutput, StudentTOutput
+from gluonts.torch.distributions import LowRankMultivariateNormalOutput
 from gluonts.model.forecast_generator import DistributionForecastGenerator
 from gluonts.time_feature._base import second_of_minute, minute_of_hour, hour_of_day, day_of_year
 from gluonts.transform import ExpectedNumInstanceSampler, ValidationSplitSampler, SequentialSampler
@@ -422,7 +422,6 @@ def main():
         )
 
         logging.info("Starting Optuna hyperparameter tuning...")
-        # NOTE JUAN removed the check for cuda since it is helpful to debug hyperparameter tuning on local machine
         
         # %% TUNE MODEL WITH OPTUNA
         from wind_forecasting.run_scripts.tuning import tune_model
