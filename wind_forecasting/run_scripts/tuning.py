@@ -12,6 +12,7 @@ import inspect
 # Imports for Optuna
 import optuna # Import the base optuna module for type hints
 from optuna import create_study, load_study
+from optuna._imports import _INTEGRATION_IMPORT_ERROR_TEMPLATE
 from optuna.samplers import TPESampler
 from optuna.pruners import HyperbandPruner, MedianPruner, PercentilePruner, NopPruner
 from optuna.integration import PyTorchLightningPruningCallback
@@ -162,8 +163,9 @@ class MLTuningObjective:
         trial_trainer_kwargs = self.config["trainer"].copy()
         trial_trainer_kwargs["callbacks"] = current_callbacks # Use the potentially modified list
 
-        context_length = self.config["dataset"]["context_length_factor"] * self.data_module.prediction_length
-        
+        context_length_factor = params.get('context_length_factor', self.config["dataset"].get("context_length_factor", 2)) # Default to config or 2 if not in trial/config
+        context_length = int(context_length_factor * self.data_module.prediction_length)
+
         # Estimator Arguments to handle difference between models
         estimator_args = {
             "freq": self.data_module.freq,
@@ -188,8 +190,13 @@ class MLTuningObjective:
             "num_parallel_samples": self.config["model"][self.model].get("num_parallel_samples", 100) if self.model == 'tactis' else 100, # Default 100 if not specified
         }
         # Add model-specific tunable hyperparameters suggested by Optuna trial
-        # Update with tunable parameters from the current trial
-        estimator_args.update(params) # params contains the trial-suggested values
+        valid_estimator_params = set(estimator_params)
+        filtered_params = {
+            k: v for k, v in params.items()
+            if k in valid_estimator_params and k != 'context_length_factor'
+        }
+        logging.info(f"Trial {trial.number}: Updating estimator_args with filtered params: {list(filtered_params.keys())}")
+        estimator_args.update(filtered_params)
 
         # TACTiS manages its own distribution output internally, remove if present
         if self.model == 'tactis' and 'distr_output' in estimator_args:
@@ -338,7 +345,7 @@ def tune_model(model, config, study_name, optuna_storage, lightning_module_class
                max_epochs, limit_train_batches,
                distr_output_class, data_module,
                metric="mean_wQuantileLoss", direction="minimize", n_trials=10,
-               trial_protection_callback=None, seed=42):
+               trial_protection_callback=None, seed=42, wandb_run_id=None): # Added wandb_run_id
 
     # Log safely without credentials if they were included (they aren't for socket trust)
     if hasattr(optuna_storage, "url"):
@@ -466,10 +473,44 @@ def tune_model(model, config, study_name, optuna_storage, lightning_module_class
     # Use the trial protection callback if provided
     objective_fn = (lambda trial: trial_protection_callback(tuning_objective, trial)) if trial_protection_callback else tuning_objective
 
+    # Juan: WandB Integration
+    wandb_callback = None
+    optimize_callbacks = [] # Initialize optimize_callbacks list
+
+    # Conditionally configure and add WandB callback if wandb_run_id is provided
+    if wandb_run_id is not None:
+        logging.info(f"Worker {worker_id}: wandb_run_id '{wandb_run_id}' provided. Configuring WandbCallback.")
+        try:
+            from optuna_integration.wandb import WeightsAndBiasesCallback
+            if WeightsAndBiasesCallback is not None:
+                wandb_callback = WeightsAndBiasesCallback(
+                    metric_name=metric, # Log the primary optimization metric
+                    # Use the provided run ID and allow resuming
+                    wandb_kwargs={"id": wandb_run_id, "resume": "allow"}
+                )
+                optimize_callbacks.append(wandb_callback)
+                logging.info(f"Worker {worker_id}: Configured WandbCallback to resume run '{wandb_run_id}' and log metric '{metric}'")
+            else:
+                 logging.warning(f"Worker {worker_id}: WeightsAndBiasesCallback is None. Skipping WandB integration.")
+        except ModuleNotFoundError:
+            logging.warning(f"Worker {worker_id}: 'optuna_integration.wandb' not found. Skipping WandB integration.")
+        except Exception as e:
+            logging.error(f"Worker {worker_id}: Error initializing WandbCallback: {e}", exc_info=True)
+            # Ensure wandb_callback remains None and is not added to optimize_callbacks
+    else:
+        logging.warning(f"Worker {worker_id}: No wandb_run_id provided. Skipping WandB integration for Optuna.")
+
+    # Add other callbacks here
+
     try:
         # Let Optuna handle trial distribution - each worker will ask the storage for a trial
         # Show progress bar only on rank 0 to avoid cluttered logs
-        study.optimize(objective_fn, n_trials=n_trials, show_progress_bar=(worker_id=='0'))
+        study.optimize(
+            objective_fn,
+            n_trials=n_trials,
+            callbacks=optimize_callbacks, # Pass the list of callbacks
+            show_progress_bar=(worker_id=='0')
+        )
     except Exception as e:
         logging.error(f"Worker {worker_id}: Failed during study optimization: {str(e)}", exc_info=True)
         # Optionally, report trial as failed if possible? Optuna might handle this internally.

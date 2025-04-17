@@ -226,6 +226,15 @@ def main():
         group=config['experiment']['run_name'],   # Group all workers under the same experiment
         tags=[f"worker_{worker_id}", f"gpu_{gpu_id}", args.model]  # Add tags for easier filtering
     )
+    # Get the underlying WandB run object and its ID
+    wandb_run = wandb_logger.experiment
+    run_id_to_pass = None
+    if wandb_run:
+        run_id_to_pass = wandb_run.id
+        logging.info(f"Retrieved WandB run ID for Optuna callback: {run_id_to_pass}")
+    else:
+        logging.warning("Could not retrieve WandB run object from logger.experiment. Optuna callback might create a new run.")
+
     wandb_logger.log_hyperparams(config)
     config["trainer"]["logger"] = wandb_logger
 
@@ -445,7 +454,8 @@ def main():
                    direction=config["optuna"]["direction"],
                    n_trials=config["optuna"]["n_trials"],
                    trial_protection_callback=handle_trial_with_oom_protection,
-                   seed=args.seed)
+                   seed=args.seed,
+                   wandb_run_id=run_id_to_pass) # Pass the WandB run ID
         
         # After training completes
         torch.cuda.empty_cache()
