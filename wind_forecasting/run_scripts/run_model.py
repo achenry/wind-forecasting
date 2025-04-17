@@ -1,4 +1,5 @@
 import argparse
+from calendar import c
 import logging
 from memory_profiler import profile
 import os
@@ -184,47 +185,50 @@ def main():
         config["logging"] = {}
      
     # Set up logging directory - use absolute path, rename logging dirs to group checkpoints and logs by data source and model
-    log_dir = os.path.join(config["experiment"]["log_dir"], f"{args.model}_{config['experiment']['run_name']}")
+    log_dir = config["experiment"]["log_dir"]
     os.makedirs(log_dir, exist_ok=True)
     
     # Set up wandb, optuna, checkpoint directories - use absolute paths
-    wandb_parent_dir = os.path.join(config["logging"].get("wandb_dir", log_dir))
-    wandb_dir = os.path.join(wandb_parent_dir, "wandb") # Configure WandB to use the specified directory structure
-    optuna_dir = config["logging"].get("optuna_dir", os.path.join(log_dir, "optuna"))
-    # checkpoint_dir = config["logging"].get("checkpoint_dir", os.path.join(log_dir, "checkpoints")) # NOTE: no need, checkpoints are saved by Model Checkpoint callback in loggers save_dir (wandb_parent_dir)
-    
-    os.makedirs(wandb_parent_dir, exist_ok=True)
+    wandb_dir = config["logging"]["wandb_dir"] = config["logging"].get("wandb_dir", os.path.join(log_dir, "wandb"))
+    optuna_dir = config["logging"]["optuna_dir"] = config["logging"].get("optuna_dir", os.path.join(log_dir, "optuna"))
+    checkpoint_dir = config["logging"]["checkpoint_dir"] = config["logging"].get("checkpoint_dir", os.path.join(log_dir, "checkpoints")) # NOTE: no need, checkpoints are saved by Model Checkpoint callback in loggers save_dir (wandb_parent_dir)
+
     os.makedirs(wandb_dir, exist_ok=True)
     os.makedirs(optuna_dir, exist_ok=True)
-    # os.makedirs(checkpoint_dir, exist_ok=True)
+    os.makedirs(checkpoint_dir, exist_ok=True)
     
-    logging.info(f"WandB will create logs in {os.path.join(wandb_parent_dir, 'wandb')}")
+    logging.info(f"WandB will create logs in {wandb_dir}")
+    logging.info(f"Optuna will create logs in {optuna_dir}")
+    logging.info(f"Checkpoints will be saved in {checkpoint_dir}")
 
     # Get worker info from environment variables
     worker_id = os.environ.get('SLURM_PROCID', '0')
     gpu_id = os.environ.get('CUDA_VISIBLE_DEVICES', '0')
 
     # Create a unique run name for each worker
-    run_name = f"{config['experiment']['run_name']}_worker{worker_id}_gpu{gpu_id}"
+    run_name = f"{args.model}_{args.mode}_{gpu_id}"
 
     # Set an explicit run directory to avoid nesting issues
     unique_id = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{worker_id}_{gpu_id}"
-    run_dir = os.path.join(wandb_parent_dir, f"run_{unique_id}")
+    run_dir = os.path.join(wandb_dir, f"run_{unique_id}")
     os.environ["WANDB_RUN_DIR"] = run_dir
     
     # Configure WandB to use the correct checkpoint location
     # This ensures artifacts are saved in the correct checkpoint directory
-    # os.environ["WANDB_ARTIFACT_DIR"] = checkpoint_dir
-    os.environ["WANDB_DIR"] = wandb_parent_dir
+    os.environ["WANDB_ARTIFACT_DIR"] = checkpoint_dir
+    os.environ["WANDB_DIR"] = wandb_dir
     
     # Create WandB logger with explicit path settings
     wandb_logger = WandbLogger(
         project="wind_forecasting",
-        name=run_name,
+        name=run_name, # Unique name for the run, can also take config for hyperparameters. Keep brief
         log_model="all",
-        save_dir=wandb_parent_dir,  # Use the dedicated wandb directory
+        dir=wandb_dir,
         group=config['experiment']['run_name'],   # Group all workers under the same experiment
-        tags=[f"worker_{worker_id}", f"gpu_{gpu_id}", args.model]  # Add tags for easier filtering
+        job_type=args.mode,
+        mode="online",
+        id=unique_id, # Unique ID for the run, can also use config hyperaparameters for comparison later
+        tags=[f"gpu_{gpu_id}", args.model, args.mode, f"seed_{args.seed}"],
     )
     # Get the underlying WandB run object and its ID
     wandb_run = wandb_logger.experiment
