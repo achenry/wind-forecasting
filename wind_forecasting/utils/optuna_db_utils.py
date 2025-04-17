@@ -81,6 +81,10 @@ def setup_postgresql_rank_zero(db_setup_params, restart_tuning=False, register_c
             register_cleanup=False # Disable atexit registration for Optuna runs
         )
 
+        # Rank 0 creates the storage instance, triggering schema creation
+        logging.info(f"Rank 0: Creating RDBStorage instance to initialize schema...")
+        storage = RDBStorage(url=optuna_storage_url)
+        logging.info(f"Rank 0: RDBStorage instance created.")
         # Ensure sync file doesn't exist from a previous failed run
         # pg_config should be populated by manage_postgres_instance if successful
         if not pg_config or "sync_file" not in pg_config:
@@ -92,12 +96,12 @@ def setup_postgresql_rank_zero(db_setup_params, restart_tuning=False, register_c
             logging.warning(f"Removing existing sync file: {sync_file_path}")
             os.remove(sync_file_path)
 
-        # Create sync file to signal readiness
+        # Create sync file *after* storage/schema is ready
         with open(sync_file_path, 'w') as f:
             f.write('ready')
         logging.info(f"Rank 0: PostgreSQL ready. Created sync file: {sync_file_path}")
         
-        return optuna_storage_url, pg_config
+        return storage, pg_config # Return the created storage object
 
     except Exception as e:
         logging.error(f"Rank 0: Failed to setup PostgreSQL: {e}", exc_info=True)
@@ -119,8 +123,7 @@ def setup_postgresql(db_setup_params, rank, restart_tuning):
     # Rank 0 is responsible for setting up the database
     if rank == 0:
         # Pass the explicit params dict
-        optuna_storage_url, pg_config = setup_postgresql_rank_zero(db_setup_params, restart_tuning=restart_tuning)
-        storage = RDBStorage(url=optuna_storage_url)
+        storage, pg_config = setup_postgresql_rank_zero(db_setup_params, restart_tuning=restart_tuning)
 
     else:
         # Worker ranks: Generate config *only* to find sync file and wait
