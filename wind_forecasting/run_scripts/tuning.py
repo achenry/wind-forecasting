@@ -150,6 +150,9 @@ class MLTuningObjective:
             current_callbacks.append(pruning_callback)
             logging.info(f"Added pruning callback for trial {trial.number}, monitoring '{pruning_monitor_metric}' (Objective metric: '{self.metric}')")
 
+        trial_trainer_kwargs = self.config["trainer"].copy()
+        trial_trainer_kwargs["callbacks"] = current_callbacks
+
         if os.environ.get('WORKER_RANK', '0') == '0':
             try:
                 # Construct unique run name and tags
@@ -200,10 +203,6 @@ class MLTuningObjective:
         else:
             logging.warning("No CUDA available for estimator creation")
 
-        # Create a copy of trainer_kwargs for this trial to avoid side effects
-        trial_trainer_kwargs = self.config["trainer"].copy()
-        trial_trainer_kwargs["callbacks"] = current_callbacks # Use the potentially modified list
-
         context_length_factor = params.get('context_length_factor', self.config["dataset"].get("context_length_factor", 2)) # Default to config or 2 if not in trial/config
         context_length = int(context_length_factor * self.data_module.prediction_length)
 
@@ -245,82 +244,84 @@ class MLTuningObjective:
 
         logging.info(f"Trial {trial.number}: Instantiating estimator '{self.model}' with final args: {list(estimator_args.keys())}")
         
-        estimator = self.estimator_class(**estimator_args)
+        try:
+            estimator = self.estimator_class(**estimator_args)
 
-        if os.environ.get('WORKER_RANK', '0') == '0':
-            try:
-                pass
-            finally:
-                if wandb.run is not None:
-                    logging.info(f"Rank 0: Finishing W&B run for trial {trial.number}")
-                    wandb.finish()
+            # Log GPU stats before training
+            self.log_gpu_stats(stage=f"Trial {trial.number} Before Training")
 
+            # Conditionally Create Forecast Generator
+            if self.model == 'tactis':
+                # TACTiS uses SampleForecastGenerator internally for prediction
+                # because its foweard pass returns samples not distribution parameters
+                logging.info(f"Trial {trial.number}: Using SampleForecastGenerator for TACTiS model.")
+                forecast_generator = SampleForecastGenerator()
+            else:
+                # Other models use DistributionForecastGenerator based on their distr_output
+                logging.info(f"Trial {trial.number}: Using DistributionForecastGenerator for {self.model} model.")
+                # Ensure estimator has distr_output before accessing
+                if not hasattr(estimator, 'distr_output'):
+                     raise AttributeError(f"Estimator for model '{self.model}' is missing 'distr_output' attribute needed for DistributionForecastGenerator.")
+                forecast_generator = DistributionForecastGenerator(estimator.distr_output)
 
-        # Log GPU stats before training
-        self.log_gpu_stats(stage=f"Trial {trial.number} Before Training")
+            train_output = estimator.train(
+                training_data=self.data_module.train_dataset,
+                validation_data=self.data_module.val_dataset,
+                forecast_generator=forecast_generator
+            )
 
-        # Conditionally Create Forecast Generator
-        if self.model == 'tactis':
-            # TACTiS uses SampleForecastGenerator internally for prediction
-            # because its foweard pass returns samples not distribution parameters
-            logging.info(f"Trial {trial.number}: Using SampleForecastGenerator for TACTiS model.")
-            forecast_generator = SampleForecastGenerator()
-        else:
-            # Other models use DistributionForecastGenerator based on their distr_output
-            logging.info(f"Trial {trial.number}: Using DistributionForecastGenerator for {self.model} model.")
-            # Ensure estimator has distr_output before accessing
-            if not hasattr(estimator, 'distr_output'):
-                 raise AttributeError(f"Estimator for model '{self.model}' is missing 'distr_output' attribute needed for DistributionForecastGenerator.")
-            forecast_generator = DistributionForecastGenerator(estimator.distr_output)
+            # Log GPU stats after training
+            self.log_gpu_stats(stage=f"Trial {trial.number} After Training")
 
-        train_output = estimator.train(
-            training_data=self.data_module.train_dataset,
-            validation_data=self.data_module.val_dataset,
-            forecast_generator=forecast_generator
-        )
+            model = self.lightning_module_class.load_from_checkpoint(train_output.trainer.checkpoint_callback.best_model_path)
+            transformation = estimator.create_transformation(use_lazyframe=False)
+            # Use the same conditional forecast_generator for creating the predictor
+            predictor = estimator.create_predictor(transformation, model,
+                                                    forecast_generator=forecast_generator)
 
-        # Log GPU stats after training
-        self.log_gpu_stats(stage=f"Trial {trial.number} After Training")
+            # Conditional Evaluation Call
+            eval_kwargs = {
+                "dataset": self.data_module.val_dataset,
+                "predictor": predictor,
+            }
+            if self.model == 'tactis':
+                # TACTiS produces SampleForecast, no output_distr_params needed/possible
+                logging.info(f"Trial {trial.number}: Evaluating TACTiS using SampleForecast.")
+            else:
+                # Other models produce DistributionForecast, specify params to extract
+                # Example for LowRankMultivariateNormalOutput, adjust if other distrs are used
+                eval_kwargs["output_distr_params"] = {"loc": "mean", "cov_factor": "cov_factor", "cov_diag": "cov_diag"}
+                logging.info(f"Trial {trial.number}: Evaluating {self.model} using DistributionForecast with params: {eval_kwargs['output_distr_params']}")
+          
+            forecast_it, ts_it = make_evaluation_predictions(**eval_kwargs)
 
-        model = self.lightning_module_class.load_from_checkpoint(train_output.trainer.checkpoint_callback.best_model_path)
-        transformation = estimator.create_transformation(use_lazyframe=False)
-        # Use the same conditional forecast_generator for creating the predictor
-        predictor = estimator.create_predictor(transformation, model,
-                                                forecast_generator=forecast_generator)
+            forecasts = forecast_it
+            tss = ts_it
+            agg_metrics, _ = self.evaluator(tss, forecasts, num_series=self.data_module.num_target_vars)
+            
+            agg_metrics["trainable_parameters"] = summarize(estimator.create_lightning_module()).trainable_parameters
+            self.metrics.append(agg_metrics.copy())
 
-        # Conditional Evaluation Call
-        eval_kwargs = {
-            "dataset": self.data_module.val_dataset,
-            "predictor": predictor,
-        }
-        if self.model == 'tactis':
-            # TACTiS produces SampleForecast, no output_distr_params needed/possible
-            logging.info(f"Trial {trial.number}: Evaluating TACTiS using SampleForecast.")
-        else:
-            # Other models produce DistributionForecast, specify params to extract
-            # Example for LowRankMultivariateNormalOutput, adjust if other distrs are used
-            eval_kwargs["output_distr_params"] = {"loc": "mean", "cov_factor": "cov_factor", "cov_diag": "cov_diag"}
-            logging.info(f"Trial {trial.number}: Evaluating {self.model} using DistributionForecast with params: {eval_kwargs['output_distr_params']}")
-      
-        forecast_it, ts_it = make_evaluation_predictions(**eval_kwargs)
-
-        forecasts = forecast_it
-        tss = ts_it
-        agg_metrics, _ = self.evaluator(tss, forecasts, num_series=self.data_module.num_target_vars)
-        
-        agg_metrics["trainable_parameters"] = summarize(estimator.create_lightning_module()).trainable_parameters
-        self.metrics.append(agg_metrics.copy())
-
-        # Log available metrics for debugging
-        logging.info(f"Trial {trial.number} - Aggregated metrics calculated: {list(agg_metrics.keys())}")
+            # Log available metrics for debugging
+            logging.info(f"Trial {trial.number} - Aggregated metrics calculated: {list(agg_metrics.keys())}")
 
 
-        # Log GPU stats at the end of the trial
-        self.log_gpu_stats(stage=f"Trial {trial.number} End")
+            # Log GPU stats at the end of the trial
+            self.log_gpu_stats(stage=f"Trial {trial.number} End")
 
-        # Force garbage collection at the end of each trial
-        gc.collect()
-        torch.cuda.empty_cache()
+            # Force garbage collection at the end of each trial
+            gc.collect()
+            torch.cuda.empty_cache()
+
+        finally:
+            # Check if wandb_logger_trial was created (only on rank 0) and if wandb.run is active
+            if wandb_logger_trial is not None and wandb.run is not None:
+                logging.info(f"Rank 0: Finishing trial-specific W&B run '{wandb.run.name}' for trial {trial.number}")
+                wandb.finish()
+            elif os.environ.get('WORKER_RANK', '0') == '0' and wandb.run is not None:
+                # If logger wasn't assigned but a run exists on rank 0, try finishing it.
+                logging.warning(f"Rank 0: wandb_logger_trial was None, but an active W&B run ('{wandb.run.name}') was found. Attempting to finish.")
+                wandb.finish()
 
         # Return the specified metric, with error handling
         try:
