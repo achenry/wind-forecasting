@@ -220,16 +220,25 @@ def main():
     os.environ["WANDB_ARTIFACT_DIR"] = checkpoint_dir
     os.environ["WANDB_DIR"] = wandb_dir
     
-    # Fetch GitHub repo URL and current commit for WandB
+    # Fetch GitHub repo URL and current commit and set WandB environment variables
     try:
         remote_url = subprocess.check_output(['git', 'config', '--get', 'remote.origin.url']).strip().decode()
+        # Convert SSH URL to HTTPS if necessary
         if remote_url.startswith('git@'):
             remote_url = remote_url.replace('git@github.com:', 'https://github.com/')
         remote_url = remote_url.rstrip('.git')
         commit_hash = subprocess.check_output(['git', 'rev-parse', 'HEAD']).strip().decode()
-        github_link = f"{remote_url}/commit/{commit_hash}"
-    except Exception:
-        github_link = None
+
+        os.environ["WANDB_GIT_REMOTE_URL"] = remote_url
+        os.environ["WANDB_GIT_COMMIT"] = commit_hash
+        logging.info(f"Set WANDB_GIT_REMOTE_URL to {remote_url}")
+        logging.info(f"Set WANDB_GIT_COMMIT to {commit_hash}")
+
+    except Exception as e:
+        logging.warning(f"Could not automatically determine Git info: {e}. Git info might not be logged in WandB.")
+        os.environ.pop("WANDB_GIT_REMOTE_URL", None)
+        os.environ.pop("WANDB_GIT_COMMIT", None)
+
 
     # Prepare logger config with only relevant model and dynamic info
     model_config = config['model'].get(args.model, {})
@@ -241,34 +250,37 @@ def main():
         'strategy': config['trainer'].get('strategy'),
         'torch_version': torch.__version__,
         'python_version': platform.python_version(),
-        'github': github_link
     }
     logger_config = {
         'experiment': config.get('experiment', {}),
         'dataset': config.get('dataset', {}),
         'trainer': config.get('trainer', {}),
         'model': model_config,
-        'optuna': config.get('optuna', {}),
+        # 'optuna': config.get('optuna', {}),
         **dynamic_info
     }
 
-    # Create WandB logger with explicit path settings
-    wandb_logger = WandbLogger(
-        project=project_name, # Project name in WandB, set in config
-        name=run_name, # Unique name for the run, can also take config for hyperparameters. Keep brief
-        dir=wandb_dir, # Directory for saving logs and metadata
-        log_model="all",        
-        group=config['experiment']['run_name'],   # Group all workers under the same experiment
-        job_type=args.mode,
-        mode="online",
-        id=unique_id, # Unique ID for the run, can also use config hyperaparameters for comparison later
-        notes=config['experiment']['notes'],
-        tags=[f"gpu_{gpu_id}", args.model, args.mode] + config['experiment']['extra_tags'],
-        config=logger_config,
-    )
-
-    wandb_logger.log_hyperparams(logger_config)
-    config["trainer"]["logger"] = wandb_logger
+    # Create WandB logger only for train/test modes
+    if args.mode in ["train", "test"]:
+        wandb_logger = WandbLogger(            
+            project=project_name, # Project name in WandB, set in config
+            entity=config['experiment'].get('username'),
+            group=config['experiment']['run_name'],   # Group all workers under the same experiment
+            name=run_name, # Unique name for the run, can also take config for hyperparameters. Keep brief
+            dir=wandb_dir, # Directory for saving logs and metadata
+            log_model="all",            
+            job_type=args.mode,
+            mode=config['experiment'].get('wandb_mode', 'online'), # Configurable wandb mode
+            id=unique_id, # Unique ID for the run, can also use config hyperaparameters for comparison later
+            notes=config['experiment'].get('notes'),
+            tags=[f"gpu_{gpu_id}", args.model, args.mode] + config['experiment'].get('extra_tags', []),
+            config=logger_config,            
+            save_code=config['experiment'].get('save_code', True)
+        )
+        config["trainer"]["logger"] = wandb_logger
+    else:
+        # For tuning mode, set logger to None
+        config["trainer"]["logger"] = None
 
 
     # Update config with normalized absolute paths
