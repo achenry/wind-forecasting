@@ -157,21 +157,24 @@ class MLTuningObjective:
             try:
                 # Construct unique run name and tags
                 run_name = f"{self.config['experiment']['run_name']}_trial_{trial.number}"
-                project_name = self.config['experiment'].get('project', 'wind_forecasting') # Default project name
-                group_name = self.config['experiment']['run_name']
-                wandb_dir = self.config['logging'].get('wandb_dir', './logging/wandb') # Default dir
-                tags = [self.model, f"trial_{trial.number}", f"seed_{trial_seed}"]
 
                 # Initialize a new W&B run for this specific trial
                 wandb.init(
-                    reinit=True,
+                    # Core identification
+                    project=self.config['experiment'].get('project_name', 'wind_forecasting'),
+                    entity=self.config['experiment'].get('username'),
+                    group=self.config['experiment']['run_name'],
                     name=run_name,
-                    project=project_name,
-                    group=group_name,
-                    config=trial.params, # Log Optuna hyperparameters for this trial
-                    dir=wandb_dir,
                     job_type="optuna_trial",
-                    tags=tags
+                    # Configuration and Metadata
+                    config=trial.params,
+                    tags=[self.model, f"trial_{trial.number}", f"seed_{trial_seed}"] + self.config['experiment'].get('extra_tags', []),
+                    notes=f"Optuna trial {trial.number} for study: {self.config['experiment'].get('notes', '')}",
+                    # Logging and Behavior
+                    dir=self.config['logging'].get('wandb_dir', './logging/wandb'),
+                    save_code=self.config['optuna'].get('save_trial_code', False),
+                    mode=self.config['experiment'].get('wandb_mode', 'online'),
+                    reinit=True
                 )
                 logging.info(f"Rank 0: Initialized W&B run '{run_name}' for trial {trial.number}")
 
