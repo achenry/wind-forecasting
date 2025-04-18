@@ -2,6 +2,7 @@
 
 import numpy as np
 from scipy.stats import norm  # For more accurate ppf
+from scipy import special
 
 def brier_score(obs, fx, fx_prob):
     """Brier Score (BS).
@@ -464,6 +465,43 @@ def sharpness(fx_lower, fx_upper):
     sh = np.mean(fx_upper - fx_lower)
     return sh
 
+def continuous_ranked_probability_score_gaussian(predicted_mean, true_values, predicted_std):
+    """
+    Compute the continuous ranked probability score (CRPS) assuming a Gaussian
+    distribution.
+
+    The CRPS is calculated as the mean of the continuous ranked probability score for
+    each sample. For a Gaussian distribution, the CRPS is defined as:
+
+    .. math:: \\text{CRPS} = \\frac{1}{n} \\sum_{i=1}^{n} \\left\\{\\sigma_i \\left[z_i
+              \\left(2\\Phi(z_i) - 1\\right) + 2 \\phi(z_i) -
+              \\pi^{-1/2} \\right]\\right\\}
+
+    where :math:`y_i` are the true values, :math:`\\mu_i` are the predicted means,
+    :math:`\\sigma_i` are the predicted standard deviations, :math:`z_i` is the z-score,
+    :math:`\\Phi` is the cumulative distribution function of the standard normal
+    distribution, and :math:`\\phi` is the probability density function of the standard
+    normal distribution.
+
+    Args:
+        truth (array-like): Actual values from data.
+        mean (array-like): Predicted means from model.
+        std (array-like): Predicted standard deviations from model.
+
+    Returns:
+        float: CRPS value.
+    """
+    # Define the CRPS for a Gaussian distribution
+    def crps_gaussian(y, mu, sigma):
+        z = (y - mu) / sigma
+        cdf_z = norm.cdf(z)
+        pdf_z = norm.pdf(z)
+        return sigma * (z * (2 * cdf_z - 1) + 2 * pdf_z - 1 / np.sqrt(np.pi))
+    
+    # Compute the CRPS for each sample and take the mean
+    crps = np.mean([crps_gaussian(t, m, s) for t, m, s in zip(true_values, predicted_mean, predicted_std)])
+
+    return crps
 
 def continuous_ranked_probability_score(obs, fx, fx_prob):
     """Continuous Ranked Probability Score (CRPS).
@@ -622,8 +660,8 @@ def crps_skill_score(obs, fx, fx_prob, ref, ref_prob):
         else:
             return 1 - crps_fx / crps_ref
 
-def coverage_width_criterion(true_values, predicted_mean, predicted_std, confidence_level=0.95):
-    # TODO CHECK FORMULA
+def coverage_width_criterion(predicted_mean, true_values, predicted_std, confidence_level=0.95):
+    
     """
     Computes the Coverage Width Criterion (CWC) for a time series.
 
@@ -649,21 +687,29 @@ def coverage_width_criterion(true_values, predicted_mean, predicted_std, confide
         raise ValueError("Confidence level must be between 0 and 1 (exclusive).")
 
 
-    z_score = np.abs(np.ppf((1 - confidence_level) / 2))  # Two-tailed Z-score
+    z_score = np.abs(norm.ppf((1 - confidence_level) / 2))  # Two-tailed Z-score
     upper_bound = predicted_mean + z_score * predicted_std
     lower_bound = predicted_mean - z_score * predicted_std
 
-    covered = np.sum((true_values >= lower_bound) & (true_values <= upper_bound))
-    coverage = covered / len(true_values)
+    # computing PICP
+    picp = pi_coverage_probability(predicted_mean, true_values, predicted_std, confidence_level)
+    
+    # computing pinaw
+    pinaw = pi_normalized_average_width(predicted_mean, true_values, predicted_std, confidence_level)
 
-    interval_width = upper_bound - lower_bound
-    cwc = np.mean(interval_width) * (1 + (coverage < confidence_level) * np.exp(0.25*(coverage - confidence_level)))
+    # PI normal confidence
+    # mu = 1 - confidence_level
+    
+    # penalty factor
+    eta = 0.25
+    
+    cwc = pinaw * (1 + (picp < confidence_level) * np.exp(-eta*(picp - confidence_level)))
 
-    return cwc, coverage
+    return cwc
 
 
-def pi_coverage_probability(true_values, predicted_mean, predicted_std, confidence_level=0.95):
-    # TODO CHECK FORMULA
+def pi_coverage_probability(predicted_mean, true_values, predicted_std, confidence_level=0.95):
+    
     """
     Computes the Prediction Interval Coverage Probability (PICP) for a time series.
 
@@ -696,8 +742,8 @@ def pi_coverage_probability(true_values, predicted_mean, predicted_std, confiden
 
     return picp
 
-def pi_normalized_average_width(true_values, predicted_mean, predicted_std, confidence_level=0.95):
-    # TODO CHECK FORMULA
+def pi_normalized_average_width(predicted_mean, true_values, predicted_std, confidence_level=0.95):
+    
     """
     Computes the Prediction Interval Normalized Average Width (PINAW) for a time series.
 
@@ -722,7 +768,7 @@ def pi_normalized_average_width(true_values, predicted_mean, predicted_std, conf
     
     true_range = np.max(true_values) - np.min(true_values)
     if true_range == 0:
-        raise ValueError("The range of true values cannot be zero.  Cannot normalize.")
+        raise ValueError("The range of true values cannot be zero. Cannot normalize.")
 
     z_score = np.abs(norm.ppf((1 - confidence_level) / 2))  # Two-tailed Z-score
     upper_bound = predicted_mean + z_score * predicted_std
@@ -743,6 +789,7 @@ _MAP = {
     'qs': (quantile_score, 'QS'),
     'qss': (quantile_skill_score, 'QSS'),
     # 'sh': (sharpness, 'SH'),  # TODO
+    'crps_gaussian': (continuous_ranked_probability_score_gaussian, 'CRPS_gaussian'),
     'crps': (continuous_ranked_probability_score, 'CRPS'),
     'crpss': (crps_skill_score, 'CRPSS'),
     'picp': (pi_coverage_probability, 'PICP'),

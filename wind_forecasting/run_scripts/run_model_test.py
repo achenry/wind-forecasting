@@ -98,10 +98,17 @@ def main():
                                 target_prefixes=["ws_horz", "ws_vert"], feat_dynamic_real_prefixes=["nd_cos", "nd_sin"],
                                 freq=config["dataset"]["resample_freq"], target_suffixes=config["dataset"]["target_turbine_ids"],
                                     per_turbine_target=config["dataset"]["per_turbine_target"], dtype=pl.Float32)
-    # if RUN_ONCE:
-    data_module.generate_splits()
     
     if rank_zero_only.rank == 0:
+        if not os.path.exists(data_module.train_ready_data_path):
+            data_module.generate_datasets()
+            reload = True
+        else:
+            reload = False
+        
+        # pull ws_horz, ws_vert, nacelle_direction, normalization_consts from awaken data and run for ML, SVR
+        data_module.generate_splits(save=True, reload=reload)
+        
         config["trainer"]["default_root_dir"] = os.path.join(config["trainer"]["default_root_dir"], f"{args.model}_{config['experiment']['run_name']}")
         os.makedirs(config["trainer"]["default_root_dir"], exist_ok=True) # create the directory for saving checkpoints if it doesn't exist
 

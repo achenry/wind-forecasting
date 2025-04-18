@@ -100,6 +100,7 @@ def launch_optuna_dashboard(config, storage_url):
         log_handle = open(log_file_path_str, 'a') if log_file_path_str != os.devnull else subprocess.DEVNULL
 
         # Launch the process in the background
+       
         _dashboard_process = subprocess.Popen(
             cmd,
             stdout=log_handle,
@@ -107,7 +108,8 @@ def launch_optuna_dashboard(config, storage_url):
             # Close file descriptors in the child process to avoid issues
             close_fds=True,
             # Use current environment, assuming necessary paths (like conda env bin) are set
-            env=os.environ.copy()
+            env=os.environ.copy(),
+            # shell=True # CHANGE TODO shel work on linux?
         )
         logging.info(f"Optuna dashboard process started (PID: {_dashboard_process.pid}).")
 
@@ -132,7 +134,7 @@ def launch_optuna_dashboard(config, storage_url):
             logging.info("2. **Second Tunnel (Login Node to Compute Node):**")
             logging.info("   Open ANOTHER terminal, SSH into the LOGIN node, and then run:")
             logging.info(f"   ssh -L {port}:localhost:{port} {username}@{compute_node_hostname}")
-            logging.info("   Keep this terminal open.")
+            logging.info(f"   (on Kestrel, use same terminal as in Step. 1 and just run 'ssh -L {port}:localhost:{port} {username}@{compute_node_hostname}'). Keep this terminal open.")
             logging.info("")
             logging.info("3. **Access Dashboard:**")
             logging.info("   Open a web browser on your LOCAL machine and go to:")

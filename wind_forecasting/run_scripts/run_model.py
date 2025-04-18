@@ -63,11 +63,12 @@ def main():
     parser.add_argument("--config", type=str, help="Path to config file", default="examples/inputs/training_inputs_aoifemac_flasc.yaml")
     parser.add_argument("-md", "--mode", choices=["tune", "train", "test"], required=True,
                         help="Mode to run: 'tune' for hyperparameter optimization with Optuna, 'train' to train a model, 'test' to evaluate a model")
-    parser.add_argument("-chk", "--checkpoint", type=str, required=False, default="latest", 
-                        help="Which checkpoint to use: can be equal to 'latest', 'best', or an existing checkpoint path.")
+    parser.add_argument("-chk", "--checkpoint", type=str, required=False, default=None, 
+                        help="Which checkpoint to use: can be equal to 'None' to start afresh with training mode, 'latest', 'best', or an existing checkpoint path.")
     parser.add_argument("-m", "--model", type=str, choices=["informer", "autoformer", "spacetimeformer", "tactis"], required=True)
     parser.add_argument("-rt", "--restart_tuning", action="store_true")
-    parser.add_argument("-tp", "--use_tuned_parameters", action="store_true", help="Use parameters tuned from Optuna optimization, otherwise use defaults set in Module class.")
+    parser.add_argument("-utp", "--use_tuned_parameters", action="store_true", help="Use parameters tuned from Optuna optimization, otherwise use defaults set in Module class.")
+    parser.add_argument("-tp", "--tuning_phase", type=int, default=0, help="Index of tuning phase to use, gets passed to get_params estimator class methods. For tuning with multiple phases.")
     # parser.add_argument("--tune_first", action="store_true", help="Whether to use tuned parameters", default=False)
     parser.add_argument("--model_path", type=str, help="Path to a saved model checkpoint to load from", default=None)
     # parser.add_argument("--predictor_path", type=str, help="Path to a saved predictor for evaluation", default=None) # JUAN shouldn't need if we just pass filepath, latest, or best to checkpoint parameter
@@ -93,7 +94,7 @@ def main():
     #     config["dataset"]["target_turbine_ids"] = None # select all turbines
         
     assert args.checkpoint is None or args.checkpoint in ["best", "latest"] or os.path.exists(args.checkpoint), "Checkpoint argument, if provided, must equal 'best', 'latest', or an existing checkpoint path."
-    
+    assert (args.mode == "test" and args.checkpoint is not None) or args.mode != "test", "Must provide a checkpoint path, 'latest', or 'best' for checkpoint argument when mode argument=test."
     # %% Modify configuration for single GPU mode vs. multi-GPU mode
     if args.single_gpu:
         # Force single GPU configuration when --single_gpu flag is set
@@ -116,9 +117,9 @@ def main():
             device = torch.cuda.current_device()
             logging.info(f"Using GPU {device}: {torch.cuda.get_device_name(device)}")
             
-        # Check if CUDA_VISIBLE_DEVICES is set and contains only a single GPU
+            # Check if CUDA_VISIBLE_DEVICES is set and contains only a single GPU
             if "CUDA_VISIBLE_DEVICES" in os.environ:
-                cuda_devices = os.environ["CUDA_VISIBLE_DEVICES"]
+                cuda_devices = os.environ["CUDA_VISIBLE_DEVICES"] # Note: must 'export' variable within nohup to find on Kestrel
                 logging.info(f"CUDA_VISIBLE_DEVICES is set to: '{cuda_devices}'")
                 try:
                     # Count the number of GPUs specified in CUDA_VISIBLE_DEVICES
@@ -139,9 +140,9 @@ def main():
                         # Log actual GPU mapping information
                         if num_visible_gpus == 1:
                             try:
-                                logging.info(f"Primary GPU is system device {actual_gpu}, mapped to CUDA index {device_id}")
                                 actual_gpu = int(visible_gpus[0])
                                 device_id = 0  # With CUDA_VISIBLE_DEVICES, first visible GPU is always index 0
+                                logging.info(f"Primary GPU is system device {actual_gpu}, mapped to CUDA index {device_id}")
                             except ValueError:
                                 logging.warning(f"Could not parse GPU index from CUDA_VISIBLE_DEVICES: {visible_gpus[0]}")
                     else:
@@ -267,16 +268,27 @@ def main():
                                 freq=config["dataset"]["resample_freq"], target_suffixes=config["dataset"]["target_turbine_ids"],
                                     per_turbine_target=config["dataset"]["per_turbine_target"], as_lazyframe=False, dtype=pl.Float32)
     
-    data_module.generate_splits()
+    if rank_zero_only.rank == 0:
+        logging.info("Preparing data for tuning")
+        if not os.path.exists(data_module.train_ready_data_path):
+            data_module.generate_datasets()
+            reload = True
+        else:
+            reload = False
+    
+        data_module.generate_splits(save=True, reload=reload, splits=["train", "val", "test"]) 
+    
+    data_module.generate_splits(save=True, reload=False, splits=["train", "val", "test"])
 
     # %% DEFINE ESTIMATOR
     if args.mode in ["train", "test"]:
-        # TODO JUAN integrate get_tuned_params, get_storage so we can fetch parameters that have been tuned
         found_tuned_params = True
         if args.use_tuned_parameters:
             try:
                 logging.info(f"Getting tuned parameters.")
-                tuned_params = get_tuned_params(backend=config["optuna"]["storage"]["backend"], study_name=f"tuning_{args.model}_{config['experiment']['run_name']}")
+                tuned_params = get_tuned_params(backend=config["optuna"]["storage"]["backend"], 
+                                                study_name=f"tuning_{args.model}_{config['experiment']['run_name']}", 
+                                                storage_dir=config["optuna"]["storage_dir"])
                 config["dataset"].update({k: v for k, v in tuned_params.items() if k in config["dataset"]})
                 config["model"][args.model].update({k: v for k, v in tuned_params.items() if k in config["model"][args.model]})
                 config["trainer"].update({k: v for k, v in tuned_params.items() if k in config["trainer"]})
@@ -317,10 +329,10 @@ def main():
             time_features=[second_of_minute, minute_of_hour, hour_of_day, day_of_year],
             distr_output=globals()[config["model"]["distr_output"]["class"]](dim=data_module.num_target_vars, **config["model"]["distr_output"]["kwargs"]),
             batch_size=config["dataset"].setdefault("batch_size", 128),
-            num_batches_per_epoch=config["trainer"].setdefault("limit_train_batches", 50),
-            context_length=config["dataset"]["context_length"],
-            train_sampler=ExpectedNumInstanceSampler(num_instances=1.0, min_past=config["dataset"]["context_length"], min_future=data_module.prediction_length),
-            validation_sampler=ValidationSplitSampler(min_past=config["dataset"]["context_length"], min_future=data_module.prediction_length),
+            num_batches_per_epoch=config["trainer"].setdefault("limit_train_batches", 1000),
+            context_length=data_module.context_length,
+            train_sampler=ExpectedNumInstanceSampler(num_instances=1.0, min_past=data_module.context_length, min_future=data_module.prediction_length),
+            validation_sampler=ValidationSplitSampler(min_past=data_module.context_length, min_future=data_module.prediction_length),
             trainer_kwargs=config["trainer"],
             **config["model"][args.model]
         )
@@ -345,19 +357,18 @@ def main():
         # Normal execution - pass the OOM protection wrapper and constructed storage URL
         tune_model(model=args.model, config=config,
                    study_name=f"tuning_{args.model}_{config['experiment']['run_name']}",
-                    optuna_storage=optuna_storage, # Pass the constructed storage object
-                    lightning_module_class=LightningModuleClass,
-                    estimator_class=EstimatorClass,
-                    distr_output_class=DistrOutputClass,
-                    data_module=data_module,
-                    max_epochs=config["optuna"]["max_epochs"],
-                    limit_train_batches=config["optuna"]["limit_train_batches"],
-                    metric=config["optuna"]["metric"],
-                    direction=config["optuna"]["direction"],
-                    context_length_choices=[int(data_module.prediction_length * i) for i in config["optuna"]["context_length_choice_factors"]],
-                    n_trials=config["optuna"]["n_trials"],
-                    trial_protection_callback=handle_trial_with_oom_protection,
-                    seed=args.seed)
+                   optuna_storage=optuna_storage, # Pass the constructed storage object
+                   lightning_module_class=LightningModuleClass,
+                   estimator_class=EstimatorClass,
+                   distr_output_class=DistrOutputClass,
+                   data_module=data_module,
+                   max_epochs=config["optuna"]["max_epochs"],
+                   limit_train_batches=config["optuna"]["limit_train_batches"],
+                   metric=config["optuna"]["metric"],
+                   direction=config["optuna"]["direction"],
+                   n_trials=config["optuna"]["n_trials"],
+                   trial_protection_callback=handle_trial_with_oom_protection,
+                   seed=args.seed, tuning_phase=args.tuning_phase)
         
         # After training completes
         torch.cuda.empty_cache()
@@ -380,7 +391,7 @@ def main():
     elif args.mode == "test":
         logging.info("Starting model testing...")
         # %% TEST MODEL
-         
+       
         test_model(data_module=data_module,
                     checkpoint=checkpoint,
                     lightning_module_class=globals()[f"{args.model.capitalize()}LightningModule"], 

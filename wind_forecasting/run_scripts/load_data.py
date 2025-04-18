@@ -1,7 +1,7 @@
 import sys
 import argparse
 import logging
-from memory_profiler import profile
+# from memory_profiler import profile
 
 import polars as pl
 import matplotlib
@@ -53,10 +53,13 @@ def main():
                                 per_turbine_target=config["dataset"]["per_turbine_target"], dtype=pl.Float32)
     # if RUN_ONCE:
     data_module.generate_datasets()
+    data_module.generate_splits(save=True, reload=False)
     logging.info("Finished generating train/val/test datasets.")
-    # data_module.generate_splits()
     # data_module.plot_dataset_splitting()
     # logging.info("Finished plotting train/val/test datasets.")
 
 if __name__ == "__main__":
+    # scp -v aohe7145@login.rc.colorado.edu:/pl/active/paolab/wind_forecasting/awaken_data/\*.parquet ahenry@kestrel.hpc.nrel.gov:/projects/ssc/ahenry/wind_forecasting/awaken_data/
+    # scp -v aohe7145@login.rc.colorado.edu:/pl/active/paolab/wind_forecasting/awaken_data/\*.csv ahenry@kestrel.hpc.nrel.gov:/projects/ssc/ahenry/wind_forecasting/awaken_data/
+    # scp -v aohe7145@login.rc.colorado.edu:/pl/active/paolab/wind_forecasting/awaken_data/\*.npy ahenry@kestrel.hpc.nrel.gov:/projects/ssc/ahenry/wind_forecasting/awaken_data/
     main()
