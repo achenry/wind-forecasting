@@ -207,7 +207,7 @@ def main():
     gpu_id = os.environ.get('CUDA_VISIBLE_DEVICES', '0')
 
     # Create a unique run name for each worker
-    project_name = config["experiment"]["project_name"]
+    project_name = config['experiment'].get('project_name', 'wind_forecasting')
     run_name = f"{config['experiment']['username']}_{args.model}_{args.mode}_{gpu_id}"
 
     # Set an explicit run directory to avoid nesting issues
@@ -222,24 +222,28 @@ def main():
     
     # Fetch GitHub repo URL and current commit and set WandB environment variables
     project_root = config['experiment'].get('project_root', os.getcwd())
+    git_info = {}
     try:
-        remote_url = subprocess.check_output(['git', 'config', '--get', 'remote.origin.url'], cwd=project_root).strip().decode()
+        remote_url_bytes = subprocess.check_output(['git', 'config', '--get', 'remote.origin.url'], cwd=project_root, stderr=subprocess.STDOUT).strip()
+        remote_url = remote_url_bytes.decode('utf-8')
         # Convert SSH URL to HTTPS if necessary
-        if remote_url.startswith('git@'):
-            remote_url = remote_url.replace('git@github.com:', 'https://github.com/')
-        remote_url = remote_url.rstrip('.git')
-        commit_hash = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=project_root).strip().decode()
+        if remote_url.startswith("git@"):
+            remote_url = remote_url.replace(":", "/").replace("git@", "https://")
+        if remote_url.endswith(".git"):
+            remote_url = remote_url[:-4]
 
-        os.environ["WANDB_GIT_REMOTE_URL"] = remote_url
-        os.environ["WANDB_GIT_COMMIT"] = commit_hash
-        logging.info(f"Set WANDB_GIT_REMOTE_URL to {remote_url}")
-        logging.info(f"Set WANDB_GIT_COMMIT to {commit_hash}")
+        commit_hash_bytes = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=project_root, stderr=subprocess.STDOUT).strip()
+        commit_hash = commit_hash_bytes.decode('utf-8')
 
+        git_info = {"url": remote_url, "commit": commit_hash}
+        logging.info(f"Fetched Git Info - URL: {remote_url}, Commit: {commit_hash}")
+
+    except subprocess.CalledProcessError as e:
+        logging.warning(f"Could not get Git info: {e.output.decode('utf-8').strip()}. Git info might not be logged in WandB.")
+    except FileNotFoundError:
+        logging.warning("'git' command not found. Cannot log Git info.")
     except Exception as e:
-        logging.warning(f"Could not automatically determine Git info: {e}. Git info might not be logged in WandB.")
-        os.environ.pop("WANDB_GIT_REMOTE_URL", None)
-        os.environ.pop("WANDB_GIT_COMMIT", None)
-
+        logging.warning(f"An unexpected error occurred while fetching Git info: {e}. Git info might not be logged in WandB.", exc_info=True)
 
     # Prepare logger config with only relevant model and dynamic info
     model_config = config['model'].get(args.model, {})
@@ -257,8 +261,8 @@ def main():
         'dataset': config.get('dataset', {}),
         'trainer': config.get('trainer', {}),
         'model': model_config,
-        # 'optuna': config.get('optuna', {}),
-        **dynamic_info
+        **dynamic_info,
+        "git_info": git_info
     }
 
     # Create WandB logger only for train/test modes
@@ -498,7 +502,7 @@ def main():
                    direction=config["optuna"]["direction"],
                    n_trials=config["optuna"]["n_trials"],
                    trial_protection_callback=handle_trial_with_oom_protection,
-                   seed=args.seed) # Removed wandb_run_id argument
+                   seed=args.seed)
         
         # After training completes
         torch.cuda.empty_cache()
