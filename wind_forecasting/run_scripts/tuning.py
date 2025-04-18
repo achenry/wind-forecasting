@@ -9,6 +9,7 @@ import torch
 import gc
 import time # Added for load_study retry delay
 import inspect
+from itertools import product
 # Imports for Optuna
 import optuna # Import the base optuna module for type hints
 from optuna import create_study, load_study
@@ -49,7 +50,7 @@ class SafePruningCallback(pl.Callback):
 class MLTuningObjective:
     def __init__(self, *, model, config, lightning_module_class, estimator_class, 
                  distr_output_class, max_epochs, limit_train_batches, data_module, 
-                 metric, seed=42):
+                 metric, seed=42, tuning_phase=0):
         self.model = model
         self.config = config
         self.lightning_module_class = lightning_module_class
@@ -60,6 +61,7 @@ class MLTuningObjective:
         self.evaluator = MultivariateEvaluator(num_workers=None, custom_eval_fn=None)
         self.metrics = []
         self.seed = seed
+        self.tuning_phase = tuning_phase
 
         self.config["trainer"]["max_epochs"] = max_epochs
         self.config["trainer"]["limit_train_batches"] = limit_train_batches
@@ -113,7 +115,17 @@ class MLTuningObjective:
         # Log GPU stats at the beginning of the trial
         self.log_gpu_stats(stage=f"Trial {trial.number} Start")
 
-        params = self.estimator_class.get_params(trial)
+        # TODO HIGH setup for resample_freq, per_turbine, rank
+        params = self.estimator_class.get_params(trial, self.tuning_phase)
+        
+        if "resample_freq" in params or "per_turbine" in params:
+            self.data_module.freq = f"{params["resample_freq"]}s"
+            self.data_module.per_turbine = params["per_turbine"]
+            self.data_module.set_train_ready_path()
+            assert os.path.exists(self.data_module.train_ready_data_path), "Must generates dataset and splits in tuning.py, rank 0. Requested resampling frequency may not be compatible."
+            self.data_module.generate_splits(save=True, reload=False, splits=["train", "val"])
+
+        # self.data_module.generate_splits(save=True, reload=False)
         
         estimator_sig = inspect.signature(self.estimator_class.__init__)
         estimator_params = [param.name for param in estimator_sig.parameters.values()]
@@ -127,6 +139,7 @@ class MLTuningObjective:
         
         logging.info(f"Testing params {tuple((k, v) for k, v in params.items())}")
         
+        self.config["model"]["distr_output"]["kwargs"].update({k: v for k, v in params.items() if k in self.config["model"]["distr_output"]["kwargs"]})
         self.config["dataset"].update({k: v for k, v in params.items() if k in self.config["dataset"]})
         self.config["model"][self.model].update({k: v for k, v in params.items() if k in self.config["model"][self.model]})
         self.config["trainer"].update({k: v for k, v in params.items() if k in self.config["trainer"]})
@@ -218,7 +231,6 @@ class MLTuningObjective:
         # Log available metrics for debugging
         logging.info(f"Trial {trial.number} - Aggregated metrics calculated: {list(agg_metrics.keys())}")
 
-
         # Log GPU stats at the end of the trial
         self.log_gpu_stats(stage=f"Trial {trial.number} End")
 
@@ -299,7 +311,8 @@ def tune_model(model, config, study_name, optuna_storage, lightning_module_class
                max_epochs, limit_train_batches,
                distr_output_class, data_module,
                metric="mean_wQuantileLoss", direction="minimize", n_trials=10,
-               trial_protection_callback=None, seed=42):
+               trial_protection_callback=None, seed=42,
+               tuning_phase=0):
 
     # Log safely without credentials if they were included (they aren't for socket trust)
     if hasattr(optuna_storage, "url"):
@@ -411,7 +424,26 @@ def tune_model(model, config, study_name, optuna_storage, lightning_module_class
         raise
 
     # Worker ID already fetched above for study creation/loading
-
+    
+    if tuning_phase == 0 and worker_id == "0":
+        # params = estimator_class.get_params(None, tuning_phase)
+        # if "resample_freq" in params or "per_turbine" in params:
+        # TODO incorporate this into config somehow
+        # resample_freq_choices = [15, 30, 45, 60, 120]
+        resample_freq_choices = [60, 120, 180]
+        per_turbine_choices = [True, False]
+        for resample_freq, per_turbine in product(resample_freq_choices, per_turbine_choices):
+            # for each combination of resample_freq and per_turbine, generate the datasets
+            data_module.freq = f"{resample_freq}s"
+            data_module.per_turbine_target = per_turbine
+            data_module.set_train_ready_path()
+            if not os.path.exists(data_module.train_ready_data_path):
+                data_module.generate_datasets()
+                reload = True
+            else:
+                reload = False
+            data_module.generate_splits(save=True, reload=reload, splits=["train", "val"]) 
+        
     logging.info(f"Worker {worker_id}: Participating in Optuna study {study_name}")
 
     tuning_objective = MLTuningObjective(model=model, config=config,
@@ -422,7 +454,8 @@ def tune_model(model, config, study_name, optuna_storage, lightning_module_class
                                         limit_train_batches=limit_train_batches,
                                         data_module=data_module,
                                         metric=metric,
-                                        seed=seed)
+                                        seed=seed,
+                                        tuning_phase=tuning_phase)
 
     # Use the trial protection callback if provided
     objective_fn = (lambda trial: trial_protection_callback(tuning_objective, trial)) if trial_protection_callback else tuning_objective
