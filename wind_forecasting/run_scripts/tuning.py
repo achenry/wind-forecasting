@@ -153,44 +153,44 @@ class MLTuningObjective:
         trial_trainer_kwargs = self.config["trainer"].copy()
         trial_trainer_kwargs["callbacks"] = current_callbacks
 
-        if os.environ.get('WORKER_RANK', '0') == '0':
-            try:
-                # Construct unique run name and tags
-                run_name = f"{self.config['experiment']['run_name']}_trial_{trial.number}"
+        # Initialize W&B for ALL workers
+        try:
+            # Construct unique run name and tags
+            run_name = f"{self.config['experiment']['run_name']}_trial_{trial.number}_rank_{os.environ.get('WORKER_RANK', '0')}"
 
-                # Initialize a new W&B run for this specific trial
-                wandb.init(
-                    # Core identification
-                    project=self.config['experiment'].get('project_name', 'wind_forecasting'),
-                    entity=self.config['logging'].get('entity', None),
-                    group=self.config['experiment']['run_name'],
-                    name=run_name,
-                    job_type="optuna_trial",
-                    # Configuration and Metadata
-                    config=trial.params,
-                    tags=[self.model, f"trial_{trial.number}", f"seed_{trial_seed}"] + self.config['experiment'].get('extra_tags', []),
-                    notes=f"Optuna trial {trial.number} for study: {self.config['experiment'].get('notes', '')}",
-                    # Logging and Behavior
-                    dir=self.config['logging'].get('wandb_dir', './logging/wandb'),
-                    save_code=self.config['optuna'].get('save_trial_code', False),
-                    mode=self.config['logging'].get('wandb_mode', 'online'),
-                    reinit=True
-                )
-                logging.info(f"Rank 0: Initialized W&B run '{run_name}' for trial {trial.number}")
+            # Initialize a new W&B run for this specific trial
+            wandb.init(
+                # Core identification
+                project=self.config['experiment'].get('project_name', 'wind_forecasting'),
+                entity=self.config['logging'].get('entity', None),
+                group=self.config['experiment']['run_name'],
+                name=run_name,
+                job_type="optuna_trial",
+                # Configuration and Metadata
+                config=trial.params,
+                tags=[self.model, f"trial_{trial.number}", f"rank_{os.environ.get('WORKER_RANK', '0')}", f"seed_{trial_seed}"] + self.config['experiment'].get('extra_tags', []),
+                notes=f"Optuna trial {trial.number} (Rank {os.environ.get('WORKER_RANK', '0')}) for study: {self.config['experiment'].get('notes', '')}",
+                # Logging and Behavior
+                dir=self.config['logging'].get('wandb_dir', './logging/wandb'),
+                save_code=self.config['optuna'].get('save_trial_code', False),
+                mode=self.config['logging'].get('wandb_mode', 'online'),
+                reinit=True
+            )
+            logging.info(f"Rank {os.environ.get('WORKER_RANK', '0')}: Initialized W&B run '{run_name}' for trial {trial.number}")
 
-                # Create a WandbLogger using the current W&B run
-                # log_model=False as we only want metrics for this trial logger
-                wandb_logger_trial = WandbLogger(log_model=False, experiment=wandb.run)
-                logging.info(f"Rank 0: Created WandbLogger for trial {trial.number}")
+            # Create a WandbLogger using the current W&B run
+            # log_model=False as we only want metrics for this trial logger
+            wandb_logger_trial = WandbLogger(log_model=False, experiment=wandb.run)
+            logging.info(f"Rank {os.environ.get('WORKER_RANK', '0')}: Created WandbLogger for trial {trial.number}")
 
-                # Add the trial-specific logger to the trainer kwargs for rank 0
-                trial_trainer_kwargs["logger"] = wandb_logger_trial
-                logging.info(f"Rank 0: Added trial-specific WandbLogger to trainer_kwargs for trial {trial.number}")
+            # Add the trial-specific logger to the trainer kwargs for this worker
+            trial_trainer_kwargs["logger"] = wandb_logger_trial
+            logging.info(f"Rank {os.environ.get('WORKER_RANK', '0')}: Added trial-specific WandbLogger to trainer_kwargs for trial {trial.number}")
 
-            except Exception as e:
-                logging.error(f"Rank 0: Failed to initialize W&B or create logger for trial {trial.number}: {e}", exc_info=True)
-                # Ensure wandb_logger_trial remains None if setup fails
-                wandb_logger_trial = None
+        except Exception as e:
+            logging.error(f"Rank {os.environ.get('WORKER_RANK', '0')}: Failed to initialize W&B or create logger for trial {trial.number}: {e}", exc_info=True)
+            # Ensure wandb_logger_trial remains None if setup fails
+            wandb_logger_trial = None
 
         # Verify GPU configuration before creating estimator
         if torch.cuda.is_available():

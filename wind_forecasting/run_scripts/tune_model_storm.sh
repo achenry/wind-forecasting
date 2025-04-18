@@ -68,6 +68,7 @@ module load hpc-env/13.1
 module load PostgreSQL/16.1-GCCcore-13.1.0
 module load Mamba/24.3.0-0
 module load CUDA/12.4.0
+module load git
 echo "Modules loaded."
 
 # Capture LD_LIBRARY_PATH after modules are loaded
@@ -113,6 +114,7 @@ for i in $(seq 0 $((${NUM_GPUS}-1))); do
         module load hpc-env/13.1
         module load Mamba/24.3.0-0
         module load CUDA/12.4.0
+        module load git
         echo \"Worker ${i}: Modules loaded.\"
 
         # --- Activate conda environment ---
