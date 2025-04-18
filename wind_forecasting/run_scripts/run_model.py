@@ -9,6 +9,8 @@ import random
 import numpy as np
 from datetime import datetime
 from pathlib import Path
+import platform
+import subprocess
 
 import polars as pl
 from lightning.pytorch.loggers import WandbLogger
@@ -190,7 +192,7 @@ def main():
     # Set up wandb, optuna, checkpoint directories - use absolute paths
     wandb_dir = config["logging"]["wandb_dir"] = config["logging"].get("wandb_dir", os.path.join(log_dir, "wandb"))
     optuna_dir = config["logging"]["optuna_dir"] = config["logging"].get("optuna_dir", os.path.join(log_dir, "optuna"))
-    checkpoint_dir = config["logging"]["checkpoint_dir"] = config["logging"].get("checkpoint_dir", os.path.join(log_dir, "checkpoints")) # NOTE: no need, checkpoints are saved by Model Checkpoint callback in loggers save_dir (wandb_parent_dir)
+    checkpoint_dir = config["logging"]["checkpoint_dir"] = config["logging"].get("checkpoint_dir", os.path.join(log_dir, "checkpoints")) # NOTE: no need, checkpoints are saved by Model Checkpoint callback in loggers save_dir (wandb_dir)
 
     os.makedirs(wandb_dir, exist_ok=True)
     os.makedirs(optuna_dir, exist_ok=True)
@@ -205,7 +207,8 @@ def main():
     gpu_id = os.environ.get('CUDA_VISIBLE_DEVICES', '0')
 
     # Create a unique run name for each worker
-    run_name = f"{args.model}_{args.mode}_{gpu_id}"
+    project_name = config["experiment"]["project_name"]
+    run_name = f"{config['experiment']['username']}_{args.model}_{args.mode}_{gpu_id}"
 
     # Set an explicit run directory to avoid nesting issues
     unique_id = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{worker_id}_{gpu_id}"
@@ -217,20 +220,54 @@ def main():
     os.environ["WANDB_ARTIFACT_DIR"] = checkpoint_dir
     os.environ["WANDB_DIR"] = wandb_dir
     
+    # Fetch GitHub repo URL and current commit for WandB
+    try:
+        remote_url = subprocess.check_output(['git', 'config', '--get', 'remote.origin.url']).strip().decode()
+        if remote_url.startswith('git@'):
+            remote_url = remote_url.replace('git@github.com:', 'https://github.com/')
+        remote_url = remote_url.rstrip('.git')
+        commit_hash = subprocess.check_output(['git', 'rev-parse', 'HEAD']).strip().decode()
+        github_link = f"{remote_url}/commit/{commit_hash}"
+    except Exception:
+        github_link = None
+
+    # Prepare logger config with only relevant model and dynamic info
+    model_config = config['model'].get(args.model, {})
+    dynamic_info = {
+        'seed': args.seed,
+        'rank': rank,
+        'gpu_id': gpu_id,
+        'devices': config['trainer'].get('devices'),
+        'strategy': config['trainer'].get('strategy'),
+        'torch_version': torch.__version__,
+        'python_version': platform.python_version(),
+        'github': github_link
+    }
+    logger_config = {
+        'experiment': config.get('experiment', {}),
+        'dataset': config.get('dataset', {}),
+        'trainer': config.get('trainer', {}),
+        'model': model_config,
+        'optuna': config.get('optuna', {}),
+        **dynamic_info
+    }
+
     # Create WandB logger with explicit path settings
     wandb_logger = WandbLogger(
-        project="wind_forecasting",
+        project=project_name, # Project name in WandB, set in config
         name=run_name, # Unique name for the run, can also take config for hyperparameters. Keep brief
-        log_model="all",
-        dir=wandb_dir,
+        dir=wandb_dir, # Directory for saving logs and metadata
+        log_model="all",        
         group=config['experiment']['run_name'],   # Group all workers under the same experiment
         job_type=args.mode,
         mode="online",
         id=unique_id, # Unique ID for the run, can also use config hyperaparameters for comparison later
-        tags=[f"gpu_{gpu_id}", args.model, args.mode, f"seed_{args.seed}"],
+        notes=config['experiment']['notes'],
+        tags=[f"gpu_{gpu_id}", args.model, args.mode] + config['experiment']['extra_tags'],
+        config=logger_config,
     )
 
-    wandb_logger.log_hyperparams(config)
+    wandb_logger.log_hyperparams(logger_config)
     config["trainer"]["logger"] = wandb_logger
 
 
