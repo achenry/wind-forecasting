@@ -94,7 +94,8 @@ echo "=== STARTING PARALLEL OPTUNA TUNING WORKERS ==="
 date +"%Y-%m-%d %H:%M:%S"
 
 # --- Parallel Worker Launch using nohup ---
-NUM_GPUS=${SLURM_NTASKS_PER_NODE} # Should match --gres=gpu:N and --ntasks-per-node
+NUM_GPUS=${SLURM_NTASKS_PER_NODE}
+export WORLD_SIZE=${NUM_GPUS}  # Set total number of workers for tuning
 declare -a WORKER_PIDS=()
 
 echo "Launching ${NUM_GPUS} tuning workers..."

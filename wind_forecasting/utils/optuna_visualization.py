@@ -12,16 +12,17 @@ import plotly.io as pio # Added for Plotly HTML conversion
 from optuna.visualization import (
     plot_optimization_history,
     plot_param_importances,
-    plot_slice,
-    plot_parallel_coordinate,
-    plot_contour,
-    plot_intermediate_values
+    plot_slice, # Individual parameter relationship with objective
+    plot_parallel_coordinate, # High-dimensional parameter relationships
+    plot_contour, # Parameter interactions in 2D
+    plot_intermediate_values, # Pruning history
+    plot_edf, # Empirical Distribution Function of objective values
+    plot_timeline, # Trial execution timeline
+    plot_rank # Parameter relationships vs trial rank
 )
 
-# --- Dashboard Auto-Launch Globals ---
 _dashboard_process = None
 
-# --- Dashboard Auto-Launch Functions ---
 
 def _terminate_optuna_dashboard():
     """Terminate the background optuna-dashboard process if it's running."""
@@ -360,23 +361,50 @@ def log_optuna_visualizations_to_wandb(study: optuna.Study, wandb_run):
         logging.warning("No completed trials found in study. Skipping W&B visualization logging.")
         return
 
+    # Define plot functions to attempt logging
     plot_functions = {
         "optuna_optimization_history": plot_optimization_history,
         "optuna_param_importances": plot_param_importances,
         "optuna_parallel_coordinate": plot_parallel_coordinate,
-        "optuna_contour": plot_contour,
+        # "optuna_contour": plot_contour, # Handled separately below
         "optuna_slice": plot_slice,
         "optuna_intermediate_values": plot_intermediate_values,
+        "optuna_edf": plot_edf,
+        "optuna_timeline": plot_timeline,
+        "optuna_rank": plot_rank,
     }
 
     logging.info(f"Logging Optuna visualizations to W&B run: {wandb_run.id}")
 
+    try:
+        # Check if study has at least 2 numerical parameters suitable for contour plot
+        completed_trials = [t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE]
+        if completed_trials:
+            # Get params from the first completed trial to check types
+            first_params = completed_trials[0].params
+            numerical_params = [p for p, v in first_params.items() if isinstance(v, (int, float))]
+            if len(numerical_params) >= 2:
+                logging.info("Attempting to generate contour plot...")
+                fig_contour = plot_contour(study) # Default uses best 2 params
+                html_contour = pio.to_html(fig_contour, full_html=False, include_plotlyjs=True)
+                wandb_run.log({"optuna_contour": wandb.Html(html_contour)})
+                logging.debug("Successfully logged Optuna plot 'optuna_contour' to W&B.")
+            else:
+                logging.warning("Skipping contour plot: Study does not have at least two numerical parameters.")
+        else:
+            logging.warning("Skipping contour plot: No completed trials found.")
+    except ValueError as ve:
+        logging.warning(f"Could not generate/log Optuna plot 'optuna_contour' (likely due to study state or parameter types): {ve}")
+    except Exception as e:
+        logging.warning(f"Could not generate/log Optuna plot 'optuna_contour': {e}")
+
     for plot_key, plot_func in plot_functions.items():
         try:
             fig = plot_func(study)
-            html_string = pio.to_html(fig, full_html=False, include_plotlyjs='cdn')
+            # Embed Plotly JS directly to avoid CDN/token issues in W&B UI
+            html_string = pio.to_html(fig, full_html=False, include_plotlyjs=True)
             wandb_run.log({plot_key: wandb.Html(html_string)})
-            logging.debug(f"Successfully logged Optuna plot '{plot_key}' to W&B.")
+            logging.debug(f"Successfully logged Optuna plot '{plot_key} to W&B.")
         except ValueError as ve:
             # Optuna often raises ValueError for plots that cannot be generated
             # (e.g., param_importances with no completed trials, contour/slice with too few params)
