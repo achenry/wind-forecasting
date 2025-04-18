@@ -162,7 +162,7 @@ class MLTuningObjective:
                 wandb.init(
                     # Core identification
                     project=self.config['experiment'].get('project_name', 'wind_forecasting'),
-                    entity=self.config['experiment'].get('username'),
+                    entity=self.config['logging'].get('entity', None),
                     group=self.config['experiment']['run_name'],
                     name=run_name,
                     job_type="optuna_trial",
@@ -173,7 +173,7 @@ class MLTuningObjective:
                     # Logging and Behavior
                     dir=self.config['logging'].get('wandb_dir', './logging/wandb'),
                     save_code=self.config['optuna'].get('save_trial_code', False),
-                    mode=self.config['experiment'].get('wandb_mode', 'online'),
+                    mode=self.config['logging'].get('wandb_mode', 'online'),
                     reinit=True
                 )
                 logging.info(f"Rank 0: Initialized W&B run '{run_name}' for trial {trial.number}")
