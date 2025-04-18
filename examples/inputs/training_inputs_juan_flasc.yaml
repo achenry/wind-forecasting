@@ -1,15 +1,16 @@
 experiment:
-  username: jmb0507 # Wandb username or group name
+  username: jmb0507
   project_name: wind_forecasting_flasc
-  run_name: flasc_tune
-  log_dir: /user/taed7566/wind-forecasting/logging/
+  run_name: flasc_tune  
   project_root: /user/taed7566/wind-forecasting
-  wandb_mode: online
-  save_code: false # Save code to wandb
+  log_dir: /user/taed7566/wind-forecasting/logging/
   notes: "Tuning FLASC with TACTiS-2"
   extra_tags: ["flasc"] # By default already has GPU id, model and mode.
 
 logging:
+  entity: jmb0507-cu-boulder # Wandb entity (group name)
+  wandb_mode: online
+  save_code: false # Save code to wandb
   wandb_dir: /user/taed7566/wind-forecasting/logging/wandb/
   optuna_dir: /user/taed7566/wind-forecasting/logging/optuna/
   checkpoint_dir: /user/taed7566/wind-forecasting/logging/checkpoints/ # Currently unused, its handled by wandb
@@ -17,6 +18,7 @@ logging:
 
 optuna:
   study_name: "flasc_tune"
+  save_trial_code: false
   n_trials: 5
   max_epochs: 2               # epochs per trial
   limit_train_batches: 100    # batches per epoch

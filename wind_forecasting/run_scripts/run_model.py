@@ -221,13 +221,14 @@ def main():
     os.environ["WANDB_DIR"] = wandb_dir
     
     # Fetch GitHub repo URL and current commit and set WandB environment variables
+    project_root = config['experiment'].get('project_root', os.getcwd())
     try:
-        remote_url = subprocess.check_output(['git', 'config', '--get', 'remote.origin.url']).strip().decode()
+        remote_url = subprocess.check_output(['git', 'config', '--get', 'remote.origin.url'], cwd=project_root).strip().decode()
         # Convert SSH URL to HTTPS if necessary
         if remote_url.startswith('git@'):
             remote_url = remote_url.replace('git@github.com:', 'https://github.com/')
         remote_url = remote_url.rstrip('.git')
-        commit_hash = subprocess.check_output(['git', 'rev-parse', 'HEAD']).strip().decode()
+        commit_hash = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=project_root).strip().decode()
 
         os.environ["WANDB_GIT_REMOTE_URL"] = remote_url
         os.environ["WANDB_GIT_COMMIT"] = commit_hash
@@ -264,18 +265,18 @@ def main():
     if args.mode in ["train", "test"]:
         wandb_logger = WandbLogger(            
             project=project_name, # Project name in WandB, set in config
-            entity=config['experiment'].get('username'),
+            entity=config['logging'].get('entity'),
             group=config['experiment']['run_name'],   # Group all workers under the same experiment
             name=run_name, # Unique name for the run, can also take config for hyperparameters. Keep brief
             dir=wandb_dir, # Directory for saving logs and metadata
             log_model="all",            
             job_type=args.mode,
-            mode=config['experiment'].get('wandb_mode', 'online'), # Configurable wandb mode
+            mode=config['logging'].get('wandb_mode', 'online'), # Configurable wandb mode
             id=unique_id, # Unique ID for the run, can also use config hyperaparameters for comparison later
             notes=config['experiment'].get('notes'),
             tags=[f"gpu_{gpu_id}", args.model, args.mode] + config['experiment'].get('extra_tags', []),
             config=logger_config,            
-            save_code=config['experiment'].get('save_code', True)
+            save_code=config['logging'].get('save_code', False)
         )
         config["trainer"]["logger"] = wandb_logger
     else:
