@@ -440,17 +440,18 @@ def tune_model(model, config, study_name, optuna_storage, lightning_module_class
     if "pruning" in config["optuna"] and config["optuna"]["pruning"].get("enabled", False):
         pruning_type = config["optuna"]["pruning"].get("type", "hyperband").lower()
         min_resource = config["optuna"]["pruning"].get("min_resource", 2)
+        max_resource = config["optuna"]["pruning"].get("max_resource", max_epochs)
 
-        logging.info(f"Configuring pruner: type={pruning_type}, min_resource={min_resource}")
+        logging.info(f"Configuring pruner: type={pruning_type}, min_resource={min_resource}, max_resource={max_resource}")
 
         if pruning_type == "hyperband":
-            reduction_factor = config["optuna"]["pruning"].get("reduction_factor", 3)
+            reduction_factor = config["optuna"]["pruning"].get("reduction_factor", 2)
             pruner = HyperbandPruner(
                 min_resource=min_resource,
-                max_resource=max_epochs,
+                max_resource=max_resource,
                 reduction_factor=reduction_factor
             )
-            logging.info(f"Created HyperbandPruner with min_resource={min_resource}, max_resource={max_epochs}, reduction_factor={reduction_factor}")
+            logging.info(f"Created HyperbandPruner with min_resource={min_resource}, max_resource={max_resource}, reduction_factor={reduction_factor}")
         elif pruning_type == "median":
             pruner = MedianPruner(n_startup_trials=5, n_warmup_steps=min_resource)
             logging.info(f"Created MedianPruner with n_startup_trials=5, n_warmup_steps={min_resource}")
