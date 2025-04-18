@@ -404,7 +404,7 @@ def log_optuna_visualizations_to_wandb(study: optuna.Study, wandb_run):
             # Embed Plotly JS directly to avoid CDN/token issues in W&B UI
             html_string = pio.to_html(fig, full_html=False, include_plotlyjs=True)
             wandb_run.log({plot_key: wandb.Html(html_string)})
-            logging.debug(f"Successfully logged Optuna plot '{plot_key} to W&B.")
+            logging.debug(f"Successfully logged Optuna plot '{plot_key}' to W&B.")
         except ValueError as ve:
             # Optuna often raises ValueError for plots that cannot be generated
             # (e.g., param_importances with no completed trials, contour/slice with too few params)
