@@ -9,6 +9,8 @@ import torch
 import gc
 import time # Added for load_study retry delay
 import inspect
+import collections.abc
+import subprocess
 # Imports for Optuna
 import optuna
 from optuna import create_study, load_study
@@ -17,6 +19,7 @@ from optuna.pruners import HyperbandPruner, MedianPruner, PercentilePruner, NopP
 from optuna_integration import PyTorchLightningPruningCallback
 
 import lightning.pytorch as pl # Import pl alias
+from optuna.trial import TrialState # Added for checking trial status
 import wandb
 from lightning.pytorch.loggers import WandbLogger
 
@@ -26,12 +29,23 @@ from optuna.storages import JournalStorage, RDBStorage
 from optuna.storages.journal import JournalFileBackend
 
 from wind_forecasting.utils.optuna_visualization import launch_optuna_dashboard, log_optuna_visualizations_to_wandb
+from wind_forecasting.utils.optuna_table import log_detailed_trials_table_to_wandb
 # from wind_forecasting.utils.trial_utils import handle_trial_with_oom_protection
 
 import random
 import numpy as np
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+def flatten_dict(d, parent_key='', sep='.'):
+    items = []
+    for k, v in d.items():
+        new_key = parent_key + sep + k if parent_key else k
+        if isinstance(v, collections.abc.MutableMapping):
+            items.extend(flatten_dict(v, new_key, sep=sep).items())
+        else:
+            items.append((new_key, v))
+    return dict(items)
 
 # Wrapper class to safely pass the Optuna pruning callback to PyTorch Lightning
 class SafePruningCallback(pl.Callback):
@@ -158,6 +172,20 @@ class MLTuningObjective:
             # Construct unique run name and tags
             run_name = f"{self.config['experiment']['run_name']}_trial_{trial.number}_rank_{os.environ.get('WORKER_RANK', '0')}"
 
+            # Clean and flatten the parameters for logging
+            cleaned_params = {}
+            prefix_to_remove = f"{self.model}."
+            for k, v in trial.params.items():
+                if k.startswith(prefix_to_remove):
+                    cleaned_key = k.split('.', 1)[1]
+                    cleaned_params[cleaned_key] = v
+                else:
+                    # Keep other params (like context_length_factor if added by user)
+                    cleaned_params[k] = v
+            # Also log the original trial number and value for reference
+            cleaned_params["optuna_trial_number"] = trial.number
+            cleaned_params["optuna_trial_value"] = trial.value # Log the value being optimized
+
             # Initialize a new W&B run for this specific trial
             wandb.init(
                 # Core identification
@@ -167,7 +195,7 @@ class MLTuningObjective:
                 name=run_name,
                 job_type="optuna_trial",
                 # Configuration and Metadata
-                config=trial.params,
+                config=cleaned_params, # Use the cleaned dictionary
                 tags=[self.model, f"trial_{trial.number}", f"rank_{os.environ.get('WORKER_RANK', '0')}", f"seed_{trial_seed}"] + self.config['experiment'].get('extra_tags', []),
                 notes=f"Optuna trial {trial.number} (Rank {os.environ.get('WORKER_RANK', '0')}) for study: {self.config['experiment'].get('notes', '')}",
                 # Logging and Behavior
@@ -398,7 +426,7 @@ def get_tuned_params(study_name, backend, storage_dir):
 def tune_model(model, config, study_name, optuna_storage, lightning_module_class, estimator_class,
                max_epochs, limit_train_batches,
                distr_output_class, data_module,
-               metric="mean_wQuantileLoss", direction="minimize", n_trials=10,
+               metric="mean_wQuantileLoss", direction="minimize", n_trials_per_worker=10,
                trial_protection_callback=None, seed=42): # Removed wandb_run_id
 
     # Log safely without credentials if they were included (they aren't for socket trust)
@@ -535,7 +563,7 @@ def tune_model(model, config, study_name, optuna_storage, lightning_module_class
         # Show progress bar only on rank 0 to avoid cluttered logs
         study.optimize(
             objective_fn,
-            n_trials=n_trials,
+            n_trials_per_worker=n_trials_per_worker,
             callbacks=optimize_callbacks,
             show_progress_bar=(worker_id=='0')
         )
@@ -545,13 +573,89 @@ def tune_model(model, config, study_name, optuna_storage, lightning_module_class
 
     if worker_id == '0' and study:
         logging.info("Rank 0: Starting W&B summary run creation.")
+
+        # Wait for all expected trials to complete
+        num_workers = int(os.environ.get('WORLD_SIZE', 1))
+        expected_total_trials = num_workers * n_trials_per_worker
+        logging.info(f"Rank 0: Expecting a total of {expected_total_trials} trials ({num_workers} workers * {n_trials_per_worker} trials/worker).")
+
+        logging.info("Rank 0: Waiting for all expected Optuna trials to reach a terminal state...")
+        wait_interval_seconds = 30
+        while True:
+            # Refresh trials from storage
+            all_trials_current = study.get_trials(deepcopy=False)
+            finished_trials = [t for t in all_trials_current if t.state in (TrialState.COMPLETE, TrialState.PRUNED, TrialState.FAIL)]
+            num_finished = len(finished_trials)
+            num_total_in_db = len(all_trials_current) # Current count in DB
+
+            logging.info(f"Rank 0: Trial status check: {num_finished} finished / {num_total_in_db} in DB (expected total: {expected_total_trials}).")
+
+            if num_finished >= expected_total_trials:
+                logging.info(f"Rank 0: All {expected_total_trials} expected trials have reached a terminal state.")
+                break
+            elif num_total_in_db > expected_total_trials and num_finished >= expected_total_trials:
+                 logging.warning(f"Rank 0: Found {num_total_in_db} trials in DB (expected {expected_total_trials}), but {num_finished} finished trials meet the expectation.")
+                 break
+
+            logging.info(f"Rank 0: Still waiting for trials to finish ({num_finished}/{expected_total_trials}). Sleeping for {wait_interval_seconds} seconds...")
+            time.sleep(wait_interval_seconds)
+            
         try:
-            # Initialize a new W&B run for the summary
-            run_name = f"{config['experiment']['run_name']}_optuna_summary"
-            project_name = config['experiment'].get('project', 'wind_forecasting')
+            # Fetch best trial *before* initializing summary run
+            best_trial = None
+            try:
+                best_trial = study.best_trial
+                logging.info(f"Rank 0: Fetched best trial: Number={best_trial.number}, Value={best_trial.value}")
+            except ValueError:
+                logging.warning("Rank 0: Could not retrieve best trial (likely no trials completed successfully).")
+            except Exception as e_best_trial:
+                logging.error(f"Rank 0: Error fetching best trial: {e_best_trial}", exc_info=True)
+
+            # Fetch Git info directly using subprocess
+            remote_url = None
+            commit_hash = None
+            try:
+                # Get remote URL
+                remote_url_bytes = subprocess.check_output(['git', 'config', '--get', 'remote.origin.url'], stderr=subprocess.STDOUT).strip()
+                remote_url = remote_url_bytes.decode('utf-8')
+                # Convert SSH URL to HTTPS URL if necessary
+                if remote_url.startswith("git@"):
+                    remote_url = remote_url.replace(":", "/").replace("git@", "https://")
+                # Remove .git suffix AFTER potential conversion
+                if remote_url.endswith(".git"):
+                    remote_url = remote_url[:-4]
+
+                # Get commit hash
+                commit_hash_bytes = subprocess.check_output(['git', 'rev-parse', 'HEAD'], stderr=subprocess.STDOUT).strip()
+                commit_hash = commit_hash_bytes.decode('utf-8')
+                logging.info(f"Rank 0: Fetched Git Info - URL: {remote_url}, Commit: {commit_hash}")
+            except subprocess.CalledProcessError as e:
+                logging.warning(f"Rank 0: Could not get Git info: {e.output.decode('utf-8').strip()}")
+            except FileNotFoundError:
+                logging.warning("Rank 0: 'git' command not found. Cannot log Git info.")
+            except Exception as e_git:
+                 logging.error(f"Rank 0: An unexpected error occurred while fetching Git info: {e_git}", exc_info=True)
+
+            git_info_config = {}
+            if remote_url and commit_hash:
+                 git_info_config = {"git_info": {"url": remote_url, "commit": commit_hash}}
+            else:
+                 logging.warning("Rank 0: Git info could not be fully determined. Logging summary run without it.")
+
+
+            # Determine summary run name
+            base_run_name = config['experiment']['run_name']
+            if best_trial:
+                run_name = f"{base_run_name}_optuna_summary_best_trial_{best_trial.number}"
+            else:
+                run_name = f"{base_run_name}_optuna_summary"
+
+            project_name = config['experiment'].get('project_name', 'wind_forecasting')
             group_name = config['experiment']['run_name']
             wandb_dir = config['logging'].get('wandb_dir', './logging/wandb')
             tags = [model, "optuna_summary"]
+            if best_trial:
+                tags.append(f"best_trial_{best_trial.number}")
 
             # Ensure wandb is not already initialized in a weird state (shouldn't be, but safety check)
             if wandb.run is not None:
@@ -565,9 +669,10 @@ def tune_model(model, config, study_name, optuna_storage, lightning_module_class
                 job_type="optuna_summary",
                 dir=wandb_dir,
                 tags=tags,
+                config=git_info_config,
                 reinit=True # Allow reinitialization if needed, though the check above should handle most cases
             )
-            logging.info(f"Rank 0: Initialized W&B summary run: {wandb.run.name} (ID: {wandb.run.id})")
+            logging.info(f"Rank 0: Initialized W&B summary run: {wandb.run.name} (ID: {wandb.run.id}) with Git info: {git_info_config}")
 
             try:
                 # Log Optuna visualizations using the helper function
@@ -575,20 +680,8 @@ def tune_model(model, config, study_name, optuna_storage, lightning_module_class
                 log_optuna_visualizations_to_wandb(study, wandb.run)
                 logging.info("Rank 0: Finished logging Optuna visualizations to W&B.")
 
-                # Log Trials Summary Table
-                logging.info("Rank 0: Creating and logging Optuna trials summary table to W&B...")
-                trial_table = wandb.Table(columns=["Trial Number", "State", "Value", "Parameters"])
-                for trial in study.trials:
-                    # Ensure params are logged as a string representation
-                    params_str = str(trial.params)
-                    trial_table.add_data(trial.number, trial.state.name, trial.value, params_str)
-
-                # Check if the table has rows before logging
-                if trial_table.rows:
-                     wandb.run.log({"optuna_trials_summary": trial_table})
-                     logging.info(f"Rank 0: Logged Optuna trials summary table ({len(study.trials)} trials) to W&B.")
-                else:
-                     logging.warning("Rank 0: No trials found in the study to log to the summary table.")
+                # Log Detailed Trials Table using the helper function
+                log_detailed_trials_table_to_wandb(study, wandb.run)
 
             except Exception as e_log:
                  logging.error(f"Rank 0: Error during logging visualizations or trial table to W&B summary run: {e_log}", exc_info=True)
@@ -605,7 +698,6 @@ def tune_model(model, config, study_name, optuna_storage, lightning_module_class
             # Ensure wandb is cleaned up if initialization failed partially
             if wandb.run is not None:
                 wandb.finish()
-    # --- END: Added W&B Summary Run Block ---
 
     # All workers log their contribution
     logging.info(f"Worker {worker_id} completed optimization")
