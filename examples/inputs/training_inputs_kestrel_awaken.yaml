@@ -15,7 +15,6 @@ experiment:
 
 optuna:
   storage_dir: /projects/ssc/ahenry/wind_forecasting/optuna
-  backend: mysql # sqlite, mysql, or journal
   n_trials: 100
   metric: mean_wQuantileLoss
   direction: minimize
@@ -145,7 +144,7 @@ trainer:
     accelerator: gpu
     devices: auto
     num_nodes: 1
-    strategy: auto
+    strategy: ddp
     # n_workers: auto
     # debug: False 
     # accumulate: 1.0
