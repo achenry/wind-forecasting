@@ -184,7 +184,6 @@ class MLTuningObjective:
                     cleaned_params[k] = v
             # Also log the original trial number and value for reference
             cleaned_params["optuna_trial_number"] = trial.number
-            cleaned_params["optuna_trial_value"] = trial.value # Log the value being optimized
 
             # Initialize a new W&B run for this specific trial
             wandb.init(
