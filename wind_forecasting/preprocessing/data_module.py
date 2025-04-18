@@ -52,19 +52,23 @@ class DataModule():
     normalization_consts_path: Optional[str] = None
     
     def __post_init__(self):
-        if self.normalized:
-            self.train_ready_data_path = self.data_path.replace(
-                ".parquet", f"_train_ready_{self.freq}_{'per_turbine' if self.per_turbine_target else 'all_turbine'}.parquet")
-        else:
-            self.train_ready_data_path = self.data_path.replace(
-                ".parquet", f"_train_ready_{self.freq}_{'per_turbine' if self.per_turbine_target else 'all_turbine'}_denormalize.parquet")
+        self.set_train_ready_path()
             
         # convert context and prediction length from seconds to time stesp based on freq
         assert self.context_length >= pd.Timedelta(self.freq).total_seconds(), "context_length must be provided in seconds, and must be greater than resample_freq. Change the value in training_inputs"
         assert self.prediction_length >= pd.Timedelta(self.freq).total_seconds(), "prediction_length must be provided in seconds, and must be greater than resample_freq. Change the value in training_inputs"
         self.context_length = int(pd.Timedelta(self.context_length, unit="s") / pd.Timedelta(self.freq))
         self.prediction_length = int(pd.Timedelta(self.prediction_length, unit="s") / pd.Timedelta(self.freq))
-
+        assert self.context_length > 0, "context_length must be provided in seconds, and must be greaterthan resample_freq."
+        assert self.prediction_length > 0, "prediction_length must be provided in seconds, and must be greaterthan resample_freq."
+    
+    def set_train_ready_path(self):
+        if self.normalized:
+            self.train_ready_data_path = self.data_path.replace(
+                ".parquet", f"_train_ready_{self.freq}_{'per_turbine' if self.per_turbine_target else 'all_turbine'}.parquet")
+        else:
+            self.train_ready_data_path = self.data_path.replace(
+                ".parquet", f"_train_ready_{self.freq}_{'per_turbine' if self.per_turbine_target else 'all_turbine'}_denormalize.parquet")
      
     def compute_scaler_params(self):
         norm_consts = pd.read_csv(self.normalization_consts_path, index_col=None)
@@ -114,7 +118,7 @@ class DataModule():
                 dataset = dataset.with_columns(continuity_group=pl.lit(0))
         else:
             dataset = dataset.filter(pl.col("continuity_group").is_in(self.continuity_groups))\
-                             .select(pl.col("time"), pl.col("continuity_group"), *[cs.ends_with(sfx) for sfx in self.target_suffixes])
+                             .select(pl.col("time"), pl.col("continuity_group"), *[cs.ends_with(f"_{sfx}") for sfx in self.target_suffixes])
         logging.info(f"Found continuity groups {self.continuity_groups}") 
         # dataset.target_cols = self.target_cols 
         
@@ -191,13 +195,13 @@ class DataModule():
             if self.per_turbine_target:
                 logging.info(f"Splitting datasets for per turbine case.") 
 
-                cg_counts = dataset.select("continuity_group").collect(streaming=True).to_series().value_counts().sort("continuity_group").select("count").to_numpy().flatten()
+                cg_counts = dataset.select("continuity_group").collect().to_series().value_counts().sort("continuity_group").select("count").to_numpy().flatten()
                 self.rows_per_split = [
                     int(n_rows / self.n_splits) 
                     for turbine_id in self.target_suffixes 
                     for n_rows in cg_counts] # each element corresponds to each continuity group
                 del cg_counts
-                
+                self.continuity_groups = dataset.select(pl.col("continuity_group").unique()).collect().to_numpy().flatten()
                 self.train_dataset, self.val_dataset, self.test_dataset = \
                     self.split_dataset([dataset.filter(pl.col("continuity_group") == cg) for cg in self.continuity_groups]) 
                     
@@ -253,7 +257,7 @@ class DataModule():
                 cg_counts = dataset.select("continuity_group").collect().to_series().value_counts().sort("continuity_group").select("count").to_numpy().flatten()
                 self.rows_per_split = [int(n_rows / self.n_splits) for n_rows in cg_counts] # each element corresponds to each continuity group
                 del cg_counts
-                
+                self.continuity_groups = dataset.select(pl.col("continuity_group").unique()).collect().to_numpy().flatten()
                 # generate an iterablelazy frame for each continuity group and split within it
                 self.train_dataset, self.val_dataset, self.test_dataset = \
                     self.split_dataset([dataset.filter(pl.col("continuity_group") == cg) for cg in self.continuity_groups])
