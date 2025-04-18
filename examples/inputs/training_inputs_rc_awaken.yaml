@@ -2,7 +2,7 @@
 
 experiment:
   run_name: rc_awaken
-  log_dir: /pl/active/paolab/wind_forecasting/logging/
+  log_dir: /projects/aohe7145/toolboxes/wind_forecasting_env/wind-forecasting/examples/logging/
   project_root: /projects/aohe7145/toolboxes/wind_forecasting_env/wind-forecasting/
 
 # logging:
@@ -12,7 +12,7 @@ experiment:
 #   slurm_output_dir: /pl/active/paolab/wind_forecasting/logging/slurm_logs/
 
 optuna:
-  storage_dir: /scratch/alpine/aohe7145/optuna
+  storage_dir: /projects/aohe7145/toolboxes/wind_forecasting_env/wind-forecasting/examples/optuna_storage
   backend: mysql # sqlite, mysql, or journal
   n_trials: 100
   metric: mean_wQuantileLoss
@@ -65,8 +65,8 @@ optuna:
 
 
 dataset: 
-    data_path: /scratch/alpine/aohe7145/awaken_data/awaken_processed_normalized.parquet
-    normalization_consts_path: /scratch/alpine/aohe7145/awaken_data/awaken_processed_normalization_consts.csv
+    data_path: /pl/active/paolab/wind_forecasting/awaken_data/awaken_processed_normalized.parquet
+    normalization_consts_path: /pl/active/paolab/wind_forecasting/awaken_data/awaken_processed_normalization_consts.csv
     context_length: 20 # 120=10 minutes for 5 sec sample size
     prediction_length: 10 # 120=10 minutes for 5 sec sample size
     target_turbine_ids: # or leave blank to capture all
@@ -76,7 +76,7 @@ dataset:
     overfit: False
     test_split: 0.20
     val_split: 0.1
-    resample_freq: 5s
+    resample_freq: 30s
     n_splits: 1 # how many divisions of each continuity group to make which is further subdivided into training test and validation data
     per_turbine_target: False
 
