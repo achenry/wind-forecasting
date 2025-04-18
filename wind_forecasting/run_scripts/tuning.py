@@ -563,7 +563,7 @@ def tune_model(model, config, study_name, optuna_storage, lightning_module_class
         # Show progress bar only on rank 0 to avoid cluttered logs
         study.optimize(
             objective_fn,
-            n_trials_per_worker=n_trials_per_worker,
+            n_trials=n_trials_per_worker,
             callbacks=optimize_callbacks,
             show_progress_bar=(worker_id=='0')
         )
