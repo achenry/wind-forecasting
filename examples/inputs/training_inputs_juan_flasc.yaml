@@ -1,9 +1,11 @@
 experiment:
-  username: juan
+  username: jmb0507 # Wandb username or group name
   project_name: wind_forecasting_flasc
   run_name: flasc_tune
   log_dir: /user/taed7566/wind-forecasting/logging/
   project_root: /user/taed7566/wind-forecasting
+  wandb_mode: online
+  save_code: false # Save code to wandb
   notes: "Tuning FLASC with TACTiS-2"
   extra_tags: ["flasc"] # By default already has GPU id, model and mode.
 
@@ -92,7 +94,7 @@ model:
       rank: 5
       sigma_init: 0.2
   
-  ########### MODEL-SPECIFIC PARAMETERS ###########
+  ############# MODEL-SPECIFIC PARAMETERS ##############
   # [ TACTiS-2 ]
   tactis:
     # General TACTiS settings
