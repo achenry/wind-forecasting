@@ -19,7 +19,7 @@ logging:
 optuna:
   study_name: "flasc_tune"
   save_trial_code: false
-  n_trials: 5
+  n_trials_per_worker: 5
   max_epochs: 2               # epochs per trial
   limit_train_batches: 100    # batches per epoch
   metric: "mean_wQuantileLoss" # The metric to optimize

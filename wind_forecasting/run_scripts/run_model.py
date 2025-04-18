@@ -500,7 +500,7 @@ def main():
                    limit_train_batches=config["optuna"]["limit_train_batches"],
                    metric=config["optuna"]["metric"],
                    direction=config["optuna"]["direction"],
-                   n_trials=config["optuna"]["n_trials"],
+                   n_trials_per_worker=config["optuna"]["n_trials_per_worker"],
                    trial_protection_callback=handle_trial_with_oom_protection,
                    seed=args.seed)
         
