@@ -1,7 +1,7 @@
 experiment:
   username: jmb0507
   project_name: wind_forecasting_flasc
-  run_name: flasc_tune_2
+  run_name: flasc_tune  
   project_root: /user/taed7566/wind-forecasting
   log_dir: /user/taed7566/wind-forecasting/logging/
   notes: "Tuning FLASC with TACTiS-2"
@@ -10,7 +10,7 @@ experiment:
 logging:
   entity: jmb0507-cu-boulder # Wandb entity (group name)
   wandb_mode: online
-  save_code: true # Save code to wandb
+  save_code: false # Save code to wandb
   wandb_dir: /user/taed7566/wind-forecasting/logging/wandb/
   optuna_dir: /user/taed7566/wind-forecasting/logging/optuna/
   checkpoint_dir: /user/taed7566/wind-forecasting/logging/checkpoints/ # Currently unused, its handled by wandb
@@ -18,9 +18,9 @@ logging:
 
 optuna:
   study_name: "flasc_tune"
-  save_trial_code: false      # Default false
-  n_trials_per_worker: 12     # Test a total of 4*12=48 trials
-  max_epochs: 50              # epochs per trial
+  save_trial_code: false
+  n_trials_per_worker: 5
+  max_epochs: 2               # epochs per trial
   limit_train_batches: 100    # batches per epoch
   metric: "mean_wQuantileLoss" # The metric to optimize
   direction: "minimize"       # Whether to minimize or maximize the metric
@@ -29,10 +29,8 @@ optuna:
   pruning:
     enabled: true             # Whether to enable pruning
     type: "hyperband"         # Options: "hyperband", "median", "percentile", "none"
-    min_resource: 5          # Minimum epochs before pruning can occur
-    max_resource: 50          # Maximum epochs for pruning
-    reduction_factor: 2       # Hyperband reduction factor n (default: 3), 
-    # set up so log_n(max_resource/min_resource)+1 = between 4-6 brackets ideally
+    min_resource: 1           # Minimum epochs before pruning can occur (default: 2)
+    reduction_factor: 3       # Hyperband reduction factor (default: 3)
   
   # Optuna visualization configuration (additional to wandb)
   visualization:
@@ -81,7 +79,7 @@ dataset:
     prediction_length: 300 # in seconds
     target_turbine_ids: # or leave blank to capture all
     normalize: False
-    batch_size: 1024 # Testing for double (from 512)
+    batch_size: 512
     workers: 12 # Consider adjusting based on CPU cores per task
     overfit: False
     test_split: 0.20
