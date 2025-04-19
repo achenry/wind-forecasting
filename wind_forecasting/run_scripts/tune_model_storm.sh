@@ -1,11 +1,11 @@
 #!/bin/bash
 
-#SBATCH --partition=all_gpu.p       # Partition for H100/A100 GPUs cfdg.p / all_gpu.p / mpcg.p(not allowed)
+#SBATCH --partition=cfdg.p       # Partition for H100/A100 GPUs cfdg.p / all_gpu.p / mpcg.p(not allowed)
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=4         # Match number of GPUs requested below
 #SBATCH --cpus-per-task=32          # CPUs per task (4 tasks * 32 = 128 CPUs total)
 #SBATCH --mem-per-cpu=8016          # Memory per CPU (Total Mem = ntasks * cpus-per-task * mem-per-cpu)
-#SBATCH --gres=gpu:4           # Request 4 H100 GPUs
+#SBATCH --gres=gpu:4                # Request 4 H100 GPUs
 #SBATCH --time=1-00:00              # Time limit (1 day)
 #SBATCH --job-name=tactis_tune_flasc_sql
 #SBATCH --output=/user/taed7566/wind-forecasting/logging/slurm_logs/tactis_tune_flasc_sql_%j.out
@@ -13,6 +13,10 @@
 #SBATCH --hint=nomultithread        # Disable hyperthreading
 #SBATCH --distribution=block:block  # Improve GPU-CPU affinity
 #SBATCH --gres-flags=enforce-binding # Enforce binding of GPUs to tasks
+
+# For UOL HPC, when using all_gpu.p partition, has a time limit of 1 day (1-00:00)
+# While cfdg.p [1-2] partition has a time limit of 21 days (21-00:00). Use cfdg002 for x4 H100 GPUs
+# mpcg.p [1-6] is allowed for 7 days (7-00:00) and up to 21 days with '--qos=long_mpcg.q', but might be restricted for my group
 
 # --- Configuration ---
 # Set this to "--restart_tuning" to clear and restart the Optuna study, otherwise set to "" to continue previous one
@@ -218,3 +222,6 @@ done
 echo "--------------------------------------------------"
 
 exit $FINAL_EXIT_CODE
+
+# sbatch wind_forecasting/run_scripts/tune_model_storm.sh
+# squeue -p cfdg.p,mpcg.p,all_gpu.p -o "%.10a %.10P %.25j %.8u %.2t %.10M %.6D %R"
