@@ -7,9 +7,9 @@
 #SBATCH --mem-per-cpu=8016          # Memory per CPU (Total Mem = ntasks * cpus-per-task * mem-per-cpu)
 #SBATCH --gres=gpu:4           # Request 4 H100 GPUs
 #SBATCH --time=1-00:00              # Time limit (1 day)
-#SBATCH --job-name=informer_tune_flasc_sql
-#SBATCH --output=/user/taed7566/wind-forecasting/logging/slurm_logs/informer_tune_flasc_sql_%j.out
-#SBATCH --error=/user/taed7566/wind-forecasting/logging/slurm_logs/informer_tune_flasc_sql_%j.err
+#SBATCH --job-name=tactis_tune_flasc_sql
+#SBATCH --output=/user/taed7566/wind-forecasting/logging/slurm_logs/tactis_tune_flasc_sql_%j.out
+#SBATCH --error=/user/taed7566/wind-forecasting/logging/slurm_logs/tactis_tune_flasc_sql_%j.err
 #SBATCH --hint=nomultithread        # Disable hyperthreading
 #SBATCH --distribution=block:block  # Improve GPU-CPU affinity
 #SBATCH --gres-flags=enforce-binding # Enforce binding of GPUs to tasks
@@ -23,7 +23,8 @@ BASE_DIR="/user/taed7566/wind-forecasting"
 export WORK_DIR="${BASE_DIR}/wind_forecasting"
 export LOG_DIR="${BASE_DIR}/logging"
 export CONFIG_FILE="${BASE_DIR}/examples/inputs/training_inputs_juan_flasc.yaml"
-export MODEL_NAME="informer"
+export MODEL_NAME="tactis"
+export RESTART_TUNING_FLAG="--restart_tuning" # "" Or "--restart_tuning"
 
 # --- Create Logging Directories ---
 # Ensure the main slurm_logs directory exists
@@ -67,6 +68,7 @@ module load hpc-env/13.1
 module load PostgreSQL/16.1-GCCcore-13.1.0
 module load Mamba/24.3.0-0
 module load CUDA/12.4.0
+module load git
 echo "Modules loaded."
 
 # Capture LD_LIBRARY_PATH after modules are loaded
@@ -92,7 +94,8 @@ echo "=== STARTING PARALLEL OPTUNA TUNING WORKERS ==="
 date +"%Y-%m-%d %H:%M:%S"
 
 # --- Parallel Worker Launch using nohup ---
-NUM_GPUS=${SLURM_NTASKS_PER_NODE} # Should match --gres=gpu:N and --ntasks-per-node
+NUM_GPUS=${SLURM_NTASKS_PER_NODE}
+export WORLD_SIZE=${NUM_GPUS}  # Set total number of workers for tuning
 declare -a WORKER_PIDS=()
 
 echo "Launching ${NUM_GPUS} tuning workers..."
@@ -112,6 +115,7 @@ for i in $(seq 0 $((${NUM_GPUS}-1))); do
         module load hpc-env/13.1
         module load Mamba/24.3.0-0
         module load CUDA/12.4.0
+        module load git
         echo \"Worker ${i}: Modules loaded.\"
 
         # --- Activate conda environment ---
@@ -205,8 +209,12 @@ date +"%Y-%m-%d %H:%M:%S"
 
 # --- Move main SLURM logs to the job ID directory with rest of worker logs ---
 echo "Moving main SLURM logs to ${LOG_DIR}/slurm_logs/${SLURM_JOB_ID}/"
-mv ${LOG_DIR}/slurm_logs/informer_tune_flasc_${SLURM_JOB_ID}.out ${LOG_DIR}/slurm_logs/${SLURM_JOB_ID}/ 2>/dev/null || echo "Warning: Could not move .out file."
-mv ${LOG_DIR}/slurm_logs/informer_tune_flasc_${SLURM_JOB_ID}.err ${LOG_DIR}/slurm_logs/${SLURM_JOB_ID}/ 2>/dev/null || echo "Warning: Could not move .err file."
+for f in ${LOG_DIR}/slurm_logs/*_${SLURM_JOB_ID}.out; do
+    [ -e "$f" ] && mv "$f" "${LOG_DIR}/slurm_logs/${SLURM_JOB_ID}/" || echo "Warning: Could not move .out file."
+done
+for f in ${LOG_DIR}/slurm_logs/*_${SLURM_JOB_ID}.err; do
+    [ -e "$f" ] && mv "$f" "${LOG_DIR}/slurm_logs/${SLURM_JOB_ID}/" || echo "Warning: Could not move .err file."
+done
 echo "--------------------------------------------------"
 
 exit $FINAL_EXIT_CODE
