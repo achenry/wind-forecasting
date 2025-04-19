@@ -169,6 +169,9 @@ class MLTuningObjective:
         trial_trainer_kwargs = self.config["trainer"].copy()
         trial_trainer_kwargs["callbacks"] = current_callbacks
 
+        if "monitor_metric" in trial_trainer_kwargs:
+            del trial_trainer_kwargs["monitor_metric"]
+
         # Initialize W&B for ALL workers
         try:
             # Construct unique run name and tags
