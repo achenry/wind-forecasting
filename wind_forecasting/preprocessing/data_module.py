@@ -176,12 +176,12 @@ class DataModule():
             self.static_features = pd.DataFrame()
             self.cardinality = None 
     
-    # @profile
+    # @profile # prints memory usage
     def generate_splits(self, splits=None, save=False, reload=True):
         if splits is None:
             splits = ["train", "val", "test"]
         assert all(split in ["train", "val", "test"] for split in splits)
-        assert os.path.exists(self.train_ready_data_path), f"Must run generate_datasets before generate_splits to product {self.train_ready_data_path}."
+        assert os.path.exists(self.train_ready_data_path), f"Must run generate_datasets before generate_splits to produce {self.train_ready_data_path}."
         
         logging.info(f"Scanning dataset {self.train_ready_data_path}.") 
         dataset = IterableLazyFrame(data_path=self.train_ready_data_path, dtype=self.dtype)
