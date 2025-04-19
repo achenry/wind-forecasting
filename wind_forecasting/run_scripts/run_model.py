@@ -366,7 +366,8 @@ def main():
         # Set up parameters for checkpoint finding
         metric = config.get("trainer", {}).get("monitor_metric", "val_loss")
         mode = config.get("optuna", {}).get("direction", "minimize")
-        mode = "min" if mode == "minimize" else "max" if mode == "maximize" else "min"
+        mode_mapping = {"minimize": "min", "maximize": "max"}
+        mode = mode_mapping.get(mode, "min")
         
         log_dir = config["trainer"]["default_root_dir"]
         logging.info(f"Checkpoint selection: Monitoring metric '{metric}' with mode '{mode}' in directory '{log_dir}'")

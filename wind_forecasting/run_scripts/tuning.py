@@ -183,14 +183,14 @@ class MLTuningObjective:
             config_prefix = "model_config."
             
             for k, v in trial.params.items():
-                temp_key = k
-                if temp_key.startswith(model_prefix):
-                    temp_key = temp_key[len(model_prefix):]
+                cleanedKeyCandidate = k
+                if cleanedKeyCandidate.startswith(model_prefix):
+                    cleanedKeyCandidate = cleanedKeyCandidate[len(model_prefix):]
                 
-                if temp_key.startswith(config_prefix):
-                    cleaned_key = temp_key[len(config_prefix):]
+                if cleanedKeyCandidate.startswith(config_prefix):
+                    cleaned_key = cleanedKeyCandidate[len(config_prefix):]
                 else:
-                    cleaned_key = temp_key
+                    cleaned_key = cleanedKeyCandidate
                     
                 # Store the cleaned key and value
                 cleaned_params[cleaned_key] = v
