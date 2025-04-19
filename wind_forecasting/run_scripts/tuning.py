@@ -9,26 +9,43 @@ import torch
 import gc
 import time # Added for load_study retry delay
 import inspect
+import collections.abc
+import subprocess
 # Imports for Optuna
-import optuna # Import the base optuna module for type hints
+import optuna
 from optuna import create_study, load_study
 from optuna.samplers import TPESampler
 from optuna.pruners import HyperbandPruner, MedianPruner, PercentilePruner, NopPruner
-from optuna.integration import PyTorchLightningPruningCallback
+from optuna_integration import PyTorchLightningPruningCallback
+
 import lightning.pytorch as pl # Import pl alias
+from optuna.trial import TrialState # Added for checking trial status
+import wandb
+from lightning.pytorch.loggers import WandbLogger
 
 from optuna import create_study
 from mysql.connector import connect as sql_connect
 from optuna.storages import JournalStorage, RDBStorage
 from optuna.storages.journal import JournalFileBackend
 
-from wind_forecasting.utils.optuna_visualization import launch_optuna_dashboard
-from wind_forecasting.utils.trial_utils import handle_trial_with_oom_protection
+from wind_forecasting.utils.optuna_visualization import launch_optuna_dashboard, log_optuna_visualizations_to_wandb
+from wind_forecasting.utils.optuna_table import log_detailed_trials_table_to_wandb
+# from wind_forecasting.utils.trial_utils import handle_trial_with_oom_protection
 
 import random
 import numpy as np
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+def flatten_dict(d, parent_key='', sep='.'):
+    items = []
+    for k, v in d.items():
+        new_key = parent_key + sep + k if parent_key else k
+        if isinstance(v, collections.abc.MutableMapping):
+            items.extend(flatten_dict(v, new_key, sep=sep).items())
+        else:
+            items.append((new_key, v))
+    return dict(items)
 
 # Wrapper class to safely pass the Optuna pruning callback to PyTorch Lightning
 class SafePruningCallback(pl.Callback):
@@ -110,6 +127,9 @@ class MLTuningObjective:
         np.random.seed(trial_seed)
         logging.info(f"Set random seed for trial {trial.number} to {trial_seed}")
 
+        # Initialize wandb logger for this trial only on rank 0
+        wandb_logger_trial = None # Initialize to None for non-rank-0 workers
+
         # Log GPU stats at the beginning of the trial
         self.log_gpu_stats(stage=f"Trial {trial.number} Start")
 
@@ -144,6 +164,61 @@ class MLTuningObjective:
             current_callbacks.append(pruning_callback)
             logging.info(f"Added pruning callback for trial {trial.number}, monitoring '{pruning_monitor_metric}' (Objective metric: '{self.metric}')")
 
+        trial_trainer_kwargs = self.config["trainer"].copy()
+        trial_trainer_kwargs["callbacks"] = current_callbacks
+
+        # Initialize W&B for ALL workers
+        try:
+            # Construct unique run name and tags
+            run_name = f"{self.config['experiment']['run_name']}_trial_{trial.number}_rank_{os.environ.get('WORKER_RANK', '0')}"
+
+            # Clean and flatten the parameters for logging
+            cleaned_params = {}
+            prefix_to_remove = f"{self.model}."
+            for k, v in trial.params.items():
+                if k.startswith(prefix_to_remove):
+                    cleaned_key = k.split('.', 1)[1]
+                    cleaned_params[cleaned_key] = v
+                else:
+                    # Keep other params (like context_length_factor if added by user)
+                    cleaned_params[k] = v
+            # Also log the original trial number and value for reference
+            cleaned_params["optuna_trial_number"] = trial.number
+
+            # Initialize a new W&B run for this specific trial
+            wandb.init(
+                # Core identification
+                project=self.config['experiment'].get('project_name', 'wind_forecasting'),
+                entity=self.config['logging'].get('entity', None),
+                group=self.config['experiment']['run_name'],
+                name=run_name,
+                job_type="optuna_trial",
+                # Configuration and Metadata
+                config=cleaned_params, # Use the cleaned dictionary
+                tags=[self.model, f"trial_{trial.number}", f"rank_{os.environ.get('WORKER_RANK', '0')}", f"seed_{trial_seed}"] + self.config['experiment'].get('extra_tags', []),
+                notes=f"Optuna trial {trial.number} (Rank {os.environ.get('WORKER_RANK', '0')}) for study: {self.config['experiment'].get('notes', '')}",
+                # Logging and Behavior
+                dir=self.config['logging'].get('wandb_dir', './logging/wandb'),
+                save_code=self.config['optuna'].get('save_trial_code', False),
+                mode=self.config['logging'].get('wandb_mode', 'online'),
+                reinit=True
+            )
+            logging.info(f"Rank {os.environ.get('WORKER_RANK', '0')}: Initialized W&B run '{run_name}' for trial {trial.number}")
+
+            # Create a WandbLogger using the current W&B run
+            # log_model=False as we only want metrics for this trial logger
+            wandb_logger_trial = WandbLogger(log_model=False, experiment=wandb.run)
+            logging.info(f"Rank {os.environ.get('WORKER_RANK', '0')}: Created WandbLogger for trial {trial.number}")
+
+            # Add the trial-specific logger to the trainer kwargs for this worker
+            trial_trainer_kwargs["logger"] = wandb_logger_trial
+            logging.info(f"Rank {os.environ.get('WORKER_RANK', '0')}: Added trial-specific WandbLogger to trainer_kwargs for trial {trial.number}")
+
+        except Exception as e:
+            logging.error(f"Rank {os.environ.get('WORKER_RANK', '0')}: Failed to initialize W&B or create logger for trial {trial.number}: {e}", exc_info=True)
+            # Ensure wandb_logger_trial remains None if setup fails
+            wandb_logger_trial = None
+
         # Verify GPU configuration before creating estimator
         if torch.cuda.is_available():
             device = torch.cuda.current_device()
@@ -158,12 +233,9 @@ class MLTuningObjective:
         else:
             logging.warning("No CUDA available for estimator creation")
 
-        # Create a copy of trainer_kwargs for this trial to avoid side effects
-        trial_trainer_kwargs = self.config["trainer"].copy()
-        trial_trainer_kwargs["callbacks"] = current_callbacks # Use the potentially modified list
+        context_length_factor = params.get('context_length_factor', self.config["dataset"].get("context_length_factor", 2)) # Default to config or 2 if not in trial/config
+        context_length = int(context_length_factor * self.data_module.prediction_length)
 
-        context_length = self.config["dataset"]["context_length_factor"] * self.data_module.prediction_length
-        
         # Estimator Arguments to handle difference between models
         estimator_args = {
             "freq": self.data_module.freq,
@@ -188,8 +260,13 @@ class MLTuningObjective:
             "num_parallel_samples": self.config["model"][self.model].get("num_parallel_samples", 100) if self.model == 'tactis' else 100, # Default 100 if not specified
         }
         # Add model-specific tunable hyperparameters suggested by Optuna trial
-        # Update with tunable parameters from the current trial
-        estimator_args.update(params) # params contains the trial-suggested values
+        valid_estimator_params = set(estimator_params)
+        filtered_params = {
+            k: v for k, v in params.items()
+            if k in valid_estimator_params and k != 'context_length_factor'
+        }
+        logging.info(f"Trial {trial.number}: Updating estimator_args with filtered params: {list(filtered_params.keys())}")
+        estimator_args.update(filtered_params)
 
         # TACTiS manages its own distribution output internally, remove if present
         if self.model == 'tactis' and 'distr_output' in estimator_args:
@@ -197,73 +274,84 @@ class MLTuningObjective:
 
         logging.info(f"Trial {trial.number}: Instantiating estimator '{self.model}' with final args: {list(estimator_args.keys())}")
         
-        estimator = self.estimator_class(**estimator_args)
+        try:
+            estimator = self.estimator_class(**estimator_args)
 
-        # Log GPU stats before training
-        self.log_gpu_stats(stage=f"Trial {trial.number} Before Training")
+            # Log GPU stats before training
+            self.log_gpu_stats(stage=f"Trial {trial.number} Before Training")
 
-        # Conditionally Create Forecast Generator
-        if self.model == 'tactis':
-            # TACTiS uses SampleForecastGenerator internally for prediction
-            # because its foweard pass returns samples not distribution parameters
-            logging.info(f"Trial {trial.number}: Using SampleForecastGenerator for TACTiS model.")
-            forecast_generator = SampleForecastGenerator()
-        else:
-            # Other models use DistributionForecastGenerator based on their distr_output
-            logging.info(f"Trial {trial.number}: Using DistributionForecastGenerator for {self.model} model.")
-            # Ensure estimator has distr_output before accessing
-            if not hasattr(estimator, 'distr_output'):
-                 raise AttributeError(f"Estimator for model '{self.model}' is missing 'distr_output' attribute needed for DistributionForecastGenerator.")
-            forecast_generator = DistributionForecastGenerator(estimator.distr_output)
+            # Conditionally Create Forecast Generator
+            if self.model == 'tactis':
+                # TACTiS uses SampleForecastGenerator internally for prediction
+                # because its foweard pass returns samples not distribution parameters
+                logging.info(f"Trial {trial.number}: Using SampleForecastGenerator for TACTiS model.")
+                forecast_generator = SampleForecastGenerator()
+            else:
+                # Other models use DistributionForecastGenerator based on their distr_output
+                logging.info(f"Trial {trial.number}: Using DistributionForecastGenerator for {self.model} model.")
+                # Ensure estimator has distr_output before accessing
+                if not hasattr(estimator, 'distr_output'):
+                     raise AttributeError(f"Estimator for model '{self.model}' is missing 'distr_output' attribute needed for DistributionForecastGenerator.")
+                forecast_generator = DistributionForecastGenerator(estimator.distr_output)
 
-        train_output = estimator.train(
-            training_data=self.data_module.train_dataset,
-            validation_data=self.data_module.val_dataset,
-            forecast_generator=forecast_generator
-        )
+            train_output = estimator.train(
+                training_data=self.data_module.train_dataset,
+                validation_data=self.data_module.val_dataset,
+                forecast_generator=forecast_generator
+            )
 
-        # Log GPU stats after training
-        self.log_gpu_stats(stage=f"Trial {trial.number} After Training")
+            # Log GPU stats after training
+            self.log_gpu_stats(stage=f"Trial {trial.number} After Training")
 
-        model = self.lightning_module_class.load_from_checkpoint(train_output.trainer.checkpoint_callback.best_model_path)
-        transformation = estimator.create_transformation(use_lazyframe=False)
-        # Use the same conditional forecast_generator for creating the predictor
-        predictor = estimator.create_predictor(transformation, model,
-                                                forecast_generator=forecast_generator)
+            model = self.lightning_module_class.load_from_checkpoint(train_output.trainer.checkpoint_callback.best_model_path)
+            transformation = estimator.create_transformation(use_lazyframe=False)
+            # Use the same conditional forecast_generator for creating the predictor
+            predictor = estimator.create_predictor(transformation, model,
+                                                    forecast_generator=forecast_generator)
 
-        # Conditional Evaluation Call
-        eval_kwargs = {
-            "dataset": self.data_module.val_dataset,
-            "predictor": predictor,
-        }
-        if self.model == 'tactis':
-            # TACTiS produces SampleForecast, no output_distr_params needed/possible
-            logging.info(f"Trial {trial.number}: Evaluating TACTiS using SampleForecast.")
-        else:
-            # Other models produce DistributionForecast, specify params to extract
-            # Example for LowRankMultivariateNormalOutput, adjust if other distrs are used
-            eval_kwargs["output_distr_params"] = {"loc": "mean", "cov_factor": "cov_factor", "cov_diag": "cov_diag"}
-            logging.info(f"Trial {trial.number}: Evaluating {self.model} using DistributionForecast with params: {eval_kwargs['output_distr_params']}")
-      
-        forecast_it, ts_it = make_evaluation_predictions(**eval_kwargs)
+            # Conditional Evaluation Call
+            eval_kwargs = {
+                "dataset": self.data_module.val_dataset,
+                "predictor": predictor,
+            }
+            if self.model == 'tactis':
+                # TACTiS produces SampleForecast, no output_distr_params needed/possible
+                logging.info(f"Trial {trial.number}: Evaluating TACTiS using SampleForecast.")
+            else:
+                # Other models produce DistributionForecast, specify params to extract
+                # Example for LowRankMultivariateNormalOutput, adjust if other distrs are used
+                eval_kwargs["output_distr_params"] = {"loc": "mean", "cov_factor": "cov_factor", "cov_diag": "cov_diag"}
+                logging.info(f"Trial {trial.number}: Evaluating {self.model} using DistributionForecast with params: {eval_kwargs['output_distr_params']}")
+          
+            forecast_it, ts_it = make_evaluation_predictions(**eval_kwargs)
 
-        forecasts = forecast_it
-        tss = ts_it
-        agg_metrics, _ = self.evaluator(tss, forecasts, num_series=self.data_module.num_target_vars)
-        
-        agg_metrics["trainable_parameters"] = summarize(estimator.create_lightning_module()).trainable_parameters
-        self.metrics.append(agg_metrics.copy())
+            forecasts = forecast_it
+            tss = ts_it
+            agg_metrics, _ = self.evaluator(tss, forecasts, num_series=self.data_module.num_target_vars)
+            
+            agg_metrics["trainable_parameters"] = summarize(estimator.create_lightning_module()).trainable_parameters
+            self.metrics.append(agg_metrics.copy())
 
-        # Log available metrics for debugging
-        logging.info(f"Trial {trial.number} - Aggregated metrics calculated: {list(agg_metrics.keys())}")
+            # Log available metrics for debugging
+            logging.info(f"Trial {trial.number} - Aggregated metrics calculated: {list(agg_metrics.keys())}")
 
 
-        # Log GPU stats at the end of the trial
-        self.log_gpu_stats(stage=f"Trial {trial.number} End")
+            # Log GPU stats at the end of the trial
+            self.log_gpu_stats(stage=f"Trial {trial.number} End")
 
-        # Force garbage collection at the end of each trial
-        gc.collect()
-        torch.cuda.empty_cache()
+            # Force garbage collection at the end of each trial
+            gc.collect()
+            torch.cuda.empty_cache()
+
+        finally:
+            # Check if wandb_logger_trial was created (only on rank 0) and if wandb.run is active
+            if wandb_logger_trial is not None and wandb.run is not None:
+                logging.info(f"Rank 0: Finishing trial-specific W&B run '{wandb.run.name}' for trial {trial.number}")
+                wandb.finish()
+            elif os.environ.get('WORKER_RANK', '0') == '0' and wandb.run is not None:
+                # If logger wasn't assigned but a run exists on rank 0, try finishing it.
+                logging.warning(f"Rank 0: wandb_logger_trial was None, but an active W&B run ('{wandb.run.name}') was found. Attempting to finish.")
+                wandb.finish()
 
         # Return the specified metric, with error handling
         try:
@@ -337,8 +425,8 @@ def get_tuned_params(study_name, backend, storage_dir):
 def tune_model(model, config, study_name, optuna_storage, lightning_module_class, estimator_class,
                max_epochs, limit_train_batches,
                distr_output_class, data_module,
-               metric="mean_wQuantileLoss", direction="minimize", n_trials=10,
-               trial_protection_callback=None, seed=42):
+               metric="mean_wQuantileLoss", direction="minimize", n_trials_per_worker=10,
+               trial_protection_callback=None, seed=42): # Removed wandb_run_id
 
     # Log safely without credentials if they were included (they aren't for socket trust)
     if hasattr(optuna_storage, "url"):
@@ -352,17 +440,18 @@ def tune_model(model, config, study_name, optuna_storage, lightning_module_class
     if "pruning" in config["optuna"] and config["optuna"]["pruning"].get("enabled", False):
         pruning_type = config["optuna"]["pruning"].get("type", "hyperband").lower()
         min_resource = config["optuna"]["pruning"].get("min_resource", 2)
+        max_resource = config["optuna"]["pruning"].get("max_resource", max_epochs)
 
-        logging.info(f"Configuring pruner: type={pruning_type}, min_resource={min_resource}")
+        logging.info(f"Configuring pruner: type={pruning_type}, min_resource={min_resource}, max_resource={max_resource}")
 
         if pruning_type == "hyperband":
-            reduction_factor = config["optuna"]["pruning"].get("reduction_factor", 3)
+            reduction_factor = config["optuna"]["pruning"].get("reduction_factor", 2)
             pruner = HyperbandPruner(
                 min_resource=min_resource,
-                max_resource=max_epochs,
+                max_resource=max_resource,
                 reduction_factor=reduction_factor
             )
-            logging.info(f"Created HyperbandPruner with min_resource={min_resource}, max_resource={max_epochs}, reduction_factor={reduction_factor}")
+            logging.info(f"Created HyperbandPruner with min_resource={min_resource}, max_resource={max_resource}, reduction_factor={reduction_factor}")
         elif pruning_type == "median":
             pruner = MedianPruner(n_startup_trials=5, n_warmup_steps=min_resource)
             logging.info(f"Created MedianPruner with n_startup_trials=5, n_warmup_steps={min_resource}")
@@ -466,15 +555,149 @@ def tune_model(model, config, study_name, optuna_storage, lightning_module_class
     # Use the trial protection callback if provided
     objective_fn = (lambda trial: trial_protection_callback(tuning_objective, trial)) if trial_protection_callback else tuning_objective
 
+    # WandB integration deprecated
+    optimize_callbacks = [] # Ensure optimize_callbacks is an empty list
+
     try:
         # Let Optuna handle trial distribution - each worker will ask the storage for a trial
         # Show progress bar only on rank 0 to avoid cluttered logs
-        study.optimize(objective_fn, n_trials=n_trials, show_progress_bar=(worker_id=='0'))
+        study.optimize(
+            objective_fn,
+            n_trials=n_trials_per_worker,
+            callbacks=optimize_callbacks,
+            show_progress_bar=(worker_id=='0')
+        )
     except Exception as e:
         logging.error(f"Worker {worker_id}: Failed during study optimization: {str(e)}", exc_info=True)
-        # Optionally, report trial as failed if possible? Optuna might handle this internally.
-        # Consider adding: if 'trial' in locals(): trial.report(float('inf'), step=0); trial.storage.set_trial_state(trial._trial_id, optuna.trial.TrialState.FAIL)
         raise
+
+    if worker_id == '0' and study:
+        logging.info("Rank 0: Starting W&B summary run creation.")
+
+        # Wait for all expected trials to complete
+        num_workers = int(os.environ.get('WORLD_SIZE', 1))
+        expected_total_trials = num_workers * n_trials_per_worker
+        logging.info(f"Rank 0: Expecting a total of {expected_total_trials} trials ({num_workers} workers * {n_trials_per_worker} trials/worker).")
+
+        logging.info("Rank 0: Waiting for all expected Optuna trials to reach a terminal state...")
+        wait_interval_seconds = 30
+        while True:
+            # Refresh trials from storage
+            all_trials_current = study.get_trials(deepcopy=False)
+            finished_trials = [t for t in all_trials_current if t.state in (TrialState.COMPLETE, TrialState.PRUNED, TrialState.FAIL)]
+            num_finished = len(finished_trials)
+            num_total_in_db = len(all_trials_current) # Current count in DB
+
+            logging.info(f"Rank 0: Trial status check: {num_finished} finished / {num_total_in_db} in DB (expected total: {expected_total_trials}).")
+
+            if num_finished >= expected_total_trials:
+                logging.info(f"Rank 0: All {expected_total_trials} expected trials have reached a terminal state.")
+                break
+            elif num_total_in_db > expected_total_trials and num_finished >= expected_total_trials:
+                 logging.warning(f"Rank 0: Found {num_total_in_db} trials in DB (expected {expected_total_trials}), but {num_finished} finished trials meet the expectation.")
+                 break
+
+            logging.info(f"Rank 0: Still waiting for trials to finish ({num_finished}/{expected_total_trials}). Sleeping for {wait_interval_seconds} seconds...")
+            time.sleep(wait_interval_seconds)
+            
+        try:
+            # Fetch best trial *before* initializing summary run
+            best_trial = None
+            try:
+                best_trial = study.best_trial
+                logging.info(f"Rank 0: Fetched best trial: Number={best_trial.number}, Value={best_trial.value}")
+            except ValueError:
+                logging.warning("Rank 0: Could not retrieve best trial (likely no trials completed successfully).")
+            except Exception as e_best_trial:
+                logging.error(f"Rank 0: Error fetching best trial: {e_best_trial}", exc_info=True)
+
+            # Fetch Git info directly using subprocess
+            remote_url = None
+            commit_hash = None
+            try:
+                # Get remote URL
+                remote_url_bytes = subprocess.check_output(['git', 'config', '--get', 'remote.origin.url'], stderr=subprocess.STDOUT).strip()
+                remote_url = remote_url_bytes.decode('utf-8')
+                # Convert SSH URL to HTTPS URL if necessary
+                if remote_url.startswith("git@"):
+                    remote_url = remote_url.replace(":", "/").replace("git@", "https://")
+                # Remove .git suffix AFTER potential conversion
+                if remote_url.endswith(".git"):
+                    remote_url = remote_url[:-4]
+
+                # Get commit hash
+                commit_hash_bytes = subprocess.check_output(['git', 'rev-parse', 'HEAD'], stderr=subprocess.STDOUT).strip()
+                commit_hash = commit_hash_bytes.decode('utf-8')
+                logging.info(f"Rank 0: Fetched Git Info - URL: {remote_url}, Commit: {commit_hash}")
+            except subprocess.CalledProcessError as e:
+                logging.warning(f"Rank 0: Could not get Git info: {e.output.decode('utf-8').strip()}")
+            except FileNotFoundError:
+                logging.warning("Rank 0: 'git' command not found. Cannot log Git info.")
+            except Exception as e_git:
+                 logging.error(f"Rank 0: An unexpected error occurred while fetching Git info: {e_git}", exc_info=True)
+
+            git_info_config = {}
+            if remote_url and commit_hash:
+                 git_info_config = {"git_info": {"url": remote_url, "commit": commit_hash}}
+            else:
+                 logging.warning("Rank 0: Git info could not be fully determined. Logging summary run without it.")
+
+
+            # Determine summary run name
+            base_run_name = config['experiment']['run_name']
+            if best_trial:
+                run_name = f"{base_run_name}_optuna_summary_best_trial_{best_trial.number}"
+            else:
+                run_name = f"{base_run_name}_optuna_summary"
+
+            project_name = config['experiment'].get('project_name', 'wind_forecasting')
+            group_name = config['experiment']['run_name']
+            wandb_dir = config['logging'].get('wandb_dir', './logging/wandb')
+            tags = [model, "optuna_summary"]
+            if best_trial:
+                tags.append(f"best_trial_{best_trial.number}")
+
+            # Ensure wandb is not already initialized in a weird state (shouldn't be, but safety check)
+            if wandb.run is not None:
+                logging.warning(f"Rank 0: Found an existing W&B run ({wandb.run.id}) before starting summary run. Finishing it.")
+                wandb.finish()
+
+            wandb.init(
+                name=run_name,
+                project=project_name,
+                group=group_name,
+                job_type="optuna_summary",
+                dir=wandb_dir,
+                tags=tags,
+                config=git_info_config,
+                reinit=True # Allow reinitialization if needed, though the check above should handle most cases
+            )
+            logging.info(f"Rank 0: Initialized W&B summary run: {wandb.run.name} (ID: {wandb.run.id}) with Git info: {git_info_config}")
+
+            try:
+                # Log Optuna visualizations using the helper function
+                logging.info("Rank 0: Logging Optuna visualizations to W&B summary run...")
+                log_optuna_visualizations_to_wandb(study, wandb.run)
+                logging.info("Rank 0: Finished logging Optuna visualizations to W&B.")
+
+                # Log Detailed Trials Table using the helper function
+                log_detailed_trials_table_to_wandb(study, wandb.run)
+
+            except Exception as e_log:
+                 logging.error(f"Rank 0: Error during logging visualizations or trial table to W&B summary run: {e_log}", exc_info=True)
+            finally:
+                # Ensure W&B run is finished even if logging fails
+                if wandb.run is not None:
+                    logging.info(f"Rank 0: Finishing W&B summary run: {wandb.run.name}")
+                    wandb.finish()
+                else:
+                    logging.warning("Rank 0: No active W&B run found to finish in the finally block.")
+
+        except Exception as e_init:
+            logging.error(f"Rank 0: Failed to initialize W&B summary run: {e_init}", exc_info=True)
+            # Ensure wandb is cleaned up if initialization failed partially
+            if wandb.run is not None:
+                wandb.finish()
 
     # All workers log their contribution
     logging.info(f"Worker {worker_id} completed optimization")
