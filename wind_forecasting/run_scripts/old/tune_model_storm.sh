@@ -3,10 +3,10 @@
 #SBATCH --partition=cfdg.p       # Partition for H100/A100 GPUs cfdg.p / all_gpu.p / mpcg.p(not allowed)
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=4         # Match number of GPUs requested below
-#SBATCH --cpus-per-task=16          # CPUs per task (4 tasks * 32 = 128 CPUs total)
+#SBATCH --cpus-per-task=32          # CPUs per task (4 tasks * 32 = 128 CPUs total)
 #SBATCH --mem-per-cpu=8016          # Memory per CPU (Total Mem = ntasks * cpus-per-task * mem-per-cpu)
-#SBATCH --gres=gpu:H100:4                # Request 4 H100 GPUs
-#SBATCH --time=7-00:00              # Time limit (7 days)
+#SBATCH --gres=gpu:4                # Request 4 H100 GPUs
+#SBATCH --time=1-00:00              # Time limit (1 day)
 #SBATCH --job-name=tactis_tune_flasc_sql
 #SBATCH --output=/user/taed7566/wind-forecasting/logging/slurm_logs/tactis_tune_flasc_sql_%j.out
 #SBATCH --error=/user/taed7566/wind-forecasting/logging/slurm_logs/tactis_tune_flasc_sql_%j.err
@@ -17,6 +17,10 @@
 # For UOL HPC, when using all_gpu.p partition, has a time limit of 1 day (1-00:00)
 # While cfdg.p [1-2] partition has a time limit of 21 days (21-00:00). Use cfdg002 for x4 H100 GPUs
 # mpcg.p [1-6] is allowed for 7 days (7-00:00) and up to 21 days with '--qos=long_mpcg.q', but might be restricted for my group
+
+# --- Configuration ---
+# Set this to "--restart_tuning" to clear and restart the Optuna study, otherwise set to "" to continue previous one
+RESTART_TUNING_FLAG="--restart_tuning" # "" Or "--restart_tuning"
 
 # --- Base Directories ---
 BASE_DIR="/user/taed7566/wind-forecasting"
@@ -51,8 +55,6 @@ echo "NUM NODES: ${SLURM_JOB_NUM_NODES}"
 echo "NUM GPUS (Requested via ntasks): ${SLURM_NTASKS_PER_NODE}"
 echo "NUM TASKS PER NODE: ${SLURM_NTASKS_PER_NODE}"
 echo "CPUS PER TASK: ${SLURM_CPUS_PER_TASK}"
-GPU_TYPE=$(nvidia-smi --query-gpu=name --format=csv,noheader | uniq)
-echo "GPU TYPE: ${GPU_TYPE}"
 echo "------------------------"
 echo "BASE_DIR: ${BASE_DIR}"
 echo "WORK_DIR: ${WORK_DIR}"
@@ -122,7 +124,7 @@ for i in $(seq 0 $((${NUM_GPUS}-1))); do
 
         # --- Activate conda environment ---
         eval \"\$(conda shell.bash hook)\"
-conda activate wf_env_2
+        conda activate wf_env_2
         echo \"Worker ${i}: Conda environment 'wf_env_2' activated.\"
 
         # --- Set Worker-Specific Environment ---
