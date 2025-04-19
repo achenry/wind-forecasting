@@ -10,7 +10,7 @@ experiment:
 logging:
   entity: jmb0507-cu-boulder # Wandb entity (group name)
   wandb_mode: online
-  save_code: false # Save code to wandb
+  save_code: false # Do not save code to W&B
   wandb_dir: /user/taed7566/wind-forecasting/logging/wandb/
   optuna_dir: /user/taed7566/wind-forecasting/logging/optuna/
   checkpoint_dir: /user/taed7566/wind-forecasting/logging/checkpoints/ # Currently unused, its handled by wandb
