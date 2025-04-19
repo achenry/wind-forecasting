@@ -207,7 +207,7 @@ trainer:
     accelerator: gpu # 'cpu' or 'gpu'
     devices: auto
     num_nodes: 1
-    strategy: ddp # 'ddp' for GPU, 'ddp_spawn' for CPU
+    strategy: ddp # 'ddp' or 'ddp_spawn'
     # n_workers: auto
     # debug: False
     # accumulate: 1.0
