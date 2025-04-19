@@ -68,6 +68,7 @@ module load hpc-env/13.1
 module load PostgreSQL/16.1-GCCcore-13.1.0
 module load Mamba/24.3.0-0
 module load CUDA/12.4.0
+module load git
 echo "Modules loaded."
 
 # Capture LD_LIBRARY_PATH after modules are loaded
@@ -93,7 +94,8 @@ echo "=== STARTING PARALLEL OPTUNA TUNING WORKERS ==="
 date +"%Y-%m-%d %H:%M:%S"
 
 # --- Parallel Worker Launch using nohup ---
-NUM_GPUS=${SLURM_NTASKS_PER_NODE} # Should match --gres=gpu:N and --ntasks-per-node
+NUM_GPUS=${SLURM_NTASKS_PER_NODE}
+export WORLD_SIZE=${NUM_GPUS}  # Set total number of workers for tuning
 declare -a WORKER_PIDS=()
 
 echo "Launching ${NUM_GPUS} tuning workers..."
@@ -113,6 +115,7 @@ for i in $(seq 0 $((${NUM_GPUS}-1))); do
         module load hpc-env/13.1
         module load Mamba/24.3.0-0
         module load CUDA/12.4.0
+        module load git
         echo \"Worker ${i}: Modules loaded.\"
 
         # --- Activate conda environment ---
