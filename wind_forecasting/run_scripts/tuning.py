@@ -11,6 +11,7 @@ import time # Added for load_study retry delay
 import inspect
 from itertools import product
 import collections.abc
+from pathlib import Path
 import subprocess
 # Imports for Optuna
 import optuna
@@ -37,6 +38,73 @@ import random
 import numpy as np
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+def generate_df_setup_params(model, model_config):
+    study_name = f"tuning_{model}_{model_config['experiment']['run_name']}"
+    optuna_cfg = model_config["optuna"]
+    storage_cfg = optuna_cfg.get("storage", {})
+    logging_cfg = model_config["logging"]
+    experiment_cfg = model_config["experiment"]
+
+    # Resolve paths relative to project root and substitute known variables
+    project_root = experiment_cfg.get("project_root", os.getcwd())
+    
+    # Resolve paths with direct substitution
+    optuna_dir_from_config = logging_cfg.get("optuna_dir")
+    resolved_optuna_dir = resolve_path(project_root, optuna_dir_from_config)
+    if not resolved_optuna_dir:
+        raise ValueError("logging.optuna_dir is required but not found or resolved.")
+
+    pgdata_path_from_config = storage_cfg.get("pgdata_path")
+    resolved_pgdata_path = resolve_path(project_root, pgdata_path_from_config)
+
+    socket_dir_base_from_config = storage_cfg.get("socket_dir_base")
+    if not socket_dir_base_from_config:
+        socket_dir_base_str = os.path.join(resolved_optuna_dir, "sockets")
+    else:
+        socket_dir_base_str = str(socket_dir_base_from_config).replace("${logging.optuna_dir}", resolved_optuna_dir)
+    resolved_socket_dir_base = resolve_path(project_root, socket_dir_base_str) # Make absolute
+
+    sync_dir_from_config = storage_cfg.get("sync_dir")
+    if not sync_dir_from_config:
+        # Default value uses the resolved optuna_dir
+        sync_dir_str = os.path.join(resolved_optuna_dir, "sync")
+    else:
+        # Substitute directly if the variable exists
+        sync_dir_str = str(sync_dir_from_config).replace("${logging.optuna_dir}", resolved_optuna_dir)
+    resolved_sync_dir = resolve_path(project_root, sync_dir_str) # Make absolute
+
+    db_setup_params = {
+        "backend": storage_cfg.get("backend", "sqlite"),
+        "project_root": project_root,
+        "pgdata_path": resolved_pgdata_path,
+        "study_name": study_name,
+        "use_socket": storage_cfg.get("use_socket", True),
+        "use_tcp": storage_cfg.get("use_tcp", False),
+        "db_host": storage_cfg.get("db_host", "localhost"),
+        "db_port": storage_cfg.get("db_port", 5432),
+        "db_name": storage_cfg.get("db_name", "optuna_study_db"),
+        "db_user": storage_cfg.get("db_user", "optuna_user"),
+        "run_cmd_shell": storage_cfg.get("run_cmd_shell", False),
+        "socket_dir_base": resolved_socket_dir_base,
+        "sync_dir": resolved_sync_dir,
+        "storage_dir": resolved_optuna_dir, # For non-postgres backends
+        "sqlite_path": storage_cfg.get("sqlite_path"), # For sqlite
+        "sqlite_wal": storage_cfg.get("sqlite_wal", True), # For sqlite
+        "sqlite_timeout": storage_cfg.get("sqlite_timeout", 600), # For sqlite
+    }
+    return db_setup_params
+
+
+# make paths absolute
+def resolve_path(base_path, path_input):
+    if not path_input: return None
+    # Convert potential Path object back to string if needed
+    path_str = str(path_input)
+    abs_path = Path(path_str)
+    if not abs_path.is_absolute():
+        abs_path = Path(base_path) / abs_path
+    return str(abs_path.resolve())
 
 def flatten_dict(d, parent_key='', sep='.'):
     items = []
@@ -375,55 +443,55 @@ class MLTuningObjective:
             # Return a value indicating failure based on optimization direction
             return float('inf') if self.config["optuna"]["direction"] == "minimize" else float('-inf')
 
-def get_storage(backend, study_name, storage_dir=None):
-    if backend == "mysql":
-        logging.info(f"Connecting to RDB database {study_name}")
-        # try:
-        db = sql_connect(host="localhost", user="root",
-                        database=study_name)       
-        # except Exception: 
-        #     db = sql_connect(host="localhost", user="root")
-        #     cursor = db.cursor()
-        #     cursor.execute(f"CREATE DATABASE {study_name}") 
-        # finally:
-        storage = RDBStorage(url=f"mysql://{db.user}@{db.server_host}:{db.server_port}/{study_name}")
-    elif backend == "sqlite":
-        # SQLite with WAL mode - using a simpler URL format
-        # os.makedirs(storage_dir, exist_ok=True)
-        db_path = os.path.join(storage_dir, f"{study_name}.db")
+# TODO REPLACE THIS
+# def get_storage(backend, study_name, storage_dir=None):
+#     if backend == "mysql":
+#         logging.info(f"Connecting to RDB database {study_name}")
+#         # try:
+#         db = sql_connect(host="localhost", user="root",
+#                         database=study_name)       
+#         # except Exception: 
+#         #     db = sql_connect(host="localhost", user="root")
+#         #     cursor = db.cursor()
+#         #     cursor.execute(f"CREATE DATABASE {study_name}") 
+#         # finally:
+#         storage = RDBStorage(url=f"mysql://{db.user}@{db.server_host}:{db.server_port}/{study_name}")
+#     elif backend == "sqlite":
+#         # SQLite with WAL mode - using a simpler URL format
+#         # os.makedirs(storage_dir, exist_ok=True)
+#         db_path = os.path.join(storage_dir, f"{study_name}.db")
 
-        # Use a simplified connection string format that Optuna expects
-        storage_url = f"sqlite:///{db_path}"
+#         # Use a simplified connection string format that Optuna expects
+#         storage_url = f"sqlite:///{db_path}"
 
-        # Check if database already exists and initialize WAL mode directly
-        if not os.path.exists(db_path):
-            try:
-                import sqlite3
-                # Create the database manually first with WAL settings
-                conn = sqlite3.connect(db_path, timeout=60000)
-                conn.execute("PRAGMA journal_mode=WAL")
-                conn.execute("PRAGMA synchronous=NORMAL")
-                conn.execute("PRAGMA cache_size=10000")
-                conn.execute("PRAGMA temp_store=MEMORY")
-                conn.execute("PRAGMA busy_timeout=60000")
-                conn.execute("PRAGMA wal_autocheckpoint=1000")
-                conn.commit()
-                conn.close()
-                logging.info(f"Created SQLite database with WAL mode at {db_path}")
-            except Exception as e:
-                logging.error(f"Error initializing SQLite database: {e}")
+#         # Check if database already exists and initialize WAL mode directly
+#         if not os.path.exists(db_path):
+#             try:
+#                 import sqlite3
+#                 # Create the database manually first with WAL settings
+#                 conn = sqlite3.connect(db_path, timeout=60000)
+#                 conn.execute("PRAGMA journal_mode=WAL")
+#                 conn.execute("PRAGMA synchronous=NORMAL")
+#                 conn.execute("PRAGMA cache_size=10000")
+#                 conn.execute("PRAGMA temp_store=MEMORY")
+#                 conn.execute("PRAGMA busy_timeout=60000")
+#                 conn.execute("PRAGMA wal_autocheckpoint=1000")
+#                 conn.commit()
+#                 conn.close()
+#                 logging.info(f"Created SQLite database with WAL mode at {db_path}")
+#             except Exception as e:
+#                 logging.error(f"Error initializing SQLite database: {e}")
                 
-        storage = RDBStorage(url=storage_url)
+#         storage = RDBStorage(url=storage_url)
         
-    elif backend == "journal":
-        logging.info(f"Connecting to Journal database {study_name}")
-        storage = JournalStorage(JournalFileBackend(os.path.join(storage_dir, f"{study_name}.db")))
+#     elif backend == "journal":
+#         logging.info(f"Connecting to Journal database {study_name}")
+#         storage = JournalStorage(JournalFileBackend(os.path.join(storage_dir, f"{study_name}.db")))
     
-    return storage
+#     return storage
 
-def get_tuned_params(study_name, backend, storage_dir):
+def get_tuned_params(storage, study_name):
     logging.info(f"Getting storage for Optuna study {study_name}.")  
-    storage = get_storage(backend=backend, study_name=study_name, storage_dir=storage_dir)
     try:
         study_id = storage.get_study_id_from_name(study_name)
     except Exception:

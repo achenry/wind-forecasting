@@ -82,6 +82,50 @@ model:
     class: LowRankMultivariateNormalOutput
     kwargs:
       rank: 8
+  
+  ############# MODEL-SPECIFIC PARAMETERS ##############
+  # [ TACTiS-2 ]
+  tactis:
+    # General TACTiS settings
+    initial_stage: 1
+    stage2_start_epoch: 10
+    input_encoding_normalization: true
+    scaling: null # Options: "mean", "std", null
+    loss_normalization: "std" # Options: "series", "timesteps", "both", "none"
+    encoder_type: "standard" # Options: "standard", "temporal"
+    bagging_size: null # Optional, defaults to None in estimator
+    num_parallel_samples: 100 # Num of parallel samples for probabilistic prediction
+    # Marginal CDF Encoder
+    marginal_embedding_dim_per_head: 8
+    marginal_num_heads: 5
+    marginal_num_layers: 4
+    flow_input_encoder_layers: 6
+    flow_series_embedding_dim: 5
+    # Attentional Copula Encoder
+    copula_embedding_dim_per_head: 8
+    copula_num_heads: 5
+    copula_num_layers: 2
+    copula_input_encoder_layers: 1
+    copula_series_embedding_dim: 48
+    # Decoder
+    decoder_dsf_num_layers: 2
+    decoder_dsf_hidden_dim: 256
+    decoder_mlp_num_layers: 3
+    decoder_mlp_hidden_dim: 16
+    decoder_transformer_num_layers: 3
+    decoder_transformer_embedding_dim_per_head: 16
+    decoder_transformer_num_heads: 6
+    decoder_num_bins: 50
+    # Optimizer Params
+    lr_stage1: 0.0018
+    lr_stage2: 0.0007
+    weight_decay_stage1: 0.0
+    weight_decay_stage2: 0.0
+    # Dropout & Clipping
+    dropout_rate: 0.1
+    gradient_clip_val_stage1: 1000.0
+    gradient_clip_val_stage2: 1000.0
+
   informer:
     # embedding_dimension: 32 # Determines dimension of the embedding space
     num_encoder_layers: 2 # Number of transformer blocks stacked
