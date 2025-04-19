@@ -40,7 +40,7 @@ from wind_forecasting.preprocessing.data_module import DataModule
 from wind_forecasting.run_scripts.testing import test_model, get_checkpoint
 from wind_forecasting.run_scripts.tuning import get_tuned_params
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - [Early] %(message)s')
 
 mpi_exists = False
 try:
@@ -68,6 +68,41 @@ def main():
         except ValueError:
             logging.warning("Could not parse WORKER_RANK, assuming rank 0.")
             rank = 0
+
+    # %% CONFIGURE RANK-SPECIFIC LOGGING
+    try:
+        job_id = os.environ.get('SLURM_JOB_ID', 'unknown_job')
+        base_log_dir = os.environ.get('LOG_DIR', './logging')
+        log_dir_path = os.path.join(base_log_dir, 'slurm_logs', job_id)
+        os.makedirs(log_dir_path, exist_ok=True)
+
+        log_file_path = os.path.join(log_dir_path, f'worker_{rank}_{job_id}.py.log')
+        logger = logging.getLogger()
+        handler_exists = any(
+            isinstance(h, logging.FileHandler) and getattr(h, 'baseFilename', None) == log_file_path
+            for h in logger.handlers
+        )
+        if not handler_exists:
+            logger.setLevel(logging.INFO)
+            for handler in logger.handlers[:]:
+                logger.removeHandler(handler)
+                handler.close()
+            file_handler = logging.FileHandler(log_file_path)
+            file_handler.setLevel(logging.INFO)
+            
+            formatter = logging.Formatter(f'%(asctime)s - %(levelname)s - Rank {rank} - %(message)s')
+            file_handler.setFormatter(formatter)
+            logger.addHandler(file_handler)
+            
+            logging.info(f"Initialized rank-specific logging to: {log_file_path}")
+        else:
+            logging.info(f"Rank-specific logging handler already configured for: {log_file_path}")
+
+    except Exception as e:
+         # Fallback to basic console logging if file setup fails
+         if not logging.getLogger().hasHandlers():
+             logging.basicConfig(level=logging.INFO, format=f'%(asctime)s - %(levelname)s - Rank {rank} - %(message)s')
+         logging.error(f"Failed to configure rank-specific file logging. Error: {e}. Falling back to console logging.", exc_info=True)
     
     # %% PARSE ARGUMENTS
     parser = argparse.ArgumentParser(description="Run a model on a dataset")
