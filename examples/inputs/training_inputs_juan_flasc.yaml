@@ -81,7 +81,7 @@ dataset:
     prediction_length: 300 # in seconds
     target_turbine_ids: # or leave blank to capture all
     normalize: False
-    batch_size: 1024 # Testing for double (from 512)
+    batch_size: 512 # 1024 seems to create some OOM errors
     workers: 12 # Consider adjusting based on CPU cores per task
     overfit: False
     test_split: 0.20
