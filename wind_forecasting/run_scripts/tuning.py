@@ -233,10 +233,9 @@ class MLTuningObjective:
             logging.info(f"Creating estimator using GPU {device}: {torch.cuda.get_device_name(device)}")
 
             # Ensure we have the right GPU configuration in trainer_kwargs
-            devices_config = self.config["trainer"].get("devices")
-            if isinstance(devices_config, int) and devices_config > 1:
+            if "devices" in self.config["trainer"] and self.config["trainer"]["devices"] > 1:
                 if "CUDA_VISIBLE_DEVICES" in os.environ and len(os.environ["CUDA_VISIBLE_DEVICES"].split(",")) == 1:
-                    logging.warning(f"Overriding trainer devices={devices_config} to 1 due to CUDA_VISIBLE_DEVICES")
+                    logging.warning(f"Overriding trainer devices={self.config['trainer']['devices']} to 1 due to CUDA_VISIBLE_DEVICES")
                     self.config["trainer"]["devices"] = 1
                     self.config["trainer"]["strategy"] = "auto"
         else:
@@ -246,8 +245,6 @@ class MLTuningObjective:
         context_length = int(context_length_factor * self.data_module.prediction_length)
 
         # Estimator Arguments to handle difference between models
-        # Remove monitor_metric before passing to Trainer, but keep it in self.config for callbacks
-        trial_trainer_kwargs.pop('monitor_metric', None)
         estimator_args = {
             "freq": self.data_module.freq,
             "prediction_length": self.data_module.prediction_length,
