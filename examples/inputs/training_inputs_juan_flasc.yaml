@@ -24,16 +24,16 @@ optuna:
   limit_train_batches: 100    # batches per epoch
   metric: "val_loss" # The metric to optimize (NLL)
   direction: "minimize"       # Whether to minimize or maximize the metric
-  
+
   # Pruning configuration
   pruning:
     enabled: true             # Whether to enable pruning
     type: "hyperband"         # Options: "hyperband", "median", "percentile", "none"
     min_resource: 5          # Minimum epochs before pruning can occur
     max_resource: 50          # Maximum epochs for pruning
-    reduction_factor: 2       # Hyperband reduction factor n (default: 3), 
+    reduction_factor: 2       # Hyperband reduction factor n (default: 3),
     # set up so log_n(max_resource/min_resource)+1 = between 4-6 brackets ideally
-  
+
   # Optuna visualization configuration (additional to wandb)
   visualization:
     enabled: true
@@ -42,7 +42,7 @@ optuna:
       optimization_history: true
       parameter_importance: true
       slice_plot: true
-      
+
   # Storage backend configuration
   storage:
     backend: "postgresql"  # Options: "postgresql", "sqlite"
@@ -97,7 +97,7 @@ model:
     kwargs:
       rank: 5
       sigma_init: 0.2
-  
+
   ############# MODEL-SPECIFIC PARAMETERS ##############
   # [ TACTiS-2 ]
   tactis:
@@ -159,7 +159,7 @@ model:
     n_heads: 8 # Number of heads for spatio-temporal attention
     dim_feedforward: 64
     activation: gelu
-    
+
   # [ Spacetimeformer ]
   spacetimeformer:
     # embedding_dimension: 32 # Determines dimension of the embedding space
@@ -186,9 +186,9 @@ model:
     activation: gelu
 ########### END OF MODEL-SPECIFIC PARAMETERS ###########
 
-callbacks: 
-    progress_bar:  
-    early_stopping:  
+callbacks:
+    progress_bar:
+    early_stopping:
     model_checkpoint:
       class_path: lightning.pytorch.callbacks.ModelCheckpoint
       init_args:
@@ -199,16 +199,17 @@ callbacks:
         save_top_k: 1
         save_last: true
     lr_monitor: True
+
 trainer:
     gradient_clip_val: 0.0 # Prevents gradient explosion if > 0. Renamed from grad_clip_norm.
     # limit_val_batches: 1.0
     # val_check_interval: 1.0
-    accelerator: gpu
+    accelerator: gpu # 'cpu' or 'gpu'
     devices: auto
     num_nodes: 1
-    strategy: "ddp"
+    strategy: ddp # 'ddp' for GPU, 'ddp_spawn' for CPU
     # n_workers: auto
-    # debug: False 
+    # debug: False
     # accumulate: 1.0
     max_epochs: 5 # Maximum number of epochs to train 100
     limit_train_batches: 100 # Reduced from 100 during tuning INFO @Juan
