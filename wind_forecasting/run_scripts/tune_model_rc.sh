@@ -9,8 +9,8 @@
 #SBATCH --mem-per-cpu=4000M            # ~4 GB per CPU
 #SBATCH --time=1-00:00:00              # 1 day
 #SBATCH --job-name=tactis_tune_flasc_sql
-#SBATCH --output=${HOME}/logging/slurm_logs/tactis_tune_flasc_sql_%j.out
-#SBATCH --error=${HOME}/logging/slurm_logs/tactis_tune_flasc_sql_%j.err
+#SBATCH --output=/projects/jubo7621/wind-forecasting/logging/slurm_logs/tactis_tune_flasc_sql_%j.out
+#SBATCH --error=/projects/jubo7621/wind-forecasting/logging/slurm_logs/tactis_tune_flasc_sql_%j.err
 #SBATCH --hint=nomultithread           # disable hyperthreading
 #SBATCH --distribution=block:block     # GPU–CPU affinity
 
@@ -18,9 +18,9 @@
 RESTART_TUNING_FLAG="--restart_tuning"  # set to "" to continue
 
 # — Directories (edit as needed) —
-BASE_DIR="${HOME}/wind-forecasting"
-WORK_DIR="${BASE_DIR}/wind_forecasting"
-LOG_DIR="${HOME}/logging"
+BASE_DIR="/projects/jubo7621/wind-forecasting"
+WORK_DIR="/projects/jubo7621/wind-forecasting"
+LOG_DIR="/projects/jubo7621/wind-forecasting/logging"
 CONFIG_FILE="${BASE_DIR}/examples/inputs/training_inputs_juan_flasc.yaml"
 MODEL_NAME="tactis"
 
@@ -131,3 +131,5 @@ else
     echo "SUMMARY: All $NUM_WORKERS workers launched"
     exit 0
 fi
+
+# sbatch wind_forecasting/run_scripts/tune_model_rc.sh
