@@ -70,7 +70,8 @@ def main():
                         help="Which checkpoint to use: can be equal to 'None' to start afresh with training mode, 'latest', 'best', or an existing checkpoint path.")
     parser.add_argument("-m", "--model", type=str, choices=["informer", "autoformer", "spacetimeformer", "tactis"], required=True)
     parser.add_argument("-rt", "--restart_tuning", action="store_true")
-    parser.add_argument("-tp", "--use_tuned_parameters", action="store_true", help="Use parameters tuned from Optuna optimization, otherwise use defaults set in Module class.")
+    parser.add_argument("-utp", "--use_tuned_parameters", action="store_true", help="Use parameters tuned from Optuna optimization, otherwise use defaults set in Module class.")
+    parser.add_argument("-tp", "--tuning_phase", type=int, default=0, help="Index of tuning phase to use, gets passed to get_params estimator class methods. For tuning with multiple phases.")
     # parser.add_argument("--tune_first", action="store_true", help="Whether to use tuned parameters", default=False)
     parser.add_argument("--model_path", type=str, help="Path to a saved model checkpoint to load from", default=None)
     # parser.add_argument("--predictor_path", type=str, help="Path to a saved predictor for evaluation", default=None) # JUAN shouldn't need if we just pass filepath, latest, or best to checkpoint parameter
@@ -333,9 +334,9 @@ def main():
         else:
             reload = False
     
-        data_module.generate_splits(save=True, reload=reload) 
+        data_module.generate_splits(save=True, reload=reload, splits=["train", "val", "test"]) 
     
-    data_module.generate_splits(save=True, reload=False)
+    data_module.generate_splits(save=True, reload=False, splits=["train", "val", "test"])
 
     # %% DEFINE ESTIMATOR
     if args.mode in ["train", "test"]:
@@ -506,7 +507,7 @@ def main():
                    direction=config["optuna"]["direction"],
                    n_trials_per_worker=config["optuna"]["n_trials_per_worker"],
                    trial_protection_callback=handle_trial_with_oom_protection,
-                   seed=args.seed)
+                   seed=args.seed, tuning_phase=args.tuning_phase)
         
         # After training completes
         torch.cuda.empty_cache()
