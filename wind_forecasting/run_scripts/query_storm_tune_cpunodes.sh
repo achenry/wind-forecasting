@@ -67,12 +67,12 @@ else
     --output=/user/taed7566/wind-forecasting/logging/slurm_logs/tactis_tune_cpu_dynamic_%j.out \\
     --error=/user/taed7566/wind-forecasting/logging/slurm_logs/tactis_tune_cpu_dynamic_%j.err \\
     --hint=multithread \\
-    # Add QoS if needed for longer time limits (e.g., --qos=long_cfds.q)
     /user/taed7566/wind-forecasting/wind_forecasting/run_scripts/tune_model_storm_cpufallback.sh"
 
     echo "${SBATCH_COMMAND}"
     echo "--------------------------------------------------"
     echo "Copy and paste the above command to submit your job."
+    echo "The command-line options always override the sbatch script options in slurm."
     echo "Note: The actual job submission will happen when you run the printed command."
     exit 0
 fi
