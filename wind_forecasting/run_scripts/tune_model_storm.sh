@@ -223,3 +223,4 @@ exit $FINAL_EXIT_CODE
 
 # sbatch wind_forecasting/run_scripts/tune_model_storm.sh
 # squeue -p cfdg.p,mpcg.p,all_gpu.p -o "%.10a %.10P %.25j %.8u %.2t %.10M %.6D %R"
+# gpustat -cpP --watch 0.2
