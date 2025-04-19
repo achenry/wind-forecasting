@@ -1,23 +1,31 @@
 
 
 experiment:
+  username: aoife-henry
+  project_name: wind_forecasting_awaken
   run_name: aoifemac_awaken
   log_dir: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/logging/
   project_root: /Users/ahenry/Documents/toolboxes/wind_forecasting
+  notes: "Tuning AWAKEN with Informer+"
+  extra_tags: ["awaken"] # By default already has GPU id, model and mode.
 
-# logging:
-#   wandb_dir: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/logging/ # WandB will create a 'wandb' subdirectory here automatically
-#   optuna_dir: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/logging/optuna/
-#   checkpoint_dir: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/logging/checkpoints/
-#   slurm_output_dir: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/logging/slurm_logs/
+logging:
+  entity: aoife-henry-university-of-colorado-boulder-org # Wandb entity (group name)
+  wandb_mode: online
+  save_code: true # Save code to wandb
+  wandb_dir: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/logging/wandb # WandB will create a 'wandb' subdirectory here automatically
+  optuna_dir: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/logging/optuna/
+  checkpoint_dir: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/logging/checkpoints/
+  slurm_output_dir: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/logging/slurm_logs/
 
 optuna:
-  storage_dir: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/optuna
-  n_trials: 2
-  metric: mean_wQuantileLoss
-  direction: minimize
-  max_epochs: 10
-  limit_train_batches: 1000
+  study_name: "awaken_tune"
+  save_trial_code: false      # Default false
+  n_trials_per_worker: 12     # Test a total of 4*12=48 trials
+  max_epochs: 50              # epochs per trial
+  limit_train_batches: 100    # batches per epoch
+  metric: "mean_wQuantileLoss" # The metric to optimize
+  direction: "minimize"       # Whether to minimize or maximize the metric
   
   # Pruning configuration
   pruning:
@@ -41,8 +49,17 @@ optuna:
   storage:
     backend: "sqlite"  # Options: "postgresql", "sqlite", "mysql", "journal"
     # --- SQLite Specific Settings (not used if backend is postgresql) ---
-    sqlite_wal: true  # Enable WAL mode for SQLite
-    sqlite_timeout: 600 # Timeout in seconds for SQLite locks
+    # storage_dir: /projects/ssc/ahenry/wind_forecasting/optuna
+    # sqlite_wal: true  # Enable WAL mode for SQLite
+    # sqlite_timeout: 600 # Timeout in seconds for SQLite locks
+
+    # --- MySQL Specific Settings --- #
+    # db_host: tlv51ahenry01.plv10telauth03.nrel.gov
+    # db_port: 3306
+    # db_user: ahenry
+    db_host: localhost
+    db_port: 3306
+    db_user: user
 
     # --- Optional TCP/IP Settings (if use_socket is false) ---
     # use_tcp: false
@@ -83,6 +100,50 @@ model:
     class: LowRankMultivariateNormalOutput
     kwargs:
       rank: 8
+  
+    ############# MODEL-SPECIFIC PARAMETERS ##############
+  # [ TACTiS-2 ]
+  tactis:
+    # General TACTiS settings
+    initial_stage: 1
+    stage2_start_epoch: 10
+    input_encoding_normalization: true
+    scaling: null # Options: "mean", "std", null
+    loss_normalization: "std" # Options: "series", "timesteps", "both", "none"
+    encoder_type: "standard" # Options: "standard", "temporal"
+    bagging_size: null # Optional, defaults to None in estimator
+    num_parallel_samples: 100 # Num of parallel samples for probabilistic prediction
+    # Marginal CDF Encoder
+    marginal_embedding_dim_per_head: 8
+    marginal_num_heads: 5
+    marginal_num_layers: 4
+    flow_input_encoder_layers: 6
+    flow_series_embedding_dim: 5
+    # Attentional Copula Encoder
+    copula_embedding_dim_per_head: 8
+    copula_num_heads: 5
+    copula_num_layers: 2
+    copula_input_encoder_layers: 1
+    copula_series_embedding_dim: 48
+    # Decoder
+    decoder_dsf_num_layers: 2
+    decoder_dsf_hidden_dim: 256
+    decoder_mlp_num_layers: 3
+    decoder_mlp_hidden_dim: 16
+    decoder_transformer_num_layers: 3
+    decoder_transformer_embedding_dim_per_head: 16
+    decoder_transformer_num_heads: 6
+    decoder_num_bins: 50
+    # Optimizer Params
+    lr_stage1: 0.0018
+    lr_stage2: 0.0007
+    weight_decay_stage1: 0.0
+    weight_decay_stage2: 0.0
+    # Dropout & Clipping
+    dropout_rate: 0.1
+    gradient_clip_val_stage1: 1000.0
+    gradient_clip_val_stage2: 1000.0
+
   informer:
     # embedding_dimension: 32 # Determines dimension of the embedding space
     num_encoder_layers: 2 # Number of transformer blocks stacked

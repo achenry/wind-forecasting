@@ -128,9 +128,7 @@ def main():
             try:
                 if rank_zero_only.rank == 0:
                     logging.info("Getting tuned parameters")
-                tuned_params = get_tuned_params(model=args.model, 
-                                                data_source=os.path.splitext(os.path.basename(config["dataset"]["data_path"]))[0],
-                                                backend=config["optuna"]["backend"], storage_dir=config["optuna"]["storage_dir"])
+                tuned_params = get_tuned_params(storage=storage, db_setup_params["study_name"])
                 if rank_zero_only.rank == 0:
                     logging.info(f"Declaring estimator {args.model.capitalize()} with tuned parameters")
                 config["dataset"].update({k: v for k, v in tuned_params.items() if k in config["dataset"]})
@@ -168,8 +166,8 @@ def main():
     if args.mode == "tune":
         # %% TUNE MODEL WITH OPTUNA
         from wind_forecasting.run_scripts.tuning import tune_model
-        if rank_zero_only.rank == 0:
-            os.makedirs(config["optuna"]["storage_dir"], exist_ok=True) 
+        if rank_zero_only.rank == 0 and "storage_dir" in config["optuna"]["storage"] and config["optuna"]["storage"]["backend"] in ["sqlite", "journal"]:
+            os.makedirs(config["optuna"]["storage"]["storage_dir"], exist_ok=True) 
     
         tune_model(model=args.model, config=config, 
                     lightning_module_class=globals()[f"{args.model.capitalize()}LightningModule"], 
@@ -182,8 +180,8 @@ def main():
                     direction=config["optuna"]["direction"],
                     context_length_choices=[int(data_module.prediction_length * i) for i in config["optuna"]["context_length_choice_factors"]],
                     n_trials=config["optuna"]["n_trials"],
-                    storage_dir=config["optuna"]["storage_dir"],
-                    backend=config["optuna"]["backend"],
+                    storage_dir=config["optuna"]["storage"].get("storage_dir", None),
+                    backend=config["optuna"]["storage"],
                     restart_tuning=args.restart_tuning)
         
     elif args.mode == "train":
