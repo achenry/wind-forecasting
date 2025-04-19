@@ -1,6 +1,6 @@
 #!/bin/bash
 
-#SBATCH --partition=aa100              # NVIDIA A100 partition
+#SBATCH --partition=atesting_a100              # NVIDIA A100 partition (aa100) / can also try al40, or even ami100 for Rocm (AMD GPUs) / atesting_a100 (30 min)
 #SBATCH --qos=normal                   # up to 1 day
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=3            # one task per GPU
