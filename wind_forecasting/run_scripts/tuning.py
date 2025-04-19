@@ -136,7 +136,7 @@ class MLTuningObjective:
         self.log_gpu_stats(stage=f"Trial {trial.number} Start")
 
         # TODO HIGH setup for resample_freq, per_turbine, rank
-        params = self.estimator_class.get_params(trial, self.tuning_phase)
+        params = self.estimator_class.get_params(trial)
         
         if "resample_freq" in params or "per_turbine" in params:
             self.data_module.freq = f"{params["resample_freq"]}s"
