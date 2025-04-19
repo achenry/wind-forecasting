@@ -187,8 +187,6 @@ def main():
      
     # Set up logging directory - use absolute path, rename logging dirs to group checkpoints and logs by data source and model
     log_dir = config["experiment"]["log_dir"]
-    os.makedirs(log_dir, exist_ok=True)
-    
     # Set up wandb, optuna, checkpoint directories - use absolute paths
     wandb_dir = config["logging"]["wandb_dir"] = config["logging"].get("wandb_dir", os.path.join(log_dir, "wandb"))
     optuna_dir = config["logging"]["optuna_dir"] = config["logging"].get("optuna_dir", os.path.join(log_dir, "optuna"))
@@ -213,11 +211,11 @@ def main():
     # Set an explicit run directory to avoid nesting issues
     unique_id = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{worker_id}_{gpu_id}"
     run_dir = os.path.join(wandb_dir, f"run_{unique_id}")
-    os.environ["WANDB_RUN_DIR"] = run_dir
     
     # Configure WandB to use the correct checkpoint location
     # This ensures artifacts are saved in the correct checkpoint directory
-    os.environ["WANDB_ARTIFACT_DIR"] = checkpoint_dir
+    os.environ["WANDB_RUN_DIR"] = run_dir
+    os.environ["WANDB_ARTIFACT_DIR"] = os.environ["WANDB_CHECKPOINT_PATH"] = checkpoint_dir
     os.environ["WANDB_DIR"] = wandb_dir
     
     # Fetch GitHub repo URL and current commit and set WandB environment variables
@@ -287,15 +285,6 @@ def main():
         # For tuning mode, set logger to None
         config["trainer"]["logger"] = None
 
-
-    # Update config with normalized absolute paths
-    config["logging"]["optuna_dir"] = optuna_dir
-    # config["logging"]["checkpoint_dir"] = checkpoint_dir
-
-    
-    # Configure WandB to save runs in a standard location
-    # os.environ["WANDB_CHECKPOINT_PATH"] = checkpoint_dir
-    
     # Ensure optuna storage_dir is set correctly with absolute path
     # Only override storage_dir if it's not explicitly set
     if "storage_dir" not in config["optuna"]["storage"] or config["optuna"]["storage"]["storage_dir"] is None:
@@ -303,17 +292,15 @@ def main():
     else:
         # Ensure the directory exists
         os.makedirs(config["optuna"]["storage"]["storage_dir"], exist_ok=True)
-        logging.info(f"Using explicitly defined Optuna storage_dir: {config['optuna']['backend']['storage_dir']}")
+        logging.info(f"Using explicitly defined Optuna storage_dir: {config['optuna']['storage']['storage_dir']}")
     
     # Explicitly resolve any variable references in trainer config
-    # TODO JUAN it seems messy to replace embedded vars like logging.checkpoint_dir - can we just let the user supply the pathname, check that it exists, and make it absolute?
-    # if "default_root_dir" not in config["trainer"]:
-    #     # Replace ${logging.checkpoint_dir} with the actual path
-    #     if isinstance(config["trainer"]["default_root_dir"], str) and "${logging.checkpoint_dir}" in config["trainer"]["default_root_dir"]:
-    #         config["trainer"]["default_root_dir"] = config["trainer"]["default_root_dir"].replace("${logging.checkpoint_dir}", checkpoint_dir)
-    # else:
-    # config["trainer"]["default_root_dir"] = checkpoint_dir # TODO i think these are saved elsewhere by model checkpoint callback?
-    config["trainer"]["default_root_dir"] = log_dir
+    if "default_root_dir" in config["trainer"]:
+        config["trainer"]["default_root_dir"] = checkpoint_dir # TODO i think these are saved elsewhere by model checkpoint callback?  
+    else:
+        # Replace ${logging.checkpoint_dir} with the actual path
+        if isinstance(config["trainer"]["default_root_dir"], str) and "${logging.checkpoint_dir}" in config["trainer"]["default_root_dir"]:
+            config["trainer"]["default_root_dir"] = config["trainer"]["default_root_dir"].replace("${logging.checkpoint_dir}", checkpoint_dir)
 
     # %% CREATE DATASET
     logging.info("Creating datasets")
@@ -372,20 +359,6 @@ def main():
         else:
             logging.info(f"Declaring estimator {args.model.capitalize()} with default parameters")
             
-        # Conditionally Create Forecast Generator
-        if args.model == 'tactis':
-            # TACTiS uses SampleForecastGenerator internally for prediction
-            # because its foweard pass returns samples not distribution parameters
-            logging.info(f"Using SampleForecastGenerator for TACTiS model.")
-            forecast_generator = SampleForecastGenerator()
-        else:
-            # Other models use DistributionForecastGenerator based on their distr_output
-            logging.info(f"Using DistributionForecastGenerator for {self.model} model.")
-            # Ensure estimator has distr_output before accessing
-            if not hasattr(estimator, 'distr_output'):
-                    raise AttributeError(f"Estimator for model '{args.model}' is missing 'distr_output' attribute needed for DistributionForecastGenerator.")
-            forecast_generator = DistributionForecastGenerator(estimator.distr_output)
-            
         # Set up parameters for checkpoint finding
         metric = "val_loss_epoch"
         mode = "min"
@@ -426,6 +399,21 @@ def main():
              del estimator_kwargs['distr_output']
 
         estimator = EstimatorClass(**estimator_kwargs)
+        
+        # Conditionally Create Forecast Generator
+        if args.model == 'tactis':
+            # TACTiS uses SampleForecastGenerator internally for prediction
+            # because its foweard pass returns samples not distribution parameters
+            logging.info(f"Using SampleForecastGenerator for TACTiS model.")
+            forecast_generator = SampleForecastGenerator()
+        else:
+            # Other models use DistributionForecastGenerator based on their distr_output
+            logging.info(f"Using DistributionForecastGenerator for {args.model} model.")
+            # Ensure estimator has distr_output before accessing
+            if not hasattr(estimator, 'distr_output'):
+                raise AttributeError(f"Estimator for model '{args.model}' is missing 'distr_output' attribute needed for DistributionForecastGenerator.")
+            forecast_generator = DistributionForecastGenerator(estimator.distr_output)
+            
 
     if args.mode == "tune":
         logging.info("Starting Optuna hyperparameter tuning...")
@@ -440,7 +428,7 @@ def main():
         
         # Normal execution - pass the OOM protection wrapper and constructed storage URL
         tune_model(model=args.model, config=config, # Pass full config here for model/trainer params
-                   study_name=study_name,
+                   study_name=db_setup_params["study_name"],
                    optuna_storage=optuna_storage, # Pass the constructed storage object
                    lightning_module_class=LightningModuleClass,
                    estimator_class=EstimatorClass,
