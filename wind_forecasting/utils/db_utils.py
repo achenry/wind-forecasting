@@ -14,7 +14,31 @@ def _run_cmd(command, cwd=None, shell=False, check=True, env_override=None):
     log_cmd = ' '.join(command) if isinstance(command, list) else command
     # logging.info(f"Running command (shell={shell}): {log_cmd}")  # DEBUG
     try:
-        # Let subprocess inherit environment directly from parent process
+        # --- Create environment for the subprocess ---
+        # Start with current environment or an empty dict
+        cmd_env = os.environ.copy() if env_override is None else env_override.copy()
+
+        # Ensure PATH is present
+        if "PATH" not in cmd_env:
+            logging.warning("PATH not found in environment, command might fail.")
+            # Attempt to reconstruct a basic PATH if missing
+            cmd_env["PATH"] = os.defpath
+
+        # Prioritize CAPTURED_LD_LIBRARY_PATH if available
+        captured_ld_path = os.environ.get("CAPTURED_LD_LIBRARY_PATH")
+        if captured_ld_path:
+            cmd_env["LD_LIBRARY_PATH"] = captured_ld_path
+            # logging.info(f"Using captured LD_LIBRARY_PATH for subprocess: {captured_ld_path}") # DEBUG
+        # elif "LD_LIBRARY_PATH" in cmd_env:
+        #      logging.info(f"Using existing LD_LIBRARY_PATH for subprocess: {cmd_env['LD_LIBRARY_PATH']}") # DEBUG
+        else:
+             logging.warning("LD_LIBRARY_PATH not found in environment for subprocess.") # DEBUG
+
+        # Ensure essential user variables are present
+        for env_var in ["USER", "LOGNAME", "HOME"]:
+             if env_var not in cmd_env and env_var in os.environ:
+                 cmd_env[env_var] = os.environ[env_var]
+
         process = subprocess.run(
             command,
             cwd=cwd,
@@ -22,7 +46,8 @@ def _run_cmd(command, cwd=None, shell=False, check=True, env_override=None):
             check=check,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            text=True
+            text=True,
+            env=cmd_env
         )
 
         # DEBUG

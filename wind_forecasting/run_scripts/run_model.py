@@ -40,7 +40,7 @@ from wind_forecasting.preprocessing.data_module import DataModule
 from wind_forecasting.run_scripts.testing import test_model, get_checkpoint
 from wind_forecasting.run_scripts.tuning import get_tuned_params
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - [Early] %(message)s')
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 mpi_exists = False
 try:
@@ -52,57 +52,14 @@ except:
 
 def main():
     
-    # %% Determine rank using SLURM_PROCID from srun
-    if 'SLURM_PROCID' in os.environ:
-        try:
-            rank = int(os.environ['SLURM_PROCID'])
-            logging.info(f"Determined worker rank from SLURM_PROCID: {rank}")
-        except ValueError:
-            logging.warning("Could not parse SLURM_PROCID, falling back to WORKER_RANK.")
-            rank = int(os.environ.get('WORKER_RANK', '0')) # Fallback
-    else:
-        # Fallback for single-node or non-srun launch (old script) with WORKER_RANK
-        try:
-            rank = int(os.environ.get('WORKER_RANK', '0'))
-            logging.info(f"Determined worker rank from WORKER_RANK (SLURM_PROCID not set): {rank}")
-        except ValueError:
-            logging.warning("Could not parse WORKER_RANK, assuming rank 0.")
-            rank = 0
-
-    # %% CONFIGURE RANK-SPECIFIC LOGGING
+    # %% DETERMINE WORKER RANK (using WORKER_RANK set in Slurm script, fallback to 0)
     try:
-        job_id = os.environ.get('SLURM_JOB_ID', 'unknown_job')
-        base_log_dir = os.environ.get('LOG_DIR', './logging')
-        log_dir_path = os.path.join(base_log_dir, 'slurm_logs', job_id)
-        os.makedirs(log_dir_path, exist_ok=True)
-
-        log_file_path = os.path.join(log_dir_path, f'worker_{rank}_{job_id}.py.log')
-        logger = logging.getLogger()
-        handler_exists = any(
-            isinstance(h, logging.FileHandler) and getattr(h, 'baseFilename', None) == log_file_path
-            for h in logger.handlers
-        )
-        if not handler_exists:
-            logger.setLevel(logging.INFO)
-            for handler in logger.handlers[:]:
-                logger.removeHandler(handler)
-                handler.close()
-            file_handler = logging.FileHandler(log_file_path)
-            file_handler.setLevel(logging.INFO)
-            
-            formatter = logging.Formatter(f'%(asctime)s - %(levelname)s - Rank {rank} - %(message)s')
-            file_handler.setFormatter(formatter)
-            logger.addHandler(file_handler)
-            
-            logging.info(f"Initialized rank-specific logging to: {log_file_path}")
-        else:
-            logging.info(f"Rank-specific logging handler already configured for: {log_file_path}")
-
-    except Exception as e:
-         # Fallback to basic console logging if file setup fails
-         if not logging.getLogger().hasHandlers():
-             logging.basicConfig(level=logging.INFO, format=f'%(asctime)s - %(levelname)s - Rank {rank} - %(message)s')
-         logging.error(f"Failed to configure rank-specific file logging. Error: {e}. Falling back to console logging.", exc_info=True)
+        # Use the WORKER_RANK variable set explicitly in the Slurm script's nohup block
+        rank = int(os.environ.get('WORKER_RANK', '0'))
+    except ValueError:
+        logging.warning("Could not parse WORKER_RANK, assuming rank 0.")
+        rank = 0
+    logging.info(f"Determined worker rank from WORKER_RANK: {rank}")
     
     # %% PARSE ARGUMENTS
     parser = argparse.ArgumentParser(description="Run a model on a dataset")
@@ -119,16 +76,15 @@ def main():
     # parser.add_argument("--predictor_path", type=str, help="Path to a saved predictor for evaluation", default=None) # JUAN shouldn't need if we just pass filepath, latest, or best to checkpoint parameter
     parser.add_argument("-s", "--seed", type=int, help="Seed for random number generator", default=42)
     parser.add_argument("--save_to", type=str, help="Path to save the predicted output", default=None)
-    # parser.add_argument("--single_gpu", action="store_true", help="Force using only a single GPU (the one specified by CUDA_VISIBLE_DEVICES)") # Deprecated: Use srun with SLURM env vars + devices: auto
+    parser.add_argument("--single_gpu", action="store_true", help="Force using only a single GPU (the one specified by CUDA_VISIBLE_DEVICES)")
 
     args = parser.parse_args()
     
     # %% SETUP SEED
-    base_seed = args.seed
-    logging.info(f"Using base random seed: {base_seed}")
-    torch.manual_seed(base_seed)
-    random.seed(base_seed)
-    np.random.seed(base_seed)
+    logging.info(f"Setting random seed to {args.seed}")
+    torch.manual_seed(args.seed)
+    random.seed(args.seed)
+    np.random.seed(args.seed)
     
     # %% PARSE CONFIG
     logging.info(f"Parsing configuration from yaml and command line arguments")
@@ -141,50 +97,87 @@ def main():
         
     assert args.checkpoint is None or args.checkpoint in ["best", "latest"] or os.path.exists(args.checkpoint), "Checkpoint argument, if provided, must equal 'best', 'latest', or an existing checkpoint path."
     assert (args.mode == "test" and args.checkpoint is not None) or args.mode != "test", "Must provide a checkpoint path, 'latest', or 'best' for checkpoint argument when mode argument=test."
-    # %% Configure Trainer based on YAML and Environment (SLURM)
-    logging.info(f"Trainer Config (from YAML): accelerator={config['trainer'].get('accelerator')}, strategy={config['trainer'].get('strategy')}")
-
-    # Let Lightning determine devices based on SLURM vars when set to 'auto'
-    if config['trainer'].get('devices') == 'auto':
-        logging.info("Trainer 'devices' set to 'auto'. Relying on PyTorch Lightning and SLURM environment.")
+    # %% Modify configuration for single GPU mode vs. multi-GPU mode
+    if args.single_gpu:
+        # Force single GPU configuration when --single_gpu flag is set
+        # This ensures each worker only uses the GPU assigned to it via CUDA_VISIBLE_DEVICES
+        config["trainer"]["devices"] = 1
+        config["trainer"]["strategy"] = "auto"  # Let PyTorch Lightning determine strategy
+        if config["trainer"]["devices"] != 1:
+            # Verify the trainer configuration matches what we expect
+            logging.warning(f"--single_gpu flag is set but trainer.devices={config['trainer']['devices']}. Forcing devices=1.")
+        else:
+            logging.info("Single GPU mode enabled: Using devices=1 with auto strategy")
     else:
-        logging.info(f"Trainer 'devices' set to: {config['trainer'].get('devices')}")
-
-    # Set num_nodes based on SLURM if available, otherwise use YAML default (usually 1)
-    if "SLURM_NNODES" in os.environ:
-        try:
-            slurm_nodes = int(os.environ["SLURM_NNODES"])
-            if config['trainer'].get('num_nodes') != slurm_nodes:
-                 logging.warning(f"Overriding trainer num_nodes ({config['trainer'].get('num_nodes')}) with SLURM_NNODES ({slurm_nodes})")
-                 config['trainer']['num_nodes'] = slurm_nodes
+        # Log all available GPUs for debugging
+        num_gpus = torch.cuda.device_count()
+        all_gpus = [f"{i}:{torch.cuda.get_device_name(i)}" for i in range(num_gpus)]
+        logging.info(f"System has {num_gpus} CUDA device(s): {all_gpus}")
+        
+        # Verify current device setup
+        if torch.cuda.is_available():
+            device = torch.cuda.current_device()
+            logging.info(f"Using GPU {device}: {torch.cuda.get_device_name(device)}")
+            
+            # Check if CUDA_VISIBLE_DEVICES is set and contains only a single GPU
+            if "CUDA_VISIBLE_DEVICES" in os.environ:
+                cuda_devices = os.environ["CUDA_VISIBLE_DEVICES"] # Note: must 'export' variable within nohup to find on Kestrel
+                logging.info(f"CUDA_VISIBLE_DEVICES is set to: '{cuda_devices}'")
+                try:
+                    # Count the number of GPUs specified in CUDA_VISIBLE_DEVICES
+                    visible_gpus = [idx for idx in cuda_devices.split(',') if idx.strip()]
+                    num_visible_gpus = len(visible_gpus)
+                    
+                    if num_visible_gpus > 0:
+                        # Only override if the current configuration doesn't match
+                        if config["trainer"]["devices"] != num_visible_gpus:
+                            logging.warning(f"Adjusting trainer.devices from {config['trainer']['devices']} to {num_visible_gpus} based on CUDA_VISIBLE_DEVICES")
+                            config["trainer"]["devices"] = num_visible_gpus
+                            
+                            # If only one GPU is visible, use auto strategy instead of distributed
+                            if num_visible_gpus == 1 and config["trainer"]["strategy"] != "auto":
+                                logging.warning("Setting strategy to 'auto' since only one GPU is visible")
+                                config["trainer"]["strategy"] = "auto"
+                                
+                        # Log actual GPU mapping information
+                        if num_visible_gpus == 1:
+                            try:
+                                actual_gpu = int(visible_gpus[0])
+                                device_id = 0  # With CUDA_VISIBLE_DEVICES, first visible GPU is always index 0
+                                logging.info(f"Primary GPU is system device {actual_gpu}, mapped to CUDA index {device_id}")
+                            except ValueError:
+                                logging.warning(f"Could not parse GPU index from CUDA_VISIBLE_DEVICES: {visible_gpus[0]}")
+                    else:
+                        logging.warning("CUDA_VISIBLE_DEVICES is set but no valid GPU indices found")
+                except Exception as e:
+                    logging.warning(f"Error parsing CUDA_VISIBLE_DEVICES: {e}")
             else:
-                 logging.info(f"Using num_nodes={slurm_nodes} (from SLURM_NNODES)")
-        except ValueError:
-            logging.warning(f"Could not parse SLURM_NNODES ({os.environ['SLURM_NNODES']}). Using num_nodes from YAML: {config['trainer'].get('num_nodes')}")
-    else:
-        logging.info(f"Using num_nodes={config['trainer'].get('num_nodes')} (from YAML, SLURM_NNODES not set)")
-
-    # Set rank-specific seed for reproducibility across processes
-    process_seed = base_seed + rank
-    logging.info(f"Setting process-specific seed for rank {rank} to {process_seed}")
-    torch.manual_seed(process_seed)
-    random.seed(process_seed)
-    np.random.seed(process_seed)
-    # Ensure CUDA seeds are set if using GPU
-    if config['trainer'].get('accelerator') == 'gpu' and torch.cuda.is_available():
-        torch.cuda.manual_seed_all(process_seed)
-        logging.info(f"Set CUDA seeds for rank {rank}")
-
-    # Log final effective trainer configuration
-    logging.info(f"Effective Trainer Config: accelerator={config['trainer'].get('accelerator')}, "
-                 f"strategy={config['trainer'].get('strategy')}, "
-                 f"devices={config['trainer'].get('devices')}, "
-                 f"num_nodes={config['trainer'].get('num_nodes')}")
-
-    # Clear GPU cache if using GPU
-    if config['trainer'].get('accelerator') == 'gpu' and torch.cuda.is_available():
-        torch.cuda.empty_cache()
+                logging.warning("CUDA_VISIBLE_DEVICES is not set, using default GPU assignment")
+            
+            # Log memory information
+            logging.info(f"GPU Memory: {torch.cuda.memory_allocated(device)/1e9:.2f}GB / {torch.cuda.get_device_properties(device).total_memory/1e9:.2f}GB")
+            
+            # Clear GPU memory before starting
+            torch.cuda.empty_cache()
+            
+        # Final check to ensure configuration is valid for available GPUs
+        if isinstance(config["trainer"]["devices"], int) and config["trainer"]["devices"] > num_gpus:
+            logging.warning(f"Requested {config['trainer']['devices']} GPUs but only {num_gpus} are available. Adjusting trainer.devices.")
+            config["trainer"]["devices"] = num_gpus
+            
+        if num_gpus == 1 and config["trainer"]["strategy"] != "auto":
+            logging.warning(f"Adjusting trainer.strategy from {config['trainer']['strategy']} to 'auto' for single machine GPU.")
+            config["trainer"]["strategy"] = "auto"
+            
+        logging.info(f"Trainer config: devices={config['trainer']['devices']}, strategy={config['trainer'].get('strategy', 'auto')}")
+        
         gc.collect()
+        
+        # Multi-GPU configuration from SLURM environment variables (if not overridden above)
+        if "SLURM_NTASKS_PER_NODE" in os.environ:
+            config["trainer"]["devices"] = int(os.environ["SLURM_NTASKS_PER_NODE"])
+        if "SLURM_NNODES" in os.environ:
+            config["trainer"]["num_nodes"] = int(os.environ["SLURM_NNODES"])
 
     # %% SETUP LOGGING
     logging.info("Setting up logging")
