@@ -41,7 +41,7 @@ except:
     print("No MPI available on system.")
 
 
-def test_model(*, data_module, checkpoint, lightning_module_class, normalization_consts_path, estimator):
+def test_model(*, data_module, checkpoint, lightning_module_class, normalization_consts_path, estimator, forecast_generator):
     
     normalization_consts = pd.read_csv(normalization_consts_path, index_col=None)
     if os.path.exists(checkpoint):
@@ -49,7 +49,7 @@ def test_model(*, data_module, checkpoint, lightning_module_class, normalization
         model = lightning_module_class.load_from_checkpoint(checkpoint)
         transformation = estimator.create_transformation(use_lazyframe=False)
         predictor = estimator.create_predictor(transformation, model, 
-                                                forecast_generator=DistributionForecastGenerator(estimator.distr_output))
+                                                forecast_generator=forecast_generator)
     else:
         raise TypeError("Must provide a --checkpoint argument to load from.")
 
