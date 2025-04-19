@@ -22,7 +22,7 @@ optuna:
   n_trials_per_worker: 12     # Test a total of 4*12=48 trials
   max_epochs: 50              # epochs per trial
   limit_train_batches: 100    # batches per epoch
-  metric: "mean_wQuantileLoss" # The metric to optimize
+  metric: "val_loss" # The metric to optimize (NLL)
   direction: "minimize"       # Whether to minimize or maximize the metric
   
   # Pruning configuration
@@ -189,7 +189,15 @@ model:
 callbacks: 
     progress_bar:  
     early_stopping:  
-    model_checkpoint:  
+    model_checkpoint:
+      class_path: lightning.pytorch.callbacks.ModelCheckpoint
+      init_args:
+        dirpath: ${logging.checkpoint_dir}
+        filename: '{epoch}-{step}-{val_loss:.2f}'
+        monitor: 'val_loss'
+        mode: 'min'
+        save_top_k: 1
+        save_last: true
     lr_monitor: True
 trainer:
     gradient_clip_val: 0.0 # Prevents gradient explosion if > 0. Renamed from grad_clip_norm.
@@ -214,3 +222,4 @@ trainer:
     log_every_n_steps: 10  # Or even log_every_n_steps: 1
     deterministic: False
     benchmark: True
+    monitor_metric: "val_loss" # Metric to monitor for checkpointing and Optuna
