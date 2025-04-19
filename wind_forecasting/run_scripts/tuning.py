@@ -170,7 +170,7 @@ class MLTuningObjective:
         # Initialize W&B for ALL workers
         try:
             # Construct unique run name and tags
-            run_name = f"{self.config['experiment']['run_name']}_trial_{trial.number}_rank_{os.environ.get('WORKER_RANK', '0')}"
+            run_name = f"{self.config['experiment']['run_name']}_rank_{os.environ.get('WORKER_RANK', '0')}_trial_{trial.number}"
 
             # Clean and flatten the parameters for logging
             cleaned_params = {}
@@ -195,7 +195,7 @@ class MLTuningObjective:
                 job_type="optuna_trial",
                 # Configuration and Metadata
                 config=cleaned_params, # Use the cleaned dictionary
-                tags=[self.model, f"trial_{trial.number}", f"rank_{os.environ.get('WORKER_RANK', '0')}", f"seed_{trial_seed}"] + self.config['experiment'].get('extra_tags', []),
+                tags=[self.model] + self.config['experiment'].get('extra_tags', []),
                 notes=f"Optuna trial {trial.number} (Rank {os.environ.get('WORKER_RANK', '0')}) for study: {self.config['experiment'].get('notes', '')}",
                 # Logging and Behavior
                 dir=self.config['logging'].get('wandb_dir', './logging/wandb'),
@@ -646,16 +646,14 @@ def tune_model(model, config, study_name, optuna_storage, lightning_module_class
             # Determine summary run name
             base_run_name = config['experiment']['run_name']
             if best_trial:
-                run_name = f"{base_run_name}_optuna_summary_best_trial_{best_trial.number}"
+                run_name = f"RESULTS_{base_run_name}_best_trial_{best_trial.number}"
             else:
-                run_name = f"{base_run_name}_optuna_summary"
+                run_name = f"RESULTS_{base_run_name}_optuna_summary"
 
             project_name = config['experiment'].get('project_name', 'wind_forecasting')
             group_name = config['experiment']['run_name']
             wandb_dir = config['logging'].get('wandb_dir', './logging/wandb')
-            tags = [model, "optuna_summary"]
-            if best_trial:
-                tags.append(f"best_trial_{best_trial.number}")
+            tags = [model, "optuna_summary"] + config['experiment'].get('extra_tags', [])
 
             # Ensure wandb is not already initialized in a weird state (shouldn't be, but safety check)
             if wandb.run is not None:
