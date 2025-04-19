@@ -23,6 +23,7 @@ import lightning.pytorch as pl # Import pl alias
 from optuna.trial import TrialState # Added for checking trial status
 import wandb
 from lightning.pytorch.loggers import WandbLogger
+from lightning.pytorch.callbacks import ModelCheckpoint
 
 from optuna import create_study
 from mysql.connector import connect as sql_connect
@@ -65,8 +66,8 @@ class SafePruningCallback(pl.Callback):
         self.optuna_pruning_callback.check_pruned()
 
 class MLTuningObjective:
-    def __init__(self, *, model, config, lightning_module_class, estimator_class, 
-                 distr_output_class, max_epochs, limit_train_batches, data_module, 
+    def __init__(self, *, model, config, lightning_module_class, estimator_class,
+                 distr_output_class, max_epochs, limit_train_batches, data_module,
                  metric, seed=42, tuning_phase=0):
         self.model = model
         self.config = config
@@ -124,7 +125,7 @@ class MLTuningObjective:
         trial_seed = self.seed + trial.number
         torch.manual_seed(trial_seed)
         torch.cuda.manual_seed_all(trial_seed)
-        
+
         random.seed(trial_seed)
         np.random.seed(trial_seed)
         logging.info(f"Set random seed for trial {trial.number} to {trial_seed}")
@@ -137,28 +138,28 @@ class MLTuningObjective:
 
         # TODO HIGH setup for resample_freq, per_turbine, rank
         params = self.estimator_class.get_params(trial)
-        
+
         if "resample_freq" in params or "per_turbine" in params:
-            self.data_module.freq = f"{params["resample_freq"]}s"
+            self.data_module.freq = f"{params['resample_freq']}s"
             self.data_module.per_turbine = params["per_turbine"]
             self.data_module.set_train_ready_path()
             assert os.path.exists(self.data_module.train_ready_data_path), "Must generates dataset and splits in tuning.py, rank 0. Requested resampling frequency may not be compatible."
             self.data_module.generate_splits(save=True, reload=False, splits=["train", "val"])
 
         # self.data_module.generate_splits(save=True, reload=False)
-        
+
         estimator_sig = inspect.signature(self.estimator_class.__init__)
         estimator_params = [param.name for param in estimator_sig.parameters.values()]
-        
+
         if "dim_feedforward" not in params and "d_model" in params:
-            # set dim_feedforward to 4x the d_model found in this trial 
+            # set dim_feedforward to 4x the d_model found in this trial
             params["dim_feedforward"] = params["d_model"] * 4
         elif "d_model" in estimator_params and estimator_sig.parameters["d_model"].default is not inspect.Parameter.empty:
             # if d_model is not contained in the trial but is a paramter, get the default
             params["dim_feedforward"] = estimator_sig.parameters["d_model"].default * 4
-        
+
         logging.info(f"Testing params {tuple((k, v) for k, v in params.items())}")
-        
+
         self.config["model"]["distr_output"]["kwargs"].update({k: v for k, v in params.items() if k in self.config["model"]["distr_output"]["kwargs"]})
         self.config["dataset"].update({k: v for k, v in params.items() if k in self.config["dataset"]})
         self.config["model"][self.model].update({k: v for k, v in params.items() if k in self.config["model"][self.model]})
@@ -176,8 +177,32 @@ class MLTuningObjective:
                 monitor=pruning_monitor_metric
             )
             current_callbacks.append(pruning_callback)
-            
+
             logging.info(f"Added pruning callback for trial {trial.number}, monitoring '{pruning_monitor_metric}' (Optuna objective metric: '{self.metric}')")
+
+        
+        if "callbacks" in self.config and "model_checkpoint" in self.config["callbacks"]:
+            checkpoint_config = self.config["callbacks"]["model_checkpoint"].copy()
+            checkpoint_dir = self.config.get("logging", {}).get("checkpoint_dir", None)
+            if checkpoint_dir:
+                checkpoint_config["dirpath"] = checkpoint_dir
+                checkpoint_config.pop("checkpoint_dir", None)
+
+                if "monitor" not in checkpoint_config and "monitor_metric" in self.config.get("trainer", {}):
+                     checkpoint_config["monitor"] = self.config["trainer"]["monitor_metric"]
+                     logging.info(f"Trial {trial.number}: Using trainer's monitor_metric '{checkpoint_config['monitor']}' for ModelCheckpoint.")
+                elif "monitor" not in checkpoint_config:
+                     logging.warning(f"Trial {trial.number}: No 'monitor' key found in model_checkpoint config and no 'monitor_metric' in trainer config. ModelCheckpoint might behave unexpectedly.")
+
+                try:
+                    model_checkpoint_callback = ModelCheckpoint(**checkpoint_config)
+                    current_callbacks.append(model_checkpoint_callback)
+                    logging.info(f"Added ModelCheckpoint callback for trial {trial.number}, saving to '{checkpoint_dir}' with config: {checkpoint_config}")
+                except Exception as e:
+                    logging.error(f"Trial {trial.number}: Failed to instantiate ModelCheckpoint with config {checkpoint_config}: {e}", exc_info=True)
+
+            else:
+                logging.warning(f"Trial {trial.number}: 'logging.checkpoint_dir' not found in config. ModelCheckpoint callback not added.")
 
         trial_trainer_kwargs = self.config["trainer"].copy()
         trial_trainer_kwargs["callbacks"] = current_callbacks
@@ -189,22 +214,22 @@ class MLTuningObjective:
         try:
             # Construct unique run name and tags
             run_name = f"{self.config['experiment']['run_name']}_rank_{os.environ.get('WORKER_RANK', '0')}_trial_{trial.number}"
-            
+
             # Clean and flatten the parameters for logging
             cleaned_params = {}
             model_prefix = f"{self.model}."
             config_prefix = "model_config."
-            
+
             for k, v in trial.params.items():
                 cleanedKeyCandidate = k
                 if cleanedKeyCandidate.startswith(model_prefix):
                     cleanedKeyCandidate = cleanedKeyCandidate[len(model_prefix):]
-                
+
                 if cleanedKeyCandidate.startswith(config_prefix):
                     cleaned_key = cleanedKeyCandidate[len(config_prefix):]
                 else:
                     cleaned_key = cleanedKeyCandidate
-                    
+
                 # Store the cleaned key and value
                 cleaned_params[cleaned_key] = v
 
@@ -218,6 +243,7 @@ class MLTuningObjective:
                 group=self.config['experiment']['run_name'],
                 name=run_name,
                 job_type="optuna_trial",
+                dir=self.config['logging']['wandb_dir'],
                 # Configuration and Metadata
                 config=cleaned_params, # Use the cleaned dictionary
                 tags=[self.model] + self.config['experiment'].get('extra_tags', []),
@@ -297,7 +323,7 @@ class MLTuningObjective:
             estimator_args.pop('distr_output')
 
         logging.info(f"Trial {trial.number}: Instantiating estimator '{self.model}' with final args: {list(estimator_args.keys())}")
-        
+
         try:
             estimator = self.estimator_class(**estimator_args)
 
@@ -346,13 +372,13 @@ class MLTuningObjective:
                 # Example for LowRankMultivariateNormalOutput, adjust if other distrs are used
                 eval_kwargs["output_distr_params"] = {"loc": "mean", "cov_factor": "cov_factor", "cov_diag": "cov_diag"}
                 logging.info(f"Trial {trial.number}: Evaluating {self.model} using DistributionForecast with params: {eval_kwargs['output_distr_params']}")
-          
+
             forecast_it, ts_it = make_evaluation_predictions(**eval_kwargs)
 
             forecasts = forecast_it
             tss = ts_it
             agg_metrics, _ = self.evaluator(tss, forecasts, num_series=self.data_module.num_target_vars)
-            
+
             agg_metrics["trainable_parameters"] = summarize(estimator.create_lightning_module()).trainable_parameters
             self.metrics.append(agg_metrics.copy())
 
@@ -388,17 +414,22 @@ class MLTuningObjective:
             # Return a value indicating failure based on optimization direction
             optuna_direction = self.config.get("optuna", {}).get("direction", "minimize")
             return float('inf') if optuna_direction == "minimize" else float('-inf')
+        except NameError:
+            logging.error(f"Trial {trial.number} - 'agg_metrics' not defined, likely due to an error during training or evaluation.")
+            optuna_direction = self.config.get("optuna", {}).get("direction", "minimize")
+            return float('inf') if optuna_direction == "minimize" else float('-inf')
+
 
 def get_storage(backend, study_name, storage_dir=None):
     if backend == "mysql":
         logging.info(f"Connecting to RDB database {study_name}")
         # try:
         db = sql_connect(host="localhost", user="root",
-                        database=study_name)       
-        # except Exception: 
+                        database=study_name)
+        # except Exception:
         #     db = sql_connect(host="localhost", user="root")
         #     cursor = db.cursor()
-        #     cursor.execute(f"CREATE DATABASE {study_name}") 
+        #     cursor.execute(f"CREATE DATABASE {study_name}")
         # finally:
         storage = RDBStorage(url=f"mysql://{db.user}@{db.server_host}:{db.server_port}/{study_name}")
     elif backend == "sqlite":
@@ -426,17 +457,17 @@ def get_storage(backend, study_name, storage_dir=None):
                 logging.info(f"Created SQLite database with WAL mode at {db_path}")
             except Exception as e:
                 logging.error(f"Error initializing SQLite database: {e}")
-                
+
         storage = RDBStorage(url=storage_url)
-        
+
     elif backend == "journal":
         logging.info(f"Connecting to Journal database {study_name}")
         storage = JournalStorage(JournalFileBackend(os.path.join(storage_dir, f"{study_name}.db")))
-    
+
     return storage
 
 def get_tuned_params(study_name, backend, storage_dir):
-    logging.info(f"Getting storage for Optuna study {study_name}.")  
+    logging.info(f"Getting storage for Optuna study {study_name}.")
     storage = get_storage(backend=backend, study_name=study_name, storage_dir=storage_dir)
     try:
         study_id = storage.get_study_id_from_name(study_name)
@@ -445,7 +476,7 @@ def get_tuned_params(study_name, backend, storage_dir):
     # self.model[output].set_params(**storage.get_best_trial(study_id).params)
     # storage.get_all_studies()[0]._study_id
     # estimato = self.create_model(**storage.get_best_trial(study_id).params)
-    return storage.get_best_trial(study_id).params 
+    return storage.get_best_trial(study_id).params
 
 # Update signature: Add optuna_storage_url, remove storage_dir, use_rdb, restart_study
 def tune_model(model, config, study_name, optuna_storage, lightning_module_class, estimator_class,
@@ -460,7 +491,7 @@ def tune_model(model, config, study_name, optuna_storage, lightning_module_class
         logging.info(f"Using Optuna storage URL: {log_storage_url}")
 
     # NOTE: Restarting the study is now handled in the Slurm script by deleting the PGDATA directory
-   
+
     # Configure pruner based on settings
     pruner = None
     if "pruning" in config["optuna"] and config["optuna"]["pruning"].get("enabled", False):
@@ -565,7 +596,7 @@ def tune_model(model, config, study_name, optuna_storage, lightning_module_class
         raise
 
     # Worker ID already fetched above for study creation/loading
-    
+
     if tuning_phase == 0 and worker_id == "0":
         # params = estimator_class.get_params(None, tuning_phase)
         # if "resample_freq" in params or "per_turbine" in params:
@@ -583,8 +614,8 @@ def tune_model(model, config, study_name, optuna_storage, lightning_module_class
                 reload = True
             else:
                 reload = False
-            data_module.generate_splits(save=True, reload=reload, splits=["train", "val"]) 
-        
+            data_module.generate_splits(save=True, reload=reload, splits=["train", "val"])
+
     logging.info(f"Worker {worker_id}: Participating in Optuna study {study_name}")
 
     tuning_objective = MLTuningObjective(model=model, config=config,
@@ -645,7 +676,7 @@ def tune_model(model, config, study_name, optuna_storage, lightning_module_class
 
             logging.info(f"Rank 0: Still waiting for trials to finish ({num_finished}/{expected_total_trials}). Sleeping for {wait_interval_seconds} seconds...")
             time.sleep(wait_interval_seconds)
-            
+
         try:
             # Fetch best trial *before* initializing summary run
             best_trial = None
