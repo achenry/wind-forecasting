@@ -1,5 +1,7 @@
 #!/bin/bash
 
+# ./wind_forecasting/run_scripts/query_storm_tune_cpunodes.sh
+
 # This script dynamically determines the best CPU partition and node count
 # and prints the sbatch command to submit the job.
 # You must manually execute the printed sbatch command.
@@ -17,13 +19,18 @@ max_idle_nodes=0
 partition_details=""
 
 for partition in ${CPU_PARTITIONS}; do
-    sinfo_output=$(sinfo -p ${partition} -h -o "%P %N(A/I/O/T)" 2>/dev/null)
+    sinfo_output=$(sinfo -p ${partition} -h -o "%P %D %t" 2>/dev/null)
 
     if [ -z "$sinfo_output" ]; then
         echo "Warning: Could not get info for partition ${partition}. Skipping."
         continue
     fi
-    idle_nodes=$(echo "${sinfo_output}" | awk '{split($2, counts, "/"); print counts[2]}')
+
+    idle_nodes=$(echo "${sinfo_output}" | awk '$3 == "idle" {sum += $2} END {print sum}')
+
+    if [ -z "$idle_nodes" ]; then
+        idle_nodes=0
+    fi
     
     mem_per_cpu=$(scontrol show part ${partition} | awk '/DefMemPerCPU=/ {print $1}' | cut -d'=' -f2)
     if [ -z "$mem_per_cpu" ]; then
