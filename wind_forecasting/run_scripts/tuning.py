@@ -181,28 +181,34 @@ class MLTuningObjective:
             logging.info(f"Added pruning callback for trial {trial.number}, monitoring '{pruning_monitor_metric}' (Optuna objective metric: '{self.metric}')")
 
         
-        if "callbacks" in self.config and "model_checkpoint" in self.config["callbacks"]:
-            checkpoint_config = self.config["callbacks"]["model_checkpoint"].copy()
-            checkpoint_dir = self.config.get("logging", {}).get("checkpoint_dir", None)
-            if checkpoint_dir:
-                checkpoint_config["dirpath"] = checkpoint_dir
-                checkpoint_config.pop("checkpoint_dir", None)
+            # ModelCheckpoint Callback
+            if "callbacks" in self.config and "model_checkpoint" in self.config["callbacks"]:
+                checkpoint_base_config = self.config["callbacks"]["model_checkpoint"]
+                checkpoint_dir = self.config.get("logging", {}).get("checkpoint_dir", None)
 
-                if "monitor" not in checkpoint_config and "monitor_metric" in self.config.get("trainer", {}):
-                     checkpoint_config["monitor"] = self.config["trainer"]["monitor_metric"]
-                     logging.info(f"Trial {trial.number}: Using trainer's monitor_metric '{checkpoint_config['monitor']}' for ModelCheckpoint.")
-                elif "monitor" not in checkpoint_config:
-                     logging.warning(f"Trial {trial.number}: No 'monitor' key found in model_checkpoint config and no 'monitor_metric' in trainer config. ModelCheckpoint might behave unexpectedly.")
+                if checkpoint_dir:
+                    checkpoint_init_args = checkpoint_base_config.get('init_args', {}).copy()
 
-                try:
-                    model_checkpoint_callback = ModelCheckpoint(**checkpoint_config)
-                    current_callbacks.append(model_checkpoint_callback)
-                    logging.info(f"Added ModelCheckpoint callback for trial {trial.number}, saving to '{checkpoint_dir}' with config: {checkpoint_config}")
-                except Exception as e:
-                    logging.error(f"Trial {trial.number}: Failed to instantiate ModelCheckpoint with config {checkpoint_config}: {e}", exc_info=True)
+                    checkpoint_init_args['dirpath'] = checkpoint_dir
 
-            else:
-                logging.warning(f"Trial {trial.number}: 'logging.checkpoint_dir' not found in config. ModelCheckpoint callback not added.")
+                    if "monitor" not in checkpoint_init_args:
+                        trainer_monitor_metric = self.config.get("trainer", {}).get("monitor_metric")
+                        if trainer_monitor_metric:
+                            checkpoint_init_args["monitor"] = trainer_monitor_metric
+                            logging.info(f"Trial {trial.number}: Using trainer's monitor_metric '{trainer_monitor_metric}' for ModelCheckpoint.")
+                        else:
+                            logging.warning(f"Trial {trial.number}: No 'monitor' key found in model_checkpoint['init_args'] and no 'monitor_metric' in trainer config. ModelCheckpoint might behave unexpectedly.")
+
+                    try:
+                        # Instantiate ModelCheckpoint using ONLY the init_args
+                        model_checkpoint_callback = ModelCheckpoint(**checkpoint_init_args)
+                        current_callbacks.append(model_checkpoint_callback)
+                        logging.info(f"Added ModelCheckpoint callback for trial {trial.number}, saving to '{checkpoint_dir}' with init_args: {checkpoint_init_args}")
+                    except Exception as e:
+                        logging.error(f"Trial {trial.number}: Failed to instantiate ModelCheckpoint with init_args {checkpoint_init_args}: {e}", exc_info=True)
+
+                else:
+                    logging.warning(f"Trial {trial.number}: 'logging.checkpoint_dir' not found in config. ModelCheckpoint callback not added.")
 
         trial_trainer_kwargs = self.config["trainer"].copy()
         trial_trainer_kwargs["callbacks"] = current_callbacks
