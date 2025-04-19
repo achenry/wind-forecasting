@@ -225,8 +225,11 @@ def setup_sqlite(sqlite_storage_dir, study_name, restart_tuning, rank):
     # Handle restart for SQLite on rank 0
     # if rank == 0 and restart_tuning:
     #     restart_sqlite_rank_zero(sqlite_abs_path)
-    storage = RDBStorage(url=optuna_storage_url)
-    if restart_tuning:
+    if rank == 0:
+        storage = RDBStorage(url=optuna_storage_url)
+    else:
+        raise Exception("Cannot use SQLite storage with multiple workers. Please use a different backend.")
+    if rank == 0 and restart_tuning:
         delete_studies(storage)
     
     return storage
@@ -247,10 +250,13 @@ def setup_mysql(db_setup_params, restart_tuning, rank):
         db = sql_connect(host=db_setup_params["db_host"], user=db_setup_params["db_user"],
                         database=db_setup_params["study_name"])       
     except Exception:
-        db = sql_connect(host=db_setup_params["db_host"], user=db_setup_params["db_user"])
-        cursor = db.cursor()
-        if rank == 0:
-            cursor.execute(f"CREATE DATABASE {db_setup_params['study_name']}") 
+        try:
+            db = sql_connect(host=db_setup_params["db_host"], user=db_setup_params["db_user"])
+            cursor = db.cursor()
+            if rank == 0:
+                cursor.execute(f"CREATE DATABASE {db_setup_params['study_name']}")
+        except Exception as e:
+            raise(f"Failed to connect to MySQL database: {e}")
     finally:
         # Handle restart for SQLite on rank 0
         optuna_storage_url = f"mysql://{db.user}@{db.server_host}:{db.server_port}/{db_setup_params['study_name']}"
