@@ -3,10 +3,10 @@
 #SBATCH --partition=atesting_a100              # NVIDIA A100 partition (aa100) / can also try al40, or even ami100 for Rocm (AMD GPUs) / atesting_a100 (30 min)
 #SBATCH --qos=normal                   # up to 1 day
 #SBATCH --nodes=1
-#SBATCH --ntasks-per-node=3            # one task per GPU
-#SBATCH --ntasks=3                     # 3×A100 GPUs
+#SBATCH --ntasks-per-node=2            # one task per GPU
+#SBATCH --ntasks=2                     # 3×A100 GPUs
 #SBATCH --cpus-per-task=20             # ~20 cores/task (3×20=60 cores)
-#SBATCH --gres=gpu:3                   # 3×A100 GPUs
+#SBATCH --gres=gpu:2                   # 2×A100 GPUs
 #SBATCH --mem-per-cpu=4000M            # ~4 GB per CPU
 #SBATCH --time=1-00:00:00              # 1 day
 #SBATCH --job-name=tactis_tune_flasc_sql
