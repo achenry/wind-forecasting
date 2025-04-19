@@ -4,6 +4,7 @@
 #SBATCH --qos=normal                   # up to 1 day
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=3            # one task per GPU
+#SBATCH --ntasks=3                     # 3×A100 GPUs
 #SBATCH --cpus-per-task=20             # ~20 cores/task (3×20=60 cores)
 #SBATCH --gres=gpu:3                   # 3×A100 GPUs
 #SBATCH --mem-per-cpu=4000M            # ~4 GB per CPU
