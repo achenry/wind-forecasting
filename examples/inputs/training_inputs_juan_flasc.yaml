@@ -10,7 +10,7 @@ experiment:
 logging:
   entity: jmb0507-cu-boulder # Wandb entity (group name)
   wandb_mode: online
-  save_code: true # Save code to wandb
+  save_code: false # Save code to wandb
   wandb_dir: /user/taed7566/wind-forecasting/logging/wandb/
   optuna_dir: /user/taed7566/wind-forecasting/logging/optuna/
   checkpoint_dir: /user/taed7566/wind-forecasting/logging/checkpoints/ # Currently unused, its handled by wandb
@@ -207,7 +207,7 @@ trainer:
     accelerator: gpu # 'cpu' or 'gpu'
     devices: auto
     num_nodes: 1
-    strategy: ddp # 'ddp' or 'ddp_spawn'
+    strategy: "ddp" # 'ddp' or 'ddp_spawn'
     # n_workers: auto
     # debug: False
     # accumulate: 1.0

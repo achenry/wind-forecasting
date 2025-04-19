@@ -122,7 +122,7 @@ for i in $(seq 0 $((${NUM_GPUS}-1))); do
 
         # --- Activate conda environment ---
         eval \"\$(conda shell.bash hook)\"
-conda activate wf_env_2
+        conda activate wf_env_2
         echo \"Worker ${i}: Conda environment 'wf_env_2' activated.\"
 
         # --- Set Worker-Specific Environment ---
