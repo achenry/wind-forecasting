@@ -4,11 +4,11 @@
 # and prints the sbatch command to submit the job.
 # You must manually execute the printed sbatch command.
 
-CPU_PARTITIONS="cfds.p storm.p mouse.p all_cpu.p"
+CPU_PARTITIONS="cfds.p storm.p mouse.p"
 
 DEFAULT_CPUS_PER_TASK=128
-DEFAULT_MEM_PER_CPU=8016 # MB
-DEFAULT_TIME_LIMIT="1-00:00" # D-HH:MM
+DEFAULT_MEM_PER_CPU=6000 # MB
+DEFAULT_TIME_LIMIT="7-00:00" # D-HH:MM
 
 echo "Querying CPU partitions for available nodes..."
 
