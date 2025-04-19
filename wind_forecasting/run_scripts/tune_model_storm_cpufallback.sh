@@ -88,121 +88,36 @@ export POSTGRES_BIN_DIR=$(dirname "$PG_INITDB_PATH")
 echo "Found PostgreSQL bin directory: ${POSTGRES_BIN_DIR}"
 
 eval "$(conda shell.bash hook)"
-conda activate wf_env_2
-echo "Conda environment 'wf_env_2' activated."
+conda activate wf_env_2_cpu
+echo "Conda environment 'wf_env_2_cpu' activated."
 # --- End Main Environment Setup ---
 
 echo "=== STARTING PARALLEL OPTUNA TUNING WORKERS ==="
 date +"%Y-%m-%d %H:%M:%S"
 
-# --- Parallel Worker Launch using nohup ---
-NUM_TASKS=${SLURM_NTASKS_PER_NODE} # Number of tasks (processes) per node
-export WORLD_SIZE=${NUM_TASKS}     # Set total number of workers for tuning
-declare -a WORKER_PIDS=()
+# --- Parallel Worker Launch using srun ---
 
-echo "Launching ${NUM_TASKS} tuning workers..."
+echo "Launching distributed workers using srun..."
+export WORLD_SIZE=$SLURM_NTASKS # Total number of tasks across all nodes (nodes * ntasks-per-node)
+echo "Total tasks (WORLD_SIZE): ${WORLD_SIZE}"
 
-for i in $(seq 0 $((${NUM_TASKS}-1))); do
-    # Create a unique seed for this worker
-    CURRENT_WORKER_SEED=$((12 + i*100)) # Base seed + offset per worker
+eval "$(conda shell.bash hook)"
+conda activate wf_env_2_cpu
+echo "Conda environment 'wf_env_2_cpu' activated for srun."
 
-    echo "Starting worker ${i} with seed ${CURRENT_WORKER_SEED}"
+srun --cpu-bind=cores --distribution=block:block python ${WORK_DIR}/run_scripts/run_model.py \
+  --config ${CONFIG_FILE} \
+  --model ${MODEL_NAME} \
+  --mode tune \
+  --seed 12 \
+  ${RESTART_TUNING_FLAG}
 
-    # Launch worker in the background using nohup and a dedicated bash shell
-    nohup bash -c "
-        echo \"Worker ${i} starting environment setup...\"
-        # --- Module loading ---
-        module purge
-        module load slurm/hpc-2023/23.02.7
-        module load hpc-env/13.1
-        module load Mamba/24.3.0-0
-        module load git
-        echo \"Worker ${i}: Modules loaded.\"
+SRUN_EXIT_CODE=$?
+echo "srun finished with exit code: ${SRUN_EXIT_CODE}"
+# --- End srun launch ---
 
-        # --- Activate conda environment ---
-        eval \"\$(conda shell.bash hook)\"
-        conda activate wf_env_2
-        echo \"Worker ${i}: Conda environment 'wf_env_2' activated.\"
-
-        # --- Set Worker-Specific Environment ---
-        export CUDA_VISIBLE_DEVICES=\"\" # Ensure no GPUs are visible for CPU job
-        export WORKER_RANK=${i}          # Export rank for Python script
-        # Note: PYTHONPATH and WANDB_DIR are inherited via export from parent script
-
-        echo \"Worker ${i}: Running python script with WORKER_RANK=${WORKER_RANK}...\"
-        # --- Run the tuning script ---
-        # Workers connect to the already initialized study using the PG URL
-        # Pass --restart_tuning flag from the main script environment
-        python ${WORK_DIR}/run_scripts/run_model.py \\
-          --config ${CONFIG_FILE} \\
-          --model ${MODEL_NAME} \\
-          --mode tune \\
-          --seed ${CURRENT_WORKER_SEED} \\
-          ${RESTART_TUNING_FLAG}
-
-        # Check exit status
-        status=\$?
-        if [ \$status -ne 0 ]; then
-            echo \"Worker ${i} FAILED with status \$status\"
-        else
-            echo \"Worker ${i} COMPLETED successfully\"
-        fi
-        exit \$status
-    " > "${LOG_DIR}/slurm_logs/${SLURM_JOB_ID}/worker_${i}_${SLURM_JOB_ID}.log" 2>&1 &
-
-    # Store the process ID
-    WORKER_PIDS+=($!)
-
-    # Small delay between starting workers
-    sleep 2
-done
-
-echo "--- Worker Processes Launched ---"
-echo "Number of workers: ${#WORKER_PIDS[@]}"
-echo "Process IDs: ${WORKER_PIDS[@]}"
-echo "Main script now waiting for workers to complete..."
-echo "Check worker logs in ${LOG_DIR}/slurm_logs/worker_*.log"
-echo "-------------------------------"
-
-# --- Wait for all background workers to complete ---
-wait
-WAIT_EXIT_CODE=$? # Capture the exit code of the initial 'wait' command
-
-# --- Final Status Check based on Worker Logs ---
-echo "--- Worker Completion Status (from logs) ---"
-FAILED_WORKERS=0
-SUCCESSFUL_WORKERS=0
-for i in $(seq 0 $((${NUM_GPUS}-1))); do
-    # Correct path to include the job ID subdirectory
-    WORKER_LOG="${LOG_DIR}/slurm_logs/${SLURM_JOB_ID}/worker_${i}_${SLURM_JOB_ID}.log"
-    if [ -f "$WORKER_LOG" ]; then
-        # Check for success message (adjust pattern if needed)
-        if grep -q "COMPLETED successfully" "$WORKER_LOG"; then
-            echo "Worker ${i}: SUCCESS (based on log)"
-            ((SUCCESSFUL_WORKERS++))
-        # Check for failure message (adjust pattern if needed)
-        elif grep -q "FAILED with status" "$WORKER_LOG"; then
-            echo "Worker ${i}: FAILED (based on log)"
-            ((FAILED_WORKERS++))
-        else
-            echo "Worker ${i}: UNKNOWN status (log exists but completion message not found)"
-            ((FAILED_WORKERS++)) # Treat unknown as failure
-        fi
-    else
-        echo "Worker ${i}: FAILED (log file not found: $WORKER_LOG)"
-        ((FAILED_WORKERS++))
-    fi
-done
-echo "------------------------------------------"
-
-TOTAL_WORKERS=${NUM_GPUS}
-if [ $FAILED_WORKERS -gt 0 ]; then
-    echo "SUMMARY: ${FAILED_WORKERS} out of ${TOTAL_WORKERS} worker(s) reported failure. Check individual worker logs and SLURM error file."
-    FINAL_EXIT_CODE=1 # Force non-zero exit code for the SLURM job
-else
-    echo "SUMMARY: All ${TOTAL_WORKERS} workers reported success."
-    FINAL_EXIT_CODE=0 # Use 0 if all logs indicate success
-fi
+# Set final exit code based on srun result
+FINAL_EXIT_CODE=${SRUN_EXIT_CODE}
 
 echo "=== TUNING SCRIPT COMPLETED ==="
 date +"%Y-%m-%d %H:%M:%S"
