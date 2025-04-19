@@ -8,7 +8,6 @@ import gc
 import random
 import numpy as np
 from datetime import datetime
-from pathlib import Path
 import platform
 import subprocess
 
@@ -22,7 +21,7 @@ from wind_forecasting.utils.trial_utils import handle_trial_with_oom_protection
 from wind_forecasting.utils.optuna_db_utils import setup_optuna_storage
 
 from gluonts.torch.distributions import LowRankMultivariateNormalOutput
-from gluonts.model.forecast_generator import DistributionForecastGenerator
+from gluonts.model.forecast_generator import DistributionForecastGenerator, SampleForecastGenerator
 from gluonts.time_feature._base import second_of_minute, minute_of_hour, hour_of_day, day_of_year
 from gluonts.transform import ExpectedNumInstanceSampler, ValidationSplitSampler, SequentialSampler
 
@@ -38,7 +37,7 @@ from pytorch_transformer_ts.tactis_2.estimator import TACTiS2Estimator as Tactis
 from pytorch_transformer_ts.tactis_2.lightning_module import TACTiS2LightningModule as TactisLightningModule
 from wind_forecasting.preprocessing.data_module import DataModule
 from wind_forecasting.run_scripts.testing import test_model, get_checkpoint
-from wind_forecasting.run_scripts.tuning import get_tuned_params
+from wind_forecasting.run_scripts.tuning import get_tuned_params, generate_df_setup_params
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -299,12 +298,12 @@ def main():
     
     # Ensure optuna storage_dir is set correctly with absolute path
     # Only override storage_dir if it's not explicitly set
-    if "storage_dir" not in config["optuna"] or config["optuna"]["storage_dir"] is None:
-        config["optuna"]["storage_dir"] = optuna_dir
+    if "storage_dir" not in config["optuna"]["storage"] or config["optuna"]["storage"]["storage_dir"] is None:
+        config["optuna"]["storage"]["storage_dir"] = optuna_dir
     else:
         # Ensure the directory exists
-        os.makedirs(config["optuna"]["storage_dir"], exist_ok=True)
-        logging.info(f"Using explicitly defined Optuna storage_dir: {config['optuna']['storage_dir']}")
+        os.makedirs(config["optuna"]["storage"]["storage_dir"], exist_ok=True)
+        logging.info(f"Using explicitly defined Optuna storage_dir: {config['optuna']['backend']['storage_dir']}")
     
     # Explicitly resolve any variable references in trainer config
     # TODO JUAN it seems messy to replace embedded vars like logging.checkpoint_dir - can we just let the user supply the pathname, check that it exists, and make it absolute?
@@ -339,14 +338,23 @@ def main():
     data_module.generate_splits(save=True, reload=False, splits=["train", "val", "test"])
 
     # %% DEFINE ESTIMATOR
+    if args.mode == "tune" or (args.mode == "train" and args.use_tuned_parameters):
+        # %% SETUP & SYNCHRONIZE DATABASE
+        # Extract necessary parameters for DB setup explicitly
+        db_setup_params = generate_df_setup_params(args.model, config)
+        optuna_storage = setup_optuna_storage(
+            db_setup_params=db_setup_params,
+            restart_tuning=args.restart_tuning,
+            rank=rank
+        )
+    
     if args.mode in ["train", "test"]:
         found_tuned_params = True
         if args.use_tuned_parameters:
             try:
                 logging.info(f"Getting tuned parameters.")
-                tuned_params = get_tuned_params(backend=config["optuna"]["storage"]["backend"], 
-                                                study_name=f"tuning_{args.model}_{config['experiment']['run_name']}", 
-                                                storage_dir=config["optuna"]["storage_dir"])
+                tuned_params = get_tuned_params(optuna_storage, db_setup_params["study_name"])
+                config["model"]["distr_output"]["kwargs"].update({k: v for k, v in tuned_params.items() if k in config["model"]["distr_output"]["kwargs"]})
                 config["dataset"].update({k: v for k, v in tuned_params.items() if k in config["dataset"]})
                 config["model"][args.model].update({k: v for k, v in tuned_params.items() if k in config["model"][args.model]})
                 config["trainer"].update({k: v for k, v in tuned_params.items() if k in config["trainer"]})
@@ -363,6 +371,20 @@ def main():
             logging.info(f"Declaring estimator {args.model.capitalize()} with tuned parameters")
         else:
             logging.info(f"Declaring estimator {args.model.capitalize()} with default parameters")
+            
+        # Conditionally Create Forecast Generator
+        if args.model == 'tactis':
+            # TACTiS uses SampleForecastGenerator internally for prediction
+            # because its foweard pass returns samples not distribution parameters
+            logging.info(f"Using SampleForecastGenerator for TACTiS model.")
+            forecast_generator = SampleForecastGenerator()
+        else:
+            # Other models use DistributionForecastGenerator based on their distr_output
+            logging.info(f"Using DistributionForecastGenerator for {self.model} model.")
+            # Ensure estimator has distr_output before accessing
+            if not hasattr(estimator, 'distr_output'):
+                    raise AttributeError(f"Estimator for model '{args.model}' is missing 'distr_output' attribute needed for DistributionForecastGenerator.")
+            forecast_generator = DistributionForecastGenerator(estimator.distr_output)
             
         # Set up parameters for checkpoint finding
         metric = "val_loss_epoch"
@@ -406,79 +428,6 @@ def main():
         estimator = EstimatorClass(**estimator_kwargs)
 
     if args.mode == "tune":
-        # %% SETUP & SYNCHRONIZE DATABASE
-        # Extract necessary parameters for DB setup explicitly
-        study_name = f"tuning_{args.model}_{config['experiment']['run_name']}"
-        optuna_cfg = config["optuna"]
-        storage_cfg = optuna_cfg.get("storage", {})
-        logging_cfg = config["logging"]
-        experiment_cfg = config["experiment"]
-
-        # Resolve paths relative to project root and substitute known variables
-        project_root = experiment_cfg.get("project_root", os.getcwd())
-
-        # make paths absolute
-        def resolve_path(base_path, path_input):
-            if not path_input: return None
-            # Convert potential Path object back to string if needed
-            path_str = str(path_input)
-            abs_path = Path(path_str)
-            if not abs_path.is_absolute():
-                abs_path = Path(base_path) / abs_path
-            return str(abs_path.resolve())
-
-        # Resolve paths with direct substitution
-        optuna_dir_from_config = logging_cfg.get("optuna_dir")
-        resolved_optuna_dir = resolve_path(project_root, optuna_dir_from_config)
-        if not resolved_optuna_dir:
-             raise ValueError("logging.optuna_dir is required but not found or resolved.")
-
-        pgdata_path_from_config = storage_cfg.get("pgdata_path")
-        resolved_pgdata_path = resolve_path(project_root, pgdata_path_from_config)
-
-        socket_dir_base_from_config = storage_cfg.get("socket_dir_base")
-        if not socket_dir_base_from_config:
-             socket_dir_base_str = os.path.join(resolved_optuna_dir, "sockets")
-        else:
-             socket_dir_base_str = str(socket_dir_base_from_config).replace("${logging.optuna_dir}", resolved_optuna_dir)
-        resolved_socket_dir_base = resolve_path(project_root, socket_dir_base_str) # Make absolute
-
-        sync_dir_from_config = storage_cfg.get("sync_dir")
-        if not sync_dir_from_config:
-             # Default value uses the resolved optuna_dir
-             sync_dir_str = os.path.join(resolved_optuna_dir, "sync")
-        else:
-             # Substitute directly if the variable exists
-             sync_dir_str = str(sync_dir_from_config).replace("${logging.optuna_dir}", resolved_optuna_dir)
-        resolved_sync_dir = resolve_path(project_root, sync_dir_str) # Make absolute
-
-        db_setup_params = {
-            "backend": storage_cfg.get("backend", "sqlite"),
-            "project_root": project_root,
-            "pgdata_path": resolved_pgdata_path,
-            "study_name": study_name,
-            "use_socket": storage_cfg.get("use_socket", True),
-            "use_tcp": storage_cfg.get("use_tcp", False),
-            "db_host": storage_cfg.get("db_host", "localhost"),
-            "db_port": storage_cfg.get("db_port", 5432),
-            "db_name": storage_cfg.get("db_name", "optuna_study_db"),
-            "db_user": storage_cfg.get("db_user", "optuna_user"),
-            "run_cmd_shell": storage_cfg.get("run_cmd_shell", False),
-            "socket_dir_base": resolved_socket_dir_base,
-            "sync_dir": resolved_sync_dir,
-            "storage_dir": resolved_optuna_dir, # For non-postgres backends
-            "sqlite_path": storage_cfg.get("sqlite_path"), # For sqlite
-            "sqlite_wal": storage_cfg.get("sqlite_wal", True), # For sqlite
-            "sqlite_timeout": storage_cfg.get("sqlite_timeout", 600), # For sqlite
-        }
-
-        optuna_storage = setup_optuna_storage(
-            db_setup_params=db_setup_params,
-            study_name=study_name,
-            restart_tuning=args.restart_tuning,
-            rank=rank
-        )
-
         logging.info("Starting Optuna hyperparameter tuning...")
         
         # %% TUNE MODEL WITH OPTUNA
@@ -513,11 +462,12 @@ def main():
     elif args.mode == "train":
         logging.info("Starting model training...")
         # %% TRAIN MODEL
+        
         logging.info("Training model")
         estimator.train(
             training_data=data_module.train_dataset,
             validation_data=data_module.val_dataset,
-            forecast_generator=DistributionForecastGenerator(estimator.distr_output),
+            forecast_generator=forecast_generator,
             ckpt_path=checkpoint,
             shuffle_buffer_length=1024
         )
@@ -531,6 +481,7 @@ def main():
                     checkpoint=checkpoint,
                     lightning_module_class=globals()[f"{args.model.capitalize()}LightningModule"], 
                     estimator=estimator, 
+                    forecast_generator=forecast_generator,
                     normalization_consts_path=config["dataset"]["normalization_consts_path"])
         
         logging.info("Model testing completed.")

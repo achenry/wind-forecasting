@@ -304,11 +304,11 @@ class DataLoader:
                             logging.info(f"Number of columns of merged df {i} = {len(df_query[i].collect_schema().names())}")
                             logging.info(f"Time bounds of merged df {i} before time col expansion: ({start_time_1}, {end_time_1})")
                             logging.info(f"Time bounds of merged df {i + 1}: ({start_time_2}, {end_time_2})")
-                            # . TODO upsampling or downsampling?? 
+                            
                             if start_time_2 == end_time_1:
                                 df_query[i] = pl.concat([df_query[i], df_query[i + 1].slice(0, 1)], how="diagonal")\
                                                 .group_by("time").agg(cs.numeric().mean()).sort(by="time")
-                                df_query[i + 1] = df_query[i + 1].slice(1)
+                                df_query[i + 1] = df_query[i + 1].slice(1, None)
                             elif (start_time_2 - end_time_1 != np.timedelta64(self.dt, 's')):
                                 df_query[i] = pl.concat([df_query[i],
                                         df_query[i].select(pl.datetime_range(
@@ -341,7 +341,14 @@ class DataLoader:
                         assert df_query.select((pl.col("time").diff().slice(1) == pl.col("time").diff().last()).all()).collect().item(), "dt is non-uniform, even after resampling"
                         
                         logging.info(f"Filling final, used ram = {virtual_memory().percent}%")
-                        df_query = df_query.fill_null(strategy="forward").fill_null(strategy="backward").collect().lazy()
+                        # for data with different file_set_idx, don't forward fill
+                        for file_set_idx in range(len(self.file_paths)):
+                             df_query = df_query.with_columns(
+                                 pl.when(pl.col("file_set_idx") == file_set_idx)
+                                   .then(pl.all().fill_null(strategy="forward").fill_null(strategy="backward"))\
+                                    .otherwise(pl.all()))\
+                                     .collect().lazy()
+                        # df_query = df_query.fill_null(strategy="forward").fill_null(strategy="backward").collect().lazy()
                         assert df_query.select(pl.all_horizontal((cs.numeric().is_null() | cs.numeric().is_nan()).sum() == 0)).collect().item(), "null values found in final dataframe"
                         
                         logging.info(f"Sorting columns, used ram = {virtual_memory().percent}%") 
