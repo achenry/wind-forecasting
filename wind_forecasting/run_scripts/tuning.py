@@ -156,13 +156,15 @@ class MLTuningObjective:
         current_callbacks = list(self.config["trainer"].get("callbacks", []))
         if self.pruning_enabled:
             # Create the SAFE wrapper for the PyTorch Lightning pruning callback
-            pruning_monitor_metric = "val_loss"
+            # Read the metric to monitor from the config
+            pruning_monitor_metric = self.config.get("trainer", {}).get("monitor_metric", "val_loss") # Default to val_loss if not specified
             pruning_callback = SafePruningCallback(
                 trial,
                 monitor=pruning_monitor_metric
             )
             current_callbacks.append(pruning_callback)
-            logging.info(f"Added pruning callback for trial {trial.number}, monitoring '{pruning_monitor_metric}' (Objective metric: '{self.metric}')")
+            
+            logging.info(f"Added pruning callback for trial {trial.number}, monitoring '{pruning_monitor_metric}' (Optuna objective metric: '{self.metric}')")
 
         trial_trainer_kwargs = self.config["trainer"].copy()
         trial_trainer_kwargs["callbacks"] = current_callbacks
@@ -171,18 +173,25 @@ class MLTuningObjective:
         try:
             # Construct unique run name and tags
             run_name = f"{self.config['experiment']['run_name']}_rank_{os.environ.get('WORKER_RANK', '0')}_trial_{trial.number}"
-
+            
             # Clean and flatten the parameters for logging
             cleaned_params = {}
-            prefix_to_remove = f"{self.model}."
+            model_prefix = f"{self.model}."
+            config_prefix = "model_config."
+            
             for k, v in trial.params.items():
-                if k.startswith(prefix_to_remove):
-                    cleaned_key = k.split('.', 1)[1]
-                    cleaned_params[cleaned_key] = v
+                temp_key = k
+                if temp_key.startswith(model_prefix):
+                    temp_key = temp_key[len(model_prefix):]
+                
+                if temp_key.startswith(config_prefix):
+                    cleaned_key = temp_key[len(config_prefix):]
                 else:
-                    # Keep other params (like context_length_factor if added by user)
-                    cleaned_params[k] = v
-            # Also log the original trial number and value for reference
+                    cleaned_key = temp_key
+                    
+                # Store the cleaned key and value
+                cleaned_params[cleaned_key] = v
+
             cleaned_params["optuna_trial_number"] = trial.number
 
             # Initialize a new W&B run for this specific trial
@@ -198,7 +207,6 @@ class MLTuningObjective:
                 tags=[self.model] + self.config['experiment'].get('extra_tags', []),
                 notes=f"Optuna trial {trial.number} (Rank {os.environ.get('WORKER_RANK', '0')}) for study: {self.config['experiment'].get('notes', '')}",
                 # Logging and Behavior
-                dir=self.config['logging'].get('wandb_dir', './logging/wandb'),
                 save_code=self.config['optuna'].get('save_trial_code', False),
                 mode=self.config['logging'].get('wandb_mode', 'online'),
                 reinit=True
@@ -353,15 +361,17 @@ class MLTuningObjective:
                 logging.warning(f"Rank 0: wandb_logger_trial was None, but an active W&B run ('{wandb.run.name}') was found. Attempting to finish.")
                 wandb.finish()
 
-        # Return the specified metric, with error handling
         try:
-            metric_value = agg_metrics[self.metric]
-            logging.info(f"Trial {trial.number} - Returning metric '{self.metric}': {metric_value}")
+            metric_to_return = self.config.get("trainer", {}).get("monitor_metric", "val_loss") # Default to val_loss
+            metric_value = agg_metrics[metric_to_return]
+            logging.info(f"Trial {trial.number} - Returning metric '{metric_to_return}' to Optuna: {metric_value}")
             return metric_value
         except KeyError:
-            logging.error(f"Trial {trial.number} - Metric '{self.metric}' not found in calculated metrics: {list(agg_metrics.keys())}")
+            metric_to_return = self.config.get("trainer", {}).get("monitor_metric", "val_loss") # Read again for error message
+            logging.error(f"Trial {trial.number} - Metric '{metric_to_return}' (from config[trainer][monitor_metric]) not found in calculated metrics: {list(agg_metrics.keys())}")
             # Return a value indicating failure based on optimization direction
-            return float('inf') if self.config["optuna"]["direction"] == "minimize" else float('-inf')
+            optuna_direction = self.config.get("optuna", {}).get("direction", "minimize")
+            return float('inf') if optuna_direction == "minimize" else float('-inf')
 
 def get_storage(backend, study_name, storage_dir=None):
     if backend == "mysql":
@@ -425,7 +435,7 @@ def get_tuned_params(study_name, backend, storage_dir):
 def tune_model(model, config, study_name, optuna_storage, lightning_module_class, estimator_class,
                max_epochs, limit_train_batches,
                distr_output_class, data_module,
-               metric="mean_wQuantileLoss", direction="minimize", n_trials_per_worker=10,
+               metric="val_loss", direction="minimize", n_trials_per_worker=10,
                trial_protection_callback=None, seed=42): # Removed wandb_run_id
 
     # Log safely without credentials if they were included (they aren't for socket trust)
