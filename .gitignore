@@ -65,6 +65,6 @@ wind_forecasting.code-workspace
 examples/data/*
 .vscode/
 
-
+wind_forecasting/run_scripts/.wand_api_key
 wind_forecasting/preprocessing/.ipynb_checkpoints/
 *.sh.vscode/launch.json
