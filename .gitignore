@@ -3,6 +3,8 @@ wind_forecasting/models/.eggs
 .vscode
 .vscode/launch.json
 
+.wandb_api_key
+
 examples/optuna/*
 wind_forecasting/models/spacetimeformer/spacetimeformer/data
 wind_forecasting/models/__pycache__
