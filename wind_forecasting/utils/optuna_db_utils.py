@@ -247,18 +247,19 @@ def setup_journal(storage_dir, study_name, restart_tuning, rank):
 def setup_mysql(db_setup_params, restart_tuning, rank):
     logging.info(f"Connecting to RDB database {db_setup_params['study_name']}")
     try:
+        # '127.0.0.1'
         db = sql_connect(host=db_setup_params["db_host"], user=db_setup_params["db_user"],
                         database=db_setup_params["study_name"])       
-    except Exception:
+    except Exception as e:
         try:
             db = sql_connect(host=db_setup_params["db_host"], user=db_setup_params["db_user"])
             cursor = db.cursor()
             if rank == 0:
                 cursor.execute(f"CREATE DATABASE {db_setup_params['study_name']}")
-        except Exception as e:
-            raise(f"Failed to connect to MySQL database: {e}")
+        except Exception as ee:
+            raise(f"Failed to connect to MySQL database: {ee}")
     finally:
-        # Handle restart for SQLite on rank 0
+        # Handle restart for MySQL on rank 0
         optuna_storage_url = f"mysql://{db.user}@{db.server_host}:{db.server_port}/{db_setup_params['study_name']}"
         # restart_mysql_rank_zero(optuna_storage_url)
         storage = RDBStorage(url=optuna_storage_url)

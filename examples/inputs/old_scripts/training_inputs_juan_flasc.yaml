@@ -24,6 +24,8 @@ optuna:
   limit_train_batches: 100    # batches per epoch
   metric: "mean_wQuantileLoss" # The metric to optimize
   direction: "minimize"       # Whether to minimize or maximize the metric
+
+  resample_freq_choices: [60, 120, 180] # Resample frequency in seconds
   
   # Pruning configuration
   pruning:
