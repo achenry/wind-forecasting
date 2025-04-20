@@ -19,16 +19,14 @@
 # mpcg.p [1-6] is allowed for 7 days (7-00:00) and up to 21 days with '--qos=long_mpcg.q', but might be restricted for my group
 
 # --- Base Directories ---
-BASE_DIR="/user/taed7566/Forecasting/wind-forecasting"
+BASE_DIR="/user/taed7566/Forecasting/wind-forecasting" # Absolute path to the base directory
 export WORK_DIR="${BASE_DIR}/wind_forecasting"
-export LOG_DIR="${BASE_DIR}/logging"
-export CONFIG_FILE="${BASE_DIR}/examples/inputs/training_inputs_juan_flasc.yaml"
+export LOG_DIR="${BASE_DIR}/logs"
+export CONFIG_FILE="${BASE_DIR}/config/training/training_inputs_juan_flasc.yaml"
 export MODEL_NAME="tactis"
 export RESTART_TUNING_FLAG="--restart_tuning" # "" Or "--restart_tuning"
 
 # --- Create Logging Directories ---
-# Ensure the main slurm_logs directory exists
-mkdir -p ${LOG_DIR}/slurm_logs
 # Create the job-specific directory for worker logs and final main logs
 mkdir -p ${LOG_DIR}/slurm_logs/${SLURM_JOB_ID}
 mkdir -p ${LOG_DIR}/checkpoints
@@ -220,6 +218,6 @@ echo "--------------------------------------------------"
 
 exit $FINAL_EXIT_CODE
 
-# sbatch wind_forecasting/run_scripts/tune_model_storm.sh
+# sbatch Forecasting/wind_forecasting/run_scripts/tune_scripts/tune_model_storm.sh
 # squeue -p cfdg.p,mpcg.p,all_gpu.p -o "%.10a %.10P %.25j %.8u %.2t %.10M %.6D %R"
 # gpustat -cpP --watch 0.2

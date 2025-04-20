@@ -3,7 +3,7 @@ experiment:
   project_name: wind_forecasting_flasc
   run_name: flasc_tune_3
   project_root: /user/taed7566/Forecasting/wind-forecasting
-  log_dir: /user/taed7566/Forecasting/wind-forecasting/logging/
+  log_dir: /user/taed7566/Forecasting/wind-forecasting/logs/
   notes: "Tuning FLASC with TACTiS-2"
   extra_tags: ["flasc"] # By default already has GPU id, model and mode.
 
@@ -11,10 +11,10 @@ logging:
   entity: jmb0507-cu-boulder # Wandb entity (group name)
   wandb_mode: online
   save_code: false # Do not save code to W&B
-  wandb_dir: /user/taed7566/Forecasting/wind-forecasting/logging # Let WandB create the 'wandb' subdir here
+  wandb_dir: /user/taed7566/Forecasting/wind-forecasting/logs # Let WandB create the 'wandb' subdir here
   optuna_dir: /user/taed7566/Forecasting/wind-forecasting/optuna
-  checkpoint_dir: /user/taed7566/Forecasting/wind-forecasting/logging/checkpoints
-  slurm_output_dir: /user/taed7566/Forecasting/wind-forecasting/logging/slurm_logs
+  checkpoint_dir: /user/taed7566/Forecasting/wind-forecasting/logs/checkpoints
+  slurm_output_dir: /user/taed7566/Forecasting/wind-forecasting/logs/slurm_logs
 
 optuna:
   study_name: "flasc_tune"
@@ -48,7 +48,7 @@ optuna:
     backend: "postgresql"  # Options: "postgresql", "sqlite"
     # --- PostgreSQL Specific Settings ---
     # Path relative to project root (e.g., ~/wind-forecasting)
-    pgdata_path: "${logging.optuna_dir}/pgdata" # Directory for PostgreSQL data files
+    pgdata_path: "/user/taed7566/Forecasting/wind-forecasting/optuna/pgdata" # Directory for PostgreSQL data files
     db_name: "optuna_study_db"
     db_user: "optuna_user"
     use_socket: true      # Use Unix domain socket for local connection (recommended on single node)
