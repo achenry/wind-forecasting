@@ -40,7 +40,8 @@ wandb/
 wind-forecasting.code-workspace
 wind_forecasting/preprocessing/.ipynb_checkpoints
 lut/
-pg_data_study
+pg_data_study/
+optuna/
 
 .DS_Store
 wind_forecasting/models/.DS_Store
