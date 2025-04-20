@@ -8,8 +8,8 @@
 #SBATCH --gres=gpu:H100:4                # Request 4 H100 GPUs
 #SBATCH --time=7-00:00              # Time limit (7 days)
 #SBATCH --job-name=tactis_tune_flasc_sql
-#SBATCH --output=/user/taed7566/Forecasting/wind-forecasting/logging/slurm_logs/tactis_tune_flasc_sql_%j.out
-#SBATCH --error=/user/taed7566/Forecasting/wind-forecasting/logging/slurm_logs/tactis_tune_flasc_sql_%j.err
+#SBATCH --output=/user/taed7566/Forecasting/wind-forecasting/logs/slurm_logs/tactis_tune_flasc_sql_%j.out
+#SBATCH --error=/user/taed7566/Forecasting/wind-forecasting/logs/slurm_logs/tactis_tune_flasc_sql_%j.err
 #SBATCH --hint=nomultithread        # Disable hyperthreading
 #SBATCH --distribution=block:block  # Improve GPU-CPU affinity
 #SBATCH --gres-flags=enforce-binding # Enforce binding of GPUs to tasks
@@ -218,6 +218,6 @@ echo "--------------------------------------------------"
 
 exit $FINAL_EXIT_CODE
 
-# sbatch Forecasting/wind_forecasting/run_scripts/tune_scripts/tune_model_storm.sh
+# sbatch wind-forecasting/wind_forecasting/run_scripts/tune_scripts/tune_model_storm.sh
 # squeue -p cfdg.p,mpcg.p,all_gpu.p -o "%.10a %.10P %.25j %.8u %.2t %.10M %.6D %R"
 # gpustat -cpP --watch 0.2
