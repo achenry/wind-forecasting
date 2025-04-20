@@ -64,7 +64,6 @@ wind_forecasting.code-workspace
 *.db
 *.db-wal
 *.db-shm
-*.roomodes
 *.lock
 *.sync
 
