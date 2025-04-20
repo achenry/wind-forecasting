@@ -135,7 +135,7 @@ class SafePruningCallback(pl.Callback):
 class MLTuningObjective:
     def __init__(self, *, model, config, lightning_module_class, estimator_class, 
                  distr_output_class, max_epochs, limit_train_batches, data_module, 
-                 metric, seed=42, tuning_phase=0):
+                 metric, seed=42, tuning_phase=0, resample_freq_choices=None):
         self.model = model
         self.config = config
         self.lightning_module_class = lightning_module_class
@@ -147,6 +147,7 @@ class MLTuningObjective:
         self.metrics = []
         self.seed = seed
         self.tuning_phase = tuning_phase
+        self.resample_freq_choices = resample_freq_choices
 
         self.config["trainer"]["max_epochs"] = max_epochs
         self.config["trainer"]["limit_train_batches"] = limit_train_batches
@@ -203,7 +204,8 @@ class MLTuningObjective:
         # Log GPU stats at the beginning of the trial
         self.log_gpu_stats(stage=f"Trial {trial.number} Start")
       
-        params = self.estimator_class.get_params(trial, self.tuning_phase)
+        params = self.estimator_class.get_params(trial, self.tuning_phase, 
+                                                 dynamic_kwargs={"resample_freq": self.resample_freq_choices})
         
         if "resample_freq" in params or "per_turbine" in params:
             self.data_module.freq = f"{params["resample_freq"]}s"
@@ -317,7 +319,7 @@ class MLTuningObjective:
         context_length = int(context_length_factor * self.data_module.prediction_length)
 
         # Estimator Arguments to handle difference between models
-        estimator_args = {
+        estimator_kwargs = {
             "freq": self.data_module.freq,
             "prediction_length": self.data_module.prediction_length,
             "context_length": context_length,
@@ -339,23 +341,26 @@ class MLTuningObjective:
             "trainer_kwargs": trial_trainer_kwargs, # Pass the trial-specific kwargs
             "num_parallel_samples": self.config["model"][self.model].get("num_parallel_samples", 100) if self.model == 'tactis' else 100, # Default 100 if not specified
         }
+        # Add model-specific arguments from the default config YAML
+        estimator_kwargs.update(self.config["model"][self.model])
+        
         # Add model-specific tunable hyperparameters suggested by Optuna trial
         valid_estimator_params = set(estimator_params)
         filtered_params = {
             k: v for k, v in params.items()
             if k in valid_estimator_params and k != 'context_length_factor'
         }
-        logging.info(f"Trial {trial.number}: Updating estimator_args with filtered params: {list(filtered_params.keys())}")
-        estimator_args.update(filtered_params)
+        logging.info(f"Trial {trial.number}: Updating estimator_kwargs with filtered params: {list(filtered_params.keys())}")
+        estimator_kwargs.update(filtered_params)
 
         # TACTiS manages its own distribution output internally, remove if present
-        if self.model == 'tactis' and 'distr_output' in estimator_args:
-            estimator_args.pop('distr_output')
+        if self.model == 'tactis' and 'distr_output' in estimator_kwargs:
+            estimator_kwargs.pop('distr_output')
 
-        logging.info(f"Trial {trial.number}: Instantiating estimator '{self.model}' with final args: {list(estimator_args.keys())}")
+        logging.info(f"Trial {trial.number}: Instantiating estimator '{self.model}' with final args: {list(estimator_kwargs.keys())}")
         
         try:
-            estimator = self.estimator_class(**estimator_args)
+            estimator = self.estimator_class(**estimator_kwargs)
 
             # Log GPU stats before training
             self.log_gpu_stats(stage=f"Trial {trial.number} Before Training")
@@ -625,7 +630,7 @@ def tune_model(model, config, study_name, optuna_storage, lightning_module_class
         # if "resample_freq" in params or "per_turbine" in params:
         # TODO incorporate this into config somehow
         # resample_freq_choices = [15, 30, 45, 60, 120]
-        resample_freq_choices = [60, 120, 180]
+        resample_freq_choices = config["optuna"]["resample_freq_choices"]
         per_turbine_choices = [True, False]
         for resample_freq, per_turbine in product(resample_freq_choices, per_turbine_choices):
             # for each combination of resample_freq and per_turbine, generate the datasets
@@ -650,7 +655,8 @@ def tune_model(model, config, study_name, optuna_storage, lightning_module_class
                                         data_module=data_module,
                                         metric=metric,
                                         seed=seed,
-                                        tuning_phase=tuning_phase)
+                                        tuning_phase=tuning_phase,
+                                        resample_freq_choices=resample_freq_choices)
 
     # Use the trial protection callback if provided
     objective_fn = (lambda trial: trial_protection_callback(tuning_objective, trial)) if trial_protection_callback else tuning_objective

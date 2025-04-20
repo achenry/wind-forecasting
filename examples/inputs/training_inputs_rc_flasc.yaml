@@ -19,6 +19,8 @@ optuna:
   direction: minimize
   max_epochs: 10
   limit_train_batches: 1000
+
+  resample_freq_choices: [60, 120, 180] # Resample frequency in seconds
   
   # Pruning configuration
   pruning:

@@ -26,6 +26,8 @@ optuna:
   metric: "mean_wQuantileLoss" # The metric to optimize
   direction: "minimize"       # Whether to minimize or maximize the metric
   
+  resample_freq_choices: [15, 30, 45, 60] # Resample frequency in seconds
+
   # Pruning configuration
   pruning:
     enabled: true             # Whether to enable pruning
