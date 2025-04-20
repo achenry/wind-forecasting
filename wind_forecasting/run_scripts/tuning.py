@@ -181,44 +181,28 @@ class MLTuningObjective:
 
             logging.info(f"Added pruning callback for trial {trial.number}, monitoring '{pruning_monitor_metric}' (Optuna objective metric: '{self.metric}')")
 
-        # Add ModelCheckpoint
+        # Extract ModelCheckpoint configuration from callbacks in YAML
         callbacks_config = self.config.get("callbacks", {})
         if isinstance(callbacks_config, dict) and "model_checkpoint" in callbacks_config:
-            checkpoint_base_config = callbacks_config["model_checkpoint"]
-            # Ensure checkpoint_dir is resolved correctly (should be absolute path)
-            checkpoint_dir = self.config.get("logging", {}).get("checkpoint_dir", None)
-
-            if checkpoint_dir and isinstance(checkpoint_base_config, dict):
-                checkpoint_init_args = checkpoint_base_config.get('init_args', {}).copy()
-
-                if checkpoint_dir:
-                    checkpoint_init_args = checkpoint_base_config.get('init_args', {}).copy()
-
-                    checkpoint_init_args['dirpath'] = checkpoint_dir
-
-                    if "monitor" not in checkpoint_init_args:
-                        trainer_monitor_metric = self.config.get("trainer", {}).get("monitor_metric")
-                        if trainer_monitor_metric:
-                            checkpoint_init_args["monitor"] = trainer_monitor_metric
-                            logging.info(f"Trial {trial.number}: Using trainer's monitor_metric '{trainer_monitor_metric}' for ModelCheckpoint.")
-                        else:
-                            logging.warning(f"Trial {trial.number}: No 'monitor' key found in model_checkpoint['init_args'] and no 'monitor_metric' in trainer config. ModelCheckpoint might behave unexpectedly.")
-
-                    try:
-                        # Instantiate ModelCheckpoint using ONLY the init_args
-                        model_checkpoint_callback = ModelCheckpoint(**checkpoint_init_args)
-                        current_callbacks.append(model_checkpoint_callback)
-                        logging.info(f"Added ModelCheckpoint callback for trial {trial.number}, saving to '{checkpoint_dir}' with init_args: {checkpoint_init_args}")
-                    except Exception as e:
-                        logging.error(f"Trial {trial.number}: Failed to instantiate ModelCheckpoint with init_args {checkpoint_init_args}: {e}", exc_info=True)
-
-                else:
-                    logging.warning(f"Trial {trial.number}: 'logging.checkpoint_dir' not found in config. ModelCheckpoint callback not added.")
-
-            else:
-                logging.warning(f"Trial {trial.number}: Could not add ModelCheckpoint. 'logging.checkpoint_dir' missing or 'callbacks.model_checkpoint' not a dict in config.")
+            checkpoint_config = callbacks_config["model_checkpoint"]
+            if "class_path" in checkpoint_config and "init_args" in checkpoint_config:
+                try:
+                    # Use the init_args directly from the YAML
+                    checkpoint_init_args = checkpoint_config["init_args"].copy()
+                    # Ensure dirpath is resolved if it's a template variable
+                    if "dirpath" in checkpoint_init_args and "${" in str(checkpoint_init_args["dirpath"]):
+                        checkpoint_dir = self.config.get("logging", {}).get("checkpoint_dir", None)
+                        if checkpoint_dir:
+                            checkpoint_init_args["dirpath"] = checkpoint_dir
+                    
+                    # Add ModelCheckpoint to callbacks list
+                    model_checkpoint_callback = ModelCheckpoint(**checkpoint_init_args)
+                    current_callbacks.append(model_checkpoint_callback)
+                    logging.info(f"Trial {trial.number}: Added ModelCheckpoint from YAML config with args: {checkpoint_init_args}")
+                except Exception as e:
+                    logging.error(f"Trial {trial.number}: Failed to create ModelCheckpoint from YAML config: {e}", exc_info=True)
         else:
-             logging.info(f"Trial {trial.number}: No 'model_checkpoint' definition found under 'callbacks' in config. Skipping explicit ModelCheckpoint addition.")
+            logging.info(f"Trial {trial.number}: No model_checkpoint configuration found in YAML callbacks.")
 
         trial_trainer_kwargs = self.config["trainer"].copy()
         # Explicitly set the callbacks list to ONLY the ones we constructed
