@@ -408,10 +408,17 @@ class MLTuningObjective:
                 wandb.finish()
 
         try:
+            # Get the metric key from config
             metric_to_return = self.config.get("trainer", {}).get("monitor_metric", "val_loss") # Default to val_loss
-            metric_value = agg_metrics[metric_to_return]
-            logging.info(f"Trial {trial.number} - Returning metric '{metric_to_return}' to Optuna: {metric_value}")
-            return metric_value
+            
+            try:
+                metric_value = agg_metrics[metric_to_return]
+                logging.info(f"Trial {trial.number} - Returning metric '{metric_to_return}' to Optuna: {metric_value}")
+                return metric_value
+            except KeyError:
+                logging.error(f"Trial {trial.number} - ERROR: Metric key '{metric_to_return}' was not found in callback_metrics. Available metrics: {list(agg_metrics.keys())}")
+                
+                raise optuna.exceptions.TrialPruned(f"Required metric '{metric_to_return}' not found in callback metrics")
         except KeyError:
             metric_to_return = self.config.get("trainer", {}).get("monitor_metric", "val_loss") # Read again for error message
             logging.error(f"Trial {trial.number} - Metric '{metric_to_return}' (from config[trainer][monitor_metric]) not found in calculated metrics: {list(agg_metrics.keys())}")
@@ -421,7 +428,8 @@ class MLTuningObjective:
         except NameError:
             logging.error(f"Trial {trial.number} - 'agg_metrics' not defined, likely due to an error during training or evaluation.")
             optuna_direction = self.config.get("optuna", {}).get("direction", "minimize")
-            return float('inf') if optuna_direction == "minimize" else float('-inf')
+            
+            raise optuna.exceptions.TrialPruned("Trial failed: validation metrics were not computed")
 
 
 def get_storage(backend, study_name, storage_dir=None):
