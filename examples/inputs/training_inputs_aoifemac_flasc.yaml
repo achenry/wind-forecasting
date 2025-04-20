@@ -24,6 +24,8 @@ optuna:
   direction: minimize
   max_epochs: 2
   limit_train_batches: 5
+
+  resample_freq_choices: [60, 120, 180] # Resample frequency in seconds
   
   # Pruning configuration
   pruning:
@@ -56,8 +58,9 @@ optuna:
 
     # --- Optional TCP/IP Settings (if use_socket is false) ---
     # use_tcp: false
-    # db_host: "localhost"
-    # db_port: 5432
+    db_host: "localhost"
+    db_port: 8088 #5432
+    db_user: root
 
     # --- Optional Command Execution Settings ---
     # run_cmd_shell: false # Set to true if specific commands require shell=True
