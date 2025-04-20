@@ -103,7 +103,7 @@ model:
   tactis:
     # General TACTiS settings
     initial_stage: 1
-    stage2_start_epoch: 10
+    stage2_start_epoch: 10 # Epoch to start stage 2 (copula training)
     input_encoding_normalization: true
     scaling: null # Options: "mean", "std", null
     loss_normalization: "std" # Options: "series", "timesteps", "both", "none"
