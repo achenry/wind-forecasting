@@ -310,13 +310,26 @@ class DataLoader:
                                                 .group_by("time").agg(cs.numeric().mean()).sort(by="time")
                                 df_query[i + 1] = df_query[i + 1].slice(1, None)
                             elif (start_time_2 - end_time_1 != np.timedelta64(self.dt, 's')):
-                                df_query[i] = pl.concat([df_query[i],
-                                        df_query[i].select(pl.datetime_range(
-                                            start=end_time_1,
-                                            end=start_time_2,
-                                            interval=f"{self.dt}s", 
-                                            closed="none",
-                                            time_unit=df_query[i].collect_schema()["time"].time_unit).alias("time"))], how="diagonal")
+                                if df_query[i].select(pl.col("file_set_idx").first()).collect().item() == df_query[i + 1].select(pl.col("file_set_idx").first()).collect().item():
+                                    df_query[i] = pl.concat([df_query[i],
+                                            df_query[i].select(pl.datetime_range(
+                                                start=end_time_1,
+                                                end=start_time_2,
+                                                interval=f"{self.dt}s", 
+                                                closed="none",
+                                                time_unit=df_query[i].collect_schema()["time"].time_unit).alias("time"))], how="diagonal")
+                                    
+                                else:
+                                    # if from different file sets, we just want NaNs, with file_set_idx=-1
+                                    # TODO TEST
+                                     df_query[i] = pl.concat([df_query[i],
+                                            df_query[i].select(pl.datetime_range(
+                                                start=end_time_1,
+                                                end=start_time_2,
+                                                interval=f"{self.dt}s", 
+                                                closed="none",
+                                                time_unit=df_query[i].collect_schema()["time"].time_unit).alias("time"))\
+                                                    .with_columns(file_set_idx=pl.lit(-1))], how="diagonal")
                             
                             assert df_query[i].select((pl.col("time").diff().slice(1) == pl.col("time").diff().last()).all()).collect().item() and \
                                  (df_query[i + 1].select(pl.col("time").first()).collect().item() - df_query[i].select(pl.col("time").last()).collect().item() == np.timedelta64(self.dt, 's'))
@@ -342,6 +355,7 @@ class DataLoader:
                         
                         logging.info(f"Filling final, used ram = {virtual_memory().percent}%")
                         # for data with different file_set_idx, don't forward fill
+                        # TODO TEST
                         for file_set_idx in range(len(self.file_paths)):
                              df_query = df_query.with_columns(
                                  pl.when(pl.col("file_set_idx") == file_set_idx)
