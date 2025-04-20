@@ -165,9 +165,10 @@ class MLTuningObjective:
         self.config["model"][self.model].update({k: v for k, v in params.items() if k in self.config["model"][self.model]})
         self.config["trainer"].update({k: v for k, v in params.items() if k in self.config["trainer"]})
 
-        # Configure trainer_kwargs to include pruning callback if enabled
-        # Make a copy of callbacks to avoid modifying the original list across trials
-        current_callbacks = list(self.config["trainer"].get("callbacks", []))
+        # Start with an empty list for this trial's specific callbacks
+        current_callbacks = []
+
+        # Add pruning callback if enabled
         if self.pruning_enabled:
             # Create the SAFE wrapper for the PyTorch Lightning pruning callback
             # Read the metric to monitor from the config
@@ -180,11 +181,15 @@ class MLTuningObjective:
 
             logging.info(f"Added pruning callback for trial {trial.number}, monitoring '{pruning_monitor_metric}' (Optuna objective metric: '{self.metric}')")
 
-        
-            # ModelCheckpoint Callback
-            if "callbacks" in self.config and "model_checkpoint" in self.config["callbacks"]:
-                checkpoint_base_config = self.config["callbacks"]["model_checkpoint"]
-                checkpoint_dir = self.config.get("logging", {}).get("checkpoint_dir", None)
+        # Add ModelCheckpoint
+        callbacks_config = self.config.get("callbacks", {})
+        if isinstance(callbacks_config, dict) and "model_checkpoint" in callbacks_config:
+            checkpoint_base_config = callbacks_config["model_checkpoint"]
+            # Ensure checkpoint_dir is resolved correctly (should be absolute path)
+            checkpoint_dir = self.config.get("logging", {}).get("checkpoint_dir", None)
+
+            if checkpoint_dir and isinstance(checkpoint_base_config, dict):
+                checkpoint_init_args = checkpoint_base_config.get('init_args', {}).copy()
 
                 if checkpoint_dir:
                     checkpoint_init_args = checkpoint_base_config.get('init_args', {}).copy()
@@ -210,9 +215,17 @@ class MLTuningObjective:
                 else:
                     logging.warning(f"Trial {trial.number}: 'logging.checkpoint_dir' not found in config. ModelCheckpoint callback not added.")
 
-        trial_trainer_kwargs = self.config["trainer"].copy()
-        trial_trainer_kwargs["callbacks"] = current_callbacks
+            else:
+                logging.warning(f"Trial {trial.number}: Could not add ModelCheckpoint. 'logging.checkpoint_dir' missing or 'callbacks.model_checkpoint' not a dict in config.")
+        else:
+             logging.info(f"Trial {trial.number}: No 'model_checkpoint' definition found under 'callbacks' in config. Skipping explicit ModelCheckpoint addition.")
 
+        trial_trainer_kwargs = self.config["trainer"].copy()
+        # Explicitly set the callbacks list to ONLY the ones we constructed
+        trial_trainer_kwargs["callbacks"] = current_callbacks
+        logging.debug(f"Final callbacks passed to estimator: {[type(cb).__name__ for cb in trial_trainer_kwargs['callbacks']]}")
+
+        # Remove monitor_metric if it exists, as it's handled by ModelCheckpoint
         if "monitor_metric" in trial_trainer_kwargs:
             del trial_trainer_kwargs["monitor_metric"]
 
@@ -350,6 +363,7 @@ class MLTuningObjective:
                      raise AttributeError(f"Estimator for model '{self.model}' is missing 'distr_output' attribute needed for DistributionForecastGenerator.")
                 forecast_generator = DistributionForecastGenerator(estimator.distr_output)
 
+            # Call estimator.train without the ckpt_path argument, as ModelCheckpoint is handled via callbacks
             train_output = estimator.train(
                 training_data=self.data_module.train_dataset,
                 validation_data=self.data_module.val_dataset,

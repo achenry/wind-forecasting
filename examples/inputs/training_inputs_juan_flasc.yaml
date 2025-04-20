@@ -1,7 +1,7 @@
 experiment:
   username: jmb0507
   project_name: wind_forecasting_flasc
-  run_name: flasc_tune_2
+  run_name: flasc_tune_3
   project_root: /user/taed7566/wind-forecasting
   log_dir: /user/taed7566/wind-forecasting/logging/
   notes: "Tuning FLASC with TACTiS-2"
