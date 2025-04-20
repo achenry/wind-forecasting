@@ -21,7 +21,7 @@ logging:
 optuna:
   study_name: "awaken_tune"
   save_trial_code: false      # Default false
-  n_trials_per_worker: 12     # Test a total of 4*12=48 trials
+  n_trials_per_worker: 100     # Test a total of 4*12=48 trials
   max_epochs: 10              # epochs per trial
   limit_train_batches: 1000    # batches per epoch
   metric: "mean_wQuantileLoss" # The metric to optimize
