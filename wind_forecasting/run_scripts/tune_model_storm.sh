@@ -8,8 +8,8 @@
 #SBATCH --gres=gpu:H100:4                # Request 4 H100 GPUs
 #SBATCH --time=7-00:00              # Time limit (7 days)
 #SBATCH --job-name=tactis_tune_flasc_sql
-#SBATCH --output=/user/taed7566/wind-forecasting/logging/slurm_logs/tactis_tune_flasc_sql_%j.out
-#SBATCH --error=/user/taed7566/wind-forecasting/logging/slurm_logs/tactis_tune_flasc_sql_%j.err
+#SBATCH --output=/user/taed7566/wind-forecasting-project/wind-forecasting/logging/slurm_logs/tactis_tune_flasc_sql_%j.out
+#SBATCH --error=/user/taed7566/wind-forecasting-project/wind-forecasting/logging/slurm_logs/tactis_tune_flasc_sql_%j.err
 #SBATCH --hint=nomultithread        # Disable hyperthreading
 #SBATCH --distribution=block:block  # Improve GPU-CPU affinity
 #SBATCH --gres-flags=enforce-binding # Enforce binding of GPUs to tasks
@@ -19,7 +19,7 @@
 # mpcg.p [1-6] is allowed for 7 days (7-00:00) and up to 21 days with '--qos=long_mpcg.q', but might be restricted for my group
 
 # --- Base Directories ---
-BASE_DIR="/user/taed7566/wind-forecasting"
+BASE_DIR="/user/taed7566/wind-forecasting-project/wind-forecasting"
 export WORK_DIR="${BASE_DIR}/wind_forecasting"
 export LOG_DIR="${BASE_DIR}/logging"
 export CONFIG_FILE="${BASE_DIR}/examples/inputs/training_inputs_juan_flasc.yaml"

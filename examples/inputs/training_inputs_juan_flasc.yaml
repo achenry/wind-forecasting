@@ -2,8 +2,8 @@ experiment:
   username: jmb0507
   project_name: wind_forecasting_flasc
   run_name: flasc_tune_3
-  project_root: /user/taed7566/wind-forecasting
-  log_dir: /user/taed7566/wind-forecasting/logging/
+  project_root: /user/taed7566/wind-forecasting-project/wind-forecasting
+  log_dir: /user/taed7566/wind-forecasting-project/wind-forecasting/logging/
   notes: "Tuning FLASC with TACTiS-2"
   extra_tags: ["flasc"] # By default already has GPU id, model and mode.
 
@@ -11,10 +11,10 @@ logging:
   entity: jmb0507-cu-boulder # Wandb entity (group name)
   wandb_mode: online
   save_code: false # Do not save code to W&B
-  wandb_dir: /user/taed7566/wind-forecasting/logging/ # Let WandB create the 'wandb' subdir here
-  optuna_dir: /user/taed7566/wind-forecasting/logging/optuna/
-  checkpoint_dir: /user/taed7566/wind-forecasting/logging/checkpoints/
-  slurm_output_dir: /user/taed7566/wind-forecasting/logging/slurm_logs/
+  wandb_dir: /user/taed7566/wind-forecasting-project/wind-forecasting/logging # Let WandB create the 'wandb' subdir here
+  optuna_dir: /user/taed7566/wind-forecasting-project/wind-forecasting/optuna
+  checkpoint_dir: /user/taed7566/wind-forecasting-project/wind-forecasting/logging/checkpoints
+  slurm_output_dir: /user/taed7566/wind-forecasting-project/wind-forecasting/logging/slurm_logs
 
 optuna:
   study_name: "flasc_tune"
@@ -75,8 +75,8 @@ optuna:
     log_file: "${logging.optuna_dir}/optuna_dashboard.log" # Log file for the dashboard process
 
 dataset:
-    data_path: /user/taed7566/wind-forecasting/examples/inputs/SMARTEOLE-WFC-open-dataset/processed/SMARTEOLE_WakeSteering_SCADA_1minData_normalized.parquet
-    normalization_consts_path:  /user/taed7566/wind-forecasting/examples/inputs/SMARTEOLE-WFC-open-dataset/processed/SMARTEOLE_WakeSteering_SCADA_1minData_normalization_consts.csv
+    data_path: /user/taed7566/wind-forecasting-project/wind-forecasting/examples/inputs/SMARTEOLE-WFC-open-dataset/processed/SMARTEOLE_WakeSteering_SCADA_1minData_normalized.parquet
+    normalization_consts_path:  /user/taed7566/wind-forecasting-project/wind-forecasting/examples/inputs/SMARTEOLE-WFC-open-dataset/processed/SMARTEOLE_WakeSteering_SCADA_1minData_normalization_consts.csv
     context_length: 600 # in seconds
     prediction_length: 300 # in seconds
     target_turbine_ids: # or leave blank to capture all
