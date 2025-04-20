@@ -213,7 +213,7 @@ trainer:
     # debug: False
     # accumulate: 1.0
     max_epochs: 5 # Maximum number of epochs to train 100
-    limit_train_batches: 100 # Reduced from 100 during tuning INFO @Juan
+    limit_train_batches: 5000 # Set to integer number of steps to train on (context+prediction length)
     # default_root_dir: ${logging.checkpoint_dir}  # Changed from direct path to use log_dir
     # precision: 16-mixed # 16-mixed enables mixed precision training 32-true is full precision
     # batch_size: 32 # larger = more stable gradients
@@ -221,7 +221,7 @@ trainer:
     # dropout: 0.1 # Regularization parameter (prevents overfitting)
     # patience: 50 # Number of epochs to wait before early stopping
     # accumulate_grad_batches: 2 # Simulates a larger batch size
-    log_every_n_steps: 10  # Or even log_every_n_steps: 1
+    log_every_n_steps: 100  # Or even log_every_n_steps: 1
     deterministic: False
     benchmark: True
     monitor_metric: "val_loss" # Metric to monitor for checkpointing and Optuna
