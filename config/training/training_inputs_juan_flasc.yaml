@@ -19,7 +19,8 @@ logging:
 optuna:
   study_name: "flasc_tune"
   save_trial_code: false      # Default false
-  n_trials_per_worker: 12     # Test a total of 4*12=48 trials
+  n_trials_per_worker: 25     # Test a total of 4*25=100 trials 
+  # ~3 min/epoch = 2.5 hours per trial = ~10 days for 100 trials / 4 workers = 2.5 days
   max_epochs: 50              # epochs per trial
   limit_train_batches: 100    # batches per epoch
   metric: "val_loss" # The metric to optimize (NLL)
@@ -29,7 +30,7 @@ optuna:
   pruning:
     enabled: true             # Whether to enable pruning
     type: "hyperband"         # Options: "hyperband", "median", "percentile", "none"
-    min_resource: 5          # Minimum epochs before pruning can occur
+    min_resource: 3          # Minimum epochs before pruning can occur
     max_resource: 50          # Maximum epochs for pruning
     reduction_factor: 2       # Hyperband reduction factor n (default: 3),
     # set up so log_n(max_resource/min_resource)+1 = between 4-6 brackets ideally
@@ -81,7 +82,7 @@ dataset:
     prediction_length: 300 # in seconds
     target_turbine_ids: # or leave blank to capture all
     normalize: False
-    batch_size: 512 # 1024 seems to create some OOM errors
+    batch_size: 768 # 1024 seems to create some OOM errors
     workers: 12 # Consider adjusting based on CPU cores per task
     overfit: False
     test_split: 0.20
