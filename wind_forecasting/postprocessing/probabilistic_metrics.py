@@ -791,7 +791,7 @@ _MAP = {
     'unc': (uncertainty, 'UNC'),
     'qs': (quantile_score, 'QS'),
     'qss': (quantile_skill_score, 'QSS'),
-    # 'sh': (sharpness, 'SH'),  # TODO
+    # 'sh': (sharpness, 'SH'),  
     'crps_gaussian': (continuous_ranked_probability_score_gaussian, 'CRPS_gaussian'),
     'crps': (continuous_ranked_probability_score, 'CRPS'),
     'crpss': (crps_skill_score, 'CRPSS'),
