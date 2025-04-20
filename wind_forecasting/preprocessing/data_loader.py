@@ -294,7 +294,6 @@ class DataLoader:
                                         key=lambda df: 
                                             df.select(pl.col("time").first()).collect().item())
                         
-                        # for file_set_idx in range(len(self.file_paths))
                         start_time_1 = df_query[0].select(pl.col("time").first()).collect().item() 
                         end_time_1 = df_query[0].select(pl.col("time").last()).collect().item()
                         for i in range(len(df_query) - 1):
@@ -331,7 +330,7 @@ class DataLoader:
                                                 closed="none",
                                                 time_unit=df_query[i].collect_schema()["time"].time_unit).alias("time"))\
                                                     .with_columns(file_set_idx=pl.lit(-1))], how="diagonal")
-                                     
+                            
                             assert df_query[i].select((pl.col("time").diff().slice(1) == pl.col("time").diff().last()).all()).collect().item() and \
                                  (df_query[i + 1].select(pl.col("time").first()).collect().item() - df_query[i].select(pl.col("time").last()).collect().item() == np.timedelta64(self.dt, 's'))
                             

@@ -459,7 +459,11 @@ class DataFilter:
         return df
 
     def _conditional_filter_long(self, df, threshold, mask, mask_input_features, output_features, filter_type, check_js):
+<<<<<<< HEAD
         # NOTE untested
+=======
+        # TODO test this
+>>>>>>> be33f8811b4b6675b3adad1fcb9928cb3533d3d6
         if check_js:
             js_scores = []
             for inp_feat, opt_feat in zip(mask_input_features, output_features):

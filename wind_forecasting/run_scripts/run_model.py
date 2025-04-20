@@ -188,17 +188,18 @@ def main():
     # Set up logging directory - use absolute path, rename logging dirs to group checkpoints and logs by data source and model
     log_dir = config["experiment"]["log_dir"]
     # Set up wandb, optuna, checkpoint directories - use absolute paths
-    wandb_dir = config["logging"].get("wandb_dir", os.path.join(log_dir, "wandb"))
-    optuna_dir = config["logging"].get("optuna_dir", os.path.join(log_dir, "optuna"))
-    # checkpoint_dir = config["logging"]["checkpoint_dir"] = config["logging"].get("checkpoint_dir", os.path.join(log_dir, "checkpoints")) # NOTE: no need, checkpoints are saved by Model Checkpoint callback in loggers save_dir (wandb_dir)
+
+    wandb_dir = config["logging"]["wandb_dir"] = config["logging"].get("wandb_dir", os.path.join(log_dir, "wandb"))
+    optuna_dir = config["logging"]["optuna_dir"] = config["logging"].get("optuna_dir", os.path.join(log_dir, "optuna"))
+    checkpoint_dir = config["logging"]["checkpoint_dir"] = config["logging"].get("checkpoint_dir", os.path.join(log_dir, "checkpoints")) # NOTE: no need, checkpoints are saved by Model Checkpoint callback in loggers save_dir (wandb_dir)
 
     os.makedirs(wandb_dir, exist_ok=True)
     os.makedirs(optuna_dir, exist_ok=True)
-    # os.makedirs(checkpoint_dir, exist_ok=True)
+    os.makedirs(checkpoint_dir, exist_ok=True)
     
     logging.info(f"WandB will create logs in {wandb_dir}")
     logging.info(f"Optuna will create logs in {optuna_dir}")
-    # logging.info(f"Checkpoints will be saved in {checkpoint_dir}")
+    logging.info(f"Checkpoints will be saved in {checkpoint_dir}")
 
     # Get worker info from environment variables
     worker_id = os.environ.get('SLURM_PROCID', '0')
@@ -214,7 +215,8 @@ def main():
     
     # Configure WandB to use the correct checkpoint location
     # This ensures artifacts are saved in the correct checkpoint directory
-    os.environ["WANDB_ARTIFACT_DIR"] = checkpoint_dir
+    os.environ["WANDB_RUN_DIR"] = run_dir
+    os.environ["WANDB_ARTIFACT_DIR"] = os.environ["WANDB_CHECKPOINT_PATH"] = checkpoint_dir
     os.environ["WANDB_DIR"] = wandb_dir
     
     # Fetch GitHub repo URL and current commit and set WandB environment variables
@@ -274,7 +276,6 @@ def main():
             job_type=args.mode,
             mode=config['logging'].get('wandb_mode', 'online'), # Configurable wandb mode
             id=unique_id, # Unique ID for the run, can also use config hyperaparameters for comparison later 
-            notes=config['experiment'].get('notes'),
             tags=[f"gpu_{gpu_id}", args.model, args.mode] + config['experiment'].get('extra_tags', []),
             config=logger_config,            
             save_code=config['logging'].get('save_code', False)
@@ -294,12 +295,13 @@ def main():
         logging.info(f"Using explicitly defined Optuna storage_dir: {config['optuna']['storage']['storage_dir']}")
     
     # Explicitly resolve any variable references in trainer config
-    # if "default_root_dir" in config["trainer"]:
-    #     config["trainer"]["default_root_dir"] = checkpoint_dir # NOTE checkpoints are saved elsewhere by model checkpoint callback?  
-    # else:
-    #     # Replace ${logging.checkpoint_dir} with the actual path
-    #     if isinstance(config["trainer"]["default_root_dir"], str) and "${logging.checkpoint_dir}" in config["trainer"]["default_root_dir"]:
-    #         config["trainer"]["default_root_dir"] = config["trainer"]["default_root_dir"].replace("${logging.checkpoint_dir}", checkpoint_dir)
+
+    if "default_root_dir" in config["trainer"]:
+        config["trainer"]["default_root_dir"] = checkpoint_dir # TODO i think these are saved elsewhere by model checkpoint callback?  
+    else:
+        # Replace ${logging.checkpoint_dir} with the actual path
+        if isinstance(config["trainer"]["default_root_dir"], str) and "${logging.checkpoint_dir}" in config["trainer"]["default_root_dir"]:
+            config["trainer"]["default_root_dir"] = config["trainer"]["default_root_dir"].replace("${logging.checkpoint_dir}", checkpoint_dir)
 
     # %% CREATE DATASET
     logging.info("Creating datasets")
@@ -361,7 +363,6 @@ def main():
         # Set up parameters for checkpoint finding
         metric = "val_loss_epoch"
         mode = "min"
-        
         # Use the get_checkpoint function to handle checkpoint finding TODO set the log_dir
         checkpoint = get_checkpoint(args.checkpoint, metric, mode, config["trainer"]["default_root_dir"])
         
