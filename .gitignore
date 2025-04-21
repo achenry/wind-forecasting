@@ -1,19 +1,35 @@
-wind_forecasting/run_scripts/lightning_logs/
-wind_forecasting/models/.eggs
-.vscode
+
+lightning_logs/
+logging/
+checkpoints/
+wandb/
+.ipynb_checkpoints/
+optuna/
+data/
+__pycache__/
+.DS_Store
+.wandb_api_key
+
+# wind_forecasting/run_scripts/lightning_logs/
+# logging/lightning_logs
+# examples/checkpoints/lightning_logs/
+
+.eggs/
+# wind_forecasting/models/.eggs
+.vscode/
 .vscode/launch.json
 
 .wandb_api_key
 
-examples/optuna/*
-wind_forecasting/models/spacetimeformer/spacetimeformer/data
-wind_forecasting/models/__pycache__
-wind_forecasting/preprocessing/__pycache__
-wind_forecasting/__pycache__
-wind_forecasting/.DS_Store
-wind_forecasting/logging/optuna/*
-logging/optuna
-logging/lightning_logs
+# examples/optuna/*
+# wind_forecasting/models/spacetimeformer/spacetimeformer/data
+# wind_forecasting/models/__pycache__
+# wind_forecasting/preprocessing/__pycache__
+# wind_forecasting/__pycache__
+
+# wind_forecasting/logging/optuna/*
+# logging/optuna
+
 ting_3_9
 wget-log*
 output
@@ -23,7 +39,7 @@ wind_forecasting/wind_forecasting/preprocessing/preprocessing_scada/examples
 preprocessing/preprocessing_scada/shapefiles
 .identifier
 .code-workspace
-.ipynb_checkpoints
+# .ipynb_checkpoints
 Miniforge3-Linux-x86_64.sh
 wind_forecasting.egg-info
 wind_forecasting/preprocessing/preprocessing_scada/.ipynb*
@@ -31,15 +47,15 @@ examples/data
 examples/postprocessed
 examples/other
 examples/inputs/awaken_data
-examples/checkpoints/
-examples/checkpoints/lightning_logs/*/*
-examples/logging/
-examples/logging/*
-examples/logging/wandb/*
-examples/logging/wandb/latest_run/*
-wandb/
+# examples/checkpoints/
+
+# examples/logging/
+# examples/logging/*
+# examples/logging/wandb/*
+# examples/logging/wandb/latest_run/*
+# wandb/
 wind-forecasting.code-workspace
-wind_forecasting/preprocessing/.ipynb_checkpoints
+# wind_forecasting/preprocessing/.ipynb_checkpoints
 lut/
 pg_data_study/
 optuna/
@@ -75,8 +91,6 @@ examples/data/*
 .vscode/
 _DOCS/*
 
-
-wind_forecasting/preprocessing/.ipynb_checkpoints/
+# wind_forecasting/preprocessing/.ipynb_checkpoints/
 *.sh.vscode/launch.json
-wind_forecasting/run_scripts/.wand_api_key
-examples/logging/wandb 
+# examples/logging/wandb 
