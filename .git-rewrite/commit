@@ -1,0 +1,8 @@
+tree 26e36276152c0b6587ad53e7a2a625e26c77ef7e
+parent e846e7451e0b8b588ca050d4f07daa9ae05e730c
+parent 5e793ac198f4fb96964803b770d68fdd1cbb3f04
+author Aoife Henry <ahenry@kl2.head.cm.kestrel.hpc.nrel.gov> 1730402976 -0600
+committer Aoife Henry <ahenry@kl2.head.cm.kestrel.hpc.nrel.gov> 1730402976 -0600
+
+Merge branch 'feature/nacelle_calibration' of https://github.com/achenry/wind-forecasting into feature/nacelle_calibration
+merge
