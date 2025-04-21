@@ -234,7 +234,7 @@ datetime_signature:
 - '\d{8}.\d{6}': '%Y%m%d.%H%M%S'
 
 merge_chunk: 176
-ram_limit: 80
+ram_limit: 85
 
 #  [(61, 60), (51, 50), (43, 42), (41, 40), (18, 19), (34, 33), (17, 16), (22, 21) FLIPPED, (87, 86), (62, 63), (32, 33) POSSIBLY DROP, (59, 60), (43, 42) FLIPPED]
 nacelle_calibration_turbine_pairs:
@@ -259,7 +259,7 @@ raw_data_directory:
 - /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/raw_awaken2_data/
 
 # processed_data_path: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/awaken_processed.parquet
-processed_data_path: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/awaken_data/awaken_processed.parquet
+processed_data_path: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/awaken_data/awaken_processed_debug.parquet
 temp_storage_dir: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/temp
 
 raw_data_file_signature: 

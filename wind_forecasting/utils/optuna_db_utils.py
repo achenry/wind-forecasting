@@ -9,7 +9,7 @@ from optuna.storages import JournalStorage, RDBStorage
 from optuna.storages.journal import JournalFileBackend
 
 
-def setup_optuna_storage(db_setup_params, study_name, restart_tuning, rank):
+def setup_optuna_storage(db_setup_params, restart_tuning, rank):
     """
     Sets up the Optuna storage backend based on configuration and handles synchronization
     between workers.
@@ -29,20 +29,21 @@ def setup_optuna_storage(db_setup_params, study_name, restart_tuning, rank):
         # Setup for SQLite database
         storage = setup_sqlite(
             sqlite_storage_dir=db_setup_params["storage_dir"], # Use resolved storage_dir
-            study_name=study_name,
+            study_name=db_setup_params["study_name"],
             restart_tuning=restart_tuning,
             rank=rank
         )
     elif storage_backend == "journal":
         return setup_journal(
             storage_dir=db_setup_params["storage_dir"], # Use resolved storage_dir
-            study_name=study_name,
+            study_name=db_setup_params["study_name"],
             restart_tuning=restart_tuning,
             rank=rank
         )
     elif storage_backend == "mysql":
-        # TODO: Update setup_mysql to accept db_setup_params if needed
-        storage = setup_mysql(study_name=study_name, restart_tuning=restart_tuning, rank=rank)
+        storage = setup_mysql(db_setup_params=db_setup_params, 
+                              restart_tuning=restart_tuning, 
+                              rank=rank)
     else:
         raise ValueError(f"Unsupported optuna storage backend: {storage_backend}") 
     return storage
@@ -224,8 +225,11 @@ def setup_sqlite(sqlite_storage_dir, study_name, restart_tuning, rank):
     # Handle restart for SQLite on rank 0
     # if rank == 0 and restart_tuning:
     #     restart_sqlite_rank_zero(sqlite_abs_path)
-    storage = RDBStorage(url=optuna_storage_url)
-    if restart_tuning:
+    if rank == 0:
+        storage = RDBStorage(url=optuna_storage_url)
+    else:
+        raise Exception("Cannot use SQLite storage with multiple workers. Please use a different backend.")
+    if rank == 0 and restart_tuning:
         delete_studies(storage)
     
     return storage
@@ -240,19 +244,23 @@ def setup_journal(storage_dir, study_name, restart_tuning, rank):
     storage = JournalStorage(JournalFileBackend(optuna_storage_url))
     return storage
     
-def setup_mysql(study_name, restart_tuning, rank):
-    logging.info(f"Connecting to RDB database {study_name}")
+def setup_mysql(db_setup_params, restart_tuning, rank):
+    logging.info(f"Connecting to RDB database {db_setup_params['study_name']}")
     try:
-        db = sql_connect(host="localhost", user="root",
-                        database=study_name)       
-    except Exception:
-        db = sql_connect(host="localhost", user="root")
-        cursor = db.cursor()
-        if rank == 0:
-            cursor.execute(f"CREATE DATABASE {study_name}") 
+        # '127.0.0.1'
+        db = sql_connect(host=db_setup_params["db_host"], user=db_setup_params["db_user"],
+                        database=db_setup_params["study_name"])       
+    except Exception as e:
+        try:
+            db = sql_connect(host=db_setup_params["db_host"], user=db_setup_params["db_user"])
+            cursor = db.cursor()
+            if rank == 0:
+                cursor.execute(f"CREATE DATABASE {db_setup_params['study_name']}")
+        except Exception as ee:
+            raise(f"Failed to connect to MySQL database: {ee}")
     finally:
-        # Handle restart for SQLite on rank 0
-        optuna_storage_url = f"mysql://{db.user}@{db.server_host}:{db.server_port}/{study_name}"
+        # Handle restart for MySQL on rank 0
+        optuna_storage_url = f"mysql://{db.user}@{db.server_host}:{db.server_port}/{db_setup_params['study_name']}"
         # restart_mysql_rank_zero(optuna_storage_url)
         storage = RDBStorage(url=optuna_storage_url)
         if restart_tuning:
