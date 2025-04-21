@@ -4,6 +4,9 @@ import numpy as np
 from scipy.stats import norm  # For more accurate ppf
 from scipy import special
 
+def nll(predicted_mean, true_values, predicted_std):
+    nll = -distribution.log_prob(target)
+
 def brier_score(obs, fx, fx_prob):
     """Brier Score (BS).
 

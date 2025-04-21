@@ -11,6 +11,7 @@ import time # Added for load_study retry delay
 import inspect
 from itertools import product
 import collections.abc
+from pathlib import Path
 import subprocess
 # Imports for Optuna
 import optuna
@@ -39,6 +40,73 @@ import numpy as np
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
+def generate_df_setup_params(model, model_config):
+    study_name = f"tuning_{model}_{model_config['experiment']['run_name']}"
+    optuna_cfg = model_config["optuna"]
+    storage_cfg = optuna_cfg.get("storage", {})
+    logging_cfg = model_config["logging"]
+    experiment_cfg = model_config["experiment"]
+
+    # Resolve paths relative to project root and substitute known variables
+    project_root = experiment_cfg.get("project_root", os.getcwd())
+    
+    # Resolve paths with direct substitution
+    optuna_dir_from_config = logging_cfg.get("optuna_dir")
+    resolved_optuna_dir = resolve_path(project_root, optuna_dir_from_config)
+    if not resolved_optuna_dir:
+        raise ValueError("logging.optuna_dir is required but not found or resolved.")
+
+    pgdata_path_from_config = storage_cfg.get("pgdata_path")
+    resolved_pgdata_path = resolve_path(project_root, pgdata_path_from_config)
+
+    socket_dir_base_from_config = storage_cfg.get("socket_dir_base")
+    if not socket_dir_base_from_config:
+        socket_dir_base_str = os.path.join(resolved_optuna_dir, "sockets")
+    else:
+        socket_dir_base_str = str(socket_dir_base_from_config).replace("${logging.optuna_dir}", resolved_optuna_dir)
+    resolved_socket_dir_base = resolve_path(project_root, socket_dir_base_str) # Make absolute
+
+    sync_dir_from_config = storage_cfg.get("sync_dir")
+    if not sync_dir_from_config:
+        # Default value uses the resolved optuna_dir
+        sync_dir_str = os.path.join(resolved_optuna_dir, "sync")
+    else:
+        # Substitute directly if the variable exists
+        sync_dir_str = str(sync_dir_from_config).replace("${logging.optuna_dir}", resolved_optuna_dir)
+    resolved_sync_dir = resolve_path(project_root, sync_dir_str) # Make absolute
+
+    db_setup_params = {
+        "backend": storage_cfg.get("backend", "sqlite"),
+        "project_root": project_root,
+        "pgdata_path": resolved_pgdata_path,
+        "study_name": study_name,
+        "use_socket": storage_cfg.get("use_socket", True),
+        "use_tcp": storage_cfg.get("use_tcp", False),
+        "db_host": storage_cfg.get("db_host", "localhost"),
+        "db_port": storage_cfg.get("db_port", 5432),
+        "db_name": storage_cfg.get("db_name", "optuna_study_db"),
+        "db_user": storage_cfg.get("db_user", "optuna_user"),
+        "run_cmd_shell": storage_cfg.get("run_cmd_shell", False),
+        "socket_dir_base": resolved_socket_dir_base,
+        "sync_dir": resolved_sync_dir,
+        "storage_dir": resolved_optuna_dir, # For non-postgres backends
+        "sqlite_path": storage_cfg.get("sqlite_path"), # For sqlite
+        "sqlite_wal": storage_cfg.get("sqlite_wal", True), # For sqlite
+        "sqlite_timeout": storage_cfg.get("sqlite_timeout", 600), # For sqlite
+    }
+    return db_setup_params
+
+
+# make paths absolute
+def resolve_path(base_path, path_input):
+    if not path_input: return None
+    # Convert potential Path object back to string if needed
+    path_str = str(path_input)
+    abs_path = Path(path_str)
+    if not abs_path.is_absolute():
+        abs_path = Path(base_path) / abs_path
+    return str(abs_path.resolve())
+
 def flatten_dict(d, parent_key='', sep='.'):
     items = []
     for k, v in d.items():
@@ -66,9 +134,9 @@ class SafePruningCallback(pl.Callback):
         self.optuna_pruning_callback.check_pruned()
 
 class MLTuningObjective:
-    def __init__(self, *, model, config, lightning_module_class, estimator_class,
-                 distr_output_class, max_epochs, limit_train_batches, data_module,
-                 metric, seed=42, tuning_phase=0):
+    def __init__(self, *, model, config, lightning_module_class, estimator_class, 
+                 distr_output_class, max_epochs, limit_train_batches, data_module, 
+                 metric, seed=42, tuning_phase=0, resample_freq_choices=None):
         self.model = model
         self.config = config
         self.lightning_module_class = lightning_module_class
@@ -80,6 +148,7 @@ class MLTuningObjective:
         self.metrics = []
         self.seed = seed
         self.tuning_phase = tuning_phase
+        self.resample_freq_choices = resample_freq_choices
 
         self.config["trainer"]["max_epochs"] = max_epochs
         self.config["trainer"]["limit_train_batches"] = limit_train_batches
@@ -135,10 +204,9 @@ class MLTuningObjective:
 
         # Log GPU stats at the beginning of the trial
         self.log_gpu_stats(stage=f"Trial {trial.number} Start")
-
-        # TODO HIGH setup for resample_freq, per_turbine, rank
-        params = self.estimator_class.get_params(trial)
-
+      
+        params = self.estimator_class.get_params(trial, self.tuning_phase, 
+                                                 dynamic_kwargs={"resample_freq": self.resample_freq_choices})
         if "resample_freq" in params or "per_turbine" in params:
             self.data_module.freq = f"{params['resample_freq']}s"
             self.data_module.per_turbine = params["per_turbine"]
@@ -269,7 +337,7 @@ class MLTuningObjective:
         context_length = int(context_length_factor * self.data_module.prediction_length)
 
         # Estimator Arguments to handle difference between models
-        estimator_args = {
+        estimator_kwargs = {
             "freq": self.data_module.freq,
             "prediction_length": self.data_module.prediction_length,
             "context_length": context_length,
@@ -291,23 +359,25 @@ class MLTuningObjective:
             "trainer_kwargs": trial_trainer_kwargs, # Pass the trial-specific kwargs
             "num_parallel_samples": self.config["model"][self.model].get("num_parallel_samples", 100) if self.model == 'tactis' else 100, # Default 100 if not specified
         }
+        # Add model-specific arguments from the default config YAML
+        estimator_kwargs.update(self.config["model"][self.model])
+        
         # Add model-specific tunable hyperparameters suggested by Optuna trial
         valid_estimator_params = set(estimator_params)
         filtered_params = {
             k: v for k, v in params.items()
             if k in valid_estimator_params and k != 'context_length_factor'
         }
-        logging.info(f"Trial {trial.number}: Updating estimator_args with filtered params: {list(filtered_params.keys())}")
-        estimator_args.update(filtered_params)
+        logging.info(f"Trial {trial.number}: Updating estimator_kwargs with filtered params: {list(filtered_params.keys())}")
+        estimator_kwargs.update(filtered_params)
 
         # TACTiS manages its own distribution output internally, remove if present
-        if self.model == 'tactis' and 'distr_output' in estimator_args:
-            estimator_args.pop('distr_output')
+        if self.model == 'tactis' and 'distr_output' in estimator_kwargs:
+            estimator_kwargs.pop('distr_output')
 
-        logging.info(f"Trial {trial.number}: Instantiating estimator '{self.model}' with final args: {list(estimator_args.keys())}")
-
+        logging.info(f"Trial {trial.number}: Instantiating estimator '{self.model}' with final args: {list(estimator_kwargs.keys())}")
         try:
-            estimator = self.estimator_class(**estimator_args)
+            estimator = self.estimator_class(**estimator_kwargs)
 
             # Log GPU stats before training
             self.log_gpu_stats(stage=f"Trial {trial.number} Before Training")
@@ -486,55 +556,8 @@ class MLTuningObjective:
             raise optuna.exceptions.TrialPruned("Trial failed: validation metrics were not computed")
 
 
-def get_storage(backend, study_name, storage_dir=None):
-    if backend == "mysql":
-        logging.info(f"Connecting to RDB database {study_name}")
-        # try:
-        db = sql_connect(host="localhost", user="root",
-                        database=study_name)
-        # except Exception:
-        #     db = sql_connect(host="localhost", user="root")
-        #     cursor = db.cursor()
-        #     cursor.execute(f"CREATE DATABASE {study_name}")
-        # finally:
-        storage = RDBStorage(url=f"mysql://{db.user}@{db.server_host}:{db.server_port}/{study_name}")
-    elif backend == "sqlite":
-        # SQLite with WAL mode - using a simpler URL format
-        # os.makedirs(storage_dir, exist_ok=True)
-        db_path = os.path.join(storage_dir, f"{study_name}.db")
-
-        # Use a simplified connection string format that Optuna expects
-        storage_url = f"sqlite:///{db_path}"
-
-        # Check if database already exists and initialize WAL mode directly
-        if not os.path.exists(db_path):
-            try:
-                import sqlite3
-                # Create the database manually first with WAL settings
-                conn = sqlite3.connect(db_path, timeout=60000)
-                conn.execute("PRAGMA journal_mode=WAL")
-                conn.execute("PRAGMA synchronous=NORMAL")
-                conn.execute("PRAGMA cache_size=10000")
-                conn.execute("PRAGMA temp_store=MEMORY")
-                conn.execute("PRAGMA busy_timeout=60000")
-                conn.execute("PRAGMA wal_autocheckpoint=1000")
-                conn.commit()
-                conn.close()
-                logging.info(f"Created SQLite database with WAL mode at {db_path}")
-            except Exception as e:
-                logging.error(f"Error initializing SQLite database: {e}")
-
-        storage = RDBStorage(url=storage_url)
-
-    elif backend == "journal":
-        logging.info(f"Connecting to Journal database {study_name}")
-        storage = JournalStorage(JournalFileBackend(os.path.join(storage_dir, f"{study_name}.db")))
-
-    return storage
-
-def get_tuned_params(study_name, backend, storage_dir):
-    logging.info(f"Getting storage for Optuna study {study_name}.")
-    storage = get_storage(backend=backend, study_name=study_name, storage_dir=storage_dir)
+def get_tuned_params(storage, study_name):
+    logging.info(f"Getting storage for Optuna study {study_name}.")  
     try:
         study_id = storage.get_study_id_from_name(study_name)
     except Exception:
@@ -668,7 +691,7 @@ def tune_model(model, config, study_name, optuna_storage, lightning_module_class
         # if "resample_freq" in params or "per_turbine" in params:
         # TODO incorporate this into config somehow
         # resample_freq_choices = [15, 30, 45, 60, 120]
-        resample_freq_choices = [60, 120, 180]
+        resample_freq_choices = config["optuna"]["resample_freq_choices"]
         per_turbine_choices = [True, False]
         for resample_freq, per_turbine in product(resample_freq_choices, per_turbine_choices):
             # for each combination of resample_freq and per_turbine, generate the datasets
@@ -693,7 +716,8 @@ def tune_model(model, config, study_name, optuna_storage, lightning_module_class
                                         data_module=data_module,
                                         metric=metric,
                                         seed=seed,
-                                        tuning_phase=tuning_phase)
+                                        tuning_phase=tuning_phase,
+                                        resample_freq_choices=resample_freq_choices)
 
     # Use the trial protection callback if provided
     objective_fn = (lambda trial: trial_protection_callback(tuning_objective, trial)) if trial_protection_callback else tuning_objective

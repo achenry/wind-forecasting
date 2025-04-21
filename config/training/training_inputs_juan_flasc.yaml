@@ -26,6 +26,11 @@ optuna:
   metric: "val_loss"          # The metric to optimize (NLL)
   direction: "minimize"       # Whether to minimize or maximize the metric
 
+<<<<<<< HEAD:examples/inputs/training_inputs_juan_flasc.yaml
+  resample_freq_choices: [60, 120, 180] # Resample frequency in seconds
+  
+=======
+>>>>>>> 1e24fcdefe3f1f3242fd1f17b5d0c18436705806:config/training/training_inputs_juan_flasc.yaml
   # Pruning configuration
   pruning:
     enabled: true             # Whether to enable pruning
