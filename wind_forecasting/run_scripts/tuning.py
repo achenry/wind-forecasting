@@ -143,7 +143,7 @@ class MLTuningObjective:
         self.estimator_class = estimator_class
         self.distr_output_class = distr_output_class
         self.data_module = data_module
-        self.metric = metric
+        self.metric = metric # TODO unused
         self.evaluator = MultivariateEvaluator(num_workers=None, custom_eval_fn=None)
         self.metrics = []
         self.seed = seed
@@ -214,8 +214,6 @@ class MLTuningObjective:
             assert os.path.exists(self.data_module.train_ready_data_path), "Must generates dataset and splits in tuning.py, rank 0. Requested resampling frequency may not be compatible."
             self.data_module.generate_splits(save=True, reload=False, splits=["train", "val"])
 
-        # self.data_module.generate_splits(save=True, reload=False)
-
         estimator_sig = inspect.signature(self.estimator_class.__init__)
         estimator_params = [param.name for param in estimator_sig.parameters.values()]
 
@@ -247,11 +245,12 @@ class MLTuningObjective:
             )
             current_callbacks.append(pruning_callback)
 
-            logging.info(f"Added pruning callback for trial {trial.number}, monitoring '{pruning_monitor_metric}' (Optuna objective metric: '{self.metric}')")
+            logging.info(f"Added pruning callback for trial {trial.number}, monitoring '{pruning_monitor_metric}' (Optuna objective metric: '{pruning_monitor_metric}')")
         
         logging.info(f"Trial {trial.number}: Using ModelCheckpoint defined in main YAML configuration via trainer_kwargs")
 
         trial_trainer_kwargs = self.config["trainer"].copy()
+        
         # Explicitly set the callbacks list to ONLY the ones we constructed
         trial_trainer_kwargs["callbacks"] = current_callbacks
         logging.debug(f"Final callbacks passed to estimator: {[type(cb).__name__ for cb in trial_trainer_kwargs['callbacks']]}")
@@ -405,7 +404,7 @@ class MLTuningObjective:
 
             # Log GPU stats after training
             self.log_gpu_stats(stage=f"Trial {trial.number} After Training")
-
+            
             checkpoint_path = train_output.trainer.checkpoint_callback.best_model_path
             logging.info(f"Loading checkpoint for metric retrieval: {checkpoint_path}")
             # Ensure checkpoint exists before loading
@@ -415,7 +414,7 @@ class MLTuningObjective:
                 # For Optuna, returning a high loss might be preferable to crashing the study
                 return float('inf') # Or some other indicator of failure
 
-            checkpoint = torch.load(checkpoint_path, map_location=lambda storage, loc: storage)
+            checkpoint = torch.load(checkpoint_path, map_location=lambda storage, loc: storage, weights_only=False)
 
             # Extract hyperparameters, handling potential key variations
             hparams = checkpoint.get('hyper_parameters', checkpoint.get('hparams'))
@@ -432,20 +431,16 @@ class MLTuningObjective:
                 logging.error(f"Critical: 'model_config' dictionary not found within loaded hyperparameters in {checkpoint_path}. Check saving logic.")
                 return float('inf') # Indicate failure
 
+            module_sig = inspect.signature(self.lightning_module_class.__init__)
+            module_params = [param.name for param in module_sig.parameters.values()]
+            del module_params[module_params.index("self")]
             # Extract other args expected by LightningModule.__init__ directly from hparams
             # Provide default values from the original config if not found in hparams, logging a warning
             init_args = {
                 'model_config': model_config,
-                'lr_stage1': hparams.get('lr_stage1', self.config['model'][self.model].get('lr_stage1')),
-                'lr_stage2': hparams.get('lr_stage2', self.config['model'][self.model].get('lr_stage2')),
-                'weight_decay_stage1': hparams.get('weight_decay_stage1', self.config['model'][self.model].get('weight_decay_stage1')),
-                'weight_decay_stage2': hparams.get('weight_decay_stage2', self.config['model'][self.model].get('weight_decay_stage2')),
-                'stage': hparams.get('stage', self.config['model'][self.model].get('initial_stage', 1)), # Default to initial_stage from config if not in hparams
-                'stage2_start_epoch': hparams.get('stage2_start_epoch', self.config['model'][self.model].get('stage2_start_epoch')),
-                'gradient_clip_val_stage1': hparams.get('gradient_clip_val_stage1', self.config['model'][self.model].get('gradient_clip_val_stage1')),
-                'gradient_clip_val_stage2': hparams.get('gradient_clip_val_stage2', self.config['model'][self.model].get('gradient_clip_val_stage2')),
+                **{k: hparams.get(k, self.config["model"][self.model].get(k)) for k in module_params}
             }
-
+            
             # Log if any defaults were used
             for key, val in init_args.items():
                  if key != 'model_config' and key not in hparams:
@@ -459,6 +454,7 @@ class MLTuningObjective:
                 return float('inf') # Indicate failure
 
             logging.info(f"Re-instantiating LightningModule for metric retrieval with stage: {init_args.get('stage')}")
+            logging.info(f"Re-instantiating LightningModule for metric retrieval with stage: {init_args.get('stage')}")
             logging.debug(f"Using init_args: {init_args}")
 
             # Instantiate the model using the extracted arguments
@@ -467,7 +463,6 @@ class MLTuningObjective:
             except Exception as e:
                 logging.error(f"Error during LightningModule re-instantiation: {e}", exc_info=True)
                 return float('inf') # Indicate failure
-
 
             # Load the state dict
             logging.info(f"Loading state_dict into re-instantiated model...")
@@ -503,16 +498,16 @@ class MLTuningObjective:
 
             forecast_it, ts_it = make_evaluation_predictions(**eval_kwargs)
 
-            forecasts = forecast_it
-            tss = ts_it
-            agg_metrics, _ = self.evaluator(tss, forecasts, num_series=self.data_module.num_target_vars)
+            agg_metrics, _ = self.evaluator(ts_it, forecast_it, num_series=self.data_module.num_target_vars)
 
             agg_metrics["trainable_parameters"] = summarize(estimator.create_lightning_module()).trainable_parameters
             self.metrics.append(agg_metrics.copy())
+            
+            model_checkpoint = [v for k, v in checkpoint["callbacks"].items() if "ModelCheckpoint" in k][0]
+            agg_metrics[model_checkpoint["monitor"]] = model_checkpoint["best_model_score"]
 
             # Log available metrics for debugging
             logging.info(f"Trial {trial.number} - Aggregated metrics calculated: {list(agg_metrics.keys())}")
-
 
             # Log GPU stats at the end of the trial
             self.log_gpu_stats(stage=f"Trial {trial.number} End")
@@ -536,7 +531,7 @@ class MLTuningObjective:
             metric_to_return = self.config.get("trainer", {}).get("monitor_metric", "val_loss") # Default to val_loss
             
             try:
-                metric_value = agg_metrics[metric_to_return]
+                metric_value = agg_metrics[metric_to_return].numpy()
                 logging.info(f"Trial {trial.number} - Returning metric '{metric_to_return}' to Optuna: {metric_value}")
                 return metric_value
             except KeyError:
