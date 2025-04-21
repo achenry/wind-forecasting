@@ -361,10 +361,16 @@ def main():
             logging.info(f"Declaring estimator {args.model.capitalize()} with default parameters")
             
         # Set up parameters for checkpoint finding
-        metric = "val_loss_epoch"
-        mode = "min"
-        # Use the get_checkpoint function to handle checkpoint finding TODO set the log_dir
-        checkpoint = get_checkpoint(args.checkpoint, metric, mode, config["trainer"]["default_root_dir"])
+        metric = config.get("trainer", {}).get("monitor_metric", "val_loss")
+        mode = config.get("optuna", {}).get("direction", "minimize")
+        mode_mapping = {"minimize": "min", "maximize": "max"}
+        mode = mode_mapping.get(mode, "min")
+        
+        log_dir = config["trainer"]["default_root_dir"]
+        logging.info(f"Checkpoint selection: Monitoring metric '{metric}' with mode '{mode}' in directory '{log_dir}'")
+        
+        # Use the get_checkpoint function to handle checkpoint finding
+        checkpoint = get_checkpoint(args.checkpoint, metric, mode, log_dir)
         
         # Use globals() to fetch the estimator class dynamically
         EstimatorClass = globals()[f"{args.model.capitalize()}Estimator"]

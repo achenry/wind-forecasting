@@ -421,6 +421,19 @@ def manage_postgres_instance(db_setup_params, restart=False, register_cleanup=Tr
         logging.info("Performing cleanup due to --restart_tuning flag.")
         delete_postgres_data(pg_config) # Initial cleanup if restarting
 
+    # Recreate socket directory after cleanup if using sockets
+    if pg_config.get("use_socket", False):
+        socket_dir_base = db_setup_params.get("socket_dir_base")
+        if not socket_dir_base:
+             raise ValueError("Missing 'socket_dir_base' (absolute path expected) when use_socket=True.")
+        socket_base_path = Path(socket_dir_base)
+        job_id_for_socket = os.environ.get("SLURM_JOB_ID", os.getpid()) # Unique socket per job
+        socket_dir_name = f"pg_socket_{job_id_for_socket}"
+        socket_dir_path = (socket_base_path / socket_dir_name).resolve() # Resolve just in case base wasn't fully resolved
+        os.makedirs(socket_dir_path, exist_ok=True)
+        pg_config["socket_dir"] = str(socket_dir_path) # Update pg_config with the new path
+        logging.info(f"Recreated socket directory after restart cleanup: {pg_config['socket_dir']}")
+
     # Pass the consistent pg_config
     needs_setup = init_postgres(pg_config)
     start_postgres(pg_config)
