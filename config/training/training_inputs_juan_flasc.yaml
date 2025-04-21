@@ -21,8 +21,8 @@ optuna:
   save_trial_code: false      # Default false
   n_trials_per_worker: 25     # Test a total of 4*25=100 trials 
   # ~3 min/epoch = 2.5 hours per trial = ~10 days for 100 trials / 4 workers = 2.5 days (with 100 batches no pruning)
-  max_epochs: 50              # epochs per trial
-  limit_train_batches: 100    # batches per epoch
+  max_epochs: 5              # epochs per trial
+  limit_train_batches: 50    # batches per epoch (large number to use all data)
   metric: "val_loss"          # The metric to optimize (NLL)
   direction: "minimize"       # Whether to minimize or maximize the metric
 
@@ -193,7 +193,7 @@ callbacks:
     progress_bar:
       class_path: lightning.pytorch.callbacks.TQDMProgressBar
       init_args:
-        enable: true
+        enable: false
         refresh_rate: 50  # every n steps
         leave: true
     early_stopping:
@@ -216,7 +216,7 @@ callbacks:
     lr_monitor: # Log learning rate
       class_path: lightning.pytorch.callbacks.LearningRateMonitor
       init_args:
-        logging_interval: step # Log every step/epoch
+        logging_interval: epoch # Log every step/epoch
         log_momentum: false
 
 trainer:
