@@ -582,11 +582,11 @@ def tune_model(model, config, study_name, optuna_storage, lightning_module_class
         pruning_type = config["optuna"]["pruning"].get("type", "hyperband").lower()
         min_resource = config["optuna"]["pruning"].get("min_resource", 2)
         max_resource = config["optuna"]["pruning"].get("max_resource", max_epochs)
-
         logging.info(f"Configuring pruner: type={pruning_type}, min_resource={min_resource}, max_resource={max_resource}")
 
         if pruning_type == "hyperband":
             reduction_factor = config["optuna"]["pruning"].get("reduction_factor", 2)
+            
             pruner = HyperbandPruner(
                 min_resource=min_resource,
                 max_resource=max_resource,
