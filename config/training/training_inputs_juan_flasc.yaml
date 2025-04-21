@@ -189,36 +189,10 @@ model:
 
 callbacks:
     progress_bar:
-      class_path: lightning.pytorch.callbacks.RichProgressBar
+      class_path: lightning.pytorch.callbacks.TQDMProgressBar
       init_args:
-        enabled: true # Enable just on interactive consoles
-        refresh_rate: 50 # Epochs
-        leave: true # Keep the progress bar after completion
-        dynamic_ncols: true # Automatically adjust width to terminal size
-        theme:
-          description: "bold bright_blue"
-          progress_bar: "gradient(#6206E0 to #0096FF)"
-          progress_bar_finished: "#00CCAA bold"
-          progress_bar_pulse: "#FF5F1F"
-          batch_progress: "bold bright_cyan"
-          speed: "bold bright_red underline"
-          time: "italic #B0B0B0"
-          eta: "bold #B0B0B0"
-          finished: "bold bright_green"
-          secondary: "italic #909090"
-          metrics: "bold italic #FFCC00"
-          metrics_text_delimiter: " | "
-          metrics_format: ".4f"
-          progress_bar_alt: "gradient(#4B0082 to #0000CD)"
-          batch_progress_alt: "bold bright_blue"
-          speed_alt: "bold #FF4500"
-          time_alt: "italic #D3D3D3"
-          eta_alt: "italic #D3D3D3"
-          finished_alt: "bold #98FB98"
-        console_kwargs:
-          width: 120
-          highlight: true
-          markup: true
+        refresh_rate: 50  # every n steps
+        leave: true
     early_stopping:
       class_path: lightning.pytorch.callbacks.EarlyStopping
       init_args:
