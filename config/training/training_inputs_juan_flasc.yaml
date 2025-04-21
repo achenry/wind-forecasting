@@ -243,16 +243,3 @@ trainer:
     deterministic: false
     benchmark: true
     monitor_metric: "val_loss" # Metric to monitor for checkpointing and Optuna
-    
-    scheduler:
-      class_path: torch.optim.lr_scheduler.ReduceLROnPlateau
-      init_args:
-        monitor: "val_loss"
-        mode: "min"
-        factor: 0.1          # Reduction factor
-        patience: 10
-        verbose: true        # Verbose logging
-      interval: "epoch"      # 'epoch' or 'step'
-      frequency: 1
-      strict: true
-      name: "lr_scheduler"
