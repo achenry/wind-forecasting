@@ -23,7 +23,7 @@ optuna:
   n_trials_per_worker: 2     # Test a total of 4*12=48 trials
   max_epochs: 3              # epochs per trial
   limit_train_batches: 100    # batches per epoch
-  metric: "mean_wQuantileLoss" # The metric to optimize
+  metric: "val_loss" # The metric to optimize
   direction: "minimize"       # Whether to minimize or maximize the metric
   
   resample_freq_choices: [15, 30, 45, 60] # Resample frequency in seconds
@@ -189,11 +189,34 @@ model:
     activation: gelu
     use_given: False # value in original paper is True
 
-callbacks: 
-    progress_bar:  
-    early_stopping:  
-    model_checkpoint:  
-    lr_monitor: True
+callbacks:
+    progress_bar:
+      class_path: lightning.pytorch.callbacks.TQDMProgressBar
+      init_args:
+        refresh_rate: 50  # every n steps
+        leave: true
+    early_stopping:
+      class_path: lightning.pytorch.callbacks.EarlyStopping
+      init_args:
+        monitor: 'val_loss'
+        patience: 100 # Number of epochs to wait before stopping (val>epochs to disable)
+        min_delta: 0.01 # Minimum change to be considered an improvement
+        mode: 'min'
+        check_finite: true
+    model_checkpoint:
+      class_path: lightning.pytorch.callbacks.ModelCheckpoint
+      init_args:
+        dirpath: ${logging.checkpoint_dir}
+        filename: '{epoch}-{step}-{val_loss:.2f}'
+        monitor: 'val_loss'
+        mode: 'min'
+        save_top_k: 1
+        save_last: true
+    lr_monitor: # Log learning rate
+      class_path: lightning.pytorch.callbacks.LearningRateMonitor
+      init_args:
+        logging_interval: step # Log every step/epoch
+        log_momentum: false
 
 trainer: 
     # grad_clip_norm: 0.0 # Prevents gradient explosion if > 0 

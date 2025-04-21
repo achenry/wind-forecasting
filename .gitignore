@@ -32,6 +32,7 @@ examples/postprocessed
 examples/other
 examples/inputs/awaken_data
 examples/checkpoints/
+examples/checkpoints/lightning_logs/*/*
 examples/logging/
 examples/logging/*
 examples/logging/wandb/*
@@ -43,6 +44,7 @@ lut/
 pg_data_study/
 optuna/
 lightning_logs/
+
 
 .DS_Store
 wind_forecasting/models/.DS_Store
