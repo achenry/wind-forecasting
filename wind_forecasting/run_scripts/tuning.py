@@ -357,7 +357,18 @@ class MLTuningObjective:
             # Log GPU stats after training
             self.log_gpu_stats(stage=f"Trial {trial.number} After Training")
 
-            model = self.lightning_module_class.load_from_checkpoint(train_output.trainer.checkpoint_callback.best_model_path)
+            checkpoint_path = train_output.trainer.checkpoint_callback.best_model_path
+            # Load the checkpoint
+            checkpoint = torch.load(checkpoint_path, map_location=lambda storage, loc: storage)
+            # Extract the hyperparameters
+            hparams = checkpoint.get('hyper_parameters', checkpoint.get('hparams'))
+            logging.info(f"Trial {trial.number}: Loaded hyperparameters from checkpoint: {hparams}")
+            # Check if hparams were found
+            if hparams is None:
+                raise ValueError("Hparams not found in checkpoint!")
+            model = self.lightning_module_class(**hparams)
+            model.load_state_dict(checkpoint['state_dict'])
+            logging.info(f"Trial {trial.number}: Successfully loaded model from best checkpoint using hyperparameters from checkpoint")
             transformation = estimator.create_transformation(use_lazyframe=False)
             # Use the same conditional forecast_generator for creating the predictor
             predictor = estimator.create_predictor(transformation, model,

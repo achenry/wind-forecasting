@@ -1,7 +1,7 @@
 experiment:
   username: jmb0507
   project_name: wind_forecasting_flasc
-  run_name: flasc_tune_4
+  run_name: flasc_tune_5
   project_root: /user/taed7566/Forecasting/wind-forecasting
   log_dir: /user/taed7566/Forecasting/wind-forecasting/logs/
   notes: "Tuning FLASC with TACTiS-2"
@@ -22,8 +22,8 @@ optuna:
   n_trials_per_worker: 25     # Test a total of 4*25=100 trials 
   # ~3 min/epoch = 2.5 hours per trial = ~10 days for 100 trials / 4 workers = 2.5 days
   max_epochs: 50              # epochs per trial
-  limit_train_batches: 100    # batches per epoch
-  metric: "val_loss" # The metric to optimize (NLL)
+  limit_train_batches: 1000    # batches per epoch
+  metric: "val_loss"          # The metric to optimize (NLL)
   direction: "minimize"       # Whether to minimize or maximize the metric
 
   # Pruning configuration
@@ -81,15 +81,15 @@ dataset:
     context_length: 600 # in seconds
     prediction_length: 300 # in seconds
     target_turbine_ids: # or leave blank to capture all
-    normalize: False
-    batch_size: 768 # 1024 seems to create some OOM errors
+    normalize: false
+    batch_size: 512 # 512-768 (more seems to create some OOM errors)
     workers: 12 # Consider adjusting based on CPU cores per task
-    overfit: False
+    overfit: false
     test_split: 0.20
     val_split: 0.1
     resample_freq: 60s
     n_splits: 1 # how many divisions of each continuity group to make which is further subdivided into training test and validation data
-    per_turbine_target: False
+    per_turbine_target: false
     context_length_factor: 2  # Factor to multiply prediction_length by
 
 model:
@@ -178,7 +178,7 @@ model:
     dropout_qkv: 0.0
     start_token_len: 0
     performer_redraw_interval: 100
-    use_shifted_time_windows: False
+    use_shifted_time_windows: false
     # decay_factor: 0.25
     # l2_coeff: 1e-6
     # class_loss_imp: 0.1
@@ -189,7 +189,44 @@ model:
 
 callbacks:
     progress_bar:
+      class_path: lightning.pytorch.callbacks.RichProgressBar
+      init_args:
+        enabled: true # Enable just on interactive consoles
+        refresh_rate: 50 # Epochs
+        leave: true # Keep the progress bar after completion
+        dynamic_ncols: true # Automatically adjust width to terminal size
+        theme:
+          description: "bold bright_blue"
+          progress_bar: "gradient(#6206E0 to #0096FF)"
+          progress_bar_finished: "#00CCAA bold"
+          progress_bar_pulse: "#FF5F1F"
+          batch_progress: "bold bright_cyan"
+          speed: "bold bright_red underline"
+          time: "italic #B0B0B0"
+          eta: "bold #B0B0B0"
+          finished: "bold bright_green"
+          secondary: "italic #909090"
+          metrics: "bold italic #FFCC00"
+          metrics_text_delimiter: " | "
+          metrics_format: ".4f"
+          progress_bar_alt: "gradient(#4B0082 to #0000CD)"
+          batch_progress_alt: "bold bright_blue"
+          speed_alt: "bold #FF4500"
+          time_alt: "italic #D3D3D3"
+          eta_alt: "italic #D3D3D3"
+          finished_alt: "bold #98FB98"
+        console_kwargs:
+          width: 120
+          highlight: true
+          markup: true
     early_stopping:
+      class_path: lightning.pytorch.callbacks.EarlyStopping
+      init_args:
+        monitor: 'val_loss'
+        patience: 100 # Number of epochs to wait before stopping (val>epochs to disable)
+        min_delta: 0.01 # Minimum change to be considered an improvement
+        mode: 'min'
+        check_finite: true
     model_checkpoint:
       class_path: lightning.pytorch.callbacks.ModelCheckpoint
       init_args:
@@ -199,7 +236,11 @@ callbacks:
         mode: 'min'
         save_top_k: 1
         save_last: true
-    lr_monitor: True
+    lr_monitor: # Log learning rate
+      class_path: lightning.pytorch.callbacks.LearningRateMonitor
+      init_args:
+        logging_interval: step # Log every step/epoch
+        log_momentum: false
 
 trainer:
     gradient_clip_val: 0.0 # Prevents gradient explosion if > 0. Renamed from grad_clip_norm.
@@ -210,7 +251,7 @@ trainer:
     num_nodes: 1
     strategy: "ddp" # 'ddp' or 'ddp_spawn'
     # n_workers: auto
-    # debug: False
+    # debug: false
     # accumulate: 1.0
     max_epochs: 5 # Maximum number of epochs to train 100
     limit_train_batches: 5000 # Set to integer number of steps to train on (context+prediction length)
@@ -221,7 +262,7 @@ trainer:
     # dropout: 0.1 # Regularization parameter (prevents overfitting)
     # patience: 50 # Number of epochs to wait before early stopping
     # accumulate_grad_batches: 2 # Simulates a larger batch size
-    log_every_n_steps: 100  # Or even log_every_n_steps: 1
-    deterministic: False
-    benchmark: True
+    log_every_n_steps: 100
+    deterministic: false
+    benchmark: true
     monitor_metric: "val_loss" # Metric to monitor for checkpointing and Optuna

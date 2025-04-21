@@ -6,7 +6,7 @@
 #SBATCH --cpus-per-task=16          # CPUs per task (4 tasks * 32 = 128 CPUs total)
 #SBATCH --mem-per-cpu=8016          # Memory per CPU (Total Mem = ntasks * cpus-per-task * mem-per-cpu)
 #SBATCH --gres=gpu:H100:4                # Request 4 H100 GPUs
-#SBATCH --time=7-00:00              # Time limit (7 days)
+#SBATCH --time=3-00:00              # Time limit (7 days)
 #SBATCH --job-name=tactis_tune_flasc_sql
 #SBATCH --output=/user/taed7566/Forecasting/wind-forecasting/logs/slurm_logs/tactis_tune_flasc_sql_%j.out
 #SBATCH --error=/user/taed7566/Forecasting/wind-forecasting/logs/slurm_logs/tactis_tune_flasc_sql_%j.err
@@ -58,6 +58,15 @@ echo "CONFIG_FILE: ${CONFIG_FILE}"
 echo "MODEL_NAME: ${MODEL_NAME}"
 echo "RESTART_TUNING_FLAG: '${RESTART_TUNING_FLAG}'"
 echo "------------------------"
+
+# --- GPU  Monitoring Instructions ---
+echo "--- MANUAL MONITORING INSTRUCTIONS ---"
+echo "To monitor GPU usage, open a NEW terminal session on the login node and run:"
+echo "ssh -L 8088:localhost:8088 ${USER}@${SLURM_JOB_NODELIST}"
+echo "After connecting, activate the environment and run gpustat:"
+echo "mamba activate wf_env_2"
+echo "gpustat -P --no-processes --watch 0.5"
+echo "------------------------------------"
 
 # --- Setup Main Environment ---
 echo "Setting up main environment..."
@@ -163,6 +172,74 @@ echo "Main script now waiting for workers to complete..."
 echo "Check worker logs in ${LOG_DIR}/slurm_logs/worker_*.log"
 echo "-------------------------------"
 
+# --- System Monitoring ---
+echo "=== SYSTEM MONITORING SETUP ==="
+date +"%Y-%m-%d %H:%M:%S"
+
+# Capture detailed system information at the start
+echo "--- DETAILED NODE INFORMATION ---"
+echo "Hostname: $(hostname)"
+echo "Kernel: $(uname -r)"
+echo "CPU Model: $(grep "model name" /proc/cpuinfo | head -1 | cut -d ":" -f2 | sed 's/^[ \t]*//')"
+echo "CPU Cores: $(nproc) physical, $(grep -c processor /proc/cpuinfo) logical"
+echo "Memory Total: $(free -h | grep Mem | awk '{print $2}')"
+echo "Slurm Job ID: ${SLURM_JOB_ID}"
+echo "Slurm Partition: ${SLURM_JOB_PARTITION}"
+echo "Node List: ${SLURM_JOB_NODELIST}"
+echo "Worker PIDs: ${WORKER_PIDS[*]}"
+
+# GPU Details
+echo "--- GPU INFORMATION ---"
+nvidia-smi --query-gpu=index,name,driver_version,temperature.gpu,utilization.gpu,utilization.memory,memory.total,memory.free,memory.used --format=csv
+
+# Add trap to ensure monitoring process is terminated
+trap "echo '--- Stopping System Monitoring ---'; kill \$MONITOR_PID 2>/dev/null" EXIT
+
+# Start periodic monitoring in background
+(
+    # Setup environment for monitoring commands
+    eval "$(conda shell.bash hook)"
+    conda activate wf_env_2
+    
+    echo "--- Starting Periodic Resource Monitoring (every 5 minutes) ---"
+    
+    while true; do
+        # Current timestamp
+        echo "====== SYSTEM STATUS: $(date +"%Y-%m-%d %H:%M:%S") ======"
+        
+        # CPU load (1, 5, 15 min averages)
+        echo "CPU Load: $(cat /proc/loadavg | awk '{print $1, $2, $3}')"
+        
+        # Memory usage summary
+        echo "Memory (GiB): $(free -g | grep Mem | awk '{print "Total:", $2, "Used:", $3, "Free:", $4, "Cache:", $6}')"
+        
+        # Disk usage (root partition)
+        echo "Disk: $(df -h / | grep -v Filesystem | awk '{print "Used:", $3, "Free:", $4, "of", $2, "("$5")"}')"
+        
+        # GPU usage - compact format
+        echo "GPU Status:"
+        gpustat --no-header
+        
+        # Worker process check (confirm they're still running)
+        ALIVE_WORKERS=0
+        for pid in ${WORKER_PIDS[@]}; do
+            if kill -0 $pid 2>/dev/null; then
+                ((ALIVE_WORKERS++))
+            fi
+        done
+        echo "Workers: ${ALIVE_WORKERS}/${#WORKER_PIDS[@]} still running"
+        echo "------------------------------------------"
+        
+        # Sleep for 5 minutes before next check
+        sleep 300
+    done
+) &
+
+MONITOR_PID=$!
+echo "System monitoring started (PID: ${MONITOR_PID})"
+echo "=== END MONITORING SETUP ==="
+echo "---------------------------------------"
+
 # --- Wait for all background workers to complete ---
 wait
 WAIT_EXIT_CODE=$? # Capture the exit code of the initial 'wait' command
@@ -222,4 +299,4 @@ exit $FINAL_EXIT_CODE
 # squeue -p cfdg.p,mpcg.p,all_gpu.p -o "%.10a %.10P %.25j %.8u %.2t %.10M %.6D %R"
 # ssh -L 8088:localhost:8088 taed7566@cfdg002
 # mamba activate wf_env_2
-# gpustat -cpP --watch 0.2
+# gpustat -P --no-processes --watch 0.2
