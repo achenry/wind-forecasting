@@ -6,7 +6,7 @@
 #SBATCH --cpus-per-task=8           # CPUs per task (4 tasks * 32 = 128 CPUs total)
 #SBATCH --mem-per-cpu=4096          # Memory per CPU (Total Mem = ntasks * cpus-per-task * mem-per-cpu)
 #SBATCH --gres=gpu:H100:4           # Request 4 H100 GPUs
-#SBATCH --time=5-00:00              # Time limit (7 days)
+#SBATCH --time=5-00:00              # Time limit (up to 7 days)
 #SBATCH --job-name=tactis_tune_flasc_sql
 #SBATCH --output=/user/taed7566/Forecasting/wind-forecasting/logs/slurm_logs/tactis_tune_flasc_sql_%j.out
 #SBATCH --error=/user/taed7566/Forecasting/wind-forecasting/logs/slurm_logs/tactis_tune_flasc_sql_%j.err
