@@ -371,6 +371,19 @@ def main():
         # Use globals() to fetch the estimator class dynamically
         EstimatorClass = globals()[f"{args.model.capitalize()}Estimator"]
 
+        # Process scheduler configuration
+        logging.info("Processing scheduler configuration...")
+        if 'trainer' in config and isinstance(config['trainer'], dict) and 'scheduler' in config['trainer']:
+            if isinstance(config['trainer']['scheduler'], dict):
+                config['scheduler_config'] = config['trainer']['scheduler'].copy()
+                del config['trainer']['scheduler']
+                logging.info("Moved scheduler configuration from config['trainer'] to config['scheduler_config'].")
+            else:
+                logging.warning("config['trainer']['scheduler'] found but is not a dictionary. Removing it.")
+                del config['trainer']['scheduler']
+        else:
+            logging.info("No scheduler configuration found under config['trainer'].")
+            
         # Prepare all arguments in a dictionary
         estimator_kwargs = {
             "freq": data_module.freq,
