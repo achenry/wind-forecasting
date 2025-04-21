@@ -1,41 +1,45 @@
 experiment:
   username: jmb0507
   project_name: wind_forecasting_flasc
-  run_name: flasc_tune_2
-  project_root: /user/taed7566/wind-forecasting
-  log_dir: /user/taed7566/wind-forecasting/logging/
+  run_name: flasc_tune_5
+  project_root: /user/taed7566/Forecasting/wind-forecasting
+  log_dir: /user/taed7566/Forecasting/wind-forecasting/logs/
   notes: "Tuning FLASC with TACTiS-2"
   extra_tags: ["flasc"] # By default already has GPU id, model and mode.
 
 logging:
   entity: jmb0507-cu-boulder # Wandb entity (group name)
   wandb_mode: online
-  save_code: true # Save code to wandb
-  wandb_dir: /user/taed7566/wind-forecasting/logging/wandb/
-  optuna_dir: /user/taed7566/wind-forecasting/logging/optuna/
-  checkpoint_dir: /user/taed7566/wind-forecasting/logging/checkpoints/ # Currently unused, its handled by wandb
-  slurm_output_dir: /user/taed7566/wind-forecasting/logging/slurm_logs/
+  save_code: false # Do not save code to W&B
+  wandb_dir: /user/taed7566/Forecasting/wind-forecasting/logs # Let WandB create the 'wandb' subdir here
+  optuna_dir: /user/taed7566/Forecasting/wind-forecasting/optuna
+  checkpoint_dir: /user/taed7566/Forecasting/wind-forecasting/logs/checkpoints
+  slurm_output_dir: /user/taed7566/Forecasting/wind-forecasting/logs/slurm_logs
 
 optuna:
   study_name: "flasc_tune"
   save_trial_code: false      # Default false
-  n_trials_per_worker: 12     # Test a total of 4*12=48 trials
+  n_trials_per_worker: 25     # Test a total of 4*25=100 trials 
+  # ~3 min/epoch = 2.5 hours per trial = ~10 days for 100 trials / 4 workers = 2.5 days
   max_epochs: 50              # epochs per trial
-  limit_train_batches: 100    # batches per epoch
-  metric: "mean_wQuantileLoss" # The metric to optimize
+  limit_train_batches: 1000    # batches per epoch
+  metric: "val_loss"          # The metric to optimize (NLL)
   direction: "minimize"       # Whether to minimize or maximize the metric
 
+<<<<<<< HEAD:examples/inputs/training_inputs_juan_flasc.yaml
   resample_freq_choices: [60, 120, 180] # Resample frequency in seconds
   
+=======
+>>>>>>> 1e24fcdefe3f1f3242fd1f17b5d0c18436705806:config/training/training_inputs_juan_flasc.yaml
   # Pruning configuration
   pruning:
     enabled: true             # Whether to enable pruning
     type: "hyperband"         # Options: "hyperband", "median", "percentile", "none"
-    min_resource: 5          # Minimum epochs before pruning can occur
+    min_resource: 3          # Minimum epochs before pruning can occur
     max_resource: 50          # Maximum epochs for pruning
-    reduction_factor: 2       # Hyperband reduction factor n (default: 3), 
+    reduction_factor: 2       # Hyperband reduction factor n (default: 3),
     # set up so log_n(max_resource/min_resource)+1 = between 4-6 brackets ideally
-  
+
   # Optuna visualization configuration (additional to wandb)
   visualization:
     enabled: true
@@ -44,13 +48,13 @@ optuna:
       optimization_history: true
       parameter_importance: true
       slice_plot: true
-      
+
   # Storage backend configuration
   storage:
     backend: "postgresql"  # Options: "postgresql", "sqlite"
     # --- PostgreSQL Specific Settings ---
     # Path relative to project root (e.g., ~/wind-forecasting)
-    pgdata_path: "logging/optuna/pg_data_study"
+    pgdata_path: "/user/taed7566/Forecasting/wind-forecasting/optuna/pgdata" # Directory for PostgreSQL data files
     db_name: "optuna_study_db"
     db_user: "optuna_user"
     use_socket: true      # Use Unix domain socket for local connection (recommended on single node)
@@ -77,20 +81,20 @@ optuna:
     log_file: "${logging.optuna_dir}/optuna_dashboard.log" # Log file for the dashboard process
 
 dataset:
-    data_path: /user/taed7566/wind-forecasting/examples/inputs/SMARTEOLE-WFC-open-dataset/processed/SMARTEOLE_WakeSteering_SCADA_normalized.parquet
-    normalization_consts_path:  /user/taed7566/wind-forecasting/examples/inputs/SMARTEOLE-WFC-open-dataset/processed/SMARTEOLE_WakeSteering_SCADA_1minData_normalization_consts.csv
+    data_path: /user/taed7566/Forecasting/wind-forecasting/examples/inputs/SMARTEOLE-WFC-open-dataset/processed/SMARTEOLE_WakeSteering_SCADA_1minData_normalized.parquet
+    normalization_consts_path:  /user/taed7566/Forecasting/wind-forecasting/examples/inputs/SMARTEOLE-WFC-open-dataset/processed/SMARTEOLE_WakeSteering_SCADA_1minData_normalization_consts.csv
     context_length: 600 # in seconds
     prediction_length: 300 # in seconds
     target_turbine_ids: # or leave blank to capture all
-    normalize: False
-    batch_size: 1024 # Testing for double (from 512)
+    normalize: false
+    batch_size: 512 # 512-768 (more seems to create some OOM errors)
     workers: 12 # Consider adjusting based on CPU cores per task
-    overfit: False
+    overfit: false
     test_split: 0.20
     val_split: 0.1
     resample_freq: 60s
     n_splits: 1 # how many divisions of each continuity group to make which is further subdivided into training test and validation data
-    per_turbine_target: False
+    per_turbine_target: false
     context_length_factor: 2  # Factor to multiply prediction_length by
 
 model:
@@ -99,13 +103,13 @@ model:
     kwargs:
       rank: 5
       sigma_init: 0.2
-  
+
   ############# MODEL-SPECIFIC PARAMETERS ##############
   # [ TACTiS-2 ]
   tactis:
     # General TACTiS settings
     initial_stage: 1
-    stage2_start_epoch: 10
+    stage2_start_epoch: 10 # Epoch to start stage 2 (copula training)
     input_encoding_normalization: true
     scaling: null # Options: "mean", "std", null
     loss_normalization: "std" # Options: "series", "timesteps", "both", "none"
@@ -161,7 +165,7 @@ model:
     n_heads: 8 # Number of heads for spatio-temporal attention
     dim_feedforward: 64
     activation: gelu
-    
+
   # [ Spacetimeformer ]
   spacetimeformer:
     # embedding_dimension: 32 # Determines dimension of the embedding space
@@ -179,7 +183,7 @@ model:
     dropout_qkv: 0.0
     start_token_len: 0
     performer_redraw_interval: 100
-    use_shifted_time_windows: False
+    use_shifted_time_windows: false
     # decay_factor: 0.25
     # l2_coeff: 1e-6
     # class_loss_imp: 0.1
@@ -188,24 +192,48 @@ model:
     activation: gelu
 ########### END OF MODEL-SPECIFIC PARAMETERS ###########
 
-callbacks: 
-    progress_bar:  
-    early_stopping:  
-    model_checkpoint:  
-    lr_monitor: True
+callbacks:
+    progress_bar:
+      class_path: lightning.pytorch.callbacks.TQDMProgressBar
+      init_args:
+        refresh_rate: 50  # every n steps
+        leave: true
+    early_stopping:
+      class_path: lightning.pytorch.callbacks.EarlyStopping
+      init_args:
+        monitor: 'val_loss'
+        patience: 100 # Number of epochs to wait before stopping (val>epochs to disable)
+        min_delta: 0.01 # Minimum change to be considered an improvement
+        mode: 'min'
+        check_finite: true
+    model_checkpoint:
+      class_path: lightning.pytorch.callbacks.ModelCheckpoint
+      init_args:
+        dirpath: ${logging.checkpoint_dir}
+        filename: '{epoch}-{step}-{val_loss:.2f}'
+        monitor: 'val_loss'
+        mode: 'min'
+        save_top_k: 1
+        save_last: true
+    lr_monitor: # Log learning rate
+      class_path: lightning.pytorch.callbacks.LearningRateMonitor
+      init_args:
+        logging_interval: step # Log every step/epoch
+        log_momentum: false
+
 trainer:
     gradient_clip_val: 0.0 # Prevents gradient explosion if > 0. Renamed from grad_clip_norm.
     # limit_val_batches: 1.0
     # val_check_interval: 1.0
-    accelerator: gpu
+    accelerator: gpu # 'cpu' or 'gpu'
     devices: auto
     num_nodes: 1
-    strategy: "ddp"
+    strategy: "ddp" # 'ddp' or 'ddp_spawn'
     # n_workers: auto
-    # debug: False 
+    # debug: false
     # accumulate: 1.0
     max_epochs: 5 # Maximum number of epochs to train 100
-    limit_train_batches: 100 # Reduced from 100 during tuning INFO @Juan
+    limit_train_batches: 5000 # Set to integer number of steps to train on (context+prediction length)
     # default_root_dir: ${logging.checkpoint_dir}  # Changed from direct path to use log_dir
     # precision: 16-mixed # 16-mixed enables mixed precision training 32-true is full precision
     # batch_size: 32 # larger = more stable gradients
@@ -213,6 +241,7 @@ trainer:
     # dropout: 0.1 # Regularization parameter (prevents overfitting)
     # patience: 50 # Number of epochs to wait before early stopping
     # accumulate_grad_batches: 2 # Simulates a larger batch size
-    log_every_n_steps: 10  # Or even log_every_n_steps: 1
-    deterministic: False
-    benchmark: True
+    log_every_n_steps: 100
+    deterministic: false
+    benchmark: true
+    monitor_metric: "val_loss" # Metric to monitor for checkpointing and Optuna
