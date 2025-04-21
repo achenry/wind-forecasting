@@ -1,0 +1,75 @@
+lr: 0.001
+model:
+  activation: relu
+  attn: prob
+  cardinality:
+  - 1
+  context_length: 20
+  d_model: 128
+  dim_feedforward: 32
+  distil: true
+  distr_output: !!python/object/apply:copyreg.__newobj_ex__
+    args:
+    - !!python/name:gluonts.torch.distributions.distribution_output.LowRankMultivariateNormalOutput ''
+    - !!python/tuple []
+    - &id001 !!python/object/apply:collections.OrderedDict
+      - - - beta
+          - 0.0
+    state:
+      __init_args__: *id001
+      args_dim:
+        cov_diag: 14
+        cov_factor: 112
+        loc: 14
+      beta: 0.0
+      dim: 14
+      mu_bias: 0.0
+      rank: 8
+      sigma_init: 1.0
+      sigma_minimum: 0.001
+      softrelu: !!python/object:gluonts.torch.distributions.distribution_output.SoftReLU
+        _backward_hooks: !!python/object/apply:collections.OrderedDict
+        - []
+        _backward_pre_hooks: !!python/object/apply:collections.OrderedDict
+        - []
+        _buffers: {}
+        _forward_hooks: !!python/object/apply:collections.OrderedDict
+        - []
+        _forward_hooks_always_called: !!python/object/apply:collections.OrderedDict
+        - []
+        _forward_hooks_with_kwargs: !!python/object/apply:collections.OrderedDict
+        - []
+        _forward_pre_hooks: !!python/object/apply:collections.OrderedDict
+        - []
+        _forward_pre_hooks_with_kwargs: !!python/object/apply:collections.OrderedDict
+        - []
+        _is_full_backward_hook: null
+        _load_state_dict_post_hooks: !!python/object/apply:collections.OrderedDict
+        - []
+        _load_state_dict_pre_hooks: !!python/object/apply:collections.OrderedDict
+        - []
+        _modules: {}
+        _non_persistent_buffers_set: !!set {}
+        _parameters: {}
+        _state_dict_hooks: !!python/object/apply:collections.OrderedDict
+        - []
+        _state_dict_pre_hooks: !!python/object/apply:collections.OrderedDict
+        - []
+        beta: 1.0
+        training: true
+  dropout: 0.1
+  embedding_dimension: null
+  factor: 5
+  freq: 60s
+  input_size: 14
+  lags_seq: null
+  n_heads: 6
+  num_decoder_layers: 2
+  num_encoder_layers: 10
+  num_feat_dynamic_real: 19
+  num_feat_static_cat: 1
+  num_feat_static_real: 1
+  num_parallel_samples: 100
+  prediction_length: 20
+  scaling: 'False'
+weight_decay: 1.0e-08
