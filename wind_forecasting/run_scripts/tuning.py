@@ -180,29 +180,8 @@ class MLTuningObjective:
             current_callbacks.append(pruning_callback)
 
             logging.info(f"Added pruning callback for trial {trial.number}, monitoring '{pruning_monitor_metric}' (Optuna objective metric: '{self.metric}')")
-
-        # Extract ModelCheckpoint configuration from callbacks in YAML
-        callbacks_config = self.config.get("callbacks", {})
-        if isinstance(callbacks_config, dict) and "model_checkpoint" in callbacks_config:
-            checkpoint_config = callbacks_config["model_checkpoint"]
-            if "class_path" in checkpoint_config and "init_args" in checkpoint_config:
-                try:
-                    # Use the init_args directly from the YAML
-                    checkpoint_init_args = checkpoint_config["init_args"].copy()
-                    # Ensure dirpath is resolved if it's a template variable
-                    if "dirpath" in checkpoint_init_args and "${" in str(checkpoint_init_args["dirpath"]):
-                        checkpoint_dir = self.config.get("logging", {}).get("checkpoint_dir", None)
-                        if checkpoint_dir:
-                            checkpoint_init_args["dirpath"] = checkpoint_dir
-                    
-                    # Add ModelCheckpoint to callbacks list
-                    model_checkpoint_callback = ModelCheckpoint(**checkpoint_init_args)
-                    current_callbacks.append(model_checkpoint_callback)
-                    logging.info(f"Trial {trial.number}: Added ModelCheckpoint from YAML config with args: {checkpoint_init_args}")
-                except Exception as e:
-                    logging.error(f"Trial {trial.number}: Failed to create ModelCheckpoint from YAML config: {e}", exc_info=True)
-        else:
-            logging.info(f"Trial {trial.number}: No model_checkpoint configuration found in YAML callbacks.")
+        
+        logging.info(f"Trial {trial.number}: Using ModelCheckpoint defined in main YAML configuration via trainer_kwargs")
 
         trial_trainer_kwargs = self.config["trainer"].copy()
         # Explicitly set the callbacks list to ONLY the ones we constructed
@@ -358,17 +337,81 @@ class MLTuningObjective:
             self.log_gpu_stats(stage=f"Trial {trial.number} After Training")
 
             checkpoint_path = train_output.trainer.checkpoint_callback.best_model_path
-            # Load the checkpoint
+            logging.info(f"Loading checkpoint for metric retrieval: {checkpoint_path}")
+            # Ensure checkpoint exists before loading
+            if not os.path.exists(checkpoint_path):
+                logging.error(f"Checkpoint path does not exist: {checkpoint_path}. Cannot load model for metric retrieval.")
+                # Handle error appropriately - maybe return a high loss or raise specific exception
+                # For Optuna, returning a high loss might be preferable to crashing the study
+                return float('inf') # Or some other indicator of failure
+
             checkpoint = torch.load(checkpoint_path, map_location=lambda storage, loc: storage)
-            # Extract the hyperparameters
+
+            # Extract hyperparameters, handling potential key variations
             hparams = checkpoint.get('hyper_parameters', checkpoint.get('hparams'))
-            logging.info(f"Trial {trial.number}: Loaded hyperparameters from checkpoint: {hparams}")
-            # Check if hparams were found
             if hparams is None:
-                raise ValueError("Hparams not found in checkpoint!")
-            model = self.lightning_module_class(**hparams)
-            model.load_state_dict(checkpoint['state_dict'])
-            logging.info(f"Trial {trial.number}: Successfully loaded model from best checkpoint using hyperparameters from checkpoint")
+                logging.error(f"Hyperparameters not found in checkpoint: {checkpoint_path}. Cannot re-instantiate model.")
+                return float('inf') # Indicate failure
+
+            logging.debug(f"Loaded hparams from checkpoint: {hparams}")
+
+            # Explicitly extract model_config and other necessary args for LightningModule.__init__
+            # Use .get() with default None to avoid KeyError if a param wasn't saved (though it should be)
+            model_config = hparams.get('model_config')
+            if model_config is None:
+                logging.error(f"Critical: 'model_config' dictionary not found within loaded hyperparameters in {checkpoint_path}. Check saving logic.")
+                return float('inf') # Indicate failure
+
+            # Extract other args expected by LightningModule.__init__ directly from hparams
+            # Provide default values from the original config if not found in hparams, logging a warning
+            init_args = {
+                'model_config': model_config,
+                'lr_stage1': hparams.get('lr_stage1', self.config['model'][self.model].get('lr_stage1')),
+                'lr_stage2': hparams.get('lr_stage2', self.config['model'][self.model].get('lr_stage2')),
+                'weight_decay_stage1': hparams.get('weight_decay_stage1', self.config['model'][self.model].get('weight_decay_stage1')),
+                'weight_decay_stage2': hparams.get('weight_decay_stage2', self.config['model'][self.model].get('weight_decay_stage2')),
+                'stage': hparams.get('stage', self.config['model'][self.model].get('initial_stage', 1)), # Default to initial_stage from config if not in hparams
+                'stage2_start_epoch': hparams.get('stage2_start_epoch', self.config['model'][self.model].get('stage2_start_epoch')),
+                'gradient_clip_val_stage1': hparams.get('gradient_clip_val_stage1', self.config['model'][self.model].get('gradient_clip_val_stage1')),
+                'gradient_clip_val_stage2': hparams.get('gradient_clip_val_stage2', self.config['model'][self.model].get('gradient_clip_val_stage2')),
+            }
+
+            # Log if any defaults were used
+            for key, val in init_args.items():
+                 if key != 'model_config' and key not in hparams:
+                     logging.warning(f"Hyperparameter '{key}' not found in checkpoint, using default value: {val}")
+
+
+            # Check for missing essential args (should ideally not happen with defaults)
+            missing_args = [k for k, v in init_args.items() if v is None and k != 'model_config'] # model_config checked above
+            if missing_args:
+                logging.error(f"Missing required hyperparameters in checkpoint {checkpoint_path} even after checking defaults: {missing_args}")
+                return float('inf') # Indicate failure
+
+            logging.info(f"Re-instantiating LightningModule for metric retrieval with stage: {init_args.get('stage')}")
+            logging.debug(f"Using init_args: {init_args}")
+
+            # Instantiate the model using the extracted arguments
+            try:
+                model = self.lightning_module_class(**init_args)
+            except Exception as e:
+                logging.error(f"Error during LightningModule re-instantiation: {e}", exc_info=True)
+                return float('inf') # Indicate failure
+
+
+            # Load the state dict
+            logging.info(f"Loading state_dict into re-instantiated model...")
+            try:
+                model.load_state_dict(checkpoint['state_dict'])
+                logging.info("State_dict loaded successfully.")
+            except RuntimeError as e:
+                 logging.error(f"RuntimeError loading state_dict: {e}. This often indicates a mismatch between the model architecture defined by hparams and the saved weights.", exc_info=True)
+                 # Log details about the mismatch if possible (though the error message usually contains this)
+                 logging.error(f"Model architecture stage during load attempt: {model.stage if hasattr(model, 'stage') else 'N/A'}")
+                 return float('inf') # Indicate failure
+            except Exception as e:
+                 logging.error(f"Unexpected error loading state_dict: {e}", exc_info=True)
+                 return float('inf') # Indicate failure
             transformation = estimator.create_transformation(use_lazyframe=False)
             # Use the same conditional forecast_generator for creating the predictor
             predictor = estimator.create_predictor(transformation, model,
