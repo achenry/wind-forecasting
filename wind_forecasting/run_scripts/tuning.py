@@ -24,12 +24,8 @@ import lightning.pytorch as pl # Import pl alias
 from optuna.trial import TrialState # Added for checking trial status
 import wandb
 from lightning.pytorch.loggers import WandbLogger
-from lightning.pytorch.callbacks import ModelCheckpoint
 
 from optuna import create_study
-from mysql.connector import connect as sql_connect
-from optuna.storages import JournalStorage, RDBStorage
-from optuna.storages.journal import JournalFileBackend
 
 from wind_forecasting.utils.optuna_visualization import launch_optuna_dashboard, log_optuna_visualizations_to_wandb
 from wind_forecasting.utils.optuna_table import log_detailed_trials_table_to_wandb
@@ -306,7 +302,7 @@ class MLTuningObjective:
 
             # Create a WandbLogger using the current W&B run
             # log_model=False as we only want metrics for this trial logger
-            wandb_logger_trial = WandbLogger(log_model=False, experiment=wandb.run)
+            wandb_logger_trial = WandbLogger(log_model=False, experiment=wandb.run, save_dir=self.config['logging']['wandb_dir'])
             logging.info(f"Rank {os.environ.get('WORKER_RANK', '0')}: Created WandbLogger for trial {trial.number}")
 
             # Add the trial-specific logger to the trainer kwargs for this worker
