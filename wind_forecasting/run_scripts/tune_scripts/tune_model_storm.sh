@@ -3,7 +3,7 @@
 #SBATCH --partition=cfdg.p          # Partition for H100/A100 GPUs cfdg.p / all_gpu.p / mpcg.p(not allowed)
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=4         # Match number of GPUs requested below
-#SBATCH --cpus-per-task=8           # CPUs per task (4 tasks * 32 = 128 CPUs total)
+#SBATCH --cpus-per-task=1           # CPUs per task (4 tasks * 32 = 128 CPUs total)
 #SBATCH --mem-per-cpu=4096          # Memory per CPU (Total Mem = ntasks * cpus-per-task * mem-per-cpu)
 #SBATCH --gres=gpu:H100:4           # Request 4 H100 GPUs
 #SBATCH --time=5-00:00              # Time limit (up to 7 days)
@@ -296,7 +296,10 @@ echo "--------------------------------------------------"
 exit $FINAL_EXIT_CODE
 
 # sbatch wind-forecasting/wind_forecasting/run_scripts/tune_scripts/tune_model_storm.sh
+# sacct --node=cfdg002 --state=RUNNING --allusers --format=JobID,JobName,User,State,NodeList,AllocCPUS,AllocTRES%40,ReqCPUS,ReqMem%15,ReqTRES%40,TRESUsageInAve,TRESUsageInMax
 # squeue -p cfdg.p,mpcg.p,all_gpu.p -o "%.10a %.10P %.25j %.8u %.2t %.10M %.6D %R"
+# squeue --node=cfdg002
+# scontrol show node cfdg002
 # ssh -L 8088:localhost:8088 taed7566@cfdg002
 # mamba activate wf_env_2
 # gpustat -P --no-processes --watch 0.5
