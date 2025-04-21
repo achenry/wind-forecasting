@@ -295,13 +295,9 @@ def main():
         logging.info(f"Using explicitly defined Optuna storage_dir: {config['optuna']['storage']['storage_dir']}")
     
     # Explicitly resolve any variable references in trainer config
-
-    if "default_root_dir" in config["trainer"]:
-        config["trainer"]["default_root_dir"] = checkpoint_dir # TODO i think these are saved elsewhere by model checkpoint callback?  
-    else:
-        # Replace ${logging.checkpoint_dir} with the actual path
-        if isinstance(config["trainer"]["default_root_dir"], str) and "${logging.checkpoint_dir}" in config["trainer"]["default_root_dir"]:
-            config["trainer"]["default_root_dir"] = config["trainer"]["default_root_dir"].replace("${logging.checkpoint_dir}", checkpoint_dir)
+    
+    # Ensure default_root_dir exists and is set correctly
+    config["trainer"]["default_root_dir"] = checkpoint_dir
 
     # %% CREATE DATASET
     logging.info("Creating datasets")

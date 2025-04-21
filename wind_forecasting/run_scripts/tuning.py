@@ -375,6 +375,28 @@ class MLTuningObjective:
             estimator_kwargs.pop('distr_output')
 
         logging.info(f"Trial {trial.number}: Instantiating estimator '{self.model}' with final args: {list(estimator_kwargs.keys())}")
+        
+        checkpoint_config = self.config.get('callbacks', {}).get('model_checkpoint', {}).get('init_args', {})
+        if 'dirpath' in checkpoint_config:
+            original_dirpath = checkpoint_config['dirpath']
+            resolved_dirpath = original_dirpath
+            
+            if "${logging.checkpoint_dir}" in resolved_dirpath:
+                base_checkpoint_dir = self.config.get('logging', {}).get('checkpoint_dir')
+                if base_checkpoint_dir:
+                    project_root = self.config.get('experiment', {}).get('project_root', '.')
+                    abs_base_checkpoint_dir = os.path.abspath(os.path.join(project_root, base_checkpoint_dir))
+                    resolved_dirpath = resolved_dirpath.replace("${logging.checkpoint_dir}", abs_base_checkpoint_dir)
+            
+            abs_resolved_dirpath = os.path.abspath(resolved_dirpath)
+            try:
+                self.config['callbacks']['model_checkpoint']['init_args']['dirpath'] = abs_resolved_dirpath
+            except KeyError:
+                logging.warning("Could not update ModelCheckpoint dirpath in config")
+            os.makedirs(abs_resolved_dirpath, exist_ok=True)
+        else:
+            logging.warning("No 'dirpath' found in ModelCheckpoint configuration.")
+
         try:
             estimator = self.estimator_class(**estimator_kwargs)
 
@@ -527,8 +549,7 @@ class MLTuningObjective:
                 wandb.finish()
 
         try:
-            # Get the metric key from config
-            metric_to_return = self.config.get("trainer", {}).get("monitor_metric", "val_loss") # Default to val_loss
+            metric_value = agg_metrics.get(self.metric)
             
             try:
                 metric_value = agg_metrics[metric_to_return].numpy()
@@ -537,7 +558,8 @@ class MLTuningObjective:
             except KeyError:
                 logging.error(f"Trial {trial.number} - ERROR: Metric key '{metric_to_return}' was not found in callback_metrics. Available metrics: {list(agg_metrics.keys())}")
                 
-                raise optuna.exceptions.TrialPruned(f"Required metric '{metric_to_return}' not found in callback metrics")
+            logging.info(f"Trial {trial.number}: Retrieved {self.metric}={metric_value}")
+            return metric_value
         except KeyError:
             metric_to_return = self.config.get("trainer", {}).get("monitor_metric", "val_loss") # Read again for error message
             logging.error(f"Trial {trial.number} - Metric '{metric_to_return}' (from config[trainer][monitor_metric]) not found in calculated metrics: {list(agg_metrics.keys())}")

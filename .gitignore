@@ -43,6 +43,7 @@ wind_forecasting/preprocessing/.ipynb_checkpoints
 lut/
 pg_data_study/
 optuna/
+lightning_logs/
 
 
 .DS_Store
@@ -80,3 +81,7 @@ wind_forecasting/preprocessing/.ipynb_checkpoints/
 *.sh.vscode/launch.json
 wind_forecasting/run_scripts/.wand_api_key
 examples/logging/wandb 
+examples/checkpoints/lightning_logs/*
+examples/checkpoints/lightning_logs/
+examples/optuna/*
+wind_forecasting/run_scripts/.wand_api_key
