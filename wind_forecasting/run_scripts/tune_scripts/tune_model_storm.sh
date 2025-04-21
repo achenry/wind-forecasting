@@ -81,7 +81,7 @@ echo "Modules loaded."
 
 # Capture LD_LIBRARY_PATH after modules are loaded
 export CAPTURED_LD_LIBRARY_PATH=$LD_LIBRARY_PATH
-echo "Captured LD_LIBRARY_PATH: ${CAPTURED_LD_LIBRARY_PATH}"
+# echo "Captured LD_LIBRARY_PATH: ${CAPTURED_LD_LIBRARY_PATH}"
 
 # Find PostgreSQL binary directory after loading the module
 PG_INITDB_PATH=$(which initdb)
@@ -201,7 +201,7 @@ trap "echo '--- Stopping System Monitoring ---'; kill \$MONITOR_PID 2>/dev/null"
     eval "$(conda shell.bash hook)"
     conda activate wf_env_2
     
-    echo "--- Starting Periodic Resource Monitoring (every 5 minutes) ---"
+    echo "--- Starting Periodic Resource Monitoring (every 10 minutes) ---"
     
     while true; do
         # Current timestamp
@@ -230,8 +230,8 @@ trap "echo '--- Stopping System Monitoring ---'; kill \$MONITOR_PID 2>/dev/null"
         echo "Workers: ${ALIVE_WORKERS}/${#WORKER_PIDS[@]} still running"
         echo "------------------------------------------"
         
-        # Sleep for 5 minutes before next check
-        sleep 300
+        # Sleep for 10 minutes before next check
+        sleep 600
     done
 ) &
 
