@@ -1,21 +1,31 @@
 experiment:
-  run_name: windfarm_flasc_tune_pruning
-  log_dir: /user/taed7566/wind-forecasting/logging/
+  username: jmb0507
+  project_name: wind_forecasting_flasc
+  run_name: flasc_tune  
   project_root: /user/taed7566/wind-forecasting
+  log_dir: /user/taed7566/wind-forecasting/logging/
+  notes: "Tuning FLASC with TACTiS-2"
+  extra_tags: ["flasc"] # By default already has GPU id, model and mode.
 
 logging:
-  wandb_dir: /user/taed7566/wind-forecasting/logging/ # WandB will create a 'wandb' subdirectory here automatically
+  entity: jmb0507-cu-boulder # Wandb entity (group name)
+  wandb_mode: online
+  save_code: false # Save code to wandb
+  wandb_dir: /user/taed7566/wind-forecasting/logging/wandb/
   optuna_dir: /user/taed7566/wind-forecasting/logging/optuna/
-  checkpoint_dir: /user/taed7566/wind-forecasting/logging/checkpoints/
+  checkpoint_dir: /user/taed7566/wind-forecasting/logging/checkpoints/ # Currently unused, its handled by wandb
   slurm_output_dir: /user/taed7566/wind-forecasting/logging/slurm_logs/
 
 optuna:
-  study_name: "windfarm_flasc_tune_pruning"
-  n_trials: 5                # trials to fit ~24h
+  study_name: "flasc_tune"
+  save_trial_code: false
+  n_trials_per_worker: 5
   max_epochs: 2               # epochs per trial
   limit_train_batches: 100    # batches per epoch
   metric: "mean_wQuantileLoss" # The metric to optimize
   direction: "minimize"       # Whether to minimize or maximize the metric
+
+  resample_freq_choices: [60, 120, 180] # Resample frequency in seconds
   
   # Pruning configuration
   pruning:
@@ -37,7 +47,7 @@ optuna:
   storage:
     backend: "postgresql"  # Options: "postgresql", "sqlite"
     # --- PostgreSQL Specific Settings ---
-    # Path relative to project root (e.g., /user/taed7566/wind-forecasting)
+    # Path relative to project root (e.g., ~/wind-forecasting)
     pgdata_path: "logging/optuna/pg_data_study"
     db_name: "optuna_study_db"
     db_user: "optuna_user"
@@ -65,41 +75,73 @@ optuna:
     log_file: "${logging.optuna_dir}/optuna_dashboard.log" # Log file for the dashboard process
 
 dataset:
-    data_path: /user/taed7566/wind-forecasting/examples/inputs/SMARTEOLE-WFC-open-dataset/processed/SMARTEOLE_WakeSteering_SCADA_1minData_normalized.parquet
+    data_path: /user/taed7566/wind-forecasting/examples/inputs/SMARTEOLE-WFC-open-dataset/processed/SMARTEOLE_WakeSteering_SCADA_normalized.parquet
     normalization_consts_path:  /user/taed7566/wind-forecasting/examples/inputs/SMARTEOLE-WFC-open-dataset/processed/SMARTEOLE_WakeSteering_SCADA_1minData_normalization_consts.csv
     context_length: 600 # in seconds
     prediction_length: 300 # in seconds
     target_turbine_ids: # or leave blank to capture all
     normalize: False
-    batch_size: 512 # Increased batch size
+    batch_size: 512
     workers: 12 # Consider adjusting based on CPU cores per task
     overfit: False
     test_split: 0.20
     val_split: 0.1
-    resample_freq: 30s
+    resample_freq: 60s
     n_splits: 1 # how many divisions of each continuity group to make which is further subdivided into training test and validation data
     per_turbine_target: False
     context_length_factor: 2  # Factor to multiply prediction_length by
 
 model:
   distr_output:
-    class: "LowRankMultivariateNormalOutput"
+    class: "LowRankMultivariateNormalOutput" # Doesn't apply to TACTiS
     kwargs:
       rank: 5
       sigma_init: 0.2
   
-  # Model-specific parameters
+  ############# MODEL-SPECIFIC PARAMETERS ##############
+  # [ TACTiS-2 ]
   tactis:
-    flow_series_embedding_dim: 32
-    copula_series_embedding_dim: 32
-    flow_input_encoder_layers: 2
-    copula_input_encoder_layers: 2
-    bagging_size: null
-    input_encoding_normalization: true
-    data_normalization: "series"
-    loss_normalization: "series"
+    # General TACTiS settings
     initial_stage: 1
-    stage2_start_epoch: 10  
+    stage2_start_epoch: 10
+    input_encoding_normalization: true
+    scaling: null # Options: "mean", "std", null
+    loss_normalization: "std" # Options: "series", "timesteps", "both", "none"
+    encoder_type: "standard" # Options: "standard", "temporal"
+    bagging_size: null # Optional, defaults to None in estimator
+    num_parallel_samples: 100 # Num of parallel samples for probabilistic prediction
+    # Marginal CDF Encoder
+    marginal_embedding_dim_per_head: 8
+    marginal_num_heads: 5
+    marginal_num_layers: 4
+    flow_input_encoder_layers: 6
+    flow_series_embedding_dim: 5
+    # Attentional Copula Encoder
+    copula_embedding_dim_per_head: 8
+    copula_num_heads: 5
+    copula_num_layers: 2
+    copula_input_encoder_layers: 1
+    copula_series_embedding_dim: 48
+    # Decoder
+    decoder_dsf_num_layers: 2
+    decoder_dsf_hidden_dim: 256
+    decoder_mlp_num_layers: 3
+    decoder_mlp_hidden_dim: 16
+    decoder_transformer_num_layers: 3
+    decoder_transformer_embedding_dim_per_head: 16
+    decoder_transformer_num_heads: 6
+    decoder_num_bins: 50
+    # Optimizer Params
+    lr_stage1: 0.0018
+    lr_stage2: 0.0007
+    weight_decay_stage1: 0.0
+    weight_decay_stage2: 0.0
+    # Dropout & Clipping
+    dropout_rate: 0.1
+    gradient_clip_val_stage1: 1000.0
+    gradient_clip_val_stage2: 1000.0
+
+  # [ Informer ]
   informer:
     # embedding_dimension: 32 # Determines dimension of the embedding space
     num_encoder_layers: 2 # Number of transformer blocks stacked
@@ -108,6 +150,8 @@ model:
     d_model: 128 # Increased from 64 to better utilize H100 GPUs
     dim_feedforward: 512 # Increased from 64 to better utilize H100 GPUs
     activation: relu
+
+  # [ Autoformer ]
   autoformer:
     # embedding_dimension: 32 # Determines dimension of the embedding space
     num_encoder_layers: 2 # Number of transformer blocks stacked
@@ -115,6 +159,8 @@ model:
     n_heads: 8 # Number of heads for spatio-temporal attention
     dim_feedforward: 64
     activation: gelu
+    
+  # [ Spacetimeformer ]
   spacetimeformer:
     # embedding_dimension: 32 # Determines dimension of the embedding space
     num_encoder_layers: 3 # Number of transformer blocks stacked
@@ -138,6 +184,7 @@ model:
     pos_emb_type: abs
     embed_method: spatio-temporal
     activation: gelu
+########### END OF MODEL-SPECIFIC PARAMETERS ###########
 
 callbacks: 
     progress_bar:  

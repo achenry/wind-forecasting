@@ -1,4 +1,5 @@
 import argparse
+# from calendar import c
 import logging
 from memory_profiler import profile
 import os
@@ -7,6 +8,8 @@ import gc
 import random
 import numpy as np
 from datetime import datetime
+import platform
+import subprocess
 
 import polars as pl
 from lightning.pytorch.loggers import WandbLogger
@@ -17,13 +20,12 @@ import yaml
 from wind_forecasting.utils.trial_utils import handle_trial_with_oom_protection
 from wind_forecasting.utils.optuna_db_utils import setup_optuna_storage
 
-from gluonts.torch.distributions import LowRankMultivariateNormalOutput, StudentTOutput
-from gluonts.model.forecast_generator import DistributionForecastGenerator
+from gluonts.torch.distributions import LowRankMultivariateNormalOutput
+from gluonts.model.forecast_generator import DistributionForecastGenerator, SampleForecastGenerator
 from gluonts.time_feature._base import second_of_minute, minute_of_hour, hour_of_day, day_of_year
 from gluonts.transform import ExpectedNumInstanceSampler, ValidationSplitSampler, SequentialSampler
 
-from torch import set_float32_matmul_precision
-set_float32_matmul_precision('medium') # or high to trade off performance for precision
+torch.set_float32_matmul_precision('medium') # or high to trade off performance for precision
 
 from pytorch_transformer_ts.informer.lightning_module import InformerLightningModule
 from pytorch_transformer_ts.informer.estimator import InformerEstimator
@@ -35,7 +37,7 @@ from pytorch_transformer_ts.tactis_2.estimator import TACTiS2Estimator as Tactis
 from pytorch_transformer_ts.tactis_2.lightning_module import TACTiS2LightningModule as TactisLightningModule
 from wind_forecasting.preprocessing.data_module import DataModule
 from wind_forecasting.run_scripts.testing import test_model, get_checkpoint
-from wind_forecasting.run_scripts.tuning import get_tuned_params
+from wind_forecasting.run_scripts.tuning import get_tuned_params, generate_df_setup_params
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -44,7 +46,7 @@ try:
     from mpi4py import MPI
     mpi_exists = True
 except:
-    print("No MPI available on system.")
+    logging.warning("No MPI available on system.")
 
 
 def main():
@@ -68,7 +70,7 @@ def main():
     parser.add_argument("-m", "--model", type=str, choices=["informer", "autoformer", "spacetimeformer", "tactis"], required=True)
     parser.add_argument("-rt", "--restart_tuning", action="store_true")
     parser.add_argument("-utp", "--use_tuned_parameters", action="store_true", help="Use parameters tuned from Optuna optimization, otherwise use defaults set in Module class.")
-    parser.add_argument("-tp", "--tuning_phase", type=int, default=0, help="Index of tuning phase to use, gets passed to get_params estimator class methods. For tuning with multiple phases.")
+    parser.add_argument("-tp", "--tuning_phase", type=int, default=1, help="Index of tuning phase to use, gets passed to get_params estimator class methods. For tuning with multiple phases.")
     # parser.add_argument("--tune_first", action="store_true", help="Whether to use tuned parameters", default=False)
     parser.add_argument("--model_path", type=str, help="Path to a saved model checkpoint to load from", default=None)
     # parser.add_argument("--predictor_path", type=str, help="Path to a saved predictor for evaluation", default=None) # JUAN shouldn't need if we just pass filepath, latest, or best to checkpoint parameter
@@ -184,79 +186,122 @@ def main():
         config["logging"] = {}
      
     # Set up logging directory - use absolute path, rename logging dirs to group checkpoints and logs by data source and model
-    log_dir = os.path.join(config["experiment"]["log_dir"], f"{args.model}_{config['experiment']['run_name']}")
-    os.makedirs(log_dir, exist_ok=True)
-    
+    log_dir = config["experiment"]["log_dir"]
     # Set up wandb, optuna, checkpoint directories - use absolute paths
-    wandb_parent_dir = os.path.join(config["logging"].get("wandb_dir", log_dir))
-    wandb_dir = os.path.join(wandb_parent_dir, "wandb") # Configure WandB to use the specified directory structure
-    optuna_dir = config["logging"].get("optuna_dir", os.path.join(log_dir, "optuna"))
-    # checkpoint_dir = config["logging"].get("checkpoint_dir", os.path.join(log_dir, "checkpoints")) # NOTE: no need, checkpoints are saved by Model Checkpoint callback in loggers save_dir (wandb_parent_dir)
-    
-    os.makedirs(wandb_parent_dir, exist_ok=True)
+
+    wandb_dir = config["logging"]["wandb_dir"] = config["logging"].get("wandb_dir", os.path.join(log_dir, "wandb"))
+    optuna_dir = config["logging"]["optuna_dir"] = config["logging"].get("optuna_dir", os.path.join(log_dir, "optuna"))
+    checkpoint_dir = config["logging"]["checkpoint_dir"] = config["logging"].get("checkpoint_dir", os.path.join(log_dir, "checkpoints")) # NOTE: no need, checkpoints are saved by Model Checkpoint callback in loggers save_dir (wandb_dir)
+
     os.makedirs(wandb_dir, exist_ok=True)
     os.makedirs(optuna_dir, exist_ok=True)
-    # os.makedirs(checkpoint_dir, exist_ok=True)
+    os.makedirs(checkpoint_dir, exist_ok=True)
     
-    logging.info(f"WandB will create logs in {os.path.join(wandb_parent_dir, 'wandb')}")
+    logging.info(f"WandB will create logs in {wandb_dir}")
+    logging.info(f"Optuna will create logs in {optuna_dir}")
+    logging.info(f"Checkpoints will be saved in {checkpoint_dir}")
 
     # Get worker info from environment variables
     worker_id = os.environ.get('SLURM_PROCID', '0')
     gpu_id = os.environ.get('CUDA_VISIBLE_DEVICES', '0')
 
     # Create a unique run name for each worker
-    run_name = f"{config['experiment']['run_name']}_worker{worker_id}_gpu{gpu_id}"
+    project_name = config['experiment'].get('project_name', 'wind_forecasting')
+    run_name = f"{config['experiment']['username']}_{args.model}_{args.mode}_{gpu_id}"
 
     # Set an explicit run directory to avoid nesting issues
     unique_id = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{worker_id}_{gpu_id}"
-    run_dir = os.path.join(wandb_parent_dir, f"run_{unique_id}")
-    os.environ["WANDB_RUN_DIR"] = run_dir
+    run_dir = os.path.join(wandb_dir, f"run_{unique_id}")
     
     # Configure WandB to use the correct checkpoint location
     # This ensures artifacts are saved in the correct checkpoint directory
-    # os.environ["WANDB_ARTIFACT_DIR"] = checkpoint_dir
-    os.environ["WANDB_DIR"] = wandb_parent_dir
+    os.environ["WANDB_RUN_DIR"] = run_dir
+    os.environ["WANDB_ARTIFACT_DIR"] = os.environ["WANDB_CHECKPOINT_PATH"] = checkpoint_dir
+    os.environ["WANDB_DIR"] = wandb_dir
     
-    # Create WandB logger with explicit path settings
-    wandb_logger = WandbLogger(
-        project="wind_forecasting",
-        name=run_name,
-        log_model="all",
-        save_dir=wandb_parent_dir,  # Use the dedicated wandb directory
-        group=config['experiment']['run_name'],   # Group all workers under the same experiment
-        tags=[f"worker_{worker_id}", f"gpu_{gpu_id}", args.model]  # Add tags for easier filtering
-    )
-    wandb_logger.log_hyperparams(config)
-    config["trainer"]["logger"] = wandb_logger
+    # Fetch GitHub repo URL and current commit and set WandB environment variables
+    project_root = config['experiment'].get('project_root', os.getcwd())
+    git_info = {}
+    try:
+        remote_url_bytes = subprocess.check_output(['git', 'config', '--get', 'remote.origin.url'], cwd=project_root, stderr=subprocess.STDOUT).strip()
+        remote_url = remote_url_bytes.decode('utf-8')
+        # Convert SSH URL to HTTPS if necessary
+        if remote_url.startswith("git@"):
+            remote_url = remote_url.replace(":", "/").replace("git@", "https://")
+        if remote_url.endswith(".git"):
+            remote_url = remote_url[:-4]
 
-    
-    # Update config with normalized absolute paths
-    config["logging"]["optuna_dir"] = optuna_dir
-    # config["logging"]["checkpoint_dir"] = checkpoint_dir
+        commit_hash_bytes = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=project_root, stderr=subprocess.STDOUT).strip()
+        commit_hash = commit_hash_bytes.decode('utf-8')
 
-    os.environ["WANDB_DIR"] = wandb_dir # JUAN QUESTION TODO why reset this
-    
-    # Configure WandB to save runs in a standard location
-    # os.environ["WANDB_CHECKPOINT_PATH"] = checkpoint_dir
-    
+        git_info = {"url": remote_url, "commit": commit_hash}
+        logging.info(f"Fetched Git Info - URL: {remote_url}, Commit: {commit_hash}")
+
+    except subprocess.CalledProcessError as e:
+        logging.warning(f"Could not get Git info: {e.output.decode('utf-8').strip()}. Git info might not be logged in WandB.")
+    except FileNotFoundError:
+        logging.warning("'git' command not found. Cannot log Git info.")
+    except Exception as e:
+        logging.warning(f"An unexpected error occurred while fetching Git info: {e}. Git info might not be logged in WandB.", exc_info=True)
+
+    # Prepare logger config with only relevant model and dynamic info
+    model_config = config['model'].get(args.model, {})
+    dynamic_info = {
+        'seed': args.seed,
+        'rank': rank,
+        'gpu_id': gpu_id,
+        'devices': config['trainer'].get('devices'),
+        'strategy': config['trainer'].get('strategy'),
+        'torch_version': torch.__version__,
+        'python_version': platform.python_version(),
+    }
+    logger_config = {
+        'experiment': config.get('experiment', {}),
+        'dataset': config.get('dataset', {}),
+        'trainer': config.get('trainer', {}),
+        'model': model_config,
+        **dynamic_info,
+        "git_info": git_info
+    }
+
+    # Create WandB logger only for train/test modes
+    if args.mode in ["train", "test"]:
+        wandb_logger = WandbLogger(            
+            project=project_name, # Project name in WandB, set in config
+            entity=config['logging'].get('entity'),
+            group=config['experiment']['run_name'],   # Group all workers under the same experiment
+            name=run_name, # Unique name for the run, can also take config for hyperparameters. Keep brief
+            save_dir=wandb_dir, # Directory for saving logs and metadata
+            log_model="all",            
+            job_type=args.mode,
+            mode=config['logging'].get('wandb_mode', 'online'), # Configurable wandb mode
+            id=unique_id, # Unique ID for the run, can also use config hyperaparameters for comparison later 
+            tags=[f"gpu_{gpu_id}", args.model, args.mode] + config['experiment'].get('extra_tags', []),
+            config=logger_config,            
+            save_code=config['logging'].get('save_code', False)
+        )
+        config["trainer"]["logger"] = wandb_logger
+    else:
+        # For tuning mode, set logger to None
+        config["trainer"]["logger"] = None
+
     # Ensure optuna storage_dir is set correctly with absolute path
     # Only override storage_dir if it's not explicitly set
-    if "storage_dir" not in config["optuna"] or config["optuna"]["storage_dir"] is None:
-        config["optuna"]["storage_dir"] = optuna_dir
+    if "storage_dir" not in config["optuna"]["storage"] or config["optuna"]["storage"]["storage_dir"] is None:
+        config["optuna"]["storage"]["storage_dir"] = optuna_dir
     else:
         # Ensure the directory exists
-        os.makedirs(config["optuna"]["storage_dir"], exist_ok=True)
-        logging.info(f"Using explicitly defined Optuna storage_dir: {config['optuna']['storage_dir']}")
+        os.makedirs(config["optuna"]["storage"]["storage_dir"], exist_ok=True)
+        logging.info(f"Using explicitly defined Optuna storage_dir: {config['optuna']['storage']['storage_dir']}")
     
     # Explicitly resolve any variable references in trainer config
-    # TODO JUAN it seems messy to replace embedded vars like logging.checkpoint_dir - can we just let the user supply the pathname, check that it exists, and make it absolute?
-    # if "default_root_dir" not in config["trainer"]:
-    #     # Replace ${logging.checkpoint_dir} with the actual path
-    #     if isinstance(config["trainer"]["default_root_dir"], str) and "${logging.checkpoint_dir}" in config["trainer"]["default_root_dir"]:
-    #         config["trainer"]["default_root_dir"] = config["trainer"]["default_root_dir"].replace("${logging.checkpoint_dir}", checkpoint_dir)
-    # else:
-    # config["trainer"]["default_root_dir"] = checkpoint_dir # TODO i think these are saved elsewhere by model checkpoint callback?
-    config["trainer"]["default_root_dir"] = log_dir
+
+    if "default_root_dir" in config["trainer"]:
+        config["trainer"]["default_root_dir"] = checkpoint_dir # TODO i think these are saved elsewhere by model checkpoint callback?  
+    else:
+        # Replace ${logging.checkpoint_dir} with the actual path
+        if isinstance(config["trainer"]["default_root_dir"], str) and "${logging.checkpoint_dir}" in config["trainer"]["default_root_dir"]:
+            config["trainer"]["default_root_dir"] = config["trainer"]["default_root_dir"].replace("${logging.checkpoint_dir}", checkpoint_dir)
 
     # %% CREATE DATASET
     logging.info("Creating datasets")
@@ -281,14 +326,23 @@ def main():
     data_module.generate_splits(save=True, reload=False, splits=["train", "val", "test"])
 
     # %% DEFINE ESTIMATOR
+    if args.mode == "tune" or (args.mode == "train" and args.use_tuned_parameters):
+        # %% SETUP & SYNCHRONIZE DATABASE
+        # Extract necessary parameters for DB setup explicitly
+        db_setup_params = generate_df_setup_params(args.model, config)
+        optuna_storage = setup_optuna_storage(
+            db_setup_params=db_setup_params,
+            restart_tuning=args.restart_tuning,
+            rank=rank
+        )
+    
     if args.mode in ["train", "test"]:
         found_tuned_params = True
         if args.use_tuned_parameters:
             try:
                 logging.info(f"Getting tuned parameters.")
-                tuned_params = get_tuned_params(backend=config["optuna"]["storage"]["backend"], 
-                                                study_name=f"tuning_{args.model}_{config['experiment']['run_name']}", 
-                                                storage_dir=config["optuna"]["storage_dir"])
+                tuned_params = get_tuned_params(optuna_storage, db_setup_params["study_name"])
+                config["model"]["distr_output"]["kwargs"].update({k: v for k, v in tuned_params.items() if k in config["model"]["distr_output"]["kwargs"]})
                 config["dataset"].update({k: v for k, v in tuned_params.items() if k in config["dataset"]})
                 config["model"][args.model].update({k: v for k, v in tuned_params.items() if k in config["model"][args.model]})
                 config["trainer"].update({k: v for k, v in tuned_params.items() if k in config["trainer"]})
@@ -307,44 +361,67 @@ def main():
             logging.info(f"Declaring estimator {args.model.capitalize()} with default parameters")
             
         # Set up parameters for checkpoint finding
-        metric = "val_loss_epoch"
-        mode = "min"
+        metric = config.get("trainer", {}).get("monitor_metric", "val_loss")
+        mode = config.get("optuna", {}).get("direction", "minimize")
+        mode_mapping = {"minimize": "min", "maximize": "max"}
+        mode = mode_mapping.get(mode, "min")
+        
         log_dir = config["trainer"]["default_root_dir"]
+        logging.info(f"Checkpoint selection: Monitoring metric '{metric}' with mode '{mode}' in directory '{log_dir}'")
         
         # Use the get_checkpoint function to handle checkpoint finding
         checkpoint = get_checkpoint(args.checkpoint, metric, mode, log_dir)
         
         # Use globals() to fetch the estimator class dynamically
         EstimatorClass = globals()[f"{args.model.capitalize()}Estimator"]
-        estimator = EstimatorClass(
-            freq=data_module.freq, 
-            prediction_length=data_module.prediction_length,
-            num_feat_dynamic_real=data_module.num_feat_dynamic_real,
-            num_feat_static_cat=data_module.num_feat_static_cat,
-            cardinality=data_module.cardinality,
-            num_feat_static_real=data_module.num_feat_static_real,
-            input_size=data_module.num_target_vars,
-            scaling=False,
-            lags_seq=[0],
-            time_features=[second_of_minute, minute_of_hour, hour_of_day, day_of_year],
-            distr_output=globals()[config["model"]["distr_output"]["class"]](dim=data_module.num_target_vars, **config["model"]["distr_output"]["kwargs"]),
-            batch_size=config["dataset"].setdefault("batch_size", 128),
-            num_batches_per_epoch=config["trainer"].setdefault("limit_train_batches", 1000),
-            context_length=data_module.context_length,
-            train_sampler=ExpectedNumInstanceSampler(num_instances=1.0, min_past=data_module.context_length, min_future=data_module.prediction_length),
-            validation_sampler=ValidationSplitSampler(min_past=data_module.context_length, min_future=data_module.prediction_length),
-            trainer_kwargs=config["trainer"],
-            **config["model"][args.model]
-        )
+
+        # Prepare all arguments in a dictionary
+        estimator_kwargs = {
+            "freq": data_module.freq,
+            "prediction_length": data_module.prediction_length,
+            "num_feat_dynamic_real": data_module.num_feat_dynamic_real,
+            "num_feat_static_cat": data_module.num_feat_static_cat,
+            "cardinality": data_module.cardinality,
+            "num_feat_static_real": data_module.num_feat_static_real,
+            "input_size": data_module.num_target_vars,
+            "scaling": False, # Scaling handled externally or internally by TACTiS
+            "lags_seq": [0], # TACTiS doesn't typically use lags
+            "time_features": [second_of_minute, minute_of_hour, hour_of_day, day_of_year],
+            "batch_size": config["dataset"].setdefault("batch_size", 128),
+            "num_batches_per_epoch": config["trainer"].setdefault("limit_train_batches", 1000),
+            "context_length": data_module.context_length,
+            "train_sampler": ExpectedNumInstanceSampler(num_instances=1.0, min_past=data_module.context_length, min_future=data_module.prediction_length),
+            "validation_sampler": ValidationSplitSampler(min_past=data_module.context_length, min_future=data_module.prediction_length),
+            "trainer_kwargs": config["trainer"],
+        }
+
+        # Add model-specific arguments from the config YAML
+        estimator_kwargs.update(config["model"][args.model])
+
+        if args.model != 'tactis':
+            estimator_kwargs["distr_output"] = globals()[config["model"]["distr_output"]["class"]](dim=data_module.num_target_vars, **config["model"]["distr_output"]["kwargs"])
+        elif 'distr_output' in estimator_kwargs:
+             del estimator_kwargs['distr_output']
+
+        estimator = EstimatorClass(**estimator_kwargs)
+        
+        # Conditionally Create Forecast Generator
+        if args.model == 'tactis':
+            # TACTiS uses SampleForecastGenerator internally for prediction
+            # because its foweard pass returns samples not distribution parameters
+            logging.info(f"Using SampleForecastGenerator for TACTiS model.")
+            forecast_generator = SampleForecastGenerator()
+        else:
+            # Other models use DistributionForecastGenerator based on their distr_output
+            logging.info(f"Using DistributionForecastGenerator for {args.model} model.")
+            # Ensure estimator has distr_output before accessing
+            if not hasattr(estimator, 'distr_output'):
+                raise AttributeError(f"Estimator for model '{args.model}' is missing 'distr_output' attribute needed for DistributionForecastGenerator.")
+            forecast_generator = DistributionForecastGenerator(estimator.distr_output)
+            
 
     if args.mode == "tune":
-        # %% SETUP & SYNCHRONIZE DATABASE
-        optuna_storage = setup_optuna_storage(optuna_config=config["optuna"], 
-                                              study_name=f"tuning_{args.model}_{config['experiment']['run_name']}",
-                                              restart_tuning=args.restart_tuning, rank=rank)
-        
         logging.info("Starting Optuna hyperparameter tuning...")
-        # NOTE JUAN removed the check for cuda since it is helpful to debug hyperparameter tuning on local machine
         
         # %% TUNE MODEL WITH OPTUNA
         from wind_forecasting.run_scripts.tuning import tune_model
@@ -355,8 +432,8 @@ def main():
         DistrOutputClass = globals()[config["model"]["distr_output"]["class"]]
         
         # Normal execution - pass the OOM protection wrapper and constructed storage URL
-        tune_model(model=args.model, config=config,
-                   study_name=f"tuning_{args.model}_{config['experiment']['run_name']}",
+        tune_model(model=args.model, config=config, # Pass full config here for model/trainer params
+                   study_name=db_setup_params["study_name"],
                    optuna_storage=optuna_storage, # Pass the constructed storage object
                    lightning_module_class=LightningModuleClass,
                    estimator_class=EstimatorClass,
@@ -366,7 +443,7 @@ def main():
                    limit_train_batches=config["optuna"]["limit_train_batches"],
                    metric=config["optuna"]["metric"],
                    direction=config["optuna"]["direction"],
-                   n_trials=config["optuna"]["n_trials"],
+                   n_trials_per_worker=config["optuna"]["n_trials_per_worker"],
                    trial_protection_callback=handle_trial_with_oom_protection,
                    seed=args.seed, tuning_phase=args.tuning_phase)
         
@@ -378,11 +455,12 @@ def main():
     elif args.mode == "train":
         logging.info("Starting model training...")
         # %% TRAIN MODEL
+        
         logging.info("Training model")
         estimator.train(
             training_data=data_module.train_dataset,
             validation_data=data_module.val_dataset,
-            forecast_generator=DistributionForecastGenerator(estimator.distr_output),
+            forecast_generator=forecast_generator,
             ckpt_path=checkpoint,
             shuffle_buffer_length=1024
         )
@@ -396,6 +474,7 @@ def main():
                     checkpoint=checkpoint,
                     lightning_module_class=globals()[f"{args.model.capitalize()}LightningModule"], 
                     estimator=estimator, 
+                    forecast_generator=forecast_generator,
                     normalization_consts_path=config["dataset"]["normalization_consts_path"])
         
         logging.info("Model testing completed.")
