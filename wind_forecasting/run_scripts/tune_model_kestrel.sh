@@ -1,8 +1,8 @@
 #!/bin/bash 
 #SBATCH --account=ssc
-#SBATCH --time=01:00:00
+#SBATCH --time=24:00:00
 #SBATCH --output=%j-%x.out
-#SBATCH --partition=debug
+##SBATCH --partition=debug
 #SBATCH --nodes=1 # this needs to match Trainer(num_nodes...)
 #SBATCH --gres=gpu:1
 #SBATCH --ntasks-per-node=1 # this needs to match Trainer(devices=...)
@@ -20,6 +20,7 @@ ml cuda
 
 mamba activate wind_forecasting
 
+export TUNING_PHASE=0
 export BASE_DIR="/home/ahenry/toolboxes/wind_forecasting_env/wind-forecasting"
 export WORK_DIR="${BASE_DIR}/wind_forecasting"
 export LOG_DIR="/projects/ssc/ahenry/wind_forecasting/logging"
@@ -28,8 +29,9 @@ export LOG_DIR="/projects/ssc/ahenry/wind_forecasting/logging"
 export PYTHONPATH=${WORK_DIR}:${PYTHONPATH}
 export WANDB_DIR=${LOG_DIR}/wandb
 
-API_FILE="./.wandb_api_key"
-if [ -f "${API_FILE}" ]; then
+export API_FILE="./.wand_api_key"
+if [[ -f "${API_FILE}" ]]; then   
+  echo "WANDB API file exists";
   source "${API_FILE}"
 else
   echo "ERROR: WANDB API‑key file not found at ${API_FILE}" >&2
@@ -91,7 +93,7 @@ for i in $(seq 0 $((${NUM_GPUS}-1))); do
         echo \"Worker ${i}: Modules loaded.\"
 
         # --- Activate conda environment ---
-        eval \"\$(mamba shell.bash hook)\"
+        #eval \"\$(mamba shell.bash hook)\"
         mamba activate wind_forecasting
         echo \"Worker ${i}: Conda environment 'wind_forecasting' activated.\"
 
@@ -109,7 +111,7 @@ for i in $(seq 0 $((${NUM_GPUS}-1))); do
         # export SLURM_NNODES=1
         python ${WORK_DIR}/run_scripts/run_model.py --config ${BASE_DIR}/examples/inputs/training_inputs_kestrel_awaken.yaml \\
          --model $1 --mode tune --seed ${WORKER_SEED} ${RESTART_FLAG} \\
-         --single_gpu # Crucial for making Lightning use only the assigned GPU" &
+         --tuning_phase ${TUNING_PHASE} --single_gpu # Crucial for making Lightning use only the assigned GPU" &
         
         # Store the process ID
         WORKER_PIDS+=($!)
