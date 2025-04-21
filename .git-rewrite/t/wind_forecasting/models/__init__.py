@@ -1,1 +1,0 @@
-from .spacetimeformer import spacetimeformer
