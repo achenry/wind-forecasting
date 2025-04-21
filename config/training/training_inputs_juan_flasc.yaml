@@ -22,7 +22,7 @@ optuna:
   n_trials_per_worker: 25     # Test a total of 4*25=100 trials 
   # ~3 min/epoch = 2.5 hours per trial = ~10 days for 100 trials / 4 workers = 2.5 days (with 100 batches no pruning)
   max_epochs: 50              # epochs per trial
-  limit_train_batches: 1000    # batches per epoch
+  limit_train_batches: 100    # batches per epoch
   metric: "val_loss"          # The metric to optimize (NLL)
   direction: "minimize"       # Whether to minimize or maximize the metric
 
@@ -84,7 +84,7 @@ dataset:
     prediction_length: 300 # in seconds
     target_turbine_ids: # or leave blank to capture all
     normalize: false
-    batch_size: 512 # 512-768 (more seems to create some OOM errors)
+    batch_size: 768 # 512-768 (more seems to create some OOM errors)
     workers: 12 # Consider adjusting based on CPU cores per task
     overfit: false
     test_split: 0.20
