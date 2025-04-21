@@ -249,10 +249,16 @@ class MLTuningObjective:
         
         logging.info(f"Trial {trial.number}: Using ModelCheckpoint defined in main YAML configuration via trainer_kwargs")
 
-        trial_trainer_kwargs = self.config["trainer"].copy()
-        
-        # Explicitly set the callbacks list to ONLY the ones we constructed
-        trial_trainer_kwargs["callbacks"] = current_callbacks
+        trial_trainer_kwargs = {k: v for k, v in self.config["trainer"].items() if k != 'callbacks'}
+
+        instantiated_callbacks_from_config = self.config.get("callbacks", [])
+        if not isinstance(instantiated_callbacks_from_config, list) or not all(isinstance(cb, pl.Callback) for cb in instantiated_callbacks_from_config):
+             logging.warning("Callbacks in config are not a list of instantiated pl.Callback objects. Reverting to empty list.")
+             instantiated_callbacks_from_config = []
+
+        final_callbacks = instantiated_callbacks_from_config + current_callbacks
+
+        trial_trainer_kwargs["callbacks"] = final_callbacks
         logging.debug(f"Final callbacks passed to estimator: {[type(cb).__name__ for cb in trial_trainer_kwargs['callbacks']]}")
 
         # Remove monitor_metric if it exists, as it's handled by ModelCheckpoint
@@ -376,26 +382,6 @@ class MLTuningObjective:
 
         logging.info(f"Trial {trial.number}: Instantiating estimator '{self.model}' with final args: {list(estimator_kwargs.keys())}")
         
-        checkpoint_config = self.config.get('callbacks', {}).get('model_checkpoint', {}).get('init_args', {})
-        if 'dirpath' in checkpoint_config:
-            original_dirpath = checkpoint_config['dirpath']
-            resolved_dirpath = original_dirpath
-            
-            if "${logging.checkpoint_dir}" in resolved_dirpath:
-                base_checkpoint_dir = self.config.get('logging', {}).get('checkpoint_dir')
-                if base_checkpoint_dir:
-                    project_root = self.config.get('experiment', {}).get('project_root', '.')
-                    abs_base_checkpoint_dir = os.path.abspath(os.path.join(project_root, base_checkpoint_dir))
-                    resolved_dirpath = resolved_dirpath.replace("${logging.checkpoint_dir}", abs_base_checkpoint_dir)
-            
-            abs_resolved_dirpath = os.path.abspath(resolved_dirpath)
-            try:
-                self.config['callbacks']['model_checkpoint']['init_args']['dirpath'] = abs_resolved_dirpath
-            except KeyError:
-                logging.warning("Could not update ModelCheckpoint dirpath in config")
-            os.makedirs(abs_resolved_dirpath, exist_ok=True)
-        else:
-            logging.warning("No 'dirpath' found in ModelCheckpoint configuration.")
 
         try:
             estimator = self.estimator_class(**estimator_kwargs)
@@ -719,6 +705,12 @@ def tune_model(model, config, study_name, optuna_storage, lightning_module_class
             data_module.generate_splits(save=True, reload=reload, splits=["train", "val"])
 
     logging.info(f"Worker {worker_id}: Participating in Optuna study {study_name}")
+
+    # get from config
+    resample_freq_choices = config.get("optuna", {}).get("resample_freq_choices", None)
+    if resample_freq_choices is None:
+        logging.warning("'optuna.resample_freq_choices' not found in config. Default to 60s.")
+        resample_freq_choices = [60]
 
     tuning_objective = MLTuningObjective(model=model, config=config,
                                         lightning_module_class=lightning_module_class,
