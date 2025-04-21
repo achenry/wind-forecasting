@@ -1,7 +1,7 @@
 experiment:
   username: jmb0507
   project_name: wind_forecasting_flasc
-  run_name: flasc_tune_6
+  run_name: flasc_tune_7
   project_root: /user/taed7566/Forecasting/wind-forecasting
   log_dir: /user/taed7566/Forecasting/wind-forecasting/logs/
   notes: "Tuning FLASC with TACTiS-2"
@@ -21,8 +21,8 @@ optuna:
   save_trial_code: false      # Default false
   n_trials_per_worker: 25     # Test a total of 4*25=100 trials 
   # ~3 min/epoch = 2.5 hours per trial = ~10 days for 100 trials / 4 workers = 2.5 days (with 100 batches no pruning)
-  max_epochs: 5              # epochs per trial
-  limit_train_batches: 50    # batches per epoch (large number to use all data)
+  max_epochs: 50              # epochs per trial
+  limit_train_batches: 5000    # batches per epoch (large number to use all data)
   metric: "val_loss"          # The metric to optimize (NLL)
   direction: "minimize"       # Whether to minimize or maximize the metric
 
@@ -195,7 +195,7 @@ callbacks:
       init_args:
         enable: false
         refresh_rate: 50  # every n steps
-        leave: true
+        leave: false
     early_stopping:
       class_path: lightning.pytorch.callbacks.EarlyStopping
       init_args:
@@ -243,3 +243,16 @@ trainer:
     deterministic: false
     benchmark: true
     monitor_metric: "val_loss" # Metric to monitor for checkpointing and Optuna
+    
+    scheduler:
+      class_path: torch.optim.lr_scheduler.ReduceLROnPlateau
+      init_args:
+        monitor: "val_loss"
+        mode: "min"
+        factor: 0.1          # Reduction factor
+        patience: 10
+        verbose: true        # Verbose logging
+      interval: "epoch"      # 'epoch' or 'step'
+      frequency: 1
+      strict: true
+      name: "lr_scheduler"
