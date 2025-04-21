@@ -9,6 +9,7 @@ data/
 __pycache__/
 .DS_Store
 .wand_api_key
+.wandb_api_key
 
 # wind_forecasting/run_scripts/lightning_logs/
 # logging/lightning_logs
@@ -19,6 +20,7 @@ __pycache__/
 .vscode/
 .vscode/launch.json
 
+<<<<<<< HEAD
 # examples/optuna/*
 # wind_forecasting/models/spacetimeformer/spacetimeformer/data
 # wind_forecasting/models/__pycache__
@@ -91,4 +93,4 @@ _DOCS/*
 
 # wind_forecasting/preprocessing/.ipynb_checkpoints/
 *.sh.vscode/launch.json
-# examples/logging/wandb 
+# examples/logging/wandb =
