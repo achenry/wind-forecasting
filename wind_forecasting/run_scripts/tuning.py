@@ -428,14 +428,24 @@ class MLTuningObjective:
             self.log_gpu_stats(stage=f"Trial {trial.number} After Training")
             
             try:
-                checkpoint_path = train_output.trainer.checkpoint_callback.best_model_path
-                logging.info(f"Loading checkpoint for metric retrieval: {checkpoint_path}")
+                # BUGFIX: Instead of using best_model_path (which may point to a previous trial's model),
+                # check if last_model_path is available - which should be from the current trial
+                if hasattr(train_output.trainer.checkpoint_callback, 'last_model_path') and train_output.trainer.checkpoint_callback.last_model_path:
+                    checkpoint_path = train_output.trainer.checkpoint_callback.last_model_path
+                    logging.info(f"Trial {trial.number} - Using last checkpoint for current trial evaluation: {checkpoint_path}")
+                else:
+                    # Fall back to best_model_path if last_model_path is not available
+                    checkpoint_path = train_output.trainer.checkpoint_callback.best_model_path
+                    logging.warning(f"Trial {trial.number} - No last_model_path available. Using best_model_path: {checkpoint_path}")
+                    logging.warning(f"Trial {trial.number} - WARNING: This may reference a previous trial's checkpoint!")
+                
                 # Ensure checkpoint exists before loading
                 if not os.path.exists(checkpoint_path):
                     error_msg = f"Checkpoint path does not exist: {checkpoint_path}. Cannot load model for metric retrieval."
                     logging.error(f"Trial {trial.number} - {error_msg}")
                     raise optuna.exceptions.TrialPruned(f"Trial {trial.number}: {error_msg}")
 
+                logging.info(f"Trial {trial.number} - Loading checkpoint from: {checkpoint_path}")
                 checkpoint = torch.load(checkpoint_path, map_location=lambda storage, loc: storage, weights_only=False)
             except (FileNotFoundError, RuntimeError) as e:
                 logging.error(f"Trial {trial.number} - Error loading checkpoint: {str(e)}", exc_info=True)
@@ -591,7 +601,9 @@ class MLTuningObjective:
 
                 metric_value = float(metric_value)
 
+                checkpoint_type = "last" if hasattr(train_output.trainer.checkpoint_callback, 'last_model_path') and train_output.trainer.checkpoint_callback.last_model_path == checkpoint_path else "best"
                 logging.info(f"Trial {trial.number} - Returning metric '{metric_to_return}' to Optuna: {metric_value}")
+                logging.info(f"Trial {trial.number} - This metric is from the {checkpoint_type} checkpoint: {os.path.basename(checkpoint_path)}")
                 return metric_value
 
             except (TypeError, ValueError) as e:
