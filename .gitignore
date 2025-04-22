@@ -8,7 +8,6 @@ optuna/
 data/
 __pycache__/
 .DS_Store
-.wand_api_key
 .wandb_api_key
 
 # wind_forecasting/run_scripts/lightning_logs/
@@ -20,7 +19,6 @@ __pycache__/
 .vscode/
 .vscode/launch.json
 
-<<<<<<< HEAD
 # examples/optuna/*
 # wind_forecasting/models/spacetimeformer/spacetimeformer/data
 # wind_forecasting/models/__pycache__
