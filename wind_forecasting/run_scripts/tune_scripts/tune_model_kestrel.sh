@@ -24,14 +24,14 @@ export BASE_DIR="/home/ahenry/toolboxes/wind_forecasting_env/wind-forecasting"
 export WORK_DIR="${BASE_DIR}/wind_forecasting"
 export LOG_DIR="/projects/ssc/ahenry/wind_forecasting/logging"
 # export MODEL_PATH="${BASE_DIR}/examples/inputs/training_inputs_kestrel_awaken.yaml"
-export MODEL_PATH="${2}"
-echo $MODEL_PATH
+export MODEL_CONFIG_PATH=$2
+echo $MODEL_CONFIG_PATH
 
 # Set paths
 export PYTHONPATH=${WORK_DIR}:${PYTHONPATH}
 export WANDB_DIR=${LOG_DIR}/wandb
 
-API_FILE="./.wandb_api_key"
+API_FILE="../.wandb_api_key"
 if [ -f "${API_FILE}" ]; then
   source "${API_FILE}"
 else
@@ -110,7 +110,7 @@ for i in $(seq 0 $((${NUM_GPUS}-1))); do
 
         # export SLURM_NTASKS_PER_NODE=1
         # export SLURM_NNODES=1
-        python ${WORK_DIR}/run_scripts/run_model.py --config ${MODEL_PATH} \\
+        python ${WORK_DIR}/run_scripts/run_model.py --config ${MODEL_CONFIG_PATH} \\
          --model $1 --mode tune --seed ${WORKER_SEED} ${RESTART_FLAG} \\
          --single_gpu # Crucial for making Lightning use only the assigned GPU" &
         
