@@ -141,7 +141,7 @@ class MLTuningObjective:
         self.data_module = data_module
         self.metric = metric # TODO unused
         self.evaluator = MultivariateEvaluator(num_workers=None, custom_eval_fn=None)
-        self.metrics = []
+        # self.metrics = []
         self.seed = seed
         self.tuning_phase = tuning_phase
         self.dynamic_params = dynamic_params
@@ -370,6 +370,9 @@ class MLTuningObjective:
         if self.model == 'tactis' and 'distr_output' in estimator_kwargs:
             estimator_kwargs.pop('distr_output')
 
+        # Get the metric key from config
+        metric_to_return = self.config.get("trainer", {}).get("monitor_metric", "val_loss") # Default to val_loss
+        
         logging.info(f"Trial {trial.number}: Instantiating estimator '{self.model}' with final args: {list(estimator_kwargs.keys())}")
         try:
             estimator = self.estimator_class(**estimator_kwargs)
@@ -473,35 +476,38 @@ class MLTuningObjective:
             except Exception as e:
                  logging.error(f"Unexpected error loading state_dict: {e}", exc_info=True)
                  return float('inf') # Indicate failure
-            transformation = estimator.create_transformation(use_lazyframe=False)
-            # Use the same conditional forecast_generator for creating the predictor
-            predictor = estimator.create_predictor(transformation, model,
-                                                    forecast_generator=forecast_generator)
-
-            # Conditional Evaluation Call
-            eval_kwargs = {
-                "dataset": self.data_module.val_dataset,
-                "predictor": predictor,
-            }
-            if self.model == 'tactis':
-                # TACTiS produces SampleForecast, no output_distr_params needed/possible
-                logging.info(f"Trial {trial.number}: Evaluating TACTiS using SampleForecast.")
-            else:
-                # Other models produce DistributionForecast, specify params to extract
-                # Example for LowRankMultivariateNormalOutput, adjust if other distrs are used
-                eval_kwargs["output_distr_params"] = {"loc": "mean", "cov_factor": "cov_factor", "cov_diag": "cov_diag"}
-                logging.info(f"Trial {trial.number}: Evaluating {self.model} using DistributionForecast with params: {eval_kwargs['output_distr_params']}")
-
-            forecast_it, ts_it = make_evaluation_predictions(**eval_kwargs)
-
-            agg_metrics, _ = self.evaluator(ts_it, forecast_it, num_series=self.data_module.num_target_vars)
-
-            agg_metrics["trainable_parameters"] = summarize(estimator.create_lightning_module()).trainable_parameters
-            self.metrics.append(agg_metrics.copy())
             
             model_checkpoint = [v for k, v in checkpoint["callbacks"].items() if "ModelCheckpoint" in k][0]
-            agg_metrics[model_checkpoint["monitor"]] = model_checkpoint["best_model_score"]
+            agg_metrics = {model_checkpoint["monitor"]: model_checkpoint["best_model_score"]}
+            
+            # remove evaluation if we don't use it ie if we use val_loss
+            if metric_to_return != "val_loss":
+                transformation = estimator.create_transformation(use_lazyframe=False)
+                # Use the same conditional forecast_generator for creating the predictor
+                predictor = estimator.create_predictor(transformation, model,
+                                                        forecast_generator=forecast_generator)
 
+                # Conditional Evaluation Call
+                eval_kwargs = {
+                    "dataset": self.data_module.val_dataset,
+                    "predictor": predictor,
+                }
+                if self.model == 'tactis':
+                    # TACTiS produces SampleForecast, no output_distr_params needed/possible
+                    logging.info(f"Trial {trial.number}: Evaluating TACTiS using SampleForecast.")
+                else:
+                    # Other models produce DistributionForecast, specify params to extract
+                    # Example for LowRankMultivariateNormalOutput, adjust if other distrs are used
+                    eval_kwargs["output_distr_params"] = {"loc": "mean", "cov_factor": "cov_factor", "cov_diag": "cov_diag"}
+                    logging.info(f"Trial {trial.number}: Evaluating {self.model} using DistributionForecast with params: {eval_kwargs['output_distr_params']}")
+
+                forecast_it, ts_it = make_evaluation_predictions(**eval_kwargs)
+
+                agg_metrics, _ = self.evaluator(ts_it, forecast_it, num_series=self.data_module.num_target_vars)
+
+                # agg_metrics["trainable_parameters"] = summarize(estimator.create_lightning_module()).trainable_parameters
+                # self.metrics.append(agg_metrics.copy())
+            
             # Log available metrics for debugging
             logging.info(f"Trial {trial.number} - Aggregated metrics calculated: {list(agg_metrics.keys())}")
 
@@ -523,8 +529,6 @@ class MLTuningObjective:
                 wandb.finish()
 
         try:
-            # Get the metric key from config
-            metric_to_return = self.config.get("trainer", {}).get("monitor_metric", "val_loss") # Default to val_loss
             
             try:
                 metric_value = agg_metrics[metric_to_return].numpy()
