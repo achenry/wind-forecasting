@@ -23,11 +23,11 @@ mamba activate wind_forecasting
 export TUNING_PHASE=0
 export BASE_DIR="/home/ahenry/toolboxes/wind_forecasting_env/wind-forecasting"
 export WORK_DIR="${BASE_DIR}/wind_forecasting"
-export LOG_DIR="/projects/ssc/ahenry/wind_forecasting/logging"
-
+#export LOG_DIR="/projects/ssc/ahenry/wind_forecasting/logging"
+#export RESTART_FLAG=""
 # Set paths
 export PYTHONPATH=${WORK_DIR}:${PYTHONPATH}
-export WANDB_DIR=${LOG_DIR}/wandb
+#export WANDB_DIR=${LOG_DIR}/wandb
 
 export API_FILE="../.wand_api_key"
 if [[ -f "${API_FILE}" ]]; then   
