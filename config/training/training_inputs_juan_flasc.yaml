@@ -1,7 +1,7 @@
 experiment:
   username: jmb0507
   project_name: wind_forecasting_flasc
-  run_name: tune_d10_b250_n6 # [d refers to min_delta, b to limit_train_batches, n to n_startup_trials]
+  run_name: tune_p8_d5_b100_n4 # [p = patience, d = min_delta, b = limit_train_batches, n = n_startup_trials]
   project_root: /user/taed7566/Forecasting/wind-forecasting
   log_dir: /user/taed7566/Forecasting/wind-forecasting/logs/
   notes: "Tuning FLASC with TACTiS-2"
@@ -19,10 +19,10 @@ logging:
 optuna:
   study_name: "flasc_tune"
   save_trial_code: false      # Default false
-  n_trials_per_worker: 25     # Test a total of 4*25=100 trials 
+  n_trials_per_worker: 25     # Test a total of 4*25=100 trials - 25 good
   # ~3 min/epoch = 2.5 hours per trial = ~10 days for 100 trials / 4 workers = 2.5 days (with 100 batches no pruning)
-  max_epochs: 25              # epochs per trial
-  limit_train_batches: 250    # batches per epoch (large number to use all data)
+  max_epochs: 25              # epochs per trial - 25 good
+  limit_train_batches: 100    # batches per epoch (large number to use all data) - 250 good
   metric: "val_loss"          # The metric to optimize (NLL)
   direction: "minimize"       # Whether to minimize or maximize the metric
 
@@ -32,7 +32,7 @@ optuna:
   pruning:
     enabled: true             # Whether to enable pruning
     type: "median"            # Options: "hyperband", "median", "percentile", "none"
-    n_startup_trials: 6       # Number of trials to wait until building the median for pruning
+    n_startup_trials: 4       # Number of trials to wait until building the median for pruning - 6 good
     n_warmup_steps: 12        # Number of epochs to wait before starting pruning
     # set up so log_n(max_resource/min_resource)+1 = between 4-6 brackets ideally (hyperband-only setting [deprecated currently])
 
@@ -192,14 +192,14 @@ callbacks:
     progress_bar:
       class_path: lightning.pytorch.callbacks.TQDMProgressBar
       init_args:
-        refresh_rate: 25  # every n steps, set to 0 to disable
+        refresh_rate: 25  # every n steps, set to 0 to disable - 25 good
         leave: false
     early_stopping:
       class_path: lightning.pytorch.callbacks.EarlyStopping
       init_args:
         monitor: 'val_loss'
-        patience: 5 # Number of epochs to wait before stopping (val>epochs to disable)
-        min_delta: 10.0 # Minimum change to be considered an improvement (>5.0 after observing visual fluctuations of 2-4 per epoch on an almost-perfectly visual plateau)
+        patience: 8 # Number of epochs to wait before stopping (val>epochs to disable) - 8 good
+        min_delta: 5.0 # Minimum change to be considered an improvement (>5.0 after observing visual fluctuations of 2-4 per epoch on an almost-perfectly visual plateau) - 5.0 good
         mode: 'min'
         check_finite: true
     model_checkpoint:
