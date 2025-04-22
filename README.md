@@ -34,7 +34,7 @@ To provide a flexible and scalable platform for experimenting with and deploying
     - [Example Data](#example-data)
   - [🔄 Workflow](#-workflow)
     - [1. Data Preprocessing](#1-data-preprocessing)
-    - [2. Hyperparameter Tuning (HPC/Slurm + Optuna)](#2-hyperparameter-tuning-hpcslurm--optuna)
+    - [2. Hyperparameter Tuning](#2-hyperparameter-tuning-hpcslurm--optuna)
     - [3. Model Training](#3-model-training)
     - [4. Model Testing](#4-model-testing)
   - [🔧 Configuration](#-configuration)
