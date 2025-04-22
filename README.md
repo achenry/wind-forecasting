@@ -160,13 +160,12 @@ The typical workflow involves these stages:
 3. Write a training configuration file similar to `wind-forecasting/examples/inputs/training_inputs_kestrel_flasc.yaml`.
 4. Run `python wind-forecasting/wind_forecasting/run_scripts/load_data.py --config wind-forecasting/examples/inputs/training_inputs_aoifemac_flasc.yaml --reload`, or on a HPC by running `wind-forecasting/wind_forecasting/run_scripts/load_data_kestrel.sh`, to resample the data as needed, caterogize the variables, and generate train/test/val splits.
 
-### 2. Hyperparameter Tuning (HPC/Slurm + Optuna)
+### 2.1 Hyperparameter Tuning
 
-*   Efficiently find optimal hyperparameters for a chosen model using distributed optimization.
-*   Configure Optuna (trials, metric, pruner, storage) and the model's search space in the training YAML.
-*   Submit the Slurm batch script (e.g., `wind_forecasting/run_scripts/tune_scripts/tune_model_storm.sh`).
-*   Workers run `run_model.py --mode tune`, coordinated via the Optuna storage backend.
-*   Key Scripts: `run_model.py`, `tuning.py`, `utils/optuna_db_utils.py`, Slurm scripts.
+1. Tune a ML model on a local machine with `python wind-forecasting/wind_forecasting/run_scripts/run_model.py --config wind-forecasting/examples/inputs/training_inputs_aoifemac_flasc.yaml --mode tune --model informer`, or on a HPC by running `wind-forecasting/wind_forecasting/run_scripts/tune_model.sh`. 
+
+### 2.2 Tuning a Statistical Model
+1. Tune a statistical model on a local machine with `python wind-hybrid-open-controller/whoc/wind_forecast/tuning.py --model_config wind_forecasting/examples/inputs/training_inputs_aoifemac_flasc.yaml --data_config wind_forecasting/examples/inputs/preprocessing_inputs_flasc.yaml --model svr --study_name svr_tuning --restart_tuning`, or on a HPC by running `wind-hybrid-open-controller/whoc/wind_forecast/run_tuning.sh [model] [number of models to tune]`.
 
 ### 3. Model Training
 
