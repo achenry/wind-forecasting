@@ -16,6 +16,11 @@ def setup_optuna_storage(db_setup_params, restart_tuning, rank):
     """
     storage_backend = db_setup_params.get("backend", "sqlite")
     logging.info(f"Optuna storage backend configured as: {storage_backend}")
+    
+    # if "storage_dir" in db_setup_params:
+    #     # Ensure the directory exists
+    #     os.makedirs(db_setup_params["storage_dir"], exist_ok=True)
+    #     logging.info(f"Using explicitly defined Optuna storage_dir: {db_setup_params['storage_dir']}")
 
     if storage_backend == "postgresql":
         # Setup for PostgreSQL database
@@ -263,7 +268,7 @@ def setup_mysql(db_setup_params, restart_tuning, rank):
         optuna_storage_url = f"mysql://{db.user}@{db.server_host}:{db.server_port}/{db_setup_params['study_name']}"
         # restart_mysql_rank_zero(optuna_storage_url)
         storage = RDBStorage(url=optuna_storage_url)
-        if restart_tuning:
+        if restart_tuning and rank == 0:
             delete_studies(storage)
         
     return storage

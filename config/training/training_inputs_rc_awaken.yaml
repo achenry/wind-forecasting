@@ -12,7 +12,7 @@ experiment:
 #   slurm_output_dir: /pl/active/paolab/wind_forecasting/logging/slurm_logs/
 
 optuna:
-  storage_dir: /scratch/alpine/aohe7145/optuna
+  # storage_dir: /scratch/alpine/aohe7145/optuna
   n_trials: 100
   metric: val_loss
   direction: minimize

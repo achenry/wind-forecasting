@@ -14,7 +14,7 @@ experiment:
 #   slurm_output_dir: /projects/ssc/ahenry/wind_forecasting/logging/slurm_logs/
 
 optuna:
-  storage_dir: /projects/ssc/ahenry/wind_forecasting/optuna
+  # storage_dir: /projects/ssc/ahenry/wind_forecasting/optuna
   backend: mysql # sqlite, mysql, or journal
   n_trials: 100
   metric: val_loss

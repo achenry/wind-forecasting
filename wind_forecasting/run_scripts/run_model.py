@@ -191,8 +191,9 @@ def main():
 
     wandb_dir = config["logging"]["wandb_dir"] = config["logging"].get("wandb_dir", os.path.join(log_dir, "wandb"))
     optuna_dir = config["logging"]["optuna_dir"] = config["logging"].get("optuna_dir", os.path.join(log_dir, "optuna"))
-    checkpoint_dir = config["logging"]["checkpoint_dir"] = config["logging"].get("checkpoint_dir", os.path.join(log_dir, "checkpoints")) # NOTE: no need, checkpoints are saved by Model Checkpoint callback in loggers save_dir (wandb_dir)
-
+    # TODO: do we need this, checkpoints are saved by Model Checkpoint callback in loggers save_dir (wandb_dir)
+    config["trainer"]["default_root_dir"] = checkpoint_dir = config["logging"]["checkpoint_dir"] = config["logging"].get("checkpoint_dir", os.path.join(log_dir, "checkpoints")) 
+    
     os.makedirs(wandb_dir, exist_ok=True)
     os.makedirs(optuna_dir, exist_ok=True)
     os.makedirs(checkpoint_dir, exist_ok=True)
@@ -284,25 +285,7 @@ def main():
     else:
         # For tuning mode, set logger to None
         config["trainer"]["logger"] = None
-
-    # Ensure optuna storage_dir is set correctly with absolute path
-    # Only override storage_dir if it's not explicitly set
-    if "storage_dir" not in config["optuna"]["storage"] or config["optuna"]["storage"]["storage_dir"] is None:
-        config["optuna"]["storage"]["storage_dir"] = optuna_dir
-    else:
-        # Ensure the directory exists
-        os.makedirs(config["optuna"]["storage"]["storage_dir"], exist_ok=True)
-        logging.info(f"Using explicitly defined Optuna storage_dir: {config['optuna']['storage']['storage_dir']}")
     
-    # Explicitly resolve any variable references in trainer config
-
-    if "default_root_dir" in config["trainer"]:
-        config["trainer"]["default_root_dir"] = checkpoint_dir # TODO i think these are saved elsewhere by model checkpoint callback?  
-    else:
-        # Replace ${logging.checkpoint_dir} with the actual path
-        if isinstance(config["trainer"]["default_root_dir"], str) and "${logging.checkpoint_dir}" in config["trainer"]["default_root_dir"]:
-            config["trainer"]["default_root_dir"] = config["trainer"]["default_root_dir"].replace("${logging.checkpoint_dir}", checkpoint_dir)
-
     # %% CREATE DATASET
     logging.info("Creating datasets")
     data_module = DataModule(data_path=config["dataset"]["data_path"], n_splits=config["dataset"]["n_splits"],
@@ -366,11 +349,10 @@ def main():
         mode_mapping = {"minimize": "min", "maximize": "max"}
         mode = mode_mapping.get(mode, "min")
         
-        log_dir = config["trainer"]["default_root_dir"]
-        logging.info(f"Checkpoint selection: Monitoring metric '{metric}' with mode '{mode}' in directory '{log_dir}'")
+        logging.info(f"Checkpoint selection: Monitoring metric '{metric}' with mode '{mode}' in directory '{checkpoint_dir}'")
         
         # Use the get_checkpoint function to handle checkpoint finding
-        checkpoint = get_checkpoint(args.checkpoint, metric, mode, log_dir)
+        checkpoint = get_checkpoint(args.checkpoint, metric, mode, checkpoint_dir)
         
         # Use globals() to fetch the estimator class dynamically
         EstimatorClass = globals()[f"{args.model.capitalize()}Estimator"]

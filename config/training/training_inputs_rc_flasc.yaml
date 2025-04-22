@@ -12,7 +12,7 @@ experiment:
 #   slurm_output_dir: /pl/active/paolab/wind_forecasting/logging/slurm_logs/
 
 optuna:
-  storage_dir: /pl/active/paolab/wind_forecasting/optuna
+  # storage_dir: /pl/active/paolab/wind_forecasting/optuna
   backend: sqlite # sqlite, mysql, or journal
   n_trials: 100
   metric: val_loss

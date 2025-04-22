@@ -132,7 +132,7 @@ class SafePruningCallback(pl.Callback):
 class MLTuningObjective:
     def __init__(self, *, model, config, lightning_module_class, estimator_class, 
                  distr_output_class, max_epochs, limit_train_batches, data_module, 
-                 metric, seed=42, tuning_phase=0, resample_freq_choices=None):
+                 metric, seed=42, tuning_phase=0, dynamic_params=None):
         self.model = model
         self.config = config
         self.lightning_module_class = lightning_module_class
@@ -144,7 +144,7 @@ class MLTuningObjective:
         self.metrics = []
         self.seed = seed
         self.tuning_phase = tuning_phase
-        self.resample_freq_choices = resample_freq_choices
+        self.dynamic_params = dynamic_params
 
         self.config["trainer"]["max_epochs"] = max_epochs
         self.config["trainer"]["limit_train_batches"] = limit_train_batches
@@ -202,7 +202,7 @@ class MLTuningObjective:
         self.log_gpu_stats(stage=f"Trial {trial.number} Start")
       
         params = self.estimator_class.get_params(trial, self.tuning_phase, 
-                                                 dynamic_kwargs={"resample_freq": self.resample_freq_choices})
+                                                 dynamic_kwargs=self.dynamic_params)
         if "resample_freq" in params or "per_turbine" in params:
             self.data_module.freq = f"{params['resample_freq']}s"
             self.data_module.per_turbine = params["per_turbine"]
@@ -676,7 +676,7 @@ def tune_model(model, config, study_name, optuna_storage, lightning_module_class
         raise
 
     # Worker ID already fetched above for study creation/loading
-
+    dynamic_params = None
     if tuning_phase == 0 and worker_id == "0":
         resample_freq_choices = config["optuna"]["resample_freq_choices"]
         per_turbine_choices = [True, False]
@@ -691,6 +691,7 @@ def tune_model(model, config, study_name, optuna_storage, lightning_module_class
             else:
                 reload = False
             data_module.generate_splits(save=True, reload=reload, splits=["train", "val"])
+        dynamic_params = {"resample_freq": self.resample_freq_choices}
 
     logging.info(f"Worker {worker_id}: Participating in Optuna study {study_name}")
 
@@ -704,7 +705,7 @@ def tune_model(model, config, study_name, optuna_storage, lightning_module_class
                                         metric=metric,
                                         seed=seed,
                                         tuning_phase=tuning_phase,
-                                        resample_freq_choices=resample_freq_choices)
+                                        dynamic_params=dynamic_params)
 
     # Use the trial protection callback if provided
     objective_fn = (lambda trial: trial_protection_callback(tuning_objective, trial)) if trial_protection_callback else tuning_objective
