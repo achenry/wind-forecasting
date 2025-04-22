@@ -38,7 +38,8 @@ pip install --target $LARGE_STORAGE/ahenry/wind_forecasting_env/bin floris polar
 # rm -rf /projects/ssc/ahenry/conda/envs/wind_forecasting
 # rm -rf /home/ahenry/.conda-pkgs/cache
 # FOR PREPROCESSING AND RUNNING MODEL
-ml PrgEnv-intel
+# ml PrgEnv-intel
+ml openmpi
 ml mamba
 mamba create --prefix=/projects/ssc/ahenry/conda/envs/wind_forecasting --y
 mamba activate wind_forecasting
