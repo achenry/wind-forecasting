@@ -167,18 +167,11 @@ The typical workflow involves these stages:
 ### 2.2 Tuning a Statistical Model
 1. Tune a statistical model on a local machine with `python wind-hybrid-open-controller/whoc/wind_forecast/tuning.py --model_config wind_forecasting/examples/inputs/training_inputs_aoifemac_flasc.yaml --data_config wind_forecasting/examples/inputs/preprocessing_inputs_flasc.yaml --model svr --study_name svr_tuning --restart_tuning`, or on a HPC by running `wind-hybrid-open-controller/whoc/wind_forecast/run_tuning.sh [model] [number of models to tune]`.
 
-### 3. Model Training
+### Training a ML Model
+1. Train a ML model on a local machine with `python wind-forecasting/wind_forecasting/run_scripts/run_model.py --config wind-forecasting/examples/inputs/training_inputs_aoifemac_flasc.yaml --mode train --model informer --use_tuned_parameters`, or on a HPC by running `wind-forecasting/wind_forecasting/run_scripts/train_model_kestrel.sh`.  
 
-*   Train the selected model with chosen hyperparameters on the full dataset.
-*   Configure the training YAML (set high `limit_train_batches`, `max_epochs`).
-*   Run `run_model.py --mode train --model <model_name>`.
-*   Leverages PyTorch Lightning Callbacks (`ModelCheckpoint`, `EarlyStopping`).
-
-### 4. Model Testing
-
-*   Evaluate the trained model on the unseen test set.
-*   Run `run_model.py --mode test --model <model_name> --checkpoint <path | 'best' | 'latest'>`.
-*   Uses `testing.py` and `gluonts.evaluation.MultivariateEvaluator`.
+### Testing a ML Model
+1. Test a ML model on a local machine with `python wind-forecasting/wind_forecasting/run_scripts/run_model.py --config wind-forecasting/examples/inputs/training_inputs_aoifemac_flasc.yaml --mode test --model informer --checkpoint latest`, or on a HPC by running `wind-forecasting/wind_forecasting/run_scripts/test_model.sh`. 
 
 ## 🔧 Configuration
 
