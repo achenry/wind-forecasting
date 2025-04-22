@@ -20,7 +20,7 @@ logging:
 
 optuna:
   save_trial_code: false      # Default false
-  n_trials_per_worker: 2     # Test a total of 4*12=48 trials
+  n_trials_per_worker: 100     # Test a total of 4*12=48 trials
   max_epochs: 3              # epochs per trial
   limit_train_batches: 100    # batches per epoch
   metric: "val_loss" # The metric to optimize
@@ -48,7 +48,7 @@ optuna:
       
   # Storage backend configuration
   storage:
-    backend: "mysql"  # Options: "postgresql", "sqlite", "mysql", "journal"
+    backend: "sqlite"  # Options: "postgresql", "sqlite", "mysql", "journal"
     # --- SQLite Specific Settings (not used if backend is postgresql) ---
     storage_dir: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/logging/optuna/
     sqlite_wal: true  # Enable WAL mode for SQLite
