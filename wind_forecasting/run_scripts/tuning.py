@@ -602,8 +602,19 @@ def tune_model(model, config, study_name, optuna_storage, lightning_module_class
             )
             logging.info(f"Created HyperbandPruner with min_resource={min_resource}, max_resource={max_resource}, reduction_factor={reduction_factor}")
         elif pruning_type == "median":
-            pruner = MedianPruner(n_startup_trials=5, n_warmup_steps=min_resource)
-            logging.info(f"Created MedianPruner with n_startup_trials=5, n_warmup_steps={min_resource}")
+            n_warmup_steps = config["optuna"]["pruning"].get("n_warmup_steps", 2)
+            if "n_warmup_steps" not in config["optuna"]["pruning"]:
+                logging.warning(f"YAML config missing 'optuna.pruning.n_warmup_steps', defaulting to {n_warmup_steps}")
+
+            n_startup_trials = config["optuna"]["pruning"].get("n_startup_trials", 5)  # Default to 5 if missing
+            if "n_startup_trials" not in config["optuna"]["pruning"]:
+                logging.warning(f"YAML config missing 'optuna.pruning.n_startup_trials', defaulting to {n_startup_trials}")
+
+            pruner = MedianPruner(
+                n_startup_trials=n_startup_trials,
+                n_warmup_steps=n_warmup_steps
+            )
+            logging.info(f"Created MedianPruner with n_startup_trials={n_startup_trials}, n_warmup_steps={n_warmup_steps}")
         elif pruning_type == "percentile":
             percentile = config["optuna"]["pruning"].get("percentile", 25)
             pruner = PercentilePruner(percentile=percentile, n_startup_trials=5, n_warmup_steps=min_resource)
