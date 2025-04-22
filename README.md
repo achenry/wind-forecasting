@@ -197,6 +197,31 @@ Primary configuration is via YAML files in `config/training/`.
 1.  **Configure:** Create/edit preprocessing YAML (e.g., `examples/inputs/preprocessing_inputs_flasc.yaml`).
 2.  **Run:** Execute `wind_forecasting/preprocessing/preprocessing_main.py` with appropriate flags or use HPC scripts.
 
+**Local Machine:**
+```bash
+python preprocessing_main.py --config examples/inputs/preprocessing_inputs_flasc.yaml --reload_data --preprocess_data --regenerate_filters --multiprocessor cf --verbose
+```
+
+**HPC System:**
+```bash
+# First load the data
+./wind_forecasting/preprocessing/load_data.sh
+
+# Then preprocess the data
+./wind_forecasting/preprocessing/preprocess_data.sh
+```
+
+3. **Data Loading:** After preprocessing, load and prepare the data for model training:
+
+```bash
+python wind_forecasting/run_scripts/load_data.py --config examples/inputs/training_inputs_flasc.yaml --reload
+```
+
+**HPC System:**
+```bash
+./wind_forecasting/run_scripts/load_data_kestrel.sh
+```
+
 ### Tuning (HPC)
 
 1.  **Configure:** Edit training YAML (`config/training/`) with Optuna settings.
@@ -205,6 +230,17 @@ Primary configuration is via YAML files in `config/training/`.
     sbatch wind_forecasting/run_scripts/tune_scripts/tune_model_storm.sh
     ```
 3.  **Monitor:** Use `squeue`, Slurm logs, WandB, and Optuna dashboard.
+
+**Local Machine:**
+```bash
+python wind_forecasting/run_scripts/run_model.py --config examples/inputs/training_inputs_flasc.yaml --mode tune --model informer
+```
+
+**HPC System:**
+```bash
+# Use the provided tuning script
+./wind_forecasting/run_scripts/tune_model.sh
+```
 
 ### Training
 
@@ -220,6 +256,17 @@ Primary configuration is via YAML files in `config/training/`.
     ```
     (Or use an HPC script)
 
+**Local Machine:**
+```bash
+python wind_forecasting/run_scripts/run_model.py --config examples/inputs/training_inputs_flasc.yaml --mode train --model informer --use_tuned_parameters
+```
+
+**HPC System:**
+```bash
+# Use the provided training script
+./wind_forecasting/run_scripts/train_model_kestrel.sh
+```
+
 ### Testing
 
 1.  **Configure:** Ensure training YAML points to the correct dataset config.
@@ -232,6 +279,17 @@ Primary configuration is via YAML files in `config/training/`.
       --checkpoint <path | 'best' | 'latest'>
     ```
     (Or use an HPC script)
+
+**Local Machine:**
+```bash
+python wind_forecasting/run_scripts/run_model.py --config examples/inputs/training_inputs_flasc.yaml --mode test --model informer --checkpoint latest
+```
+
+**HPC System:**
+```bash
+# Use the provided testing script
+./wind_forecasting/run_scripts/test_model.sh
+```
 
 ## 🤝 Contributing
 
