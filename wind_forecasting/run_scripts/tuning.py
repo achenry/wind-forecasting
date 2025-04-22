@@ -383,139 +383,183 @@ class MLTuningObjective:
         logging.info(f"Trial {trial.number}: Instantiating estimator '{self.model}' with final args: {list(estimator_kwargs.keys())}")
         
 
+        agg_metrics = None
+
         try:
-            estimator = self.estimator_class(**estimator_kwargs)
+            try:
+                estimator = self.estimator_class(**estimator_kwargs)
+            except Exception as e:
+                logging.error(f"Trial {trial.number} - Error creating estimator: {str(e)}", exc_info=True)
+                raise optuna.exceptions.TrialPruned(f"Error creating estimator in trial {trial.number}: {str(e)}")
 
             # Log GPU stats before training
             self.log_gpu_stats(stage=f"Trial {trial.number} Before Training")
 
             # Conditionally Create Forecast Generator
-            if self.model == 'tactis':
-                # TACTiS uses SampleForecastGenerator internally for prediction
-                # because its foweard pass returns samples not distribution parameters
-                logging.info(f"Trial {trial.number}: Using SampleForecastGenerator for TACTiS model.")
-                forecast_generator = SampleForecastGenerator()
-            else:
-                # Other models use DistributionForecastGenerator based on their distr_output
-                logging.info(f"Trial {trial.number}: Using DistributionForecastGenerator for {self.model} model.")
-                # Ensure estimator has distr_output before accessing
-                if not hasattr(estimator, 'distr_output'):
-                     raise AttributeError(f"Estimator for model '{self.model}' is missing 'distr_output' attribute needed for DistributionForecastGenerator.")
-                forecast_generator = DistributionForecastGenerator(estimator.distr_output)
+            try:
+                if self.model == 'tactis':
+                    # TACTiS uses SampleForecastGenerator internally for prediction
+                    # because its foweard pass returns samples not distribution parameters
+                    logging.info(f"Trial {trial.number}: Using SampleForecastGenerator for TACTiS model.")
+                    forecast_generator = SampleForecastGenerator()
+                else:
+                    # Other models use DistributionForecastGenerator based on their distr_output
+                    logging.info(f"Trial {trial.number}: Using DistributionForecastGenerator for {self.model} model.")
+                    # Ensure estimator has distr_output before accessing
+                    if not hasattr(estimator, 'distr_output'):
+                         raise AttributeError(f"Estimator for model '{self.model}' is missing 'distr_output' attribute needed for DistributionForecastGenerator.")
+                    forecast_generator = DistributionForecastGenerator(estimator.distr_output)
+            except Exception as e:
+                logging.error(f"Trial {trial.number} - Error creating forecast generator: {str(e)}", exc_info=True)
+                raise optuna.exceptions.TrialPruned(f"Error creating forecast generator in trial {trial.number}: {str(e)}")
 
-            # Call estimator.train without the ckpt_path argument, as ModelCheckpoint is handled via callbacks
-            train_output = estimator.train(
-                training_data=self.data_module.train_dataset,
-                validation_data=self.data_module.val_dataset,
-                forecast_generator=forecast_generator
-            )
+            try:
+                # Call estimator.train without the ckpt_path argument, as ModelCheckpoint is handled via callbacks
+                train_output = estimator.train(
+                    training_data=self.data_module.train_dataset,
+                    validation_data=self.data_module.val_dataset,
+                    forecast_generator=forecast_generator
+                )
+            except Exception as e:
+                logging.error(f"Trial {trial.number} - Error during model training: {str(e)}", exc_info=True)
+                raise optuna.exceptions.TrialPruned(f"Error during model training in trial {trial.number}: {str(e)}")
 
             # Log GPU stats after training
             self.log_gpu_stats(stage=f"Trial {trial.number} After Training")
             
-            checkpoint_path = train_output.trainer.checkpoint_callback.best_model_path
-            logging.info(f"Loading checkpoint for metric retrieval: {checkpoint_path}")
-            # Ensure checkpoint exists before loading
-            if not os.path.exists(checkpoint_path):
-                logging.error(f"Checkpoint path does not exist: {checkpoint_path}. Cannot load model for metric retrieval.")
-                # Handle error appropriately - maybe return a high loss or raise specific exception
-                # For Optuna, returning a high loss might be preferable to crashing the study
-                return float('inf') # Or some other indicator of failure
+            try:
+                # BUGFIX: Instead of using best_model_path (which may point to a previous trial's model),
+                # check if last_model_path is available - which should be from the current trial
+                if hasattr(train_output.trainer.checkpoint_callback, 'last_model_path') and train_output.trainer.checkpoint_callback.last_model_path:
+                    checkpoint_path = train_output.trainer.checkpoint_callback.last_model_path
+                    logging.info(f"Trial {trial.number} - Using last checkpoint for current trial evaluation: {checkpoint_path}")
+                else:
+                    # Fall back to best_model_path if last_model_path is not available
+                    checkpoint_path = train_output.trainer.checkpoint_callback.best_model_path
+                    logging.warning(f"Trial {trial.number} - No last_model_path available. Using best_model_path: {checkpoint_path}")
+                    logging.warning(f"Trial {trial.number} - WARNING: This may reference a previous trial's checkpoint!")
+                
+                # Ensure checkpoint exists before loading
+                if not os.path.exists(checkpoint_path):
+                    error_msg = f"Checkpoint path does not exist: {checkpoint_path}. Cannot load model for metric retrieval."
+                    logging.error(f"Trial {trial.number} - {error_msg}")
+                    raise optuna.exceptions.TrialPruned(f"Trial {trial.number}: {error_msg}")
 
-            checkpoint = torch.load(checkpoint_path, map_location=lambda storage, loc: storage, weights_only=False)
+                logging.info(f"Trial {trial.number} - Loading checkpoint from: {checkpoint_path}")
+                checkpoint = torch.load(checkpoint_path, map_location=lambda storage, loc: storage, weights_only=False)
+            except (FileNotFoundError, RuntimeError) as e:
+                logging.error(f"Trial {trial.number} - Error loading checkpoint: {str(e)}", exc_info=True)
+                raise optuna.exceptions.TrialPruned(f"Error loading checkpoint in trial {trial.number}: {str(e)}")
 
-            # Extract hyperparameters, handling potential key variations
-            hparams = checkpoint.get('hyper_parameters', checkpoint.get('hparams'))
-            if hparams is None:
-                logging.error(f"Hyperparameters not found in checkpoint: {checkpoint_path}. Cannot re-instantiate model.")
-                return float('inf') # Indicate failure
+            try:
+                # Extract hyperparameters, handling potential key variations
+                hparams = checkpoint.get('hyper_parameters', checkpoint.get('hparams'))
+                if hparams is None:
+                    error_msg = f"Hyperparameters not found in checkpoint: {checkpoint_path}. Cannot re-instantiate model."
+                    logging.error(f"Trial {trial.number} - {error_msg}")
+                    raise optuna.exceptions.TrialPruned(f"Trial {trial.number}: {error_msg}")
 
-            logging.debug(f"Loaded hparams from checkpoint: {hparams}")
+                logging.debug(f"Loaded hparams from checkpoint: {hparams}")
 
-            # Explicitly extract model_config and other necessary args for LightningModule.__init__
-            # Use .get() with default None to avoid KeyError if a param wasn't saved (though it should be)
-            model_config = hparams.get('model_config')
-            if model_config is None:
-                logging.error(f"Critical: 'model_config' dictionary not found within loaded hyperparameters in {checkpoint_path}. Check saving logic.")
-                return float('inf') # Indicate failure
+                # Explicitly extract model_config and other necessary args for LightningModule.__init__
+                # Use .get() with default None to avoid KeyError if a param wasn't saved (though it should be)
+                model_config = hparams.get('model_config')
+                if model_config is None:
+                    error_msg = f"Critical: 'model_config' dictionary not found within loaded hyperparameters in {checkpoint_path}. Check saving logic."
+                    logging.error(f"Trial {trial.number} - {error_msg}")
+                    raise optuna.exceptions.TrialPruned(f"Trial {trial.number}: {error_msg}")
 
-            module_sig = inspect.signature(self.lightning_module_class.__init__)
-            module_params = [param.name for param in module_sig.parameters.values()]
-            del module_params[module_params.index("self")]
-            # Extract other args expected by LightningModule.__init__ directly from hparams
-            # Provide default values from the original config if not found in hparams, logging a warning
-            init_args = {
-                'model_config': model_config,
-                **{k: hparams.get(k, self.config["model"][self.model].get(k)) for k in module_params}
-            }
-            
-            # Log if any defaults were used
-            for key, val in init_args.items():
-                 if key != 'model_config' and key not in hparams:
-                     logging.warning(f"Hyperparameter '{key}' not found in checkpoint, using default value: {val}")
+                module_sig = inspect.signature(self.lightning_module_class.__init__)
+                module_params = [param.name for param in module_sig.parameters.values()]
+                del module_params[module_params.index("self")]
+                # Extract other args expected by LightningModule.__init__ directly from hparams
+                # Provide default values from the original config if not found in hparams, logging a warning
+                init_args = {
+                    'model_config': model_config,
+                    **{k: hparams.get(k, self.config["model"][self.model].get(k)) for k in module_params}
+                }
+                
+                # Log if any defaults were used
+                for key, val in init_args.items():
+                     if key != 'model_config' and key not in hparams:
+                         logging.warning(f"Hyperparameter '{key}' not found in checkpoint, using default value: {val}")
 
+                # Check for missing essential args (should ideally not happen with defaults)
+                missing_args = [k for k, v in init_args.items() if v is None and k != 'model_config'] # model_config checked above
+                if missing_args:
+                    error_msg = f"Missing required hyperparameters in checkpoint {checkpoint_path} even after checking defaults: {missing_args}"
+                    logging.error(f"Trial {trial.number} - {error_msg}")
+                    raise optuna.exceptions.TrialPruned(f"Trial {trial.number}: {error_msg}")
+            except optuna.exceptions.TrialPruned:
+                raise
+            except Exception as e:
+                logging.error(f"Trial {trial.number} - Error extracting hyperparameters: {str(e)}", exc_info=True)
+                raise optuna.exceptions.TrialPruned(f"Error extracting hyperparameters in trial {trial.number}: {str(e)}")
 
-            # Check for missing essential args (should ideally not happen with defaults)
-            missing_args = [k for k, v in init_args.items() if v is None and k != 'model_config'] # model_config checked above
-            if missing_args:
-                logging.error(f"Missing required hyperparameters in checkpoint {checkpoint_path} even after checking defaults: {missing_args}")
-                return float('inf') # Indicate failure
-
-            logging.info(f"Re-instantiating LightningModule for metric retrieval with stage: {init_args.get('stage')}")
             logging.info(f"Re-instantiating LightningModule for metric retrieval with stage: {init_args.get('stage')}")
             logging.debug(f"Using init_args: {init_args}")
 
-            # Instantiate the model using the extracted arguments
+            # Instantiate model and load state dict with specific error handling
             try:
                 model = self.lightning_module_class(**init_args)
-            except Exception as e:
-                logging.error(f"Error during LightningModule re-instantiation: {e}", exc_info=True)
-                return float('inf') # Indicate failure
-
-            # Load the state dict
-            logging.info(f"Loading state_dict into re-instantiated model...")
-            try:
+                
+                # Load the state dict
+                logging.info(f"Loading state_dict into re-instantiated model...")
                 model.load_state_dict(checkpoint['state_dict'])
                 logging.info("State_dict loaded successfully.")
             except RuntimeError as e:
-                 logging.error(f"RuntimeError loading state_dict: {e}. This often indicates a mismatch between the model architecture defined by hparams and the saved weights.", exc_info=True)
-                 # Log details about the mismatch if possible (though the error message usually contains this)
+                 error_msg = f"RuntimeError loading state_dict: {e}. This often indicates a mismatch between the model architecture defined by hparams and the saved weights."
+                 logging.error(f"Trial {trial.number} - {error_msg}", exc_info=True)
+                 # Log details about the mismatch if possible
                  logging.error(f"Model architecture stage during load attempt: {model.stage if hasattr(model, 'stage') else 'N/A'}")
-                 return float('inf') # Indicate failure
+                 raise optuna.exceptions.TrialPruned(f"Trial {trial.number}: {error_msg}")
             except Exception as e:
-                 logging.error(f"Unexpected error loading state_dict: {e}", exc_info=True)
-                 return float('inf') # Indicate failure
-            transformation = estimator.create_transformation(use_lazyframe=False)
-            # Use the same conditional forecast_generator for creating the predictor
-            predictor = estimator.create_predictor(transformation, model,
-                                                    forecast_generator=forecast_generator)
+                 logging.error(f"Trial {trial.number} - Unexpected error instantiating model or loading state_dict: {str(e)}", exc_info=True)
+                 raise optuna.exceptions.TrialPruned(f"Error instantiating model or loading state_dict in trial {trial.number}: {str(e)}")
 
-            # Conditional Evaluation Call
-            eval_kwargs = {
-                "dataset": self.data_module.val_dataset,
-                "predictor": predictor,
-            }
-            if self.model == 'tactis':
-                # TACTiS produces SampleForecast, no output_distr_params needed/possible
-                logging.info(f"Trial {trial.number}: Evaluating TACTiS using SampleForecast.")
-            else:
-                # Other models produce DistributionForecast, specify params to extract
-                # Example for LowRankMultivariateNormalOutput, adjust if other distrs are used
-                eval_kwargs["output_distr_params"] = {"loc": "mean", "cov_factor": "cov_factor", "cov_diag": "cov_diag"}
-                logging.info(f"Trial {trial.number}: Evaluating {self.model} using DistributionForecast with params: {eval_kwargs['output_distr_params']}")
+            try:
+                transformation = estimator.create_transformation(use_lazyframe=False)
+                # Use the same conditional forecast_generator for creating the predictor
+                predictor = estimator.create_predictor(transformation, model,
+                                                        forecast_generator=forecast_generator)
+            except Exception as e:
+                logging.error(f"Trial {trial.number} - Error creating predictor: {str(e)}", exc_info=True)
+                raise optuna.exceptions.TrialPruned(f"Error creating predictor in trial {trial.number}: {str(e)}")
 
-            forecast_it, ts_it = make_evaluation_predictions(**eval_kwargs)
+            try:
+                # Conditional Evaluation Call
+                eval_kwargs = {
+                    "dataset": self.data_module.val_dataset,
+                    "predictor": predictor,
+                }
+                if self.model == 'tactis':
+                    # TACTiS produces SampleForecast, no output_distr_params needed/possible
+                    logging.info(f"Trial {trial.number}: Evaluating TACTiS using SampleForecast.")
+                else:
+                    # Other models produce DistributionForecast, specify params to extract
+                    # Example for LowRankMultivariateNormalOutput, adjust if other distrs are used
+                    eval_kwargs["output_distr_params"] = {"loc": "mean", "cov_factor": "cov_factor", "cov_diag": "cov_diag"}
+                    logging.info(f"Trial {trial.number}: Evaluating {self.model} using DistributionForecast with params: {eval_kwargs['output_distr_params']}")
 
-            agg_metrics, _ = self.evaluator(ts_it, forecast_it, num_series=self.data_module.num_target_vars)
+                forecast_it, ts_it = make_evaluation_predictions(**eval_kwargs)
+            except Exception as e:
+                logging.error(f"Trial {trial.number} - Error making evaluation predictions: {str(e)}", exc_info=True)
+                raise optuna.exceptions.TrialPruned(f"Error making evaluation predictions in trial {trial.number}: {str(e)}")
 
-            agg_metrics["trainable_parameters"] = summarize(estimator.create_lightning_module()).trainable_parameters
-            self.metrics.append(agg_metrics.copy())
-            
-            model_checkpoint = [v for k, v in checkpoint["callbacks"].items() if "ModelCheckpoint" in k][0]
-            agg_metrics[model_checkpoint["monitor"]] = model_checkpoint["best_model_score"]
+            try:
+                agg_metrics, _ = self.evaluator(ts_it, forecast_it, num_series=self.data_module.num_target_vars)
+                
+                agg_metrics["trainable_parameters"] = summarize(estimator.create_lightning_module()).trainable_parameters
+                self.metrics.append(agg_metrics.copy())
+                
+                model_checkpoint = [v for k, v in checkpoint["callbacks"].items() if "ModelCheckpoint" in k][0]
+                agg_metrics[model_checkpoint["monitor"]] = model_checkpoint["best_model_score"]
 
-            # Log available metrics for debugging
-            logging.info(f"Trial {trial.number} - Aggregated metrics calculated: {list(agg_metrics.keys())}")
+                # Log available metrics for debugging
+                logging.info(f"Trial {trial.number} - Aggregated metrics calculated: {list(agg_metrics.keys())}")
+            except Exception as e:
+                logging.error(f"Trial {trial.number} - Error computing evaluation metrics: {str(e)}", exc_info=True)
+                raise optuna.exceptions.TrialPruned(f"Error computing evaluation metrics in trial {trial.number}: {str(e)}")
 
             # Log GPU stats at the end of the trial
             self.log_gpu_stats(stage=f"Trial {trial.number} End")
@@ -534,29 +578,44 @@ class MLTuningObjective:
                 logging.warning(f"Rank 0: wandb_logger_trial was None, but an active W&B run ('{wandb.run.name}') was found. Attempting to finish.")
                 wandb.finish()
 
-        try:
-            metric_value = agg_metrics.get(self.metric)
-            
+        metric_to_return = self.config.get("trainer", {}).get("monitor_metric", "val_loss")
+        optuna_direction = self.config.get("optuna", {}).get("direction", "minimize")
+
+        if agg_metrics is None:
+            error_msg = f"Trial {trial.number} - 'agg_metrics' is None, indicating an error occurred during training or evaluation before metrics could be computed."
+            logging.error(error_msg)
+            raise optuna.exceptions.TrialPruned(f"Trial {trial.number} failed: validation metrics were not computed due to an earlier error.")
+        else:
             try:
-                metric_value = agg_metrics[metric_to_return].numpy()
+                metric_value = agg_metrics.get(metric_to_return)
+
+                if metric_value is None:
+                    error_msg = f"Metric key '{metric_to_return}' not found in calculated agg_metrics: {list(agg_metrics.keys())}"
+                    logging.error(f"Trial {trial.number} - {error_msg}")
+                    raise optuna.exceptions.TrialPruned(f"Trial {trial.number} failed: {error_msg}")
+
+                if hasattr(metric_value, 'item'):
+                    metric_value = metric_value.item()
+                elif isinstance(metric_value, (np.ndarray, torch.Tensor)) and metric_value.size == 1:
+                     metric_value = metric_value.item()
+
+                metric_value = float(metric_value)
+
+                checkpoint_type = "last" if hasattr(train_output.trainer.checkpoint_callback, 'last_model_path') and train_output.trainer.checkpoint_callback.last_model_path == checkpoint_path else "best"
                 logging.info(f"Trial {trial.number} - Returning metric '{metric_to_return}' to Optuna: {metric_value}")
+                logging.info(f"Trial {trial.number} - This metric is from the {checkpoint_type} checkpoint: {os.path.basename(checkpoint_path)}")
                 return metric_value
-            except KeyError:
-                logging.error(f"Trial {trial.number} - ERROR: Metric key '{metric_to_return}' was not found in callback_metrics. Available metrics: {list(agg_metrics.keys())}")
-                
-            logging.info(f"Trial {trial.number}: Retrieved {self.metric}={metric_value}")
-            return metric_value
-        except KeyError:
-            metric_to_return = self.config.get("trainer", {}).get("monitor_metric", "val_loss") # Read again for error message
-            logging.error(f"Trial {trial.number} - Metric '{metric_to_return}' (from config[trainer][monitor_metric]) not found in calculated metrics: {list(agg_metrics.keys())}")
-            # Return a value indicating failure based on optimization direction
-            optuna_direction = self.config.get("optuna", {}).get("direction", "minimize")
-            return float('inf') if optuna_direction == "minimize" else float('-inf')
-        except NameError:
-            logging.error(f"Trial {trial.number} - 'agg_metrics' not defined, likely due to an error during training or evaluation.")
-            optuna_direction = self.config.get("optuna", {}).get("direction", "minimize")
-            
-            raise optuna.exceptions.TrialPruned("Trial failed: validation metrics were not computed")
+
+            except (TypeError, ValueError) as e:
+                 error_msg = f"Error converting metric '{metric_to_return}' (value: {agg_metrics.get(metric_to_return)}) to float: {e}"
+                 logging.error(f"Trial {trial.number} - {error_msg}", exc_info=True)
+                 logging.error(f"Available metrics: {list(agg_metrics.keys())}")
+                 raise optuna.exceptions.TrialPruned(f"Trial {trial.number} failed: {error_msg}")
+            except Exception as e:
+                error_msg = f"Unexpected error extracting or processing metric '{metric_to_return}' from agg_metrics: {e}"
+                logging.error(f"Trial {trial.number} - {error_msg}", exc_info=True)
+                logging.error(f"Available metrics: {list(agg_metrics.keys())}")
+                raise optuna.exceptions.TrialPruned(f"Trial {trial.number} failed: {error_msg}")
 
 
 def get_tuned_params(storage, study_name):
@@ -602,8 +661,19 @@ def tune_model(model, config, study_name, optuna_storage, lightning_module_class
             )
             logging.info(f"Created HyperbandPruner with min_resource={min_resource}, max_resource={max_resource}, reduction_factor={reduction_factor}")
         elif pruning_type == "median":
-            pruner = MedianPruner(n_startup_trials=5, n_warmup_steps=min_resource)
-            logging.info(f"Created MedianPruner with n_startup_trials=5, n_warmup_steps={min_resource}")
+            n_warmup_steps = config["optuna"]["pruning"].get("n_warmup_steps", 2)
+            if "n_warmup_steps" not in config["optuna"]["pruning"]:
+                logging.warning(f"YAML config missing 'optuna.pruning.n_warmup_steps', defaulting to {n_warmup_steps}")
+
+            n_startup_trials = config["optuna"]["pruning"].get("n_startup_trials", 5)  # Default to 5 if missing
+            if "n_startup_trials" not in config["optuna"]["pruning"]:
+                logging.warning(f"YAML config missing 'optuna.pruning.n_startup_trials', defaulting to {n_startup_trials}")
+
+            pruner = MedianPruner(
+                n_startup_trials=n_startup_trials,
+                n_warmup_steps=n_warmup_steps
+            )
+            logging.info(f"Created MedianPruner with n_startup_trials={n_startup_trials}, n_warmup_steps={n_warmup_steps}")
         elif pruning_type == "percentile":
             percentile = config["optuna"]["pruning"].get("percentile", 25)
             pruner = PercentilePruner(percentile=percentile, n_startup_trials=5, n_warmup_steps=min_resource)
