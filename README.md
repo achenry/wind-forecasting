@@ -191,9 +191,20 @@ Primary configuration is via YAML files in `config/training/`.
 *   **Sections:** `experiment`, `logging`, `optuna`, `dataset`, `model` (with nested `<model_name>` keys), `callbacks`, `trainer`.
 *   Supports basic variable substitution (e.g., `${logging.optuna_dir}`).
 
-## 💻 Usage Examples
+## 📋 Usage
+1. Clone the repository and set up the Jupyter notebook collaboration as described in the setup section.
+2. Download the required data using the script in `examples` or use your own data.
+3. Set up the appropriate environment (CUDA or ROCm) using the scripts in the `install_rc` folder.
+4. Preprocess the data using the script in the `wind_forecasting/preprocessing` folder.
+5. Train and evaluate models using the scripts in the `wind_forecasting/models` directory.
+6. For running jobs on HPC environments, use the SLURM scripts provided in the `rc_jobs` folder.
 
-*(Refer to specific scripts and YAML files for detailed arguments)*
+### Configuration Files
+- Data Preprocessing Configuration YAML
+- ML-Model Configuration YAML
+- WHOC Configuration YAML
+- Command Line Arguments for `wind-forecasting/wind_forecasting/preprocessing/preprocessing_main.py`, `wind-forecasting/wind_forecasting/run_scripts/load_data.py`, `wind-forecasting/wind_forecasting/run_scripts/run_model.py`, `wind-hybrid-open-controller/whoc/wind_forecast/tuning.py`, and `wind-hybrid-open-controller/whoc/case_studies/run_case_studies.py`.
+- WHOC Case Study Suite in the `case_studies` dictionary defined at the top of `wind-hybrid-open-controller/whoc/case_studies/initialize_case_studies.py`.
 
 ### Preprocessing
 
