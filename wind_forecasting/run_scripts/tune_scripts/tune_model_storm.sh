@@ -296,7 +296,7 @@ echo "--------------------------------------------------"
 exit $FINAL_EXIT_CODE
 
 # sbatch wind-forecasting/wind_forecasting/run_scripts/tune_scripts/tune_model_storm.sh
-# sacct --node=cfdg002 --state=RUNNING --allusers --format=JobID,JobName,User,State,NodeList,AllocCPUS,AllocTRES%40,ReqCPUS,ReqMem%15,ReqTRES%40,TRESUsageInAve,TRESUsageInMax
+# sacct --node=cfdg002 --state=RUNNING --allusers --format=JobID,JobName,User,State,NodeList,AllocCPUS,AllocTRES%45,ReqCPUS,ReqMem%15,ReqTRES%45,TRESUsageInAve,TRESUsageInMax
 # squeue -p cfdg.p,mpcg.p,all_gpu.p -o "%.10a %.10P %.25j %.8u %.2t %.10M %.6D %R"
 # squeue --node=cfdg002
 # scontrol show node cfdg002

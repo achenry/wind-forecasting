@@ -34,7 +34,7 @@ optuna:
     type: "hyperband"         # Options: "hyperband", "median", "percentile", "none"
     min_resource: 3          # Minimum epochs before pruning can occur
     max_resource: 50          # Maximum epochs for pruning
-    reduction_factor: 2       # Hyperband reduction factor n (default: 3),
+    reduction_factor: 2       # Hyperband reduction factor n,
     # set up so log_n(max_resource/min_resource)+1 = between 4-6 brackets ideally
 
   # Optuna visualization configuration (additional to wandb)
