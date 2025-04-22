@@ -1,7 +1,7 @@
 experiment:
   username: jmb0507
   project_name: wind_forecasting_flasc
-  run_name: flasc_tune_8
+  run_name: tune_d10_b250_n6 # [d refers to min_delta, b to limit_train_batches, n to n_startup_trials]
   project_root: /user/taed7566/Forecasting/wind-forecasting
   log_dir: /user/taed7566/Forecasting/wind-forecasting/logs/
   notes: "Tuning FLASC with TACTiS-2"
@@ -32,8 +32,8 @@ optuna:
   pruning:
     enabled: true             # Whether to enable pruning
     type: "median"            # Options: "hyperband", "median", "percentile", "none"
-    n_startup_trials: 6
-    n_warmup_steps: 12
+    n_startup_trials: 6       # Number of trials to wait until building the median for pruning
+    n_warmup_steps: 12        # Number of epochs to wait before starting pruning
     # set up so log_n(max_resource/min_resource)+1 = between 4-6 brackets ideally (hyperband-only setting [deprecated currently])
 
   # Optuna visualization configuration (additional to wandb)
@@ -192,14 +192,14 @@ callbacks:
     progress_bar:
       class_path: lightning.pytorch.callbacks.TQDMProgressBar
       init_args:
-        refresh_rate: 0  # every n steps, set to 0 to disable
+        refresh_rate: 25  # every n steps, set to 0 to disable
         leave: false
     early_stopping:
       class_path: lightning.pytorch.callbacks.EarlyStopping
       init_args:
         monitor: 'val_loss'
         patience: 5 # Number of epochs to wait before stopping (val>epochs to disable)
-        min_delta: 5.0 # Minimum change to be considered an improvement (5.0 after observing visual fluctuations of 2-4 on an almost-perfectly visual plateau)
+        min_delta: 10.0 # Minimum change to be considered an improvement (>5.0 after observing visual fluctuations of 2-4 per epoch on an almost-perfectly visual plateau)
         mode: 'min'
         check_finite: true
     model_checkpoint:
