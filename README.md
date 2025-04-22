@@ -5,7 +5,7 @@
 ![Project Status](https://img.shields.io/badge/status-active%20development-green)
 ![Last Updated](https://img.shields.io/badge/last%20updated-April%202025-blue)
 ![Contributors](https://img.shields.io/badge/contributors-@achenry%20%7C%20@boujuan-orange)
-<!-- [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT) -->
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
 
 </div>
 
@@ -167,19 +167,19 @@ The typical workflow involves these stages:
 ### 2.2 Tuning a Statistical Model
 1. Tune a statistical model on a local machine with `python wind-hybrid-open-controller/whoc/wind_forecast/tuning.py --model_config wind_forecasting/examples/inputs/training_inputs_aoifemac_flasc.yaml --data_config wind_forecasting/examples/inputs/preprocessing_inputs_flasc.yaml --model svr --study_name svr_tuning --restart_tuning`, or on a HPC by running `wind-hybrid-open-controller/whoc/wind_forecast/run_tuning.sh [model] [number of models to tune]`.
 
-### Training a ML Model
+### 3. Training a ML Model
 1. Train a ML model on a local machine with `python wind-forecasting/wind_forecasting/run_scripts/run_model.py --config wind-forecasting/examples/inputs/training_inputs_aoifemac_flasc.yaml --mode train --model informer --use_tuned_parameters`, or on a HPC by running `wind-forecasting/wind_forecasting/run_scripts/train_model_kestrel.sh`.  
 
-### Testing a ML Model
+### 4. Testing a ML Model
 1. Test a ML model on a local machine with `python wind-forecasting/wind_forecasting/run_scripts/run_model.py --config wind-forecasting/examples/inputs/training_inputs_aoifemac_flasc.yaml --mode test --model informer --checkpoint latest`, or on a HPC by running `wind-forecasting/wind_forecasting/run_scripts/test_model.sh`. 
 
-### Testing a WindForecaster class on Wind Farm Data
+### 5. Testing a WindForecaster class on Wind Farm Data
 1. Make predictions at a given controller sampling time intervals, for a given SCADA dataset, and a given prediction time interval, compute the accuracy score and plot the results with `python wind-hybrid-open-controller/whoc/wind_forecast/WindForecast.py --model_config wind_forecasting/examples/inputs/training_inputs_aoifemac_flasc.yaml --data_config wind_forecasting/examples/inputs/preprocessing_inputs_flasc.yaml --model informer`.
 
-### Combining a Statistical or ML Model with a Wind Farm Controller
+### 6. Combining a Statistical or ML Model with a Wind Farm Controller
 1. Write a WHOC configuration file similar to `wind-hybrid-open-controller/examples/hercules_input_001.yaml`. Run a case study of a yaw controller with a trained model with `python wind-hybrid-open-controller/whoc/case_studies/run_case_studies.py 15 -rs -rrs --verbose -ps -rps -ras -st auto -ns 3 -m cf -sd wind-hybrid-open-controller/examples/floris_case_studies -mcnf wind_forecasting/examples/inputs/training_inputs_aoifemac_flasc.yaml -dcnf wind_forecasting/examples/inputs/preprocessing_inputs_flasc.yaml -wcnf wind-hybrid-open-controller/examples/hercules_input_001.yaml -wf scada`, where you can fine tune parameters for a suite of cases by editing the dictionary `case_studies["baseline_controllers_preview_flasc"]` in `wind-hybrid-open-controller/whoc/case_studies/initialize_case_studies.py` and you can edit the common default parameters in the WHOC configuration file.
 
-### HPC
+### 7. HPC
 TODO add HPC version
 ---
 
@@ -335,6 +335,7 @@ This project is licensed under the MIT License - see the LICENSE file for detail
     *   [`pytorch-transformer-ts`](https://github.com/boujuan/pytorch-transformer-ts) (Model Implementations)
     *   [`gluonts` (Fork)](https://github.com/achenry/gluonts)
     *   [`wind-hybrid-open-controller`](https://github.com/achenry/wind-hybrid-open-controller) (Downstream Application)
+
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
 [![Made with ❤️ by achenry and boujuan](https://img.shields.io/badge/Made%20with%20%E2%9D%A4%EF%B8%8F%20by-achenry%20and%20boujuan-red)](https://github.com/achenry/wind-forecasting)
