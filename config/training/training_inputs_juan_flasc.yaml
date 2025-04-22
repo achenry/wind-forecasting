@@ -34,7 +34,7 @@ optuna:
     type: "median"            # Options: "hyperband", "median", "percentile", "none"
     n_startup_trials: 6
     n_warmup_steps: 12
-    # set up so log_n(max_resource/min_resource)+1 = between 4-6 brackets ideally
+    # set up so log_n(max_resource/min_resource)+1 = between 4-6 brackets ideally (hyperband-only setting [deprecated currently])
 
   # Optuna visualization configuration (additional to wandb)
   visualization:
@@ -90,7 +90,7 @@ dataset:
     val_split: 0.1
     resample_freq: 60s
     n_splits: 1 # how many divisions of each continuity group to make which is further subdivided into training test and validation data
-    per_turbine_target: false
+    per_turbine_target: false # TODO: What does this do? (ask Aoife)
     context_length_factor: 2  # Factor to multiply prediction_length by
 
 model:
@@ -111,7 +111,7 @@ model:
     loss_normalization: "std" # Options: "series", "timesteps", "both", "none"
     encoder_type: "standard" # Options: "standard", "temporal"
     bagging_size: null # Optional, defaults to None in estimator
-    num_parallel_samples: 100 # Num of parallel samples for probabilistic prediction
+    num_parallel_samples: 100 # Num of parallel samples for probabilistic prediction TODO: Inform yourself about this
     # Marginal CDF Encoder
     marginal_embedding_dim_per_head: 8
     marginal_num_heads: 5
@@ -206,7 +206,7 @@ callbacks:
       class_path: lightning.pytorch.callbacks.ModelCheckpoint
       init_args:
         dirpath: ${logging.checkpoint_dir}
-        filename: '{epoch}-{step}-{val_loss:.2f}'
+        filename: '{epoch}-{step}-{val_loss:.2f}' # TODO: Save checkpoints in separate run's directory
         monitor: 'val_loss'
         mode: 'min'
         save_top_k: 1
@@ -218,7 +218,7 @@ callbacks:
         log_momentum: false
 
 trainer:
-    gradient_clip_val: 0.0 # Prevents gradient explosion if > 0. Renamed from grad_clip_norm.
+    gradient_clip_val: 0.0 # Prevents gradient explosion if > 0. Renamed from grad_clip_norm. # TODO: check if this or model's setting being used
     # limit_val_batches: 1.0
     # val_check_interval: 1.0
     accelerator: gpu # 'cpu' or 'gpu'
