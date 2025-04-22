@@ -179,6 +179,10 @@ The typical workflow involves these stages:
 ### Combining a Statistical or ML Model with a Wind Farm Controller
 1. Write a WHOC configuration file similar to `wind-hybrid-open-controller/examples/hercules_input_001.yaml`. Run a case study of a yaw controller with a trained model with `python wind-hybrid-open-controller/whoc/case_studies/run_case_studies.py 15 -rs -rrs --verbose -ps -rps -ras -st auto -ns 3 -m cf -sd wind-hybrid-open-controller/examples/floris_case_studies -mcnf wind_forecasting/examples/inputs/training_inputs_aoifemac_flasc.yaml -dcnf wind_forecasting/examples/inputs/preprocessing_inputs_flasc.yaml -wcnf wind-hybrid-open-controller/examples/hercules_input_001.yaml -wf scada`, where you can fine tune parameters for a suite of cases by editing the dictionary `case_studies["baseline_controllers_preview_flasc"]` in `wind-hybrid-open-controller/whoc/case_studies/initialize_case_studies.py` and you can edit the common default parameters in the WHOC configuration file.
 
+### HPC
+TODO add HPC version
+---
+
 ## 🔧 Configuration
 
 Primary configuration is via YAML files in `config/training/`.
@@ -320,3 +324,6 @@ This project is licensed under the MIT License - see the LICENSE file for detail
     *   [`pytorch-transformer-ts`](https://github.com/boujuan/pytorch-transformer-ts) (Model Implementations)
     *   [`gluonts` (Fork)](https://github.com/achenry/gluonts)
     *   [`wind-hybrid-open-controller`](https://github.com/achenry/wind-hybrid-open-controller) (Downstream Application)
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
+[![Made with ❤️ by achenry and boujuan](https://img.shields.io/badge/Made%20with%20%E2%9D%A4%EF%B8%8F%20by-achenry%20and%20boujuan-red)](https://github.com/achenry/wind-forecasting)
