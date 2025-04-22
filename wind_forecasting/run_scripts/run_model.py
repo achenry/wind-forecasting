@@ -296,7 +296,7 @@ def main():
                                 freq=config["dataset"]["resample_freq"], target_suffixes=config["dataset"]["target_turbine_ids"],
                                     per_turbine_target=config["dataset"]["per_turbine_target"], as_lazyframe=False, dtype=pl.Float32)
     
-    if rank_zero_only.rank == 0:
+    if rank == 0:
         logging.info("Preparing data for tuning")
         if not os.path.exists(data_module.train_ready_data_path):
             data_module.generate_datasets()

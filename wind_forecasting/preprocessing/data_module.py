@@ -105,7 +105,8 @@ class DataModule():
         # gc.collect()
         
         # fetch a subset of continuity groups and turbine data
-        logging.info("Getting continuity groups.")
+        if self.verbose:
+            logging.info("Getting continuity groups.")
         if self.continuity_groups is None:
             if "continuity_group" in dataset.collect_schema().names():
                 self.continuity_groups = dataset.select(pl.col("continuity_group").unique()).collect().to_numpy().flatten()
@@ -122,12 +123,15 @@ class DataModule():
         else:
             dataset = dataset.filter(pl.col("continuity_group").is_in(self.continuity_groups))\
                              .select(pl.col("time"), pl.col("continuity_group"), *[cs.ends_with(f"_{sfx}") for sfx in self.target_suffixes])
-        logging.info(f"Found continuity groups {self.continuity_groups}") 
+        if self.verbose:
+            logging.info(f"Found continuity groups {self.continuity_groups}") 
         # dataset.target_cols = self.target_cols 
         
-        logging.info(f"Writing resampled/sorted parquet to {self.train_ready_data_path}.") 
+        if self.verbose:
+            logging.info(f"Writing resampled/sorted parquet to {self.train_ready_data_path}.") 
         dataset.collect().write_parquet(self.train_ready_data_path, statistics=False)
-        logging.info(f"Saved resampled/sorted parquet to {self.train_ready_data_path}.")
+        if self.verbose:
+            logging.info(f"Saved resampled/sorted parquet to {self.train_ready_data_path}.")
         
         self.get_dataset_info(dataset)
         # dataset = IterableLazyFrame(data_path=train_ready_data_path)
@@ -140,16 +144,21 @@ class DataModule():
         # print(f"Number of nan/null vars = {dataset.select(pl.sum_horizontal((cs.numeric().is_null() | cs.numeric().is_nan()).sum())).collect().item()}") 
         if dataset is None:
             dataset = IterableLazyFrame(data_path=self.train_ready_data_path, dtype=self.dtype) 
-        logging.info("Getting continuity groups.") 
+        
+        if self.verbose:
+            logging.info("Getting continuity groups.") 
+            
         if self.continuity_groups is None:
             if "continuity_group" in dataset.collect_schema().names():
                 # TODO this is giving floats??
                 self.continuity_groups = dataset.select(pl.col("continuity_group").unique()).collect().to_numpy().flatten()
             else:
                 self.continuity_groups = [0]
-        logging.info(f"Found continuity groups {self.continuity_groups}")
-         
-        logging.info(f"Getting column names.") 
+                
+        if self.verbose:
+            logging.info(f"Found continuity groups {self.continuity_groups}")
+            
+            logging.info(f"Getting column names.") 
         if self.target_suffixes is None:
             self.target_cols = dataset.select(*[cs.starts_with(pfx) for pfx in self.target_prefixes]).collect_schema().names()
             self.target_suffixes = sorted(list(set(col.split("_")[-1] for col in self.target_cols)))
@@ -159,7 +168,9 @@ class DataModule():
             # dataset.filter(pl.col("continuity_group") == 0).to_pandas().to_csv("/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/sample_data.csv", index=False) 
             self.target_cols = [col for col in dataset.collect_schema().names() if any(prefix in col for prefix in self.target_prefixes)]
         self.feat_dynamic_real_cols = [col for col in dataset.collect_schema().names() if any(prefix in col for prefix in self.feat_dynamic_real_prefixes)]
-        logging.info(f"Found column names target_cols={self.target_cols}, feat_dynamic_real_cols={self.feat_dynamic_real_cols}.") 
+        
+        if self.verbose:
+            logging.info(f"Found column names target_cols={self.target_cols}, feat_dynamic_real_cols={self.feat_dynamic_real_cols}.") 
         
         if self.per_turbine_target:
             self.num_target_vars = len(self.target_prefixes)
@@ -188,15 +199,19 @@ class DataModule():
         assert all(split in ["train", "val", "test"] for split in splits)
         assert os.path.exists(self.train_ready_data_path), f"Must run generate_datasets before generate_splits to produce {self.train_ready_data_path}."
         
-        logging.info(f"Scanning dataset {self.train_ready_data_path}.") 
+        if self.verbose:
+            logging.info(f"Scanning dataset {self.train_ready_data_path}.") 
         dataset = IterableLazyFrame(data_path=self.train_ready_data_path, dtype=self.dtype)
-        logging.info(f"Finished scanning dataset {self.train_ready_data_path}.")
+        
+        if self.verbose:
+            logging.info(f"Finished scanning dataset {self.train_ready_data_path}.")
         
         self.get_dataset_info(dataset)
         
         if reload or not all(os.path.exists(self.train_ready_data_path.replace(".parquet", f"_{split}.pkl")) for split in splits):
             if self.per_turbine_target:
-                logging.info(f"Splitting datasets for per turbine case.") 
+                if self.verbose:
+                    logging.info(f"Splitting datasets for per turbine case.") 
 
                 cg_counts = dataset.select("continuity_group").collect().to_series().value_counts().sort("continuity_group").select("count").to_numpy().flatten()
                 self.rows_per_split = [
@@ -238,7 +253,8 @@ class DataModule():
                         datasets = []
                         item_ids = list(getattr(self, f"{split}_dataset").keys())
                         for item_id in item_ids:
-                            logging.info(f"Transforming {split} dataset {item_id} into numpy form.")
+                            if self.verbose:
+                                logging.info(f"Transforming {split} dataset {item_id} into numpy form.")
                             ds = getattr(self, f"{split}_dataset")[item_id]
                             start_time = pd.Period(ds.select(pl.col("time").first()).collect().item(), freq=self.freq)
                             ds = ds.select(self.feat_dynamic_real_prefixes + self.target_prefixes).collect().to_numpy().T
@@ -252,10 +268,12 @@ class DataModule():
                             del getattr(self, f"{split}_dataset")[item_id]
                         setattr(self, f"{split}_dataset", datasets)
 
-                logging.info(f"Finished splitting datasets for per turbine case.") 
+                if self.verbose:
+                    logging.info(f"Finished splitting datasets for per turbine case.") 
 
             else:
-                logging.info(f"Splitting datasets for all turbine case.") 
+                if self.verbose:
+                    logging.info(f"Splitting datasets for all turbine case.") 
                 
                 cg_counts = dataset.select("continuity_group").collect().to_series().value_counts().sort("continuity_group").select("count").to_numpy().flatten()
                 self.rows_per_split = [int(n_rows / self.n_splits) for n_rows in cg_counts] # each element corresponds to each continuity group
@@ -306,8 +324,8 @@ class DataModule():
                             })
                             del getattr(self, f"{split}_dataset")[item_id]
                         setattr(self, f"{split}_dataset", datasets)
-                
-                logging.info(f"Finished splitting datasets for all turbine case.")
+                if self.verbose:
+                    logging.info(f"Finished splitting datasets for all turbine case.")
             
             if save:
                 for split in splits:
@@ -317,7 +335,8 @@ class DataModule():
                         with open(self.train_ready_data_path.replace(".parquet", f"_{split}.pkl"), 'wb') as fp:
                             pickle.dump(getattr(self, f"{split}_dataset"), fp)
         else:
-            logging.info("Fetching saved split datasets.")
+            if self.verbose:
+                logging.info("Fetching saved split datasets.")
             for split in splits:
                 with open(self.train_ready_data_path.replace(".parquet", f"_{split}.pkl"), 'rb') as fp:
                     data = pickle.load(fp)
