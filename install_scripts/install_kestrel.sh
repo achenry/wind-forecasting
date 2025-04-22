@@ -38,14 +38,15 @@ pip install --target $LARGE_STORAGE/ahenry/wind_forecasting_env/bin floris polar
 # rm -rf /projects/ssc/ahenry/conda/envs/wind_forecasting
 # rm -rf /home/ahenry/.conda-pkgs/cache
 # FOR PREPROCESSING AND RUNNING MODEL
-# ml PrgEnv-intel
-ml openmpi
+module load PrgEnv-intel
+MPICC=`which mpicc` pip install mpi4py
+
 ml mamba
 mamba create --prefix=/projects/ssc/ahenry/conda/envs/wind_forecasting --y
 mamba activate wind_forecasting
 mamba install conda-forge::cuda-version=12.4 nvidia/label/cuda-12.4.0::cuda-toolkit performer-pytorch pytorch torchvision torchaudio torchmetrics pytorch-cuda=12.4 lightning -c pytorch -c nvidia --y
 mamba install mysqlclient mysql-connector-python polars windrose statsmodels scikit-learn jupyterlab nb_conda_kernels pyyaml matplotlib numpy seaborn opt_einsum netcdf4 scipy h5pyd pyarrow wandb einops --y 
-pip install openmpi mpi4py impi_rt opencv-python plotly memory_profiler optuna optuna-integration optuna-dashboard filterpy
+pip install opencv-python plotly memory_profiler optuna optuna-integration optuna-dashboard filterpy # openmpi impi_rt
 
 brew install mysql  && brew services start mysql
 

@@ -15,7 +15,7 @@
 # salloc --account=ssc --time=01:00:00 --gpus=2 --ntasks-per-node=2 --partition=debug
 
 module purge
-ml PrgEnv-intel
+module load PrgEnv-intel
 ml mamba
 mamba activate wind_forecasting
 

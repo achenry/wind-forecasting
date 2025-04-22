@@ -14,7 +14,7 @@
 # salloc --account=ssc --time=01:00:00 --gpus=2 --ntasks-per-node=2 --partition=debug
 
 module purge
-ml PrgEnv-intel
+module load PrgEnv-intel
 ml mamba
 ml cuda
 
@@ -104,6 +104,10 @@ for i in $(seq 0 $((${NUM_GPUS}-1))); do
 
         # --- Set Worker-Specific Environment ---
         export CUDA_VISIBLE_DEVICES=${i} # Assign specific GPU based on loop index
+<<<<<<< HEAD
+=======
+        
+>>>>>>> f62538bd5ffead74d16ad9d46bd828657a935406
         # Note: PYTHONPATH and WANDB_DIR are inherited via export from parent script
 
         
