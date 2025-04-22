@@ -1,0 +1,1 @@
+sbatch tune_model_kestrel.sh informer $HOME/toolboxes/ahenry/config/training/training_inputs_kestrel_awaken_pred60.yaml"

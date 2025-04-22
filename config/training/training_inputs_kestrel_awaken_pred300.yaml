@@ -3,11 +3,11 @@
 experiment:
   username: aoife-henry
   project_name: wind_forecasting_awaken
-  run_name: aoifemac_awaken
+  run_name: aoifemac_awaken_pred300
   log_dir: /projects/ssc/ahenry/wind_forecasting/logging/
   project_root: /projects/ssc/ahenry/wind_forecasting/
   notes: "Tuning AWAKEN with Informer+"
-  extra_tags: ["awaken"] # By default already has GPU id, model and mode.
+  extra_tags: ["awaken", "pred300"] # By default already has GPU id, model and mode.
 
 logging:
   entity: jmb0507-cu-boulder # Wandb entity (group name)
@@ -19,7 +19,7 @@ logging:
   slurm_output_dir: /projects/ssc/ahenry/wind_forecasting/logging/slurm_logs/
 
 optuna:
-  study_name: "awaken_tune"
+  study_name: awaken_tune_pred300
   save_trial_code: false      # Default false
   n_trials_per_worker: 100     # Test a total of 4*12=48 trials
   max_epochs: 10              # epochs per trial
@@ -86,16 +86,9 @@ dataset:
     overfit: False
     test_split: 0.20
     val_split: 0.1
-    #resample_freq: 5s
-    #resample_freq: 15s
     resample_freq: 30s
-    #resample_freq: 45s
-    #resample_freq: 60s
-    #resample_freq: 120s
-    #resample_freq: 180s
     n_splits: 1 # how many divisions of each continuity group to make which is further subdivided into training test and validation data
-    per_turbine_target: False
-    #per_turbine_target: True
+    per_turbine_target: True
     context_length_factor: 2
 
 
