@@ -83,8 +83,13 @@ class DataModule():
      
     def generate_datasets(self):
         
-        dataset = IterableLazyFrame(data_path=self.data_path, dtype=self.dtype)\
-                    .with_columns(time=pl.col("time").dt.round(self.freq))\
+        dataset = IterableLazyFrame(data_path=self.data_path, dtype=self.dtype)
+        
+        # add warning if upsampling
+        dataset_dt = dataset.select(pl.col("time").diff()).slice(1, 1).collect().item()
+        if dataset_dt > int(re.search("\\d+", self.freq).group()):
+            logging.warning(f"Downsampling dataset with frequency of {dataset_dt} seconds to {self.freq}.")
+        dataset = dataset.with_columns(time=pl.col("time").dt.round(self.freq))\
                     .group_by("time").agg(cs.numeric().mean())\
                     .sort(["continuity_group", "time"])
                     
