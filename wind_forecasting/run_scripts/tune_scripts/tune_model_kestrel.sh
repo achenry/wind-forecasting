@@ -78,6 +78,7 @@ for i in $(seq 0 $((${NUM_GPUS}-1))); do
         # Calculate worker index for logging
         export WORKER_INDEX=$((i*NUM_WORKERS_PER_GPU + j))
         
+        echo \"Worker ${i}: Running python script with WORKER_RANK=${WORKER_RANK}...\"
         echo "Starting worker ${WORKER_INDEX} on GPU ${i} with seed ${WORKER_SEED}"
         
         # Launch worker with environment settings
@@ -103,7 +104,7 @@ for i in $(seq 0 $((${NUM_GPUS}-1))); do
         export WORKER_RANK=${i}          # Export rank for Python script
         # Note: PYTHONPATH and WANDB_DIR are inherited via export from parent script
 
-        echo \"Worker ${i}: Running python script with WORKER_RANK=${WORKER_RANK}...\"
+        
         # --- Run the tuning script ---
         # Workers connect to the already initialized study using the PG URL
         # Pass --restart_tuning flag from the main script environment
