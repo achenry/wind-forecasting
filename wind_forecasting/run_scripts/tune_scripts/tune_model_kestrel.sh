@@ -1,8 +1,8 @@
 #!/bin/bash 
 #SBATCH --account=ssc
-#SBATCH --time=24:00:00
+#SBATCH --time=01:00:00
 #SBATCH --output=%j-%x.out
-##SBATCH --partition=debug
+#SBATCH --partition=debug
 #SBATCH --nodes=1 # this needs to match Trainer(num_nodes...)
 #SBATCH --gres=gpu:1
 #SBATCH --ntasks-per-node=1 # this needs to match Trainer(devices=...)
@@ -20,7 +20,7 @@ ml cuda
 
 mamba activate wind_forecasting
 
-export TUNING_PHASE=0
+export TUNING_PHASE=1
 export BASE_DIR="/home/ahenry/toolboxes/wind_forecasting_env/wind-forecasting"
 export WORK_DIR="${BASE_DIR}/wind_forecasting"
 #export LOG_DIR="/projects/ssc/ahenry/wind_forecasting/logging"
@@ -33,7 +33,7 @@ echo $MODEL_CONFIG_PATH
 export PYTHONPATH=${WORK_DIR}:${PYTHONPATH}
 #export WANDB_DIR=${LOG_DIR}/wandb
 
-export API_FILE="../.wand_api_key"
+export API_FILE="../.wandb_api_key"
 if [[ -f "${API_FILE}" ]]; then   
   echo "WANDB API file exists";
   source "${API_FILE}"
