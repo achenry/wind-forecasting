@@ -203,6 +203,8 @@ class MLTuningObjective:
       
         params = self.estimator_class.get_params(trial, self.tuning_phase, 
                                                  dynamic_kwargs=self.dynamic_params)
+        
+        # TODO using val_loss between per_turbine and all_turbine cases is not a fair comparison...
         if "resample_freq" in params or "per_turbine" in params:
             self.data_module.freq = f"{params['resample_freq']}s"
             self.data_module.per_turbine = params["per_turbine"]
@@ -445,14 +447,12 @@ class MLTuningObjective:
                  if key != 'model_config' and key not in hparams:
                      logging.warning(f"Hyperparameter '{key}' not found in checkpoint, using default value: {val}")
 
-
             # Check for missing essential args (should ideally not happen with defaults)
             missing_args = [k for k, v in init_args.items() if v is None and k != 'model_config'] # model_config checked above
             if missing_args:
                 logging.error(f"Missing required hyperparameters in checkpoint {checkpoint_path} even after checking defaults: {missing_args}")
                 return float('inf') # Indicate failure
 
-            logging.info(f"Re-instantiating LightningModule for metric retrieval with stage: {init_args.get('stage')}")
             logging.info(f"Re-instantiating LightningModule for metric retrieval with stage: {init_args.get('stage')}")
             logging.debug(f"Using init_args: {init_args}")
 

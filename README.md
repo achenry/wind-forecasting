@@ -188,8 +188,8 @@ wind-forecasting/
 ### Tuning a ML Model
 1. Tune a ML model on a local machine with `python wind-forecasting/wind_forecasting/run_scripts/run_model.py --config wind-forecasting/examples/inputs/training_inputs_aoifemac_flasc.yaml --mode tune --model informer`, or on a HPC by running `wind-forecasting/wind_forecasting/run_scripts/tune_model.sh`. 
 
-### Tuning a Statistical Model
-1. Tune a statistical model on a local machine with `python wind-hybrid-open-controller/whoc/wind_forecast/tuning.py --model_config wind_forecasting/examples/inputs/training_inputs_aoifemac_flasc.yaml --data_config wind_forecasting/examples/inputs/preprocessing_inputs_flasc.yaml --model svr --study_name svr_tuning --restart_tuning`, or on a HPC by running `wind-hybrid-open-controller/whoc/wind_forecast/run_tuning.sh [model] [number of models to tune]`.
+### Tuning & Training the Benchmark Models
+1. Tune a statistical model on a local machine with `python wind-hybrid-open-controller/whoc/wind_forecast/tuning.py --model_config wind_forecasting/examples/inputs/training_inputs_aoifemac_flasc.yaml --data_config wind_forecasting/examples/inputs/preprocessing_inputs_flasc.yaml --model svr --study_name svr_tuning --restart_tuning`, or on a HPC by running `wind-hybrid-open-controller/whoc/wind_forecast/run_tuning_kestrel.sh [model] [model_config]`.
 
 ### Training a ML Model
 1. Train a ML model on a local machine with `python wind-forecasting/wind_forecasting/run_scripts/run_model.py --config wind-forecasting/examples/inputs/training_inputs_aoifemac_flasc.yaml --mode train --model informer --use_tuned_parameters`, or on a HPC by running `wind-forecasting/wind_forecasting/run_scripts/train_model_kestrel.sh`.  
@@ -198,10 +198,11 @@ wind-forecasting/
 1. Test a ML model on a local machine with `python wind-forecasting/wind_forecasting/run_scripts/run_model.py --config wind-forecasting/examples/inputs/training_inputs_aoifemac_flasc.yaml --mode test --model informer --checkpoint latest`, or on a HPC by running `wind-forecasting/wind_forecasting/run_scripts/test_model.sh`. 
 
 ### Testing a WindForecaster class on Wind Farm Data
-1. Make predictions at a given controller sampling time intervals, for a given SCADA dataset, and a given prediction time interval, compute the accuracy score and plot the results with `python wind-hybrid-open-controller/whoc/wind_forecast/WindForecast.py --model_config wind_forecasting/examples/inputs/training_inputs_aoifemac_flasc.yaml --data_config wind_forecasting/examples/inputs/preprocessing_inputs_flasc.yaml --model informer`.
+1. Make predictions at a given controller sampling time intervals, for a given SCADA dataset, and a set of prediction time intervals, compute the RMSE, MAE, PINAW, CWC, CRPS, PICP scores and plot the results with `python wind-hybrid-open-controller/whoc/wind_forecast/WindForecast.py --model_config wind_forecasting/examples/inputs/training_inputs_aoifemac_flasc.yaml --data_config wind_forecasting/examples/inputs/preprocessing_inputs_flasc.yaml --model kf sf svr persistence --multiprocessor cf --simulation_timestep 1 --prediction_type distribution --prediction_interval 60 300`, or on a HPC by running `wind-hybrid-open-controller/whoc/wind_forecast/run_wind_forecasting.sh`.
 
-### Combining a Statistical or ML Model with a Wind Farm Controller
-1. Write a WHOC configuration file similar to `wind-hybrid-open-controller/examples/hercules_input_001.yaml`. Run a case study of a yaw controller with a trained model with `python wind-hybrid-open-controller/whoc/case_studies/run_case_studies.py 15 -rs -rrs --verbose -ps -rps -ras -st auto -ns 3 -m cf -sd wind-hybrid-open-controller/examples/floris_case_studies -mcnf wind_forecasting/examples/inputs/training_inputs_aoifemac_flasc.yaml -dcnf wind_forecasting/examples/inputs/preprocessing_inputs_flasc.yaml -wcnf wind-hybrid-open-controller/examples/hercules_input_001.yaml -wf scada`, where you can fine tune parameters for a suite of cases by editing the dictionary `case_studies["baseline_controllers_preview_flasc"]` in `wind-hybrid-open-controller/whoc/case_studies/initialize_case_studies.py` and you can edit the common default parameters in the WHOC configuration file.
+### Combining a Model with a Wind Farm Controller
+1. Write a WHOC configuration file similar to `wind-hybrid-open-controller/examples/hercules_input_001.yaml`. 
+2. Run a case study of a yaw controller with a trained model with `python wind-hybrid-open-controller/whoc/case_studies/run_case_studies.py 15 -rs -rrs --verbose -ps -rps -ras -st auto -ns 3 -m cf -sd wind-hybrid-open-controller/examples/floris_case_studies -mcnf wind_forecasting/examples/inputs/training_inputs_aoifemac_flasc.yaml -dcnf wind_forecasting/examples/inputs/preprocessing_inputs_flasc.yaml -wcnf wind-hybrid-open-controller/examples/hercules_input_001.yaml -wf scada`, where you can fine tune parameters for a suite of cases by editing the dictionary `case_studies["baseline_controllers_preview_flasc"]` in `wind-hybrid-open-controller/whoc/case_studies/initialize_case_studies.py` and you can edit the common default parameters in the WHOC configuration file.
 
 TODO add HPC version
 ---
