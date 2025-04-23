@@ -1,8 +1,8 @@
 #!/bin/bash 
 #SBATCH --account=ssc
-#SBATCH --time=01:00:00
+#SBATCH --time=24:00:00
 #SBATCH --output=%j-%x.out
-#SBATCH --partition=debug
+##SBATCH --partition=debug
 #SBATCH --nodes=1 # this needs to match Trainer(num_nodes...)
 #SBATCH --gres=gpu:1
 #SBATCH --ntasks-per-node=1 # this needs to match Trainer(devices=...)
@@ -104,12 +104,7 @@ for i in $(seq 0 $((${NUM_GPUS}-1))); do
 
         # --- Set Worker-Specific Environment ---
         export CUDA_VISIBLE_DEVICES=${i} # Assign specific GPU based on loop index
-<<<<<<< HEAD
-=======
-        
->>>>>>> f62538bd5ffead74d16ad9d46bd828657a935406
         # Note: PYTHONPATH and WANDB_DIR are inherited via export from parent script
-
         
         # --- Run the tuning script ---
         # Workers connect to the already initialized study using the PG URL
