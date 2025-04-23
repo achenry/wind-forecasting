@@ -1,23 +1,22 @@
+# TODO fix clashing versions below e.g numpy scipy 
 ssh ahenry@kestrel-gpu.hpc.nrel.gov
 # https://docs.github.com/en/authentication/connecting-to-github-with-ssh/generating-a-new-ssh-key-and-adding-it-to-the-ssh-agent?platform=linux
 
-## FOR WANDB ONLY
-export WANDB_API_KEY=a9aec8e98a88077de29031385225167c720030f7
-pip install wandb
-wandb login
-## END WANDB
+ml mamba
+mamba create --prefix=/projects/ssc/ahenry/conda/envs/wind_forecasting_env python==3.12.9
+mamba activate wind_forecasting_env
 
 ## FOR PREPROCESSING ONLY
-mkdir /home/ahenry/.conda
-chmod a=rx /home/ahenry/.conda
-cd $LARGE_STORAGE
-mkdir conda_pkgs
-conda config --add pkgs_dirs /srv/data/nfs/ahenry/conda_pkgs 
-mkdir conda_envs
-conda config --append envs_dirs /srv/data/nfs/ahenry/conda_envs
-conda create --prefix=/srv/data/nfs/ahenry/conda_envs/wind_forecasting_preprocessing --y
-conda activate /srv/data/nfs/ahenry/conda_envs/wind_forecasting_preprocessing
-mkdir wind_forecasting_env && cd wind_forecasting_env && mkdir bin
+# mkdir /home/ahenry/.conda
+# chmod a=rx /home/ahenry/.conda
+# cd $LARGE_STORAGE
+# mkdir conda_pkgs
+# conda config --add pkgs_dirs /srv/data/nfs/ahenry/conda_pkgs 
+# mkdir conda_envs
+# conda config --append envs_dirs /srv/data/nfs/ahenry/conda_envs
+# conda create --prefix=/srv/data/nfs/ahenry/conda_envs/wind_forecasting_preprocessing --y
+# conda activate /srv/data/nfs/ahenry/conda_envs/wind_forecasting_preprocessing
+# mkdir wind_forecasting_env && cd wind_forecasting_env && mkdir bin
 
 git clone https://github.com/achenry/OpenOA
 cd OpenOA
@@ -38,15 +37,24 @@ pip install --target $LARGE_STORAGE/ahenry/wind_forecasting_env/bin floris polar
 # rm -rf /projects/ssc/ahenry/conda/envs/wind_forecasting
 # rm -rf /home/ahenry/.conda-pkgs/cache
 # FOR PREPROCESSING AND RUNNING MODEL
-module load PrgEnv-intel
-MPICC=`which mpicc` pip install mpi4py
 
-ml mamba
-mamba create --prefix=/projects/ssc/ahenry/conda/envs/wind_forecasting --y
-mamba activate wind_forecasting
-mamba install conda-forge::cuda-version=12.4 nvidia/label/cuda-12.4.0::cuda-toolkit performer-pytorch pytorch torchvision torchaudio torchmetrics pytorch-cuda=12.4 lightning -c pytorch -c nvidia --y
-mamba install mysqlclient mysql-connector-python polars windrose statsmodels scikit-learn jupyterlab nb_conda_kernels pyyaml matplotlib numpy seaborn opt_einsum netcdf4 scipy h5pyd pyarrow wandb einops --y 
-pip install opencv-python plotly memory_profiler optuna optuna-integration optuna-dashboard filterpy # openmpi impi_rt
+
+module load PrgEnv-intel
+mamba install mpi4py 
+pip install plotly memory_profiler optuna optuna-integration optuna-dashboard filterpy # openmpi impi_rt opencv-python 
+mamba install conda-forge::cuda-version=12.4 nvidia/label/cuda-12.4.0::cuda-toolkit performer-pytorch pytorch torchvision torchaudio torchmetrics pytorch-cuda=12.4 lightning -c pytorch -c nvidia
+mamba install mysqlclient mysql-connector-python polars windrose statsmodels scikit-learn nb_conda_kernels pyyaml matplotlib numpy seaborn netcdf4 scipy h5pyd pyarrow wandb einops # opt_einsum
+
+## FOR WANDB ONLY
+API_FILE="../wind_forecasting/run_scripts/.wandb_api_key"
+if [ -f "${API_FILE}" ]; then
+  source "${API_FILE}"
+else
+  echo "ERROR: WANDB API‑key file not found at ${API_FILE}" >&2
+  exit 1
+fi
+wandb login
+## END WANDB
 
 brew install mysql  && brew services start mysql
 
@@ -59,8 +67,9 @@ cd ..
 git clone https://github.com/boujuan/pytorch-transformer-ts
 cd pytorch-transformer-ts
 git checkout feature/spacetimeformer
-pip install ujson datasets xformers etsformer-pytorch reformer_pytorch pykeops apex # gluonts[torch]
-pip install git+https://github.com/kashif/hopfield-layers@pytorch-2 git+https://github.com/microsoft/torchscale
+python setup.py develop
+# pip install ujson datasets xformers etsformer-pytorch reformer_pytorch pykeops apex # gluonts[torch]
+# pip install git+https://github.com/kashif/hopfield-layers@pytorch-2 git+https://github.com/microsoft/torchscale
 cd ..
 
 git clone https://github.com/achenry/gluonts

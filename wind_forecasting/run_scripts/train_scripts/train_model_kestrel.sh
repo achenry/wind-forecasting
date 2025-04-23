@@ -16,7 +16,7 @@
 module purge
 module load PrgEnv-intel
 ml mamba
-mamba activate wind_forecasting
+mamba activate wind_forecasting_env
 
 API_FILE="../.wandb_api_key"
 if [ -f "${API_FILE}" ]; then

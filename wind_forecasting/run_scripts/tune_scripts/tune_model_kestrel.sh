@@ -18,7 +18,7 @@ module load PrgEnv-intel
 ml mamba
 ml cuda
 
-mamba activate wind_forecasting
+mamba activate wind_forecasting_env
 
 export BASE_DIR="/home/ahenry/toolboxes/wind_forecasting_env/wind-forecasting"
 export WORK_DIR="${BASE_DIR}/wind_forecasting"
@@ -96,7 +96,7 @@ for i in $(seq 0 $((${NUM_GPUS}-1))); do
 
         # --- Activate conda environment ---
         eval \"\$(mamba shell.bash hook)\"
-        mamba activate wind_forecasting
+        mamba activate wind_forecasting_env
         echo \"Worker ${i}: Conda environment 'wind_forecasting' activated.\"
 
         # --- Set Worker-Specific Environment ---

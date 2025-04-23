@@ -10,7 +10,7 @@ module purge
 module load intel impi
 #module load miniforge
 #conda init
-mamba activate wind_forecasting
+mamba activate wind_forecasting_env
 echo $SLURM_NTASKS
 export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$CONDA_PREFIX/lib
 
