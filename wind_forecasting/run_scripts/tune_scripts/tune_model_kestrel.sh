@@ -18,7 +18,7 @@ module load PrgEnv-intel
 ml mamba
 ml cuda
 
-mamba activate wind_forecasting
+mamba activate wind_forecasting_env
 
 export TUNING_PHASE=1
 export BASE_DIR="/home/ahenry/toolboxes/wind_forecasting_env/wind-forecasting"
@@ -99,8 +99,8 @@ for i in $(seq 0 $((${NUM_GPUS}-1))); do
 
         # --- Activate conda environment ---
         #eval \"\$(mamba shell.bash hook)\"
-        mamba activate wind_forecasting
-        echo \"Worker ${i}: Conda environment 'wind_forecasting' activated.\"
+        mamba activate wind_forecasting_env
+        echo \"Worker ${i}: Conda environment 'wind_forecasting_env' activated.\"
 
         # --- Set Worker-Specific Environment ---
         export CUDA_VISIBLE_DEVICES=${i} # Assign specific GPU based on loop index
