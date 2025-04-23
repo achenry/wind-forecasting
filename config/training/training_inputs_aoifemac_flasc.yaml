@@ -17,7 +17,6 @@ logging:
   slurm_output_dir: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/logging/slurm_logs/
 
 optuna:
-  study_name: "flasc_tune"
   save_trial_code: false      # Default false
   n_trials_per_worker: 12     # Test a total of 4*12=48 trials
   metric: val_loss

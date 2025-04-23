@@ -3,7 +3,7 @@
 experiment:
   username: aoife-henry
   project_name: wind_forecasting_awaken
-  run_name: aoifemac_awaken_pred60
+  run_name: kestrel_awaken_pred60
   log_dir: /projects/ssc/ahenry/wind_forecasting/logging/
   project_root: /projects/ssc/ahenry/wind_forecasting/
   notes: "Tuning AWAKEN with Informer+"
@@ -19,7 +19,6 @@ logging:
   slurm_output_dir: /projects/ssc/ahenry/wind_forecasting/logging/slurm_logs/
 
 optuna:
-  study_name: "awaken_tune_pred60"
   save_trial_code: false      # Default false
   n_trials_per_worker: 100     # Test a total of 4*12=48 trials
   max_epochs: 10              # epochs per trial
