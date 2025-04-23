@@ -827,7 +827,7 @@ def tune_model(model, config, study_name, optuna_storage, lightning_module_class
                 dir=wandb_dir,
                 tags=tags,
                 config=git_info_config,
-                reinit=True # Allow reinitialization if needed, though the check above should handle most cases
+                reinit=True # TODO deprecated Allow reinitialization if needed, though the check above should handle most cases
             )
             logging.info(f"Rank 0: Initialized W&B summary run: {wandb.run.name} (ID: {wandb.run.id}) with Git info: {git_info_config}")
 
