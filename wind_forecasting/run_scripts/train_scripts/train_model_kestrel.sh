@@ -27,16 +27,10 @@ else
   exit 1
 fi
 
-# export MODEL_CONFIG_PATH="${2}"
-#cd /home/ahenry/toolboxes/wind_forecasting_env/wind-forecasting/wind_forecasting/models/pytorch-transformer-ts/informer
-
 echo "SLURM_NTASKS=${SLURM_NTASKS}"
 echo "SLURM_JOB_NUM_NODES=${SLURM_JOB_NUM_NODES}"
 echo "SLURM_GPUS_ON_NODE=${SLURM_GPUS_ON_NODE}"
 echo "SLURM_JOB_GPUS=${SLURM_JOB_GPUS}"
 echo "SLURM_JOB_GRES=${SLURM_JOB_GRES}"
 
-srun python run_model.py --config $2 --mode train --model $1
-# srun python informer.py
-#python train_spacetimeformer.py spacetimeformer windfarm --debug --run_name spacetimeformer_windfarm_debug --context_points 600 --target_points 600
-
+srun python ../run_model.py --config $2 --mode train --model $1
