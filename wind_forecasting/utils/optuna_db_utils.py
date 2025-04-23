@@ -230,10 +230,10 @@ def setup_sqlite(sqlite_storage_dir, study_name, restart_tuning, rank):
     # Handle restart for SQLite on rank 0
     # if rank == 0 and restart_tuning:
     #     restart_sqlite_rank_zero(sqlite_abs_path)
-    if rank == 0:
-        storage = RDBStorage(url=optuna_storage_url)
-    else:
-        raise Exception("Cannot use SQLite storage with multiple workers. Please use a different backend.")
+    # if rank == 0:
+    storage = RDBStorage(url=optuna_storage_url)
+    # else:
+    #     raise Exception("Cannot use SQLite storage with multiple workers. Please use a different backend.")
     if rank == 0 and restart_tuning:
         delete_studies(storage)
     
