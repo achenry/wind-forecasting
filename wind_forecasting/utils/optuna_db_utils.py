@@ -226,11 +226,9 @@ def setup_sqlite(sqlite_storage_dir, study_name, restart_tuning, rank):
     """
     # Construct the SQLite URL based on config
     db_path = os.path.join(sqlite_storage_dir, f'{study_name}.db')
-    logging.info(f"rank == {rank} and restart_tuning == {restart_tuning}")
     if rank == 0 and restart_tuning:
         if os.path.exists(db_path):
-            logging.info(f"Deleting existing SQLite storage at {db_path}.")
-            os.remove(db_path)
+            restart_sqlite_rank_zero(db_path)
         else:
             logging.warning(f"Could not find existing SQLite storage to delete at {db_path}.")
     
