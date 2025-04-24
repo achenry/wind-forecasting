@@ -90,5 +90,6 @@ examples/data/*
 _DOCS/*
 
 # wind_forecasting/preprocessing/.ipynb_checkpoints/
+>>>>>>> 99cd2088896e09478d48932401a1c53a87cb3490
 *.sh.vscode/launch.json
 # examples/logging/wandb =
