@@ -204,7 +204,7 @@ class MLTuningObjective:
         params = self.estimator_class.get_params(trial, self.tuning_phase, 
                                                  dynamic_kwargs=self.dynamic_params)
         
-        # TODO using val_loss between per_turbine and all_turbine cases is not a fair comparison...
+        
         if "resample_freq" in params or "per_turbine" in params:
             self.data_module.freq = f"{params['resample_freq']}s"
             self.data_module.per_turbine_target = params["per_turbine"]
@@ -480,6 +480,10 @@ class MLTuningObjective:
             model_checkpoint = [v for k, v in checkpoint["callbacks"].items() if "ModelCheckpoint" in k][0]
             agg_metrics = {model_checkpoint["monitor"]: model_checkpoint["best_model_score"]}
             
+            # not a perfect comparision, multiply per turbine case with number of turbines to approximate val_loss over full dataset
+            if params["per_turbine"]:
+                agg_metrics[model_checkpoint["monitor"]] = model_checkpoint["best_model_score"] * len(self.data_module.target_suffixes)
+                
             # remove evaluation if we don't use it ie if we use val_loss
             if metric_to_return != "val_loss":
                 transformation = estimator.create_transformation(use_lazyframe=False)
