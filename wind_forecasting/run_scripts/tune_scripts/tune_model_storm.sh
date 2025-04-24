@@ -5,7 +5,7 @@
 #SBATCH --ntasks-per-node=4         # Match number of GPUs requested below
 #SBATCH --cpus-per-task=1           # CPUs per task (4 tasks * 32 = 128 CPUs total) [1 CPU/GPU more than enough]
 #SBATCH --mem-per-cpu=4096          # Memory per CPU (Total Mem = ntasks * cpus-per-task * mem-per-cpu) [flasc uses only ~4-5 GiB max]
-#SBATCH --gres=gpu:4           # Request 4 H100 GPUs
+#SBATCH --gres=gpu:4:H100           # Request 4 H100 GPUs
 #SBATCH --time=0-08:00              # Time limit (up to 7 days)
 #SBATCH --job-name=tactis_tune_flasc_sql
 #SBATCH --output=/user/taed7566/Forecasting/wind-forecasting/logs/slurm_logs/tactis_tune_flasc_sql_%j.out
@@ -64,7 +64,7 @@ echo "--- MANUAL MONITORING INSTRUCTIONS ---"
 echo "To monitor GPU usage, open a NEW terminal session on the login node and run:"
 echo "ssh -L 8088:localhost:8088 ${USER}@${SLURM_JOB_NODELIST}"
 echo "After connecting, activate the environment and run gpustat:"
-echo "mamba activate wf_env_2"
+echo "mamba activate wf_env_storm"
 echo "gpustat -P --no-processes --watch 0.5"
 echo "------------------------------------"
 
@@ -94,8 +94,8 @@ export POSTGRES_BIN_DIR=$(dirname "$PG_INITDB_PATH")
 echo "Found PostgreSQL bin directory: ${POSTGRES_BIN_DIR}"
 
 eval "$(conda shell.bash hook)"
-conda activate wf_env_2
-echo "Conda environment 'wf_env_2' activated."
+conda activate wf_env_storm
+echo "Conda environment 'wf_env_storm' activated."
 # --- End Main Environment Setup ---
 
 echo "=== STARTING PARALLEL OPTUNA TUNING WORKERS ==="
@@ -129,8 +129,8 @@ for i in $(seq 0 $((${NUM_GPUS}-1))); do
 
         # --- Activate conda environment ---
         eval \"\$(conda shell.bash hook)\"
-        conda activate wf_env_2
-        echo \"Worker ${i}: Conda environment 'wf_env_2' activated.\"
+        conda activate wf_env_storm
+        echo \"Worker ${i}: Conda environment 'wf_env_storm' activated.\"
 
         # --- Set Worker-Specific Environment ---
         export CUDA_VISIBLE_DEVICES=${i} # Assign specific GPU based on loop index
@@ -200,7 +200,7 @@ trap "echo '--- Stopping System Monitoring ---'; kill \$MONITOR_PID 2>/dev/null"
 (
     # Setup environment for monitoring commands
     eval "$(conda shell.bash hook)"
-    conda activate wf_env_2
+    conda activate wf_env_storm
     
     echo "--- Starting Periodic Resource Monitoring (every 10 minutes) ---"
     
@@ -302,5 +302,5 @@ exit $FINAL_EXIT_CODE
 # squeue --node=cfdg002
 # scontrol show node cfdg002
 # ssh -L 8088:localhost:8088 taed7566@cfdg002
-# mamba activate wf_env_2
+# mamba activate wf_env_storm
 # gpustat -P --no-processes --watch 0.5

@@ -1,11 +1,11 @@
 experiment:
   username: jmb0507
   project_name: wind_forecasting_flasc
-  run_name: tune_p5_d25_b25_n4 # [p = patience, d = min_delta, b = limit_train_batches, n = n_startup_trials]
+  run_name: tune_hb_12_1-5 # [p = patience, d = min_delta, b = limit_train_batches, n = n_startup_trials] / hb = hyperband min_resource, reduction_factor
   project_root: /user/taed7566/Forecasting/wind-forecasting
   log_dir: /user/taed7566/Forecasting/wind-forecasting/logs/
   notes: "Tuning FLASC with TACTiS-2"
-  extra_tags: ["flasc"] # By default already has GPU id, model and mode.
+  extra_tags: ["flasc", "H100"] # By default already has GPU id, model and mode.
 
 logging:
   entity: jmb0507-cu-boulder # Wandb entity (group name)
@@ -31,10 +31,14 @@ optuna:
   # Pruning configuration
   pruning:
     enabled: true             # Whether to enable pruning
-    type: "median"            # Options: "hyperband", "median", "percentile", "none"
-    n_startup_trials: 4       # Number of trials to wait until building the median for pruning - 6 good
-    n_warmup_steps: 12        # Number of epochs to wait before starting pruning
-    # set up so log_n(max_resource/min_resource)+1 = between 4-6 brackets ideally (hyperband-only setting [deprecated currently])
+    type: "hyperband"         # Options: "hyperband", "median"
+    max_resource: 25          # Maximum number of epochs to train a trial [hyperband only] 
+    min_resource: 12          # Minimum number of epochs to train a trial [hyperband only]
+    reduction_factor: 1.5     # Reduction factor for hyperband pruning @boujuan 1.5 allows for ~3 brackets and more gentle pruning
+    # set up so log_n(max_resource/min_resource)+1 = between 4-6 brackets ideally [hyperband only]  
+    bootstrap_count: 0        # Number of bootstrap samples to use 
+    # n_startup_trials: 4       # Number of trials to wait until building the median for pruning - 6 good [median only]
+    # n_warmup_steps: 12        # Number of epochs to wait before starting pruning [median only]
 
   # Optuna visualization configuration (additional to wandb)
   visualization:
@@ -194,14 +198,14 @@ callbacks:
       init_args:
         refresh_rate: 50  # every n steps, set to 0 to disable - 25 good
         leave: true
-    early_stopping:
-      class_path: lightning.pytorch.callbacks.EarlyStopping
-      init_args:
-        monitor: 'val_loss'
-        patience: 5 # Number of epochs to wait before stopping (val>epochs to disable) - 8 good
-        min_delta: 25.0 # Minimum change to be considered an improvement (>5.0 after observing visual fluctuations of 2-4 per epoch on an almost-perfectly visual plateau) - 5.0 good
-        mode: 'min'
-        check_finite: true
+    # early_stopping:
+    #   class_path: lightning.pytorch.callbacks.EarlyStopping
+    #   init_args:
+    #     monitor: 'val_loss'
+    #     patience: 5 # Number of epochs to wait before stopping (val>epochs to disable) - 8 good
+    #     min_delta: 25.0 # Minimum change to be considered an improvement (>5.0 after observing visual fluctuations of 2-4 per epoch on an almost-perfectly visual plateau) - 5.0 good
+    #     mode: 'min'
+    #     check_finite: true
     model_checkpoint:
       class_path: lightning.pytorch.callbacks.ModelCheckpoint
       init_args:

@@ -278,17 +278,54 @@ class MLTuningObjective:
         trial_trainer_kwargs = {k: v for k, v in self.config["trainer"].items() if k != 'callbacks'}
 
         # Get other callbacks from config but filter out any existing ModelCheckpoint instances
-        # to ensure we don't have conflicting checkpoint callbacks
+        # @boujuan EARLY STOPPING SHOULD BE HERE TOOOOO AHHHHHHHHHHHHHHHHHHHHHH
         instantiated_callbacks_from_config = self.config.get("callbacks", [])
+        early_stopping_config_args = None # AHHHHHHHHHHHHHHHHHH
+
         if not isinstance(instantiated_callbacks_from_config, list) or not all(isinstance(cb, pl.Callback) for cb in instantiated_callbacks_from_config):
              logging.warning("Callbacks in config are not a list of instantiated pl.Callback objects. Reverting to empty list.")
              instantiated_callbacks_from_config = []
         else:
-             # Filter out any existing ModelCheckpoint instances from config
-             instantiated_callbacks_from_config = [cb for cb in instantiated_callbacks_from_config
-                                                  if not isinstance(cb, ModelCheckpoint)]
-             if len(self.config.get("callbacks", [])) != len(instantiated_callbacks_from_config):
-                 logging.info(f"Trial {trial.number}: Filtered out {len(self.config.get('callbacks', [])) - len(instantiated_callbacks_from_config)} existing ModelCheckpoint instances from config")
+             original_count = len(instantiated_callbacks_from_config)
+             filtered_callbacks = []
+             for cb in instantiated_callbacks_from_config:
+                 if isinstance(cb, ModelCheckpoint):
+                     logging.debug(f"Trial {trial.number}: Filtering out config-defined ModelCheckpoint: {type(cb).__name__}")
+                     continue
+                 elif isinstance(cb, pl.callbacks.EarlyStopping):
+                     logging.debug(f"Trial {trial.number}: Found config-defined EarlyStopping: {type(cb).__name__}. Capturing args and filtering out.")
+                     if early_stopping_config_args is None and hasattr(cb, 'state_key'):
+                         early_stopping_config_args = {
+                             'monitor': getattr(cb, 'monitor', 'val_loss'),
+                             'min_delta': getattr(cb, 'min_delta', 0.0),
+                             'patience': getattr(cb, 'patience', 5),
+                             'verbose': getattr(cb, 'verbose', False),
+                             'mode': getattr(cb, 'mode', 'min'),
+                             'strict': getattr(cb, 'strict', True),
+                             'check_finite': getattr(cb, 'check_finite', True),
+                             'stopping_threshold': getattr(cb, 'stopping_threshold', None),
+                             'divergence_threshold': getattr(cb, 'divergence_threshold', None),
+                             'check_on_train_epoch_end': getattr(cb, 'check_on_train_epoch_end', None),
+                             'log_rank_zero_only': getattr(cb, 'log_rank_zero_only', False)
+                         }
+                         early_stopping_config_args = {k: v for k, v in early_stopping_config_args.items() if v is not None}
+                         logging.info(f"Trial {trial.number}: Captured EarlyStopping args: {early_stopping_config_args}")
+                     continue # Skip adding EarlyStopping
+                 filtered_callbacks.append(cb) # Keep other callbacks
+
+             instantiated_callbacks_from_config = filtered_callbacks
+             filtered_count = original_count - len(instantiated_callbacks_from_config)
+             if filtered_count > 0:
+                 logging.info(f"Trial {trial.number}: Filtered out {filtered_count} existing ModelCheckpoint/EarlyStopping instances from config")
+
+        # NEW EARLY STOPPING INSTANCEEEEEEE
+        if early_stopping_config_args:
+            trial_early_stopping_callback = pl.callbacks.EarlyStopping(**early_stopping_config_args)
+            current_callbacks.append(trial_early_stopping_callback)
+            logging.info(f"Trial {trial.number}: Created trial-specific EarlyStopping callback monitoring '{early_stopping_config_args.get('monitor')}' (mode: {early_stopping_config_args.get('mode')})")
+        else:
+            logging.warning(f"Trial {trial.number}: Could not find or extract args from a config-defined EarlyStopping callback. early stopping could crash.")
+
 
         final_callbacks = instantiated_callbacks_from_config + current_callbacks
 
