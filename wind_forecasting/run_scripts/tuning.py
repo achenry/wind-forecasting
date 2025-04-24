@@ -56,8 +56,21 @@ def generate_df_setup_params(model, model_config):
     if not resolved_optuna_dir:
         raise ValueError("logging.optuna_dir is required but not found or resolved.")
 
+    # Get instance name for PostgreSQL data directory
+    pgdata_instance_name = storage_cfg.get("pgdata_instance_name", "default")
+    if pgdata_instance_name == "default":
+        logging.warning("No 'pgdata_instance_name' specified in config. Using default instance name.")
+    
+    # Resolve pgdata path with instance name
     pgdata_path_from_config = storage_cfg.get("pgdata_path")
-    resolved_pgdata_path = resolve_path(project_root, pgdata_path_from_config)
+    if pgdata_path_from_config:
+        # For explicitly specified pgdata_path, append instance name
+        pgdata_dir = os.path.dirname(pgdata_path_from_config)
+        pgdata_path_with_instance = os.path.join(pgdata_dir, f"pgdata_{pgdata_instance_name}")
+        resolved_pgdata_path = resolve_path(project_root, pgdata_path_with_instance)
+    else:
+        # For default path, use instance name
+        resolved_pgdata_path = os.path.join(resolved_optuna_dir, f"pgdata_{pgdata_instance_name}")
 
     socket_dir_base_from_config = storage_cfg.get("socket_dir_base")
     if not socket_dir_base_from_config:
@@ -93,6 +106,7 @@ def generate_df_setup_params(model, model_config):
         "sqlite_path": storage_cfg.get("sqlite_path"), # For sqlite
         "sqlite_wal": storage_cfg.get("sqlite_wal", True), # For sqlite
         "sqlite_timeout": storage_cfg.get("sqlite_timeout", 600), # For sqlite
+        "pgdata_instance_name": pgdata_instance_name, # Store instance name for reference
     }
     return db_setup_params
 

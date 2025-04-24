@@ -55,6 +55,7 @@ optuna:
     # --- PostgreSQL Specific Settings ---
     # Path relative to project root (e.g., ~/wind-forecasting)
     pgdata_path: "/user/taed7566/Forecasting/wind-forecasting/optuna/pgdata" # Directory for PostgreSQL data files
+    pgdata_instance_name: "default_flasc_instance"
     db_name: "optuna_study_db"
     db_user: "optuna_user"
     use_socket: true      # Use Unix domain socket for local connection (recommended on single node)
