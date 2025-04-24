@@ -9,6 +9,9 @@ data/
 __pycache__/
 .DS_Store
 .wandb_api_key
+*.db
+*.db-shm
+*.db-wal
 
 # wind_forecasting/run_scripts/lightning_logs/
 # logging/lightning_logs
