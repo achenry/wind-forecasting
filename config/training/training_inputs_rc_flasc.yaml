@@ -204,7 +204,7 @@ trainer:
     accelerator: gpu
     devices: auto
     num_nodes: 1
-    strategy: auto # ddp_find_unused_parameters_true
+    strategy: ddp_find_unused_parameters_true # ddp_find_unused_parameters_true
     # n_workers: auto
     # debug: False 
     # accumulate: 1.0
