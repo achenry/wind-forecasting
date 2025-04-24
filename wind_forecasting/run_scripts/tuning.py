@@ -262,7 +262,7 @@ class MLTuningObjective:
         # Create a trial-specific ModelCheckpoint instance
         trial_checkpoint_callback = ModelCheckpoint(
             dirpath=checkpoint_dir,
-            filename=f"trial_{trial.number}_{{epoch}}_{{step}}_{{" + monitor_metric + ":.2f}}",
+            filename=f"trial_{trial.number}_{{epoch}}-{{step}}-{{{monitor_metric}:.2f}}",
             monitor=monitor_metric,
             mode=checkpoint_mode,
             save_top_k=1,
