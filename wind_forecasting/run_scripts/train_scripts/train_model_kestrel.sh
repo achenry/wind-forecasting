@@ -1,12 +1,12 @@
 #!/bin/bash 
 #SBATCH --account=ssc
-#SBATCH --time=01:00:00
-#SBATCH --output=all_turbine-%j-%x.log
+#SBATCH --time=12:00:00
+#SBATCH --output=%j-%x.out
 ##SBATCH --partition=debug
 #SBATCH --nodes=1 # this needs to match Trainer(num_nodes...)
-#SBATCH --gres=gpu:2
+#SBATCH --gres=gpu:4
 ##SBATCH --cpus-per-task=32
-#SBATCH --ntasks-per-node=2 # this needs to match Trainer(devices=...), and number of GPUs
+#SBATCH --ntasks-per-node=4 # this needs to match Trainer(devices=...), and number of GPUs
 #SBATCH --mem-per-cpu=85G
 
 ##SBATCH --mem=0 # refers to CPU (not GPU) memory, automatically given all GPU memory in a SLURM job, 85G
@@ -33,4 +33,4 @@ echo "SLURM_GPUS_ON_NODE=${SLURM_GPUS_ON_NODE}"
 echo "SLURM_JOB_GPUS=${SLURM_JOB_GPUS}"
 echo "SLURM_JOB_GRES=${SLURM_JOB_GRES}"
 
-srun python ../run_model.py --config $2 --mode train --model $1
+srun python ../run_model.py --config $2 --mode train --model $1 --use_tuned_parameters
