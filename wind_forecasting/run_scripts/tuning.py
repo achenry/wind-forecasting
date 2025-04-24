@@ -41,7 +41,9 @@ import numpy as np
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 def generate_df_setup_params(model, model_config):
-    study_name = f"tuning_{model}_{model_config['experiment']['run_name']}"
+    # Return a base study prefix instead of the final study name
+    # The final study name will be constructed in tune_model() based on restart_tuning flag
+    base_study_prefix = f"tuning_{model}_{model_config['experiment']['run_name']}"
     optuna_cfg = model_config["optuna"]
     storage_cfg = optuna_cfg.get("storage", {})
     logging_cfg = model_config["logging"]
@@ -92,7 +94,8 @@ def generate_df_setup_params(model, model_config):
         "backend": storage_cfg.get("backend", "sqlite"),
         "project_root": project_root,
         "pgdata_path": resolved_pgdata_path,
-        "study_name": study_name,
+        "study_name": base_study_prefix,  # This is now the base prefix, not final study name
+        "base_study_prefix": base_study_prefix,  # Store the base prefix separately
         "use_socket": storage_cfg.get("use_socket", True),
         "use_tcp": storage_cfg.get("use_tcp", False),
         "db_host": storage_cfg.get("db_host", "localhost"),
@@ -727,7 +730,7 @@ def tune_model(model, config, study_name, optuna_storage, lightning_module_class
                max_epochs, limit_train_batches,
                distr_output_class, data_module,
                metric="val_loss", direction="minimize", n_trials_per_worker=10,
-               trial_protection_callback=None, seed=42, tuning_phase=0): # Removed wandb_run_id
+               trial_protection_callback=None, seed=42, tuning_phase=0, restart_tuning=False): # Added restart_tuning parameter
 
     # Log safely without credentials if they were included (they aren't for socket trust)
     if hasattr(optuna_storage, "url"):
@@ -782,20 +785,40 @@ def tune_model(model, config, study_name, optuna_storage, lightning_module_class
     # Use WORKER_RANK consistent with run_model.py. Default to '0' if not set.
     worker_id = os.environ.get('WORKER_RANK', '0')
 
+    # Generate unique study name based on restart_tuning flag
+    from datetime import datetime
+    import os
+
+    base_study_prefix = study_name
+    if restart_tuning:
+        job_id = os.environ.get('SLURM_JOB_ID')
+        if job_id:
+            # If running in SLURM, use the job ID
+            final_study_name = f"{base_study_prefix}_{job_id}"
+        else:
+            # Otherwise use a timestamp
+            timestamp = datetime.now().strftime('%Y%m%d%H%M%S')
+            final_study_name = f"{base_study_prefix}_{timestamp}"
+        logging.info(f"Creating a new study with unique name: {final_study_name}")
+    else:
+        # If not restarting, use the base name to resume existing study
+        final_study_name = base_study_prefix
+        logging.info(f"Using existing study name to resume: {final_study_name}")
+
     # Create study on rank 0, load on other ranks
     study = None # Initialize study variable
     try:
         if worker_id == '0':
-            logging.info(f"Rank 0: Creating/loading Optuna study '{study_name}' with pruner: {type(pruner).__name__}")
+            logging.info(f"Rank 0: Creating/loading Optuna study '{final_study_name}' with pruner: {type(pruner).__name__}")
             study = create_study(
-                study_name=study_name,
+                study_name=final_study_name,
                 storage=optuna_storage,
                 direction=direction,
-                load_if_exists=True, # Rank 0 handles creation or loading
+                load_if_exists=not restart_tuning, # Only load if not restarting
                 sampler=TPESampler(seed=seed),
                 pruner=pruner
             )
-            logging.info(f"Rank 0: Study '{study_name}' created or loaded successfully.")
+            logging.info(f"Rank 0: Study '{final_study_name}' created or loaded successfully.")
 
             # --- Launch Dashboard (Rank 0 only) ---
             if hasattr(optuna_storage, "url"):
@@ -803,19 +826,19 @@ def tune_model(model, config, study_name, optuna_storage, lightning_module_class
             # --------------------------------------
         else:
             # Non-rank-0 workers MUST load the study created by rank 0
-            logging.info(f"Rank {worker_id}: Attempting to load existing Optuna study '{study_name}'")
+            logging.info(f"Rank {worker_id}: Attempting to load existing Optuna study '{final_study_name}'")
             # Add a small delay and retry mechanism for loading, in case rank 0 is slightly delayed
             max_retries = 6 # Increased retries slightly
             retry_delay = 10 # Increased delay slightly
             for attempt in range(max_retries):
                 try:
                     study = load_study(
-                        study_name=study_name,
+                        study_name=final_study_name,
                         storage=optuna_storage,
                         sampler=TPESampler(seed=seed), # Sampler might be needed for load_study too
                         pruner=pruner
                     )
-                    logging.info(f"Rank {worker_id}: Study '{study_name}' loaded successfully on attempt {attempt+1}.")
+                    logging.info(f"Rank {worker_id}: Study '{final_study_name}' loaded successfully on attempt {attempt+1}.")
                     break # Exit loop on success
                 except KeyError as e: # Optuna <3.0 raises KeyError if study doesn't exist yet
                      if attempt < max_retries - 1:
@@ -841,7 +864,7 @@ def tune_model(model, config, study_name, optuna_storage, lightning_module_class
 
     except Exception as e:
         # Log error with rank information
-        logging.error(f"Rank {worker_id}: Error creating/loading study '{study_name}': {str(e)}", exc_info=True)
+        logging.error(f"Rank {worker_id}: Error creating/loading study '{final_study_name}': {str(e)}", exc_info=True)
         # Log storage URL safely
         if hasattr(optuna_storage, "url"):
             log_storage_url_safe = str(optuna_storage.url).split('@')[0] + '@...' if '@' in str(optuna_storage.url) else str(optuna_storage.url)
@@ -867,7 +890,7 @@ def tune_model(model, config, study_name, optuna_storage, lightning_module_class
                 reload = False
             data_module.generate_splits(save=True, reload=reload, splits=["train", "val"])
 
-    logging.info(f"Worker {worker_id}: Participating in Optuna study {study_name}")
+    logging.info(f"Worker {worker_id}: Participating in Optuna study {final_study_name}")
 
     # get from config
     resample_freq_choices = config.get("optuna", {}).get("resample_freq_choices", None)
@@ -981,9 +1004,9 @@ def tune_model(model, config, study_name, optuna_storage, lightning_module_class
             # Determine summary run name
             base_run_name = config['experiment']['run_name']
             if best_trial:
-                run_name = f"RESULTS_{base_run_name}_best_trial_{best_trial.number}"
+                run_name = f"RESULTS_{base_run_name}_best_trial_{best_trial.number}_{final_study_name}"
             else:
-                run_name = f"RESULTS_{base_run_name}_optuna_summary"
+                run_name = f"RESULTS_{base_run_name}_optuna_summary_{final_study_name}"
 
             project_name = config['experiment'].get('project_name', 'wind_forecasting')
             group_name = config['experiment']['run_name']

@@ -229,8 +229,6 @@ def setup_sqlite(sqlite_storage_dir, study_name, restart_tuning, rank):
         storage = RDBStorage(url=optuna_storage_url)
     else:
         raise Exception("Cannot use SQLite storage with multiple workers. Please use a different backend.")
-    if rank == 0 and restart_tuning:
-        delete_studies(storage)
     
     return storage
 
@@ -238,9 +236,6 @@ def setup_journal(storage_dir, study_name, restart_tuning, rank):
     if rank == 0:
         logging.info(f"Connecting to Journal database {study_name}")
         optuna_storage_url = os.path.join(storage_dir, f"{study_name}.db")
-        if restart_tuning:
-            restart_journal_rank_zero(optuna_storage_url)
-    
     storage = JournalStorage(JournalFileBackend(optuna_storage_url))
     return storage
     
@@ -263,7 +258,7 @@ def setup_mysql(db_setup_params, restart_tuning, rank):
         optuna_storage_url = f"mysql://{db.user}@{db.server_host}:{db.server_port}/{db_setup_params['study_name']}"
         # restart_mysql_rank_zero(optuna_storage_url)
         storage = RDBStorage(url=optuna_storage_url)
-        if restart_tuning:
-            delete_studies(storage)
+        # We no longer delete studies when restart_tuning is true
+        # Instead, we'll create a new unique study in tune_model()
         
     return storage

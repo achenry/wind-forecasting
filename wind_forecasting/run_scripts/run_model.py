@@ -520,7 +520,8 @@ def main():
                    direction=config["optuna"]["direction"],
                    n_trials_per_worker=config["optuna"]["n_trials_per_worker"],
                    trial_protection_callback=handle_trial_with_oom_protection,
-                   seed=args.seed, tuning_phase=args.tuning_phase)
+                   seed=args.seed, tuning_phase=args.tuning_phase,
+                   restart_tuning=args.restart_tuning) # Add restart_tuning parameter
         
         # After training completes
         torch.cuda.empty_cache()
