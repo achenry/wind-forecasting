@@ -340,7 +340,14 @@ class DataModule():
             for split in splits:
                 with open(self.train_ready_data_path.replace(".parquet", f"_{split}.pkl"), 'rb') as fp:
                     data = pickle.load(fp)
+                    if self.verbose:
+                        logging.info(f"Read saved split {split} dataset stored at {self.train_ready_data_path.replace('.parquet', f'_{split}.pkl')}.")
+                    
                     setattr(self, f"{split}_dataset", data)
+                    
+                    if self.verbose:
+                        logging.info(f"Set attribute '{split}_dataset'.")
+                    
                     
         # for split, datasets in [("train", self.train_dataset), ("val", self.val_dataset), ("test", self.test_dataset)]:
         #     for ds in iter(datasets):

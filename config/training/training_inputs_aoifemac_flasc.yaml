@@ -3,7 +3,7 @@ experiment:
   project_name: wind_forecasting_flasc
   run_name: flasc_tune_2
   project_root: /Users/ahenry/Documents/toolboxes/wind_forecasting
-  log_dir: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/logging/
+  log_dir: /Users/ahenry/Documents/toolboxes/wind_forecasting/logging/
   notes: "Tuning FLASC with TACTiS-2"
   extra_tags: ["flasc"] # By default already has GPU id, model and mode.
 
@@ -11,10 +11,10 @@ logging:
   entity: jmb0507-cu-boulder # Wandb entity (group name)
   wandb_mode: online
   save_code: true # Save code to wandb
-  wandb_dir: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/logging/wandb # WandB will create a 'wandb' subdirectory here automatically
-  optuna_dir: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/logging/optuna/
-  checkpoint_dir: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/logging/checkpoints/
-  slurm_output_dir: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/logging/slurm_logs/
+  wandb_dir: /Users/ahenry/Documents/toolboxes/wind_forecasting/logging/wandb # WandB will create a 'wandb' subdirectory here automatically
+  optuna_dir: /Users/ahenry/Documents/toolboxes/wind_forecasting/logging/optuna/
+  checkpoint_dir: /Users/ahenry/Documents/toolboxes/wind_forecasting/logging/checkpoints/
+  slurm_output_dir: /Users/ahenry/Documents/toolboxes/wind_forecasting/logging/slurm_logs/
 
 optuna:
   save_trial_code: false      # Default false
@@ -219,7 +219,7 @@ trainer:
     # accumulate: 1.0
     max_epochs: 10 # Maximum number of epochs to train 100
     limit_train_batches: 1000
-    default_root_dir: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/logging/
+    default_root_dir: /Users/ahenry/Documents/toolboxes/wind_forecasting/logging/
     # precision: 32-true # 16-mixed enables mixed precision training 32-true is full precision
     # batch_size: 32 # larger = more stable gradients
     # lr: 0.0001 # Step size

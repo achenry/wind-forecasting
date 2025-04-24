@@ -3,8 +3,8 @@
 experiment:
   username: aoife-henry
   project_name: wind_forecasting_awaken
-  run_name: aoifemac_awaken
-  log_dir: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/logging/
+  run_name: aoifemac_awaken_pred60
+  log_dir: /Users/ahenry/Documents/toolboxes/wind_forecasting/logging/
   project_root: /Users/ahenry/Documents/toolboxes/wind_forecasting
   notes: "Tuning AWAKEN with Informer+"
   extra_tags: ["awaken"] # By default already has GPU id, model and mode.
@@ -13,10 +13,10 @@ logging:
   entity: jmb0507-cu-boulder # Wandb entity (group name)
   wandb_mode: online
   save_code: true # Save code to wandb
-  wandb_dir: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/logging/wandb # WandB will create a 'wandb' subdirectory here automatically
-  optuna_dir: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/logging/optuna/
-  checkpoint_dir: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/logging/checkpoints/
-  slurm_output_dir: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/logging/slurm_logs/
+  wandb_dir: /Users/ahenry/Documents/toolboxes/wind_forecasting/logging/wandb # WandB will create a 'wandb' subdirectory here automatically
+  optuna_dir: /Users/ahenry/Documents/toolboxes/wind_forecasting/logging/optuna/
+  checkpoint_dir: /Users/ahenry/Documents/toolboxes/wind_forecasting/logging/checkpoints/
+  slurm_output_dir: /Users/ahenry/Documents/toolboxes/wind_forecasting/logging/slurm_logs/
 
 optuna:
   save_trial_code: false      # Default false
@@ -50,7 +50,7 @@ optuna:
   storage:
     backend: "sqlite"  # Options: "postgresql", "sqlite", "mysql", "journal"
     # --- SQLite Specific Settings (not used if backend is postgresql) ---
-    # storage_dir: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/logging/optuna/
+    # storage_dir: /Users/ahenry/Documents/toolboxes/wind_forecasting/logging/optuna/
     sqlite_wal: true  # Enable WAL mode for SQLite
     sqlite_timeout: 600 # Timeout in seconds for SQLite locks
 
@@ -231,7 +231,7 @@ trainer:
     # accumulate: 1.0
     max_epochs: 2 # Maximum number of epochs to train 100
     limit_train_batches: 100
-    default_root_dir: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/logging/wind_forecasting
+    default_root_dir: /Users/ahenry/Documents/toolboxes/wind_forecasting/logging/wind_forecasting
     # precision: 32-true # 16-mixed enables mixed precision training 32-true is full precision
     # batch_size: 32 # larger = more stable gradients
     # lr: 0.0001 # Step size

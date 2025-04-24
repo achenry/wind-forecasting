@@ -202,7 +202,7 @@ def get_checkpoint(checkpoint, metric, mode, log_dir):
     if checkpoint is None:
         return None
     elif checkpoint in ["best", "latest"]:
-        checkpoint_paths = glob(os.path.join(log_dir, "*/*/*/*/*.ckpt"))
+        checkpoint_paths = glob(os.path.join(log_dir, "*/*.ckpt"))
         # version_dirs = glob(os.path.join(log_dir, "*"))
         if len(checkpoint_paths) == 0:
             logging.warning(f"There are no checkpoint files in {log_dir}, returning None.")

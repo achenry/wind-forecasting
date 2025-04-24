@@ -192,22 +192,22 @@ def main():
     wandb_dir = config["logging"]["wandb_dir"] = config["logging"].get("wandb_dir", os.path.join(log_dir, "wandb"))
     optuna_dir = config["logging"]["optuna_dir"] = config["logging"].get("optuna_dir", os.path.join(log_dir, "optuna"))
     # TODO: do we need this, checkpoints are saved by Model Checkpoint callback in loggers save_dir (wandb_dir)
-    config["trainer"]["default_root_dir"] = checkpoint_dir = config["logging"]["checkpoint_dir"] = config["logging"].get("checkpoint_dir", os.path.join(log_dir, "checkpoints")) 
+    # config["trainer"]["default_root_dir"] = checkpoint_dir = config["logging"]["checkpoint_dir"] = config["logging"].get("checkpoint_dir", os.path.join(log_dir, "checkpoints")) 
     
     os.makedirs(wandb_dir, exist_ok=True)
     os.makedirs(optuna_dir, exist_ok=True)
-    os.makedirs(checkpoint_dir, exist_ok=True)
+    # os.makedirs(checkpoint_dir, exist_ok=True)
     
     logging.info(f"WandB will create logs in {wandb_dir}")
     logging.info(f"Optuna will create logs in {optuna_dir}")
-    logging.info(f"Checkpoints will be saved in {checkpoint_dir}")
+    # logging.info(f"Checkpoints will be saved in {checkpoint_dir}")
 
     # Get worker info from environment variables
     worker_id = os.environ.get('SLURM_PROCID', '0')
     gpu_id = os.environ.get('CUDA_VISIBLE_DEVICES', '0')
 
     # Create a unique run name for each worker
-    project_name = config['experiment'].get('project_name', 'wind_forecasting')
+    project_name = f"{config['experiment'].get('project_name', 'wind_forecasting')}_{args.model}"
     run_name = f"{config['experiment']['username']}_{args.model}_{args.mode}_{gpu_id}"
 
     # Set an explicit run directory to avoid nesting issues
@@ -217,7 +217,7 @@ def main():
     # Configure WandB to use the correct checkpoint location
     # This ensures artifacts are saved in the correct checkpoint directory
     os.environ["WANDB_RUN_DIR"] = run_dir
-    os.environ["WANDB_ARTIFACT_DIR"] = os.environ["WANDB_CHECKPOINT_PATH"] = checkpoint_dir
+    # os.environ["WANDB_ARTIFACT_DIR"] = os.environ["WANDB_CHECKPOINT_PATH"] = checkpoint_dir
     os.environ["WANDB_DIR"] = wandb_dir
     
     # Fetch GitHub repo URL and current commit and set WandB environment variables
@@ -264,7 +264,7 @@ def main():
         **dynamic_info,
         "git_info": git_info
     }
-
+    checkpoint_dir = os.path.join(log_dir, project_name, unique_id)
     # Create WandB logger only for train/test modes
     if args.mode in ["train", "test"]:
         wandb_logger = WandbLogger(            
@@ -356,6 +356,9 @@ def main():
         
         # Use globals() to fetch the estimator class dynamically
         EstimatorClass = globals()[f"{args.model.capitalize()}Estimator"]
+        
+        context_length_factor = tuned_params.get('context_length_factor', config["dataset"].get("context_length_factor", 2)) # Default to config or 2 if not in trial/config
+        context_length = int(context_length_factor * data_module.prediction_length)
 
         # Prepare all arguments in a dictionary
         estimator_kwargs = {
@@ -371,9 +374,9 @@ def main():
             "time_features": [second_of_minute, minute_of_hour, hour_of_day, day_of_year],
             "batch_size": config["dataset"].setdefault("batch_size", 128),
             "num_batches_per_epoch": config["trainer"].setdefault("limit_train_batches", 1000),
-            "context_length": data_module.context_length,
-            "train_sampler": ExpectedNumInstanceSampler(num_instances=1.0, min_past=data_module.context_length, min_future=data_module.prediction_length),
-            "validation_sampler": ValidationSplitSampler(min_past=data_module.context_length, min_future=data_module.prediction_length),
+            "context_length": context_length,
+            "train_sampler": ExpectedNumInstanceSampler(num_instances=1.0, min_past=context_length, min_future=data_module.prediction_length),
+            "validation_sampler": ValidationSplitSampler(min_past=context_length, min_future=data_module.prediction_length),
             "trainer_kwargs": config["trainer"],
         }
 
@@ -401,7 +404,6 @@ def main():
                 raise AttributeError(f"Estimator for model '{args.model}' is missing 'distr_output' attribute needed for DistributionForecastGenerator.")
             forecast_generator = DistributionForecastGenerator(estimator.distr_output)
             
-
     if args.mode == "tune":
         logging.info("Starting Optuna hyperparameter tuning...")
         

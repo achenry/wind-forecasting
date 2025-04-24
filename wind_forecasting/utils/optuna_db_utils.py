@@ -226,6 +226,11 @@ def setup_sqlite(sqlite_storage_dir, study_name, restart_tuning, rank):
     """
     # Construct the SQLite URL based on config
     db_path = os.path.join(sqlite_storage_dir, f'{study_name}.db')
+    
+    if rank == 0 and restart_tuning:
+        if os.path.exists(db_path):
+            os.remove(db_path)
+    
     optuna_storage_url = f"sqlite:///{db_path}"
     logging.info(f"Using SQLite storage URL: {optuna_storage_url}")
     
@@ -236,10 +241,7 @@ def setup_sqlite(sqlite_storage_dir, study_name, restart_tuning, rank):
     storage = RDBStorage(url=optuna_storage_url)
     # else:
     #     raise Exception("Cannot use SQLite storage with multiple workers. Please use a different backend.")
-    if rank == 0 and restart_tuning:
-        delete_studies(storage)
-        if os.path.exists(db_path):
-            rmtree(db_path)
+    
     
     return storage
 
