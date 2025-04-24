@@ -1,15 +1,15 @@
 #!/bin/bash
 
-#SBATCH --partition=all_gpu.p          # Partition for H100/A100 GPUs cfdg.p / all_gpu.p / mpcg.p(not allowed)
+#SBATCH --partition=cfdg.p          # Partition for H100/A100 GPUs cfdg.p / all_gpu.p / mpcg.p(not allowed)
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=4         # Match number of GPUs requested below
 #SBATCH --cpus-per-task=1           # CPUs per task (4 tasks * 32 = 128 CPUs total) [1 CPU/GPU more than enough]
 #SBATCH --mem-per-cpu=4096          # Memory per CPU (Total Mem = ntasks * cpus-per-task * mem-per-cpu) [flasc uses only ~4-5 GiB max]
 #SBATCH --gres=gpu:4:H100           # Request 4 H100 GPUs
-#SBATCH --time=0-08:00              # Time limit (up to 7 days)
-#SBATCH --job-name=tactis_tune_flasc_sql
-#SBATCH --output=/user/taed7566/Forecasting/wind-forecasting/logs/slurm_logs/tactis_tune_flasc_sql_%j.out
-#SBATCH --error=/user/taed7566/Forecasting/wind-forecasting/logs/slurm_logs/tactis_tune_flasc_sql_%j.err
+#SBATCH --time=6-00:00              # Time limit (up to 7 days)
+#SBATCH --job-name=tactis_tune_flasc
+#SBATCH --output=/user/taed7566/Forecasting/wind-forecasting/logs/slurm_logs/tactis_tune_flasc_%j.out
+#SBATCH --error=/user/taed7566/Forecasting/wind-forecasting/logs/slurm_logs/tactis_tune_flasc_%j.err
 #SBATCH --hint=nomultithread        # Disable hyperthreading
 #SBATCH --distribution=block:block  # Improve GPU-CPU affinity
 #SBATCH --gres-flags=enforce-binding # Enforce binding of GPUs to tasks
@@ -200,27 +200,20 @@ trap "echo '--- Stopping System Monitoring ---'; kill \$MONITOR_PID 2>/dev/null"
 (
     # Setup environment for monitoring commands
     eval "$(conda shell.bash hook)"
-    conda activate wf_env_storm
-    
-    echo "--- Starting Periodic Resource Monitoring (every 10 minutes) ---"
-    
+    conda activate wf_env_storm    
+    echo "--- Starting Periodic Resource Monitoring (every 10 minutes) ---"    
     while true; do
         # Current timestamp
-        echo "====== SYSTEM STATUS: $(date +"%Y-%m-%d %H:%M:%S") ======"
-        
+        echo "====== SYSTEM STATUS: $(date +"%Y-%m-%d %H:%M:%S") ======"        
         # CPU load (1, 5, 15 min averages)
-        echo "CPU Load: $(cat /proc/loadavg | awk '{print $1, $2, $3}')"
-        
+        echo "CPU Load: $(cat /proc/loadavg | awk '{print $1, $2, $3}')"        
         # Memory usage summary
-        echo "Memory (GiB): $(free -g | grep Mem | awk '{print "Total:", $2, "Used:", $3, "Free:", $4, "Cache:", $6}')"
-        
+        echo "Memory (GiB): $(free -g | grep Mem | awk '{print "Total:", $2, "Used:", $3, "Free:", $4, "Cache:", $6}')"        
         # Disk usage (root partition)
-        echo "Disk: $(df -h / | grep -v Filesystem | awk '{print "Used:", $3, "Free:", $4, "of", $2, "("$5")"}')"
-        
+        echo "Disk: $(df -h / | grep -v Filesystem | awk '{print "Used:", $3, "Free:", $4, "of", $2, "("$5")"}')"        
         # GPU usage - compact format
         echo "GPU Status:"
-        gpustat --no-header
-        
+        gpustat --no-header        
         # Worker process check (confirm they're still running)
         ALIVE_WORKERS=0
         for pid in ${WORKER_PIDS[@]}; do
@@ -229,8 +222,7 @@ trap "echo '--- Stopping System Monitoring ---'; kill \$MONITOR_PID 2>/dev/null"
             fi
         done
         echo "Workers: ${ALIVE_WORKERS}/${#WORKER_PIDS[@]} still running"
-        echo "------------------------------------------"
-        
+        echo "------------------------------------------"        
         # Sleep for 10 minutes before next check
         sleep 600
     done
@@ -280,7 +272,6 @@ else
     echo "SUMMARY: All ${TOTAL_WORKERS} workers reported success."
     FINAL_EXIT_CODE=0 # Use 0 if all logs indicate success
 fi
-
 echo "=== TUNING SCRIPT COMPLETED ==="
 date +"%Y-%m-%d %H:%M:%S"
 

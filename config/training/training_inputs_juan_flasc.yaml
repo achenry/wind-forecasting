@@ -22,7 +22,7 @@ optuna:
   n_trials_per_worker: 25     # Test a total of 4*25=100 trials - 25 good
   # ~3 min/epoch = 2.5 hours per trial = ~10 days for 100 trials / 4 workers = 2.5 days (with 100 batches no pruning)
   max_epochs: 25              # epochs per trial - 25 good
-  limit_train_batches: 25    # batches per epoch (large number to use all data) - 250 good
+  limit_train_batches: 250    # batches per epoch (large number to use all data) - 250 good
   metric: "val_loss"          # The metric to optimize (NLL)
   direction: "minimize"       # Whether to minimize or maximize the metric
 
@@ -99,7 +99,7 @@ dataset:
 
 model:
   distr_output:
-    class: "LowRankMultivariateNormalOutput" # Doesn't apply to TACTiS-2
+    class: "LowRankMultivariateNormalOutput" # Doesn't apply to TACTiS-2 TODO: UPDATE
     kwargs:
       rank: 5
       sigma_init: 0.2
@@ -210,7 +210,7 @@ callbacks:
       class_path: lightning.pytorch.callbacks.ModelCheckpoint
       init_args:
         dirpath: ${logging.checkpoint_dir}
-        filename: '{epoch}-{step}-{val_loss:.2f}' # TODO: Save checkpoints in separate run's directory
+        filename: '{epoch}-{step}-{val_loss:.2f}'
         monitor: 'val_loss'
         mode: 'min'
         save_top_k: 1
