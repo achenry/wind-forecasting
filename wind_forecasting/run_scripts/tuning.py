@@ -209,9 +209,14 @@ class MLTuningObjective:
             self.data_module.freq = f"{params['resample_freq']}s"
             self.data_module.per_turbine = params["per_turbine"]
             self.data_module.set_train_ready_path()
-            assert os.path.exists(self.data_module.train_ready_data_path), "Must generates dataset and splits in tuning.py, rank 0. Requested resampling frequency may not be compatible."
+            assert os.path.exists(self.data_module.train_ready_data_path), "Must generate dataset and splits in tuning.py, rank 0. Requested resampling frequency may not be compatible."
             self.data_module.generate_splits(save=True, reload=False, splits=["train", "val"])
 
+        if params["per_turbine"]:
+            print("per_turbine!")
+        else:
+            print("all_turbine!")
+        
         estimator_sig = inspect.signature(self.estimator_class.__init__)
         estimator_params = [param.name for param in estimator_sig.parameters.values()]
 
