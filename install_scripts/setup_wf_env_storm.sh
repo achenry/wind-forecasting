@@ -141,10 +141,10 @@ log_info "Installing remaining dependencies in batches into '$ENV_NAME'..."
 
 # Define batches
 declare -a BATCH1=(numpy pandas polars scipy scikit-learn statsmodels netcdf4 pyarrow)
-declare -a BATCH2=(matplotlib seaborn windrose plotly)
+declare -a BATCH2=(matplotlib seaborn windrose plotly einops orjson) # added einops, orjson
 declare -a BATCH3=(optuna optuna-dashboard optuna-integration wandb)
-declare -a BATCH4=(floris requests pyyaml tqdm psutil mysql-connector-python postgresql gpustat uv nodejs)
-declare -a BATCH5_PIP=(memory-profiler)
+declare -a BATCH4=(floris requests pyyaml tqdm psutil mysql-connector-python psycopg2 postgresql gpustat uv nodejs) # added psycopg2
+declare -a BATCH5_PIP=(memory-profiler performer_pytorch)  # added performer_pytorch
 
 # Install Batch 1
 log_info "Installing Batch 1 (Data/Numerics)..."

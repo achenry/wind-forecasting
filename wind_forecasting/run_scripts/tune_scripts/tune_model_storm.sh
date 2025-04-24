@@ -5,8 +5,8 @@
 #SBATCH --ntasks-per-node=4         # Match number of GPUs requested below
 #SBATCH --cpus-per-task=1           # CPUs per task (4 tasks * 32 = 128 CPUs total) [1 CPU/GPU more than enough]
 #SBATCH --mem-per-cpu=4096          # Memory per CPU (Total Mem = ntasks * cpus-per-task * mem-per-cpu) [flasc uses only ~4-5 GiB max]
-#SBATCH --gres=gpu:4:H100           # Request 4 H100 GPUs
-#SBATCH --time=6-00:00              # Time limit (up to 7 days)
+#SBATCH --gres=gpu:H100:4           # Request 4 H100 GPUs
+#SBATCH --time=0-12:00              # Time limit (up to 7 days)
 #SBATCH --job-name=tactis_tune_flasc
 #SBATCH --output=/user/taed7566/Forecasting/wind-forecasting/logs/slurm_logs/tactis_tune_flasc_%j.out
 #SBATCH --error=/user/taed7566/Forecasting/wind-forecasting/logs/slurm_logs/tactis_tune_flasc_%j.err
@@ -25,6 +25,7 @@ export LOG_DIR="${BASE_DIR}/logs"
 export CONFIG_FILE="${BASE_DIR}/config/training/training_inputs_juan_flasc.yaml"
 export MODEL_NAME="tactis"
 export RESTART_TUNING_FLAG="--restart_tuning" # "" Or "--restart_tuning"
+export NUMEXPR_MAX_THREADS=128
 
 # --- Create Logging Directories ---
 # Create the job-specific directory for worker logs and final main logs
