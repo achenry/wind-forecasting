@@ -247,14 +247,48 @@ class MLTuningObjective:
 
             logging.info(f"Added pruning callback for trial {trial.number}, monitoring '{pruning_monitor_metric}' (Optuna objective metric: '{pruning_monitor_metric}')")
         
-        logging.info(f"Trial {trial.number}: Using ModelCheckpoint defined in main YAML configuration via trainer_kwargs")
+        # Create a new ModelCheckpoint instance specific to this trial with a unique path
+        # to avoid state leakage between trials
+        monitor_metric = self.config.get("trainer", {}).get("monitor_metric", "val_loss")
+        checkpoint_mode = "min" if self.config.get("optuna", {}).get("direction", "minimize") == "minimize" else "max"
+        
+        # Create a unique directory for this trial's checkpoints
+        checkpoint_dir = os.path.join(
+            self.config.get("logging", {}).get("checkpoint_dir", "checkpoints"),
+            f"trial_{trial.number}"
+        )
+        os.makedirs(checkpoint_dir, exist_ok=True)
+        
+        # Create a trial-specific ModelCheckpoint instance
+        trial_checkpoint_callback = ModelCheckpoint(
+            dirpath=checkpoint_dir,
+            filename=f"trial_{trial.number}_{{epoch}}_{{step}}_{{" + monitor_metric + ":.2f}}",
+            monitor=monitor_metric,
+            mode=checkpoint_mode,
+            save_top_k=1,
+            save_last=True,
+            verbose=True
+        )
+        
+        logging.info(f"Trial {trial.number}: Created trial-specific ModelCheckpoint monitoring '{monitor_metric}' (mode: {checkpoint_mode}) saving to {checkpoint_dir}")
+
+        # Add trial-specific ModelCheckpoint to the current callbacks list
+        current_callbacks.append(trial_checkpoint_callback)
 
         trial_trainer_kwargs = {k: v for k, v in self.config["trainer"].items() if k != 'callbacks'}
 
+        # Get other callbacks from config but filter out any existing ModelCheckpoint instances
+        # to ensure we don't have conflicting checkpoint callbacks
         instantiated_callbacks_from_config = self.config.get("callbacks", [])
         if not isinstance(instantiated_callbacks_from_config, list) or not all(isinstance(cb, pl.Callback) for cb in instantiated_callbacks_from_config):
              logging.warning("Callbacks in config are not a list of instantiated pl.Callback objects. Reverting to empty list.")
              instantiated_callbacks_from_config = []
+        else:
+             # Filter out any existing ModelCheckpoint instances from config
+             instantiated_callbacks_from_config = [cb for cb in instantiated_callbacks_from_config
+                                                  if not isinstance(cb, ModelCheckpoint)]
+             if len(self.config.get("callbacks", [])) != len(instantiated_callbacks_from_config):
+                 logging.info(f"Trial {trial.number}: Filtered out {len(self.config.get('callbacks', [])) - len(instantiated_callbacks_from_config)} existing ModelCheckpoint instances from config")
 
         final_callbacks = instantiated_callbacks_from_config + current_callbacks
 
@@ -428,16 +462,13 @@ class MLTuningObjective:
             self.log_gpu_stats(stage=f"Trial {trial.number} After Training")
             
             try:
-                # BUGFIX: Instead of using best_model_path (which may point to a previous trial's model),
-                # check if last_model_path is available - which should be from the current trial
-                if hasattr(train_output.trainer.checkpoint_callback, 'last_model_path') and train_output.trainer.checkpoint_callback.last_model_path:
-                    checkpoint_path = train_output.trainer.checkpoint_callback.last_model_path
-                    logging.info(f"Trial {trial.number} - Using last checkpoint for current trial evaluation: {checkpoint_path}")
-                else:
-                    # Fall back to best_model_path if last_model_path is not available
-                    checkpoint_path = train_output.trainer.checkpoint_callback.best_model_path
-                    logging.warning(f"Trial {trial.number} - No last_model_path available. Using best_model_path: {checkpoint_path}")
-                    logging.warning(f"Trial {trial.number} - WARNING: This may reference a previous trial's checkpoint!")
+                # Access the trial-specific checkpoint callback we created
+                # This ensures we're getting the best_model_path from the current trial, not from a previous one
+                checkpoint_path = trial_checkpoint_callback.best_model_path
+                best_score = trial_checkpoint_callback.best_model_score if hasattr(trial_checkpoint_callback, 'best_model_score') else None
+                
+                logging.info(f"Trial {trial.number} - Using best checkpoint from trial-specific callback: {checkpoint_path}")
+                logging.info(f"Trial {trial.number} - Best score: {best_score}")
                 
                 # Ensure checkpoint exists before loading
                 if not os.path.exists(checkpoint_path):
@@ -552,8 +583,20 @@ class MLTuningObjective:
                 agg_metrics["trainable_parameters"] = summarize(estimator.create_lightning_module()).trainable_parameters
                 self.metrics.append(agg_metrics.copy())
                 
-                model_checkpoint = [v for k, v in checkpoint["callbacks"].items() if "ModelCheckpoint" in k][0]
-                agg_metrics[model_checkpoint["monitor"]] = model_checkpoint["best_model_score"]
+                # Use the trial-specific checkpoint callback to get the best_model_score
+                # This ensures we're using the correct score for the current trial
+                monitor_metric = trial_checkpoint_callback.monitor
+                best_score = trial_checkpoint_callback.best_model_score
+                
+                if best_score is not None:
+                    # Convert from tensor to Python float if needed
+                    if hasattr(best_score, 'item'):
+                        best_score = best_score.item()
+                    
+                    agg_metrics[monitor_metric] = best_score
+                    logging.info(f"Trial {trial.number} - Setting {monitor_metric} to {best_score} from trial-specific checkpoint callback")
+                else:
+                    logging.warning(f"Trial {trial.number} - No best_model_score available in the trial-specific checkpoint callback")
 
                 # Log available metrics for debugging
                 logging.info(f"Trial {trial.number} - Aggregated metrics calculated: {list(agg_metrics.keys())}")
@@ -601,9 +644,8 @@ class MLTuningObjective:
 
                 metric_value = float(metric_value)
 
-                checkpoint_type = "last" if hasattr(train_output.trainer.checkpoint_callback, 'last_model_path') and train_output.trainer.checkpoint_callback.last_model_path == checkpoint_path else "best"
                 logging.info(f"Trial {trial.number} - Returning metric '{metric_to_return}' to Optuna: {metric_value}")
-                logging.info(f"Trial {trial.number} - This metric is from the {checkpoint_type} checkpoint: {os.path.basename(checkpoint_path)}")
+                logging.info(f"Trial {trial.number} - This metric is from the trial-specific checkpoint: {os.path.basename(checkpoint_path)}")
                 return metric_value
 
             except (TypeError, ValueError) as e:

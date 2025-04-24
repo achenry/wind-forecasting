@@ -6,7 +6,7 @@
 #SBATCH --cpus-per-task=1           # CPUs per task (4 tasks * 32 = 128 CPUs total) [1 CPU/GPU more than enough]
 #SBATCH --mem-per-cpu=4096          # Memory per CPU (Total Mem = ntasks * cpus-per-task * mem-per-cpu) [flasc uses only ~4-5 GiB max]
 #SBATCH --gres=gpu:4           # Request 4 H100 GPUs
-#SBATCH --time=1-00:00              # Time limit (up to 7 days)
+#SBATCH --time=0-08:00              # Time limit (up to 7 days)
 #SBATCH --job-name=tactis_tune_flasc_sql
 #SBATCH --output=/user/taed7566/Forecasting/wind-forecasting/logs/slurm_logs/tactis_tune_flasc_sql_%j.out
 #SBATCH --error=/user/taed7566/Forecasting/wind-forecasting/logs/slurm_logs/tactis_tune_flasc_sql_%j.err
@@ -73,7 +73,7 @@ echo "Setting up main environment..."
 module purge
 module load slurm/hpc-2023/23.02.7
 module load hpc-env/13.1
-module load PostgreSQL/16.1-GCCcore-13.1.0
+module load mpi4py/3.1.4-gompi-2023a
 module load Mamba/24.3.0-0
 module load CUDA/12.4.0
 module load git
@@ -121,6 +121,7 @@ for i in $(seq 0 $((${NUM_GPUS}-1))); do
         module purge
         module load slurm/hpc-2023/23.02.7
         module load hpc-env/13.1
+        module load mpi4py/3.1.4-gompi-2023a
         module load Mamba/24.3.0-0
         module load CUDA/12.4.0
         module load git

@@ -1,7 +1,7 @@
 experiment:
   username: jmb0507
   project_name: wind_forecasting_flasc
-  run_name: tune_p8_d5_b100_n4 # [p = patience, d = min_delta, b = limit_train_batches, n = n_startup_trials]
+  run_name: tune_p5_d25_b25_n4 # [p = patience, d = min_delta, b = limit_train_batches, n = n_startup_trials]
   project_root: /user/taed7566/Forecasting/wind-forecasting
   log_dir: /user/taed7566/Forecasting/wind-forecasting/logs/
   notes: "Tuning FLASC with TACTiS-2"
@@ -22,7 +22,7 @@ optuna:
   n_trials_per_worker: 25     # Test a total of 4*25=100 trials - 25 good
   # ~3 min/epoch = 2.5 hours per trial = ~10 days for 100 trials / 4 workers = 2.5 days (with 100 batches no pruning)
   max_epochs: 25              # epochs per trial - 25 good
-  limit_train_batches: 100    # batches per epoch (large number to use all data) - 250 good
+  limit_train_batches: 25    # batches per epoch (large number to use all data) - 250 good
   metric: "val_loss"          # The metric to optimize (NLL)
   direction: "minimize"       # Whether to minimize or maximize the metric
 
@@ -84,13 +84,13 @@ dataset:
     target_turbine_ids: # or leave blank to capture all
     normalize: false
     batch_size: 512 # 512-768 (more seems to create some OOM errors)
-    workers: 12 # Consider adjusting based on CPU cores per task
+    workers: 1 # Consider adjusting based on CPU cores per task
     overfit: false
     test_split: 0.20
     val_split: 0.1
     resample_freq: 60s
     n_splits: 1 # how many divisions of each continuity group to make which is further subdivided into training test and validation data
-    per_turbine_target: false # TODO: What does this do? (ask Aoife)
+    per_turbine_target: false
     context_length_factor: 2  # Factor to multiply prediction_length by
 
 model:
@@ -111,7 +111,7 @@ model:
     loss_normalization: "std" # Options: "series", "timesteps", "both", "none"
     encoder_type: "standard" # Options: "standard", "temporal"
     bagging_size: null # Optional, defaults to None in estimator
-    num_parallel_samples: 100 # Num of parallel samples for probabilistic prediction TODO: Inform yourself about this
+    num_parallel_samples: 100
     # Marginal CDF Encoder
     marginal_embedding_dim_per_head: 8
     marginal_num_heads: 5
@@ -198,8 +198,8 @@ callbacks:
       class_path: lightning.pytorch.callbacks.EarlyStopping
       init_args:
         monitor: 'val_loss'
-        patience: 8 # Number of epochs to wait before stopping (val>epochs to disable) - 8 good
-        min_delta: 5.0 # Minimum change to be considered an improvement (>5.0 after observing visual fluctuations of 2-4 per epoch on an almost-perfectly visual plateau) - 5.0 good
+        patience: 5 # Number of epochs to wait before stopping (val>epochs to disable) - 8 good
+        min_delta: 25.0 # Minimum change to be considered an improvement (>5.0 after observing visual fluctuations of 2-4 per epoch on an almost-perfectly visual plateau) - 5.0 good
         mode: 'min'
         check_finite: true
     model_checkpoint:
