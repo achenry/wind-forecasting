@@ -55,8 +55,10 @@ optuna:
     sqlite_timeout: 600 # Timeout in seconds for SQLite locks
 
     # --- MySQL Specific Settings --- #
-    db_host: "tlv51ahenry01.plv10telauth03.nrel.gov"
+    db_host: tlv51ahenry01.nrel.gov # 10.121.2.72
     db_port: 3306
+    db_user: optuna_user
+    # db_name: wind_forecasting
 
     # --- Optional TCP/IP Settings (if use_socket is false) ---
     # use_tcp: false

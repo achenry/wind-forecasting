@@ -294,7 +294,7 @@ def main():
                                 prediction_length=config["dataset"]["prediction_length"], context_length=config["dataset"]["context_length"],
                                 target_prefixes=["ws_horz", "ws_vert"], feat_dynamic_real_prefixes=["nd_cos", "nd_sin"],
                                 freq=config["dataset"]["resample_freq"], target_suffixes=config["dataset"]["target_turbine_ids"],
-                                    per_turbine_target=config["dataset"]["per_turbine_target"], as_lazyframe=False, dtype=pl.Float32)
+                                    per_turbine_target=config["dataset"]["per_turbine_target"], as_lazyframe=False, dtype=pl.Float32, verbose=True)
     
     if rank == 0:
         logging.info("Preparing data for tuning")
@@ -320,6 +320,8 @@ def main():
         )
     
     if args.mode in ["train", "test"]:
+        
+        # TODO refactor this to just use hparams from checkpoint
         found_tuned_params = True
         if args.use_tuned_parameters:
             try:
@@ -329,6 +331,10 @@ def main():
                 config["dataset"].update({k: v for k, v in tuned_params.items() if k in config["dataset"]})
                 config["model"][args.model].update({k: v for k, v in tuned_params.items() if k in config["model"][args.model]})
                 config["trainer"].update({k: v for k, v in tuned_params.items() if k in config["trainer"]})
+                
+                context_length_factor = tuned_params.get('context_length_factor', config["dataset"].get("context_length_factor", 2)) # Default to config or 2 if not in trial/config
+                context_length = int(context_length_factor * data_module.prediction_length)
+                
             except FileNotFoundError as e:
                 logging.warning(e)
                 found_tuned_params = False
@@ -342,6 +348,7 @@ def main():
             logging.info(f"Declaring estimator {args.model.capitalize()} with tuned parameters")
         else:
             logging.info(f"Declaring estimator {args.model.capitalize()} with default parameters")
+            context_length = data_module.context_length
             
         # Set up parameters for checkpoint finding
         metric = config.get("trainer", {}).get("monitor_metric", "val_loss")
@@ -356,9 +363,6 @@ def main():
         
         # Use globals() to fetch the estimator class dynamically
         EstimatorClass = globals()[f"{args.model.capitalize()}Estimator"]
-        
-        context_length_factor = tuned_params.get('context_length_factor', config["dataset"].get("context_length_factor", 2)) # Default to config or 2 if not in trial/config
-        context_length = int(context_length_factor * data_module.prediction_length)
 
         # Prepare all arguments in a dictionary
         estimator_kwargs = {

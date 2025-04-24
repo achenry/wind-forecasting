@@ -87,7 +87,7 @@ class DataModule():
         
         # add warning if upsampling
         dataset_dt = dataset.select(pl.col("time").diff()).slice(1, 1).collect().item()
-        if dataset_dt > int(re.search("\\d+", self.freq).group()):
+        if dataset_dt.total_seconds() > int(re.search("\\d+", self.freq).group()):
             logging.warning(f"Downsampling dataset with frequency of {dataset_dt} seconds to {self.freq}.")
         dataset = dataset.with_columns(time=pl.col("time").dt.round(self.freq))\
                     .group_by("time").agg(cs.numeric().mean())\
@@ -353,9 +353,8 @@ class DataModule():
         #     for ds in iter(datasets):
         #         for key in ["target", "feat_dynamic_real"]:
         #             print(f"{split} {key} {ds['item_id']} dataset - num nan/nulls = {ds[key].select(pl.sum_horizontal((cs.numeric().is_null() | cs.numeric().is_nan()).sum())).collect().item()}")
-        
-            
-        return dataset
+          
+        # return dataset
         
     def get_df_by_turbine(self, dataset, turbine_id):
         return dataset.select(pl.col("time"), *[col for col in (self.feat_dynamic_real_cols + self.target_cols) if turbine_id in col])\
@@ -431,15 +430,16 @@ class DataModule():
             val_datasets += [d.slice(train_offset, val_offset) for d in datasets]
             test_datasets += [d.slice(train_offset + val_offset, test_offset) for d in datasets]
             
-            if self.verbose:
-                for t, train_entry in enumerate(iter(train_datasets[-1])):
-                    logging.info(f"training dataset cg {cg}, split {t} start time = {train_entry['start']}, end time = {train_entry['start'] + train_entry['target'].shape[1]}, duration = {train_entry['target'].shape[1] * pd.Timedelta(train_entry['start'].freq)}\n")
+            # TODO doesn't work with iterable lazy frame
+            # if self.verbose:
+            #     for t, train_entry in enumerate(iter(train_datasets)):
+            #         logging.info(f"training dataset cg {cg}, split {t} start time = {train_entry['start']}, end time = {train_entry['start'] + train_entry['target'].shape[1]}, duration = {train_entry['target'].shape[1] * pd.Timedelta(train_entry['start'].freq)}\n")
 
-                for v, val_entry in enumerate(iter(val_datasets[-1])):
-                    logging.info(f"validation dataset cg {cg}, split {v} start time = {val_entry['start']}, end time = {val_entry['start'] + val_entry['target'].shape[1]}, duration = {val_entry['target'].shape[1] * pd.Timedelta(val_entry['start'].freq)}\n")
+            #     for v, val_entry in enumerate(iter(val_datasets)):
+            #         logging.info(f"validation dataset cg {cg}, split {v} start time = {val_entry['start']}, end time = {val_entry['start'] + val_entry['target'].shape[1]}, duration = {val_entry['target'].shape[1] * pd.Timedelta(val_entry['start'].freq)}\n")
 
-                for t, test_entry in enumerate(iter(test_datasets[-1])):
-                    logging.info(f"test dataset cg {cg}, split {t} start time = {test_entry['start']}, end time = {test_entry['start'] + test_entry['target'].shape[1]}, duration = {test_entry['target'].shape[1] * pd.Timedelta(test_entry['start'].freq)}\n")
+            #     for t, test_entry in enumerate(iter(test_datasets)):
+            #         logging.info(f"test dataset cg {cg}, split {t} start time = {test_entry['start']}, end time = {test_entry['start'] + test_entry['target'].shape[1]}, duration = {test_entry['target'].shape[1] * pd.Timedelta(test_entry['start'].freq)}\n")
             
             # n_test_windows = int((self.test_split * self.rows_per_split[cg]) / self.prediction_length)
             # test_dataset = test_gen.generate_instances(prediction_length=self.prediction_length, windows=n_test_windows)

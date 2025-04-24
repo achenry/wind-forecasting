@@ -207,15 +207,10 @@ class MLTuningObjective:
         # TODO using val_loss between per_turbine and all_turbine cases is not a fair comparison...
         if "resample_freq" in params or "per_turbine" in params:
             self.data_module.freq = f"{params['resample_freq']}s"
-            self.data_module.per_turbine = params["per_turbine"]
+            self.data_module.per_turbine_target = params["per_turbine"]
             self.data_module.set_train_ready_path()
             assert os.path.exists(self.data_module.train_ready_data_path), "Must generate dataset and splits in tuning.py, rank 0. Requested resampling frequency may not be compatible."
             self.data_module.generate_splits(save=True, reload=False, splits=["train", "val"])
-
-        if params["per_turbine"]:
-            print("per_turbine!")
-        else:
-            print("all_turbine!")
         
         estimator_sig = inspect.signature(self.estimator_class.__init__)
         estimator_params = [param.name for param in estimator_sig.parameters.values()]
@@ -686,6 +681,7 @@ def tune_model(model, config, study_name, optuna_storage, lightning_module_class
 
     # Worker ID already fetched above for study creation/loading
     dynamic_params = None
+    
     if tuning_phase == 0 and worker_id == "0":
         resample_freq_choices = config["optuna"]["resample_freq_choices"]
         per_turbine_choices = [True, False]
@@ -700,7 +696,7 @@ def tune_model(model, config, study_name, optuna_storage, lightning_module_class
             else:
                 reload = False
             data_module.generate_splits(save=True, reload=reload, splits=["train", "val"])
-        dynamic_params = {"resample_freq": self.resample_freq_choices}
+        dynamic_params = {"resample_freq": resample_freq_choices}
 
     logging.info(f"Worker {worker_id}: Participating in Optuna study {study_name}")
 
@@ -810,11 +806,11 @@ def tune_model(model, config, study_name, optuna_storage, lightning_module_class
             # Determine summary run name
             base_run_name = config['experiment']['run_name']
             if best_trial:
-                run_name = f"RESULTS_{base_run_name}_best_trial_{best_trial.number}"
+                run_name = f"RESULTS_{base_run_name}_tuning_phase{tuning_phase}_best_trial_{best_trial.number}"
             else:
-                run_name = f"RESULTS_{base_run_name}_optuna_summary"
+                run_name = f"RESULTS_{base_run_name}_tuning_phase{tuning_phase}_optuna_summary"
 
-            project_name = config['experiment'].get('project_name', 'wind_forecasting')
+            project_name = f"{config['experiment'].get('project_name', 'wind_forecasting')}_{model}_tuning_phase{tuning_phase}"
             group_name = config['experiment']['run_name']
             wandb_dir = config['logging'].get('wandb_dir', './logging/wandb')
             tags = [model, "optuna_summary"] + config['experiment'].get('extra_tags', [])

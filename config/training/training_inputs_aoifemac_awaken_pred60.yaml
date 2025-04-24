@@ -20,7 +20,7 @@ logging:
 
 optuna:
   save_trial_code: false      # Default false
-  n_trials_per_worker: 100     # Test a total of 4*12=48 trials
+  n_trials_per_worker: 10     # Test a total of 4*12=48 trials
   max_epochs: 3              # epochs per trial
   limit_train_batches: 100    # batches per epoch
   metric: "val_loss" # The metric to optimize
