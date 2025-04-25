@@ -20,6 +20,7 @@ export CONFIG_FILE=$2
 # --- Base Directories ---
 export TUNING_PHASE=1
 export BASE_DIR="/home/ahenry/toolboxes/wind_forecasting_env/wind-forecasting"
+export LOG_DIR="${BASE_DIR}/logs"
 export WORK_DIR="${BASE_DIR}/wind_forecasting"
 export RESTART_TUNING_FLAG="--restart_tuning" # "" Or "--restart_tuning"
 export AUTO_EXIT_WHEN_DONE="true"  # Set to "true" to exit script when all workers finish, "false" to keep running until timeout
