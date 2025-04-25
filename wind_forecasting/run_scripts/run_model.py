@@ -311,7 +311,7 @@ def main():
         logging.warning(f"Could not parse SLURM_CPUS_PER_TASK ('{cpus_per_task_str}'), defaulting cpus_per_task to 1.")
         cpus_per_task = 1
 
-    num_workers = 2 * cpus_per_task
+    num_workers = max(0, cpus_per_task - 1)
     if "trainer" not in config:
         config["trainer"] = {}
 
