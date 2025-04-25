@@ -1,11 +1,11 @@
 experiment:
   username: jmb0507
   project_name: wind_forecasting_flasc
-  run_name: tune_hb_4_3_farm # [p = patience, d = min_delta, b = limit_train_batches, n = n_startup_trials] / hb = hyperband min_resource, reduction_factor
+  run_name: tune_hb_4_3_farm_128BS_400trials # [p = patience, d = min_delta, b = limit_train_batches, n = n_startup_trials] / hb = hyperband min_resource, reduction_factor
   project_root: /user/taed7566/Forecasting/wind-forecasting
   log_dir: /user/taed7566/Forecasting/wind-forecasting/logs/
-  notes: "Tuning FLASC with TACTiS-2"
-  extra_tags: ["flasc", "H100","restart","250b","150t"] # By default already has GPU id and model name.
+  notes: ""
+  extra_tags: ["flasc", "H100","restart","250b","400t"] # By default already has GPU id and model name.
 
 logging:
   entity: jmb0507-cu-boulder # Wandb entity (group name)
@@ -19,7 +19,7 @@ logging:
 optuna:
   study_name: "flasc_tune"
   save_trial_code: false      # Default false
-  n_trials_per_worker: 150     # Test a total of 4*25=100 trials - 25 good
+  n_trials_per_worker: 400     # Test a total of 4*25=100 trials - 25 good
   # ~3 min/epoch = 2.5 hours per trial = ~10 days for 100 trials / 4 workers = 2.5 days (with 100 batches no pruning)
   max_epochs: 36              # epochs per trial - 36 good
   limit_train_batches: 250    # batches per epoch (large number to use all data) - 250 good
@@ -88,7 +88,7 @@ dataset:
     prediction_length: 300 # in seconds
     target_turbine_ids: # or leave blank to capture all
     normalize: false
-    batch_size: 1024 # 512-768, perhaps 896 (more seems to create some OOM errors)
+    batch_size: 128 # for tuning: <= 128, for training: max_memory ~1024
     workers: 32 # Consider adjusting based on CPU cores per task
     overfit: false
     test_split: 0.20
