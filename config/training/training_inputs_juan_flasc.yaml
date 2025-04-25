@@ -1,7 +1,7 @@
 experiment:
   username: jmb0507
   project_name: wind_forecasting_flasc
-  run_name: tune_hb_12_1-5 # [p = patience, d = min_delta, b = limit_train_batches, n = n_startup_trials] / hb = hyperband min_resource, reduction_factor
+  run_name: tune_hb_12_2 # [p = patience, d = min_delta, b = limit_train_batches, n = n_startup_trials] / hb = hyperband min_resource, reduction_factor
   project_root: /user/taed7566/Forecasting/wind-forecasting
   log_dir: /user/taed7566/Forecasting/wind-forecasting/logs/
   notes: "Tuning FLASC with TACTiS-2"
@@ -22,7 +22,7 @@ optuna:
   n_trials_per_worker: 25     # Test a total of 4*25=100 trials - 25 good
   # ~3 min/epoch = 2.5 hours per trial = ~10 days for 100 trials / 4 workers = 2.5 days (with 100 batches no pruning)
   max_epochs: 25              # epochs per trial - 25 good
-  limit_train_batches: 250    # batches per epoch (large number to use all data) - 250 good
+  limit_train_batches: 25    # batches per epoch (large number to use all data) - 250 good
   metric: "val_loss"          # The metric to optimize (NLL)
   direction: "minimize"       # Whether to minimize or maximize the metric
 
@@ -34,7 +34,7 @@ optuna:
     type: "hyperband"         # Options: "hyperband", "median"
     max_resource: 25          # Maximum number of epochs to train a trial [hyperband only] 
     min_resource: 12          # Minimum number of epochs to train a trial [hyperband only]
-    reduction_factor: 1.5     # Reduction factor for hyperband pruning @boujuan 1.5 allows for ~3 brackets and more gentle pruning
+    reduction_factor: 2     # Reduction factor for hyperband pruning @boujuan 1.5 allows for ~3 brackets and more gentle pruning
     # set up so log_n(max_resource/min_resource)+1 = between 4-6 brackets ideally [hyperband only]  
     bootstrap_count: 0        # Number of bootstrap samples to use 
     # n_startup_trials: 4       # Number of trials to wait until building the median for pruning - 6 good [median only]
@@ -88,7 +88,7 @@ dataset:
     prediction_length: 300 # in seconds
     target_turbine_ids: # or leave blank to capture all
     normalize: false
-    batch_size: 896 # 512-768, perhaps 896 (more seems to create some OOM errors)
+    batch_size: 25 # 512-768, perhaps 896 (more seems to create some OOM errors)
     workers: 1 # Consider adjusting based on CPU cores per task
     overfit: false
     test_split: 0.20
@@ -197,7 +197,7 @@ callbacks:
     progress_bar:
       class_path: lightning.pytorch.callbacks.TQDMProgressBar
       init_args:
-        refresh_rate: 50  # every n steps, set to 0 to disable - 25 good
+        refresh_rate: 25  # every n steps, set to 0 to disable - 25 good
         leave: true
     # early_stopping:
     #   class_path: lightning.pytorch.callbacks.EarlyStopping
