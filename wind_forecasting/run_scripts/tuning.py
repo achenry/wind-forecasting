@@ -479,7 +479,7 @@ class MLTuningObjective:
                 estimator = self.estimator_class(**estimator_kwargs)
             except Exception as e:
                 logging.error(f"Trial {trial.number} - Error creating estimator: {str(e)}", exc_info=True)
-                raise optuna.exceptions.TrialPruned(f"Error creating estimator in trial {trial.number}: {str(e)}")
+                raise e
 
             # Log GPU stats before training
             self.log_gpu_stats(stage=f"Trial {trial.number} Before Training")
@@ -487,21 +487,18 @@ class MLTuningObjective:
             # Conditionally Create Forecast Generator
             try:
                 if self.model == 'tactis':
-                    # TACTiS uses SampleForecastGenerator internally for prediction
-                    # because its foweard pass returns samples not distribution parameters
                     logging.info(f"Trial {trial.number}: Using SampleForecastGenerator for TACTiS model.")
                     forecast_generator = SampleForecastGenerator()
                 else:
-                    # Other models use DistributionForecastGenerator based on their distr_output
                     logging.info(f"Trial {trial.number}: Using DistributionForecastGenerator for {self.model} model.")
-                    # Ensure estimator has distr_output before accessing
                     if not hasattr(estimator, 'distr_output'):
                          raise AttributeError(f"Estimator for model '{self.model}' is missing 'distr_output' attribute needed for DistributionForecastGenerator.")
                     forecast_generator = DistributionForecastGenerator(estimator.distr_output)
             except Exception as e:
                 logging.error(f"Trial {trial.number} - Error creating forecast generator: {str(e)}", exc_info=True)
-                raise optuna.exceptions.TrialPruned(f"Error creating forecast generator in trial {trial.number}: {str(e)}")
+                raise e
 
+            # Model Training
             try:
                 # Call estimator.train without the ckpt_path argument, as ModelCheckpoint is handled via callbacks
                 train_output = estimator.train(
@@ -509,27 +506,30 @@ class MLTuningObjective:
                     validation_data=self.data_module.val_dataset,
                     forecast_generator=forecast_generator
                 )
+            except optuna.exceptions.TrialPruned as e:
+                # Correctly handle actual pruning triggered by the callback during training
+                logging.info(f"Trial {trial.number} pruned by Optuna callback during training: {str(e)}")
+                raise e
             except Exception as e:
                 logging.error(f"Trial {trial.number} - Error during model training: {str(e)}", exc_info=True)
-                raise optuna.exceptions.TrialPruned(f"Error during model training in trial {trial.number}: {str(e)}")
+                raise e
 
             # Log GPU stats after training
             self.log_gpu_stats(stage=f"Trial {trial.number} After Training")
             
+            # Checkpoint Loading and Processing
             try:
-                # Access the trial-specific checkpoint callback we created
-                # This ensures we're getting the best_model_path from the current trial, not from a previous one
                 checkpoint_path = trial_checkpoint_callback.best_model_path
                 best_score = trial_checkpoint_callback.best_model_score if hasattr(trial_checkpoint_callback, 'best_model_score') else None
                 
                 logging.info(f"Trial {trial.number} - Using best checkpoint from trial-specific callback: {checkpoint_path}")
                 logging.info(f"Trial {trial.number} - Best score: {best_score}")
                 
-                # Ensure checkpoint exists before loading
                 if not os.path.exists(checkpoint_path):
                     error_msg = f"Checkpoint path does not exist: {checkpoint_path}. Cannot load model for metric retrieval."
                     logging.error(f"Trial {trial.number} - {error_msg}")
-                    raise optuna.exceptions.TrialPruned(f"Trial {trial.number}: {error_msg}")
+                    # Raise a standard error, not TrialPruned
+                    raise FileNotFoundError(f"Trial {trial.number}: {error_msg}")
 
                 logging.info(f"Trial {trial.number} - Loading checkpoint from: {checkpoint_path}")
                 checkpoint = torch.load(checkpoint_path, map_location=lambda storage, loc: storage, weights_only=False)
@@ -544,89 +544,75 @@ class MLTuningObjective:
                         epoch_number = int(match.group(1))
                         logging.info(f"Trial {trial.number} - Extracted epoch {epoch_number} from checkpoint path: {checkpoint_path}")
                     else:
-                        # Raise error if epoch cannot be parsed from the *best* checkpoint path
                         error_msg = f"Failed to parse epoch number from best checkpoint path: {checkpoint_path}"
                         logging.error(f"Trial {trial.number} - {error_msg}")
-                        raise optuna.exceptions.TrialPruned(f"Trial {trial.number}: {error_msg}")
+                        raise ValueError(f"Trial {trial.number}: {error_msg}")
                 except (ValueError, TypeError) as parse_error:
                     error_msg = f"Error parsing epoch from checkpoint path '{checkpoint_path}': {parse_error}"
                     logging.error(f"Trial {trial.number} - {error_msg}")
-                    raise optuna.exceptions.TrialPruned(f"Trial {trial.number}: {error_msg}")
+                    raise ValueError(f"Trial {trial.number}: {error_msg}") from parse_error
 
                 # Determine Stage if the model is TACTiS
                 if self.model == 'tactis':
                     logging.info(f"Trial {trial.number} - Model is TACTiS. Attempting to determine stage for re-instantiation.")
                     try:
-                        # Retrieve stage2_start_epoch from the trial parameters used to create the estimator
                         stage2_start_epoch_param = estimator_kwargs.get('stage2_start_epoch')
 
                         if stage2_start_epoch_param is None:
                             error_msg = "'stage2_start_epoch' parameter missing in trial configuration (estimator_kwargs) for TACTiS model. Cannot determine stage."
                             logging.error(f"Trial {trial.number} - {error_msg}")
-                            raise optuna.exceptions.TrialPruned(f"Trial {trial.number}: {error_msg}")
+                            raise KeyError(f"Trial {trial.number}: {error_msg}")
 
                         stage2_start_epoch = int(stage2_start_epoch_param)
                         logging.info(f"Trial {trial.number} - Retrieved stage2_start_epoch: {stage2_start_epoch}")
 
-                        # Calculate stage based on parsed epoch and start epoch
                         if epoch_number >= stage2_start_epoch:
                             correct_stage = 2
                         else:
                             correct_stage = 1
                         logging.info(f"Trial {trial.number} - Determined correct stage for TACTiS re-instantiation: {correct_stage} (Epoch: {epoch_number}, Stage 2 Start: {stage2_start_epoch})")
 
-                    except (ValueError, TypeError) as stage_error:
+                    except (ValueError, TypeError, KeyError) as stage_error:
                         error_msg = f"Error processing stage information for TACTiS (epoch={epoch_number}, stage2_start_epoch_param={stage2_start_epoch_param}): {stage_error}"
                         logging.error(f"Trial {trial.number} - {error_msg}")
-                        raise optuna.exceptions.TrialPruned(f"Trial {trial.number}: {error_msg}")
-                    except optuna.exceptions.TrialPruned: # Re-raise prune exceptions
-                        raise
+                        raise RuntimeError(f"Trial {trial.number}: {error_msg}") from stage_error
                     except Exception as e: # Catch any other unexpected errors during stage determination
                         error_msg = f"Unexpected error determining TACTiS stage: {e}"
                         logging.error(f"Trial {trial.number} - {error_msg}", exc_info=True)
-                        raise optuna.exceptions.TrialPruned(f"Trial {trial.number}: {error_msg}")
+                        raise RuntimeError(f"Trial {trial.number}: {error_msg}") from e
                 else:
                     logging.info(f"Trial {trial.number} - Model is {self.model} (not TACTiS). Skipping stage determination.")
-                # --- End Stage Determination ---
 
-            except (FileNotFoundError, RuntimeError) as e: # Errors during checkpoint loading itself
-                logging.error(f"Trial {trial.number} - Error loading checkpoint file: {str(e)}", exc_info=True)
-                raise optuna.exceptions.TrialPruned(f"Error loading checkpoint file in trial {trial.number}: {str(e)}")
-            except optuna.exceptions.TrialPruned: # Re-raise prune exceptions from epoch/stage logic
-                raise
+            except (FileNotFoundError, RuntimeError, ValueError, KeyError) as e:
+                logging.error(f"Trial {trial.number} - Error during checkpoint loading/parsing/stage determination: {str(e)}", exc_info=True)
             except Exception as e: # Catch any other unexpected errors before hparam extraction
                  logging.error(f"Trial {trial.number} - Unexpected error before hyperparameter extraction: {e}", exc_info=True)
-                 raise optuna.exceptions.TrialPruned(f"Trial {trial.number}: Unexpected error before hyperparameter extraction: {e}")
+                 raise RuntimeError(f"Trial {trial.number}: Unexpected error before hyperparameter extraction: {e}") from e
 
+            # --- Hyperparameter Extraction ---
             try:
-                # --- Hyperparameter Extraction ---
                 hparams = checkpoint.get('hyper_parameters', checkpoint.get('hparams'))
                 if hparams is None:
                     error_msg = f"Hyperparameters not found in checkpoint: {checkpoint_path}. Cannot re-instantiate model."
                     logging.error(f"Trial {trial.number} - {error_msg}")
-                    raise optuna.exceptions.TrialPruned(f"Trial {trial.number}: {error_msg}")
+                    raise KeyError(f"Trial {trial.number}: {error_msg}")
 
                 logging.debug(f"Loaded hparams from checkpoint: {hparams}")
 
-                # Explicitly extract model_config and other necessary args for LightningModule.__init__
-                # Use .get() with default None to avoid KeyError if a param wasn't saved (though it should be)
                 model_config = hparams.get('model_config')
                 if model_config is None:
                     error_msg = f"Critical: 'model_config' dictionary not found within loaded hyperparameters in {checkpoint_path}. Check saving logic."
                     logging.error(f"Trial {trial.number} - {error_msg}")
-                    raise optuna.exceptions.TrialPruned(f"Trial {trial.number}: {error_msg}")
+                    raise KeyError(f"Trial {trial.number}: {error_msg}")
 
                 module_sig = inspect.signature(self.lightning_module_class.__init__)
                 module_params = [param.name for param in module_sig.parameters.values()]
                 del module_params[module_params.index("self")]
-                # Extract other args expected by LightningModule.__init__ directly from hparams
-                # Provide default values from the original config if not found in hparams, logging a warning
                 init_args = {
                     'model_config': model_config,
                     **{k: hparams.get(k, self.config["model"][self.model].get(k)) for k in module_params if k != 'model_config'}
                 }
 
-                # Add initial_stage for TACTiS
                 instantiation_stage_info = "N/A (Not TACTiS)"
                 if self.model == 'tactis':
                     if correct_stage is not None:
@@ -634,29 +620,25 @@ class MLTuningObjective:
                     else:
                         instantiation_stage_info = "Stage Unknown (Determination Failed)"
 
-                # Log if any defaults were used
                 for key, val in init_args.items():
                      if key not in ['model_config', 'initial_stage'] and key not in hparams:
                          if key in module_params:
                               logging.warning(f"Hyperparameter '{key}' not found in checkpoint, using default value from config: {val}")
 
-                         #    logging.debug(f"Default value for '{key}' added but not in module signature: {val}")
-
-                # Check for missing essential args (should ideally not happen with defaults)
-                missing_args = [k for k, v in init_args.items() if v is None and k not in ['model_config', 'initial_stage']] # Exclude stage
+                missing_args = [k for k, v in init_args.items() if v is None and k not in ['model_config', 'initial_stage']]
                 if missing_args:
                     error_msg = f"Missing required hyperparameters in checkpoint {checkpoint_path} even after checking defaults: {missing_args}"
                     logging.error(f"Trial {trial.number} - {error_msg}")
-                    raise optuna.exceptions.TrialPruned(f"Trial {trial.number}: {error_msg}")
-            except optuna.exceptions.TrialPruned:
-                raise
+                    raise KeyError(f"Trial {trial.number}: {error_msg}")
+            except KeyError as e:
+                logging.error(f"Trial {trial.number} - Missing hyperparameter key: {str(e)}", exc_info=False)
+                raise e
             except Exception as e:
-                logging.error(f"Trial {trial.number} - Error preparing hyperparameters or stage for re-instantiation: {str(e)}", exc_info=True)
-                raise optuna.exceptions.TrialPruned(f"Error preparing hyperparameters/stage in trial {trial.number}: {str(e)}")
+                logging.error(f"Trial {trial.number} - Error preparing hyperparameters for re-instantiation: {str(e)}", exc_info=True)
+                raise RuntimeError(f"Error preparing hyperparameters in trial {trial.number}: {str(e)}") from e
 
             logging.info(f"Re-instantiating {self.lightning_module_class.__name__} ({self.model}) for metric retrieval. Stage Info: {instantiation_stage_info}")
-            # Log the full init_args being used for detailed debugging if needed
-            logging.debug(f"Trial {trial.number} - Using init_args for re-instantiation: { {k: type(v).__name__ if not isinstance(v, (str, int, float, bool, list, dict, tuple)) else v for k, v in init_args.items()} }") # Avoid logging large objects
+            logging.debug(f"Trial {trial.number} - Using init_args for re-instantiation: { {k: type(v).__name__ if not isinstance(v, (str, int, float, bool, list, dict, tuple)) else v for k, v in init_args.items()} }")
 
             # Instantiate Model and Load State Dict
             try:
@@ -665,9 +647,7 @@ class MLTuningObjective:
                 if self.model == 'tactis' and correct_stage is not None:
                     try:
                         logging.info(f"Trial {trial.number} - Setting TACTiS model stage to {correct_stage} before loading checkpoint.")
-                        # Set stage attribute on the LightningModule
                         model.stage = correct_stage
-                        # Call the set_stage method on the underlying core model
                         if hasattr(model.model, 'tactis') and hasattr(model.model.tactis, 'set_stage'):
                              model.model.tactis.set_stage(correct_stage)
                              logging.info(f"Trial {trial.number} - Successfully called model.model.tactis.set_stage({correct_stage}).")
@@ -682,67 +662,58 @@ class MLTuningObjective:
                 logging.info("State_dict loaded successfully.")
             
             except Exception as e:
-                 # Log the stage used during the failed attempt
                  stage_at_error = init_args.get('initial_stage', 'Unknown')
                  logging.error(f"Trial {trial.number} - Unexpected error instantiating model (with initial_stage={stage_at_error}) or loading state_dict: {str(e)}", exc_info=True)
-                 # Keep raising TrialPruned for general instantiation/loading errors, but the specific RuntimeError masking is gone.
-                 raise optuna.exceptions.TrialPruned(f"Error instantiating model (stage {stage_at_error}) or loading state_dict in trial {trial.number}: {str(e)}")
+                 raise RuntimeError(f"Error instantiating model (stage {stage_at_error}) or loading state_dict in trial {trial.number}: {str(e)}") from e
 
+            # Predictor Creation
             try:
                 transformation = estimator.create_transformation(use_lazyframe=False)
-                # Use the same conditional forecast_generator for creating the predictor
                 predictor = estimator.create_predictor(transformation, model,
                                                         forecast_generator=forecast_generator)
             except Exception as e:
                 logging.error(f"Trial {trial.number} - Error creating predictor: {str(e)}", exc_info=True)
-                raise optuna.exceptions.TrialPruned(f"Error creating predictor in trial {trial.number}: {str(e)}")
+                raise RuntimeError(f"Error creating predictor in trial {trial.number}: {str(e)}") from e
 
+            # Evaluation Prediction
             try:
-                # Conditional Evaluation Call
                 eval_kwargs = {
                     "dataset": self.data_module.val_dataset,
                     "predictor": predictor,
                 }
                 if self.model == 'tactis':
-                    # TACTiS produces SampleForecast, no output_distr_params needed/possible
                     logging.info(f"Trial {trial.number}: Evaluating TACTiS using SampleForecast.")
                 else:
-                    # Other models produce DistributionForecast, specify params to extract
-                    # Example for LowRankMultivariateNormalOutput, adjust if other distrs are used
                     eval_kwargs["output_distr_params"] = {"loc": "mean", "cov_factor": "cov_factor", "cov_diag": "cov_diag"}
                     logging.info(f"Trial {trial.number}: Evaluating {self.model} using DistributionForecast with params: {eval_kwargs['output_distr_params']}")
 
                 forecast_it, ts_it = make_evaluation_predictions(**eval_kwargs)
             except Exception as e:
                 logging.error(f"Trial {trial.number} - Error making evaluation predictions: {str(e)}", exc_info=True)
-                raise optuna.exceptions.TrialPruned(f"Error making evaluation predictions in trial {trial.number}: {str(e)}")
+                raise RuntimeError(f"Error making evaluation predictions in trial {trial.number}: {str(e)}") from e
 
+            # Metric Calculation
             try:
                 agg_metrics, _ = self.evaluator(ts_it, forecast_it, num_series=self.data_module.num_target_vars)
                 
                 agg_metrics["trainable_parameters"] = summarize(estimator.create_lightning_module()).trainable_parameters
                 self.metrics.append(agg_metrics.copy())
                 
-                # Use the trial-specific checkpoint callback to get the best_model_score
-                # This ensures we're using the correct score for the current trial
                 monitor_metric = trial_checkpoint_callback.monitor
                 best_score = trial_checkpoint_callback.best_model_score
                 
                 if best_score is not None:
-                    # Convert from tensor to Python float if needed
                     if hasattr(best_score, 'item'):
                         best_score = best_score.item()
-                    
                     agg_metrics[monitor_metric] = best_score
                     logging.info(f"Trial {trial.number} - Setting {monitor_metric} to {best_score} from trial-specific checkpoint callback")
                 else:
                     logging.warning(f"Trial {trial.number} - No best_model_score available in the trial-specific checkpoint callback")
 
-                # Log available metrics for debugging
                 logging.info(f"Trial {trial.number} - Aggregated metrics calculated: {list(agg_metrics.keys())}")
             except Exception as e:
                 logging.error(f"Trial {trial.number} - Error computing evaluation metrics: {str(e)}", exc_info=True)
-                raise optuna.exceptions.TrialPruned(f"Error computing evaluation metrics in trial {trial.number}: {str(e)}")
+                raise RuntimeError(f"Error computing evaluation metrics in trial {trial.number}: {str(e)}") from e
 
             # Log GPU stats at the end of the trial
             self.log_gpu_stats(stage=f"Trial {trial.number} End")
@@ -758,13 +729,14 @@ class MLTuningObjective:
                 logging.info(f"Rank {os.environ.get('WORKER_RANK', 'N/A')}: Finishing trial-specific W&B run '{current_run_name}' for trial {trial.number if 'trial' in locals() else 'unknown'}")
                 wandb.finish()
 
+        # Metric Return
         metric_to_return = self.config.get("trainer", {}).get("monitor_metric", "val_loss")
         optuna_direction = self.config.get("optuna", {}).get("direction", "minimize")
 
         if agg_metrics is None:
-            error_msg = f"Trial {trial.number} - 'agg_metrics' is None, indicating an error occurred during training or evaluation before metrics could be computed."
+            error_msg = f"Trial {trial.number} - 'agg_metrics' is None, indicating an error occurred before metrics could be computed."
             logging.error(error_msg)
-            raise optuna.exceptions.TrialPruned(f"Trial {trial.number} failed: validation metrics were not computed due to an earlier error.")
+            raise RuntimeError(f"Trial {trial.number} failed: validation metrics were not computed due to an earlier error.")
         else:
             try:
                 metric_value = agg_metrics.get(metric_to_return)
@@ -772,7 +744,7 @@ class MLTuningObjective:
                 if metric_value is None:
                     error_msg = f"Metric key '{metric_to_return}' not found in calculated agg_metrics: {list(agg_metrics.keys())}"
                     logging.error(f"Trial {trial.number} - {error_msg}")
-                    raise optuna.exceptions.TrialPruned(f"Trial {trial.number} failed: {error_msg}")
+                    raise KeyError(f"Trial {trial.number} failed: {error_msg}")
 
                 if hasattr(metric_value, 'item'):
                     metric_value = metric_value.item()
@@ -789,12 +761,14 @@ class MLTuningObjective:
                  error_msg = f"Error converting metric '{metric_to_return}' (value: {agg_metrics.get(metric_to_return)}) to float: {e}"
                  logging.error(f"Trial {trial.number} - {error_msg}", exc_info=True)
                  logging.error(f"Available metrics: {list(agg_metrics.keys())}")
-                 raise optuna.exceptions.TrialPruned(f"Trial {trial.number} failed: {error_msg}")
+                 raise ValueError(f"Trial {trial.number} failed: {error_msg}") from e
+            except KeyError as e:
+                 raise e
             except Exception as e:
                  error_msg = f"Unexpected error extracting or processing metric '{metric_to_return}' from agg_metrics: {e}"
-                 logging.info(f"Trial {trial.number} pruned by Optuna: {str(e)}")
+                 logging.error(f"Trial {trial.number} - {error_msg}", exc_info=True)
                  logging.error(f"Available metrics: {list(agg_metrics.keys())}")
-                 raise optuna.exceptions.TrialPruned(f"Trial {trial.number} failed: {error_msg}")
+                 raise RuntimeError(f"Trial {trial.number} failed: {error_msg}") from e
 
 
 def get_tuned_params(storage, study_name):
