@@ -54,10 +54,12 @@ def generate_df_setup_params(model, model_config):
     resolved_optuna_dir = resolve_path(project_root, optuna_dir_from_config)
     if not resolved_optuna_dir:
         raise ValueError("logging.optuna_dir is required but not found or resolved.")
+    
+    backend = storage_cfg.get("backend", "sqlite")
 
     # Get instance name for PostgreSQL data directory
     pgdata_instance_name = storage_cfg.get("pgdata_instance_name", "default")
-    if pgdata_instance_name == "default":
+    if backend == "postgresql" and pgdata_instance_name == "default":
         logging.warning("No 'pgdata_instance_name' specified in config. Using default instance name.")
     
     # Resolve pgdata path with instance name
@@ -88,7 +90,7 @@ def generate_df_setup_params(model, model_config):
     resolved_sync_dir = resolve_path(project_root, sync_dir_str) # Make absolute
 
     db_setup_params = {
-        "backend": storage_cfg.get("backend", "sqlite"),
+        "backend": backend,
         "project_root": project_root,
         "pgdata_path": resolved_pgdata_path,
         "study_name": base_study_prefix,  # This is now the base prefix, not final study name
@@ -706,7 +708,7 @@ class MLTuningObjective:
                 # self.metrics.append(agg_metrics.copy())
         
                 # not a perfect comparision, multiply per turbine case with number of turbines to approximate val_loss over full dataset
-                if params["per_turbine"]:
+                if params.get("per_turbine", False):
                      agg_metrics[model_checkpoint["monitor"]] = model_checkpoint["best_model_score"] * len(self.data_module.target_suffixes)
                 
                 monitor_metric = trial_checkpoint_callback.monitor
@@ -719,7 +721,6 @@ class MLTuningObjective:
                     logging.info(f"Trial {trial.number} - Setting {monitor_metric} to {best_score} from trial-specific checkpoint callback")
                 else:
                     logging.warning(f"Trial {trial.number} - No best_model_score available in the trial-specific checkpoint callback")
-
 
                 logging.info(f"Trial {trial.number} - Aggregated metrics calculated: {list(agg_metrics.keys())}")
             except Exception as e:
