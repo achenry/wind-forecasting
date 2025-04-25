@@ -443,7 +443,7 @@ def main():
     elif args.mode == "train":
         logging.info("Starting model training...")
         # %% TRAIN MODEL
-        
+        # TODO lightning_logs still being created by something  in log dir...
         logging.info("Training model")
         estimator.train(
             training_data=data_module.train_dataset,
