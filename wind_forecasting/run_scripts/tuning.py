@@ -995,9 +995,6 @@ def tune_model(model, config, study_name, optuna_storage, lightning_module_class
             callbacks=optimize_callbacks,
             show_progress_bar=(worker_id=='0')
         )
-    except optuna.exceptions.TrialPruned:
-        logging.debug(f"Worker {worker_id}: Caught expected TrialPruned exception.")
-        pass
     except Exception as e:
         logging.error(f"Worker {worker_id}: Failed during study optimization: {str(e)}", exc_info=True)
         raise
