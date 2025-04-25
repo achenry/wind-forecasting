@@ -141,15 +141,27 @@ class SafePruningCallback(pl.Callback):
         super().__init__()
         # Instantiate the actual Optuna callback internally
         self.optuna_pruning_callback = PyTorchLightningPruningCallback(trial, monitor)
+        self.trial = trial
+        self.monitor = monitor
 
     # Delegate the relevant callback method(s)
     def on_validation_end(self, trainer: "pl.Trainer", pl_module: "pl.LightningModule") -> None:
-        # Call the corresponding method on the wrapped Optuna callback
-        self.optuna_pruning_callback.on_validation_end(trainer, pl_module)
+        try:
+            # Call the corresponding method on the wrapped Optuna callback
+            self.optuna_pruning_callback.on_validation_end(trainer, pl_module)
+        except optuna.exceptions.TrialPruned as e:
+            # Explicitly mark trial as pruned and log appropriately
+            self.trial.set_user_attr('pruned_reason', str(e))
+            logging.info(f"Trial {self.trial.number} pruned at epoch {trainer.current_epoch} (monitoring '{self.monitor}')")
+            raise  # Re-raise to ensure trial state is properly set
 
     # Delegate check_pruned if needed
     def check_pruned(self) -> None:
-        self.optuna_pruning_callback.check_pruned()
+        try:
+            self.optuna_pruning_callback.check_pruned()
+        except optuna.exceptions.TrialPruned as e:
+            logging.info(f"Trial {self.trial.number} pruned (check_pruned): {str(e)}")
+            raise
 
 class MLTuningObjective:
     def __init__(self, *, model, config, lightning_module_class, estimator_class, 
