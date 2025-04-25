@@ -342,7 +342,7 @@ class MLTuningObjective:
             current_callbacks.append(trial_early_stopping_callback)
             logging.info(f"Trial {trial.number}: Created trial-specific EarlyStopping callback monitoring '{early_stopping_config_args.get('monitor')}' (mode: {early_stopping_config_args.get('mode')})")
         else:
-            logging.warning(f"Trial {trial.number}: Could not find or extract args from a config-defined EarlyStopping callback. early stopping could crash.")
+            logging.warning(f"Trial {trial.number}: Could not find or extract args from a config-defined EarlyStopping callback.")
 
 
         final_callbacks = instantiated_callbacks_from_config + current_callbacks
@@ -395,7 +395,7 @@ class MLTuningObjective:
                 # Logging and Behavior
                 save_code=self.config['optuna'].get('save_trial_code', False),
                 mode=self.config['logging'].get('wandb_mode', 'online'),
-                finish_previous=True
+                reinit="create_new"
             )
             logging.info(f"Rank {os.environ.get('WORKER_RANK', '0')}: Initialized W&B run '{run_name}' for trial {trial.number}")
 
@@ -1113,7 +1113,7 @@ def tune_model(model, config, study_name, optuna_storage, lightning_module_class
                 dir=wandb_dir,
                 tags=tags,
                 config=git_info_config,
-                finish_previous=True # Allow reinitialization if needed, though the check above should handle most cases
+                reinit="create_new" # Let explicit wandb.finish() calls handle run separation
             )
             logging.info(f"Rank 0: Initialized W&B summary run: {wandb.run.name} (ID: {wandb.run.id}) with Git info: {git_info_config}")
 
