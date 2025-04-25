@@ -300,6 +300,31 @@ def main():
     config["trainer"]["default_root_dir"] = checkpoint_dir
 
     # %% CREATE DATASET
+    # Dynamically set DataLoader workers based on SLURM_CPUS_PER_TASK
+    cpus_per_task_str = os.environ.get('SLURM_CPUS_PER_TASK', '1') # Default to 1 CPU if var not set
+    try:
+        cpus_per_task = int(cpus_per_task_str)
+        if cpus_per_task <= 0:
+             logging.warning(f"SLURM_CPUS_PER_TASK is non-positive ({cpus_per_task}), defaulting cpus_per_task to 1.")
+             cpus_per_task = 1
+    except ValueError:
+        logging.warning(f"Could not parse SLURM_CPUS_PER_TASK ('{cpus_per_task_str}'), defaulting cpus_per_task to 1.")
+        cpus_per_task = 1
+
+    num_workers = 2 * cpus_per_task
+    if "trainer" not in config:
+        config["trainer"] = {}
+
+    # Set DataLoader parameters within the trainer config
+    config["trainer"]["num_workers"] = num_workers
+    config["trainer"]["pin_memory"] = True
+    config["trainer"]["persistent_workers"] = True
+    logging.info(f"Updated config: trainer.num_workers={config['trainer']['num_workers']}, trainer.pin_memory={config['trainer']['pin_memory']}, trainer.persistent_workers={config['trainer']['persistent_workers']}")
+    logging.info(f"Determined SLURM_CPUS_PER_TASK={cpus_per_task}. Setting num_workers = {num_workers}.")
+
+    # Update config for DataModule
+    logging.info(f"Updated config: dataset.workers={config['dataset']['workers']}, dataset.pin_memory={config['dataset']['pin_memory']}, dataset.persistent_workers={config['dataset']['persistent_workers']}")
+
     logging.info("Creating datasets")
     data_module = DataModule(data_path=config["dataset"]["data_path"], n_splits=config["dataset"]["n_splits"],
                             continuity_groups=None, train_split=(1.0 - config["dataset"]["val_split"] - config["dataset"]["test_split"]),
@@ -308,7 +333,7 @@ def main():
                                 target_prefixes=["ws_horz", "ws_vert"], feat_dynamic_real_prefixes=["nd_cos", "nd_sin"],
                                 freq=config["dataset"]["resample_freq"], target_suffixes=config["dataset"]["target_turbine_ids"],
                                     per_turbine_target=config["dataset"]["per_turbine_target"], as_lazyframe=False, dtype=pl.Float32)
-    
+
     if rank_zero_only.rank == 0:
         logging.info("Preparing data for tuning")
         if not os.path.exists(data_module.train_ready_data_path):
@@ -316,8 +341,8 @@ def main():
             reload = True
         else:
             reload = False
-    
-        data_module.generate_splits(save=True, reload=reload, splits=["train", "val", "test"]) 
+
+        data_module.generate_splits(save=True, reload=reload, splits=["train", "val", "test"])
     
     data_module.generate_splits(save=True, reload=False, splits=["train", "val", "test"])
 
