@@ -72,9 +72,8 @@ echo "------------------------------------"
 # --- Setup Main Environment ---
 echo "Setting up main environment..."
 module purge
-module load PrgEnv-intel
 ml mamba
-# ml cuda
+ml cuda
 echo "Modules loaded."
 
 eval "$(mamba shell.bash hook)"
@@ -121,7 +120,7 @@ for i in $(seq 0 $((${NUM_GPUS}-1))); do
       module purge
       ml PrgEnv-intel
       ml mamba
-      # ml cuda
+      ml cuda
       echo \"Worker ${i}: Modules loaded.\"
 
       # --- Activate conda environment ---
