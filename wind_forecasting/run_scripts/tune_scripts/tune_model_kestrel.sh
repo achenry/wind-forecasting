@@ -118,7 +118,7 @@ for i in $(seq 0 $((${NUM_GPUS}-1))); do
       echo \"Worker ${i} starting environment setup...\"
       # --- Module loading ---
       module purge
-      ml PrgEnv-intel
+      # ml PrgEnv-intel
       ml mamba
       ml cuda
       echo \"Worker ${i}: Modules loaded.\"
