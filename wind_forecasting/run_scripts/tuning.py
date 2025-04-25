@@ -25,7 +25,7 @@ import lightning.pytorch as pl # Import pl alias
 from optuna.trial import TrialState # Added for checking trial status
 import wandb
 from lightning.pytorch.loggers import WandbLogger
-
+from lightning.pytorch.callbacks import ModelCheckpoint
 from optuna import create_study
 
 from wind_forecasting.utils.optuna_visualization import launch_optuna_dashboard, log_optuna_visualizations_to_wandb
@@ -695,10 +695,6 @@ class MLTuningObjective:
                 except Exception as e:
                     logging.error(f"Trial {trial.number} - Error making evaluation predictions: {str(e)}", exc_info=True)
                     raise RuntimeError(f"Error making evaluation predictions in trial {trial.number}: {str(e)}") from e
-                    
-                 logging.error(f"Trial {trial.number} - Unexpected error instantiating model or loading state_dict: {str(e)}", exc_info=True)
-                 raise optuna.exceptions.TrialPruned(f"Error instantiating model or loading state_dict in trial {trial.number}: {str(e)}")
-            
 
             # Metric Calculation
             try:
