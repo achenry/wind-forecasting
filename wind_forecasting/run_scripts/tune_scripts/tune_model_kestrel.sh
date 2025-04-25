@@ -21,12 +21,6 @@ export CONFIG_FILE=$2
 export TUNING_PHASE=1
 export BASE_DIR="/home/ahenry/toolboxes/wind_forecasting_env/wind-forecasting"
 export WORK_DIR="${BASE_DIR}/wind_forecasting"
-<<<<<<< HEAD
-export MODEL_NAME=$1
-export CONFIG_FILE=$2
-export RESTART_FLAG="--restart_tuning"
-=======
->>>>>>> 016891c12f4bbcdaebae7e49a61aa1d542dc4731
 export RESTART_TUNING_FLAG="--restart_tuning" # "" Or "--restart_tuning"
 export AUTO_EXIT_WHEN_DONE="true"  # Set to "true" to exit script when all workers finish, "false" to keep running until timeout
 export NUMEXPR_MAX_THREADS=128
