@@ -238,7 +238,8 @@ def setup_sqlite(sqlite_storage_dir, study_name, restart_tuning, rank):
     if rank == 0:
         storage = RDBStorage(url=optuna_storage_url)
     else:
-
+        logging.error(f"Cannot access SQLite with multiple workers.")
+        raise Exception
     
     return storage
 
