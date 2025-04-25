@@ -1,11 +1,11 @@
 experiment:
   username: jmb0507
   project_name: wind_forecasting_flasc
-  run_name: tune_p8_d5_b100_n4 # [p = patience, d = min_delta, b = limit_train_batches, n = n_startup_trials]
+  run_name: tune_hb_12_2_v2 # [p = patience, d = min_delta, b = limit_train_batches, n = n_startup_trials] / hb = hyperband min_resource, reduction_factor
   project_root: /user/taed7566/Forecasting/wind-forecasting
   log_dir: /user/taed7566/Forecasting/wind-forecasting/logs/
   notes: "Tuning FLASC with TACTiS-2"
-  extra_tags: ["flasc"] # By default already has GPU id, model and mode.
+  extra_tags: ["flasc", "H100","50t","250b"] # By default already has GPU id, model and mode.
 
 logging:
   entity: jmb0507-cu-boulder # Wandb entity (group name)
@@ -18,10 +18,10 @@ logging:
 
 optuna:
   save_trial_code: false      # Default false
-  n_trials_per_worker: 25     # Test a total of 4*25=100 trials - 25 good
+  n_trials_per_worker: 50     # Test a total of 4*25=100 trials - 25 good
   # ~3 min/epoch = 2.5 hours per trial = ~10 days for 100 trials / 4 workers = 2.5 days (with 100 batches no pruning)
   max_epochs: 25              # epochs per trial - 25 good
-  limit_train_batches: 100    # batches per epoch (large number to use all data) - 250 good
+  limit_train_batches: 250    # batches per epoch (large number to use all data) - 250 good
   metric: "val_loss"          # The metric to optimize (NLL)
   direction: "minimize"       # Whether to minimize or maximize the metric
 
@@ -30,10 +30,14 @@ optuna:
   # Pruning configuration
   pruning:
     enabled: true             # Whether to enable pruning
-    type: "median"            # Options: "hyperband", "median", "percentile", "none"
-    n_startup_trials: 4       # Number of trials to wait until building the median for pruning - 6 good
-    n_warmup_steps: 12        # Number of epochs to wait before starting pruning
-    # set up so log_n(max_resource/min_resource)+1 = between 4-6 brackets ideally (hyperband-only setting [deprecated currently])
+    type: "hyperband"         # Options: "hyperband", "median"
+    max_resource: 25          # Maximum number of epochs to train a trial [hyperband only] 
+    min_resource: 12          # Minimum number of epochs to train a trial [hyperband only]
+    reduction_factor: 2     # Reduction factor for hyperband pruning @boujuan 1.5 allows for ~3 brackets and more gentle pruning
+    # set up so log_n(max_resource/min_resource)+1 = between 4-6 brackets ideally [hyperband only]  
+    bootstrap_count: 0        # Number of bootstrap samples to use 
+    # n_startup_trials: 4       # Number of trials to wait until building the median for pruning - 6 good [median only]
+    # n_warmup_steps: 12        # Number of epochs to wait before starting pruning [median only]
 
   # Optuna visualization configuration (additional to wandb)
   visualization:
@@ -50,7 +54,8 @@ optuna:
     # --- PostgreSQL Specific Settings ---
     # Path relative to project root (e.g., ~/wind-forecasting)
     pgdata_path: "/user/taed7566/Forecasting/wind-forecasting/optuna/pgdata" # Directory for PostgreSQL data files
-    db_name: "optuna_study_db"
+    pgdata_instance_name: "flasc_default" # CREATE NEW INSTANCE (DIRECTORY) FOR STUDIES
+    db_name: "optuna_study_db"  # Name of the PostgreSQL database
     db_user: "optuna_user"
     use_socket: true      # Use Unix domain socket for local connection (recommended on single node)
     socket_dir_base: "${logging.optuna_dir}/sockets" # Base directory for socket files
@@ -82,19 +87,19 @@ dataset:
     prediction_length: 300 # in seconds
     target_turbine_ids: # or leave blank to capture all
     normalize: false
-    batch_size: 768 # 512-768 (more seems to create some OOM errors)
-    workers: 12 # Consider adjusting based on CPU cores per task
+    batch_size: 896 # 512-768, perhaps 896 (more seems to create some OOM errors)
+    workers: 1 # Consider adjusting based on CPU cores per task
     overfit: false
     test_split: 0.20
     val_split: 0.1
     resample_freq: 60s
     n_splits: 1 # how many divisions of each continuity group to make which is further subdivided into training test and validation data
-    per_turbine_target: false # TODO: What does this do? (ask Aoife)
+    per_turbine_target: true # Supposedly is better true
     context_length_factor: 2  # Factor to multiply prediction_length by
 
 model:
   distr_output:
-    class: "LowRankMultivariateNormalOutput" # Doesn't apply to TACTiS-2
+    class: "LowRankMultivariateNormalOutput" # Doesn't apply to TACTiS-2 TODO: UPDATE
     kwargs:
       rank: 5
       sigma_init: 0.2
@@ -110,7 +115,7 @@ model:
     loss_normalization: "std" # Options: "series", "timesteps", "both", "none"
     encoder_type: "standard" # Options: "standard", "temporal"
     bagging_size: null # Optional, defaults to None in estimator
-    num_parallel_samples: 100 # Num of parallel samples for probabilistic prediction TODO: Inform yourself about this
+    num_parallel_samples: 100
     # Marginal CDF Encoder
     marginal_embedding_dim_per_head: 8
     marginal_num_heads: 5
@@ -191,21 +196,21 @@ callbacks:
     progress_bar:
       class_path: lightning.pytorch.callbacks.TQDMProgressBar
       init_args:
-        refresh_rate: 50  # every n steps, set to 0 to disable - 25 good
-        leave: true
-    early_stopping:
-      class_path: lightning.pytorch.callbacks.EarlyStopping
-      init_args:
-        monitor: 'val_loss'
-        patience: 8 # Number of epochs to wait before stopping (val>epochs to disable) - 8 good
-        min_delta: 5.0 # Minimum change to be considered an improvement (>5.0 after observing visual fluctuations of 2-4 per epoch on an almost-perfectly visual plateau) - 5.0 good
-        mode: 'min'
-        check_finite: true
+        refresh_rate: 25  # every n steps, set to 0 to disable - 25 good
+        leave: false
+    # early_stopping:
+    #   class_path: lightning.pytorch.callbacks.EarlyStopping
+    #   init_args:
+    #     monitor: 'val_loss'
+    #     patience: 5 # Number of epochs to wait before stopping (val>epochs to disable) - 8 good
+    #     min_delta: 25.0 # Minimum change to be considered an improvement (>5.0 after observing visual fluctuations of 2-4 per epoch on an almost-perfectly visual plateau) - 5.0 good
+    #     mode: 'min'
+    #     check_finite: true
     model_checkpoint:
       class_path: lightning.pytorch.callbacks.ModelCheckpoint
       init_args:
         dirpath: ${logging.checkpoint_dir}
-        filename: '{epoch}-{step}-{val_loss:.2f}' # TODO: Save checkpoints in separate run's directory
+        filename: '{epoch}-{step}-{val_loss:.2f}'
         monitor: 'val_loss'
         mode: 'min'
         save_top_k: 1

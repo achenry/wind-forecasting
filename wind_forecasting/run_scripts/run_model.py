@@ -292,24 +292,57 @@ def main():
     config["trainer"]["default_root_dir"] = checkpoint_dir
 
     # %% CREATE DATASET
+    # Dynamically set DataLoader workers based on SLURM_CPUS_PER_TASK
+    cpus_per_task_str = os.environ.get('SLURM_CPUS_PER_TASK', '1') # Default to 1 CPU if var not set
+    try:
+        cpus_per_task = int(cpus_per_task_str)
+        if cpus_per_task <= 0:
+             logging.warning(f"SLURM_CPUS_PER_TASK is non-positive ({cpus_per_task}), defaulting cpus_per_task to 1.")
+             cpus_per_task = 1
+    except ValueError:
+        logging.warning(f"Could not parse SLURM_CPUS_PER_TASK ('{cpus_per_task_str}'), defaulting cpus_per_task to 1.")
+        cpus_per_task = 1
+
+    num_workers = max(0, cpus_per_task - 1)
+    if "trainer" not in config:
+        config["trainer"] = {}
+
+    # Set DataLoader parameters within the trainer config
+    logging.info(f"Determined SLURM_CPUS_PER_TASK={cpus_per_task}. Setting num_workers = {num_workers}.")
+
     logging.info("Creating datasets")
-    data_module = DataModule(data_path=config["dataset"]["data_path"], n_splits=config["dataset"]["n_splits"],
-                            continuity_groups=None, train_split=(1.0 - config["dataset"]["val_split"] - config["dataset"]["test_split"]),
-                                val_split=config["dataset"]["val_split"], test_split=config["dataset"]["test_split"],
-                                prediction_length=config["dataset"]["prediction_length"], context_length=config["dataset"]["context_length"],
-                                target_prefixes=["ws_horz", "ws_vert"], feat_dynamic_real_prefixes=["nd_cos", "nd_sin"],
-                                freq=config["dataset"]["resample_freq"], target_suffixes=config["dataset"]["target_turbine_ids"],
-                                    per_turbine_target=config["dataset"]["per_turbine_target"], as_lazyframe=False, dtype=pl.Float32, verbose=True)
-    
-    if rank == 0:
+    data_module = DataModule(
+        data_path=config["dataset"]["data_path"],
+        n_splits=config["dataset"]["n_splits"],
+        continuity_groups=None,
+        train_split=(1.0 - config["dataset"]["val_split"] - config["dataset"]["test_split"]),
+        val_split=config["dataset"]["val_split"],
+        test_split=config["dataset"]["test_split"],
+        prediction_length=config["dataset"]["prediction_length"],
+        context_length=config["dataset"]["context_length"],
+        target_prefixes=["ws_horz", "ws_vert"],
+        feat_dynamic_real_prefixes=["nd_cos", "nd_sin"],
+        freq=config["dataset"]["resample_freq"],
+        target_suffixes=config["dataset"]["target_turbine_ids"],
+        per_turbine_target=config["dataset"]["per_turbine_target"],
+        as_lazyframe=False,
+        dtype=pl.Float32,
+        batch_size=config["dataset"].get("batch_size", 128),
+        workers=num_workers,
+        pin_memory=True,
+        persistent_workers=True,
+        verbose=True
+    )
+
+    if rank_zero_only.rank == 0:
         logging.info("Preparing data for tuning")
         if not os.path.exists(data_module.train_ready_data_path):
             data_module.generate_datasets()
             reload = True
         else:
             reload = False
-    
-        data_module.generate_splits(save=True, reload=reload, splits=["train", "val", "test"]) 
+
+        data_module.generate_splits(save=True, reload=reload, splits=["train", "val", "test"])
     
     data_module.generate_splits(save=True, reload=False, splits=["train", "val", "test"])
 
@@ -381,7 +414,7 @@ def main():
             "scaling": False, # Scaling handled externally or internally by TACTiS
             "lags_seq": [0], # TACTiS doesn't typically use lags
             "time_features": [second_of_minute, minute_of_hour, hour_of_day, day_of_year],
-            "batch_size": config["dataset"].setdefault("batch_size", 128),
+            "batch_size": data_module.batch_size,
             "num_batches_per_epoch": config["trainer"].setdefault("limit_train_batches", 1000),
             "context_length": context_length,
             "train_sampler": ExpectedNumInstanceSampler(num_instances=1.0, min_past=context_length, min_future=data_module.prediction_length),
@@ -517,7 +550,8 @@ def main():
                    direction=config["optuna"]["direction"],
                    n_trials_per_worker=config["optuna"]["n_trials_per_worker"],
                    trial_protection_callback=handle_trial_with_oom_protection,
-                   seed=args.seed, tuning_phase=args.tuning_phase)
+                   seed=args.seed, tuning_phase=args.tuning_phase,
+                   restart_tuning=args.restart_tuning) # Add restart_tuning parameter
         
         # After training completes
         torch.cuda.empty_cache()
