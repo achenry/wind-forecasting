@@ -13,23 +13,12 @@
 
 # salloc --account=ssc --time=01:00:00 --gpus=2 --ntasks-per-node=2 --partition=debug
 
-<<<<<<< HEAD
-module purge
-module load PrgEnv-intel
-ml mamba
-ml cuda
-
-mamba activate wind_forecasting_env
-
-export MODEL=$1
-=======
 # --- Base Directories ---
->>>>>>> 8310f6543afad5971a58a08dd1f6c2266dc8fc4c
 export TUNING_PHASE=1
 export BASE_DIR="/home/ahenry/toolboxes/wind_forecasting_env/wind-forecasting"
 export WORK_DIR="${BASE_DIR}/wind_forecasting"
 export MODEL_NAME=$1
-export MODEL_CONFIG_PATH=$2
+export CONFIG_FILE=$2
 export RESTART_FLAG="--restart_tuning"
 export RESTART_TUNING_FLAG="--restart_tuning" # "" Or "--restart_tuning"
 export AUTO_EXIT_WHEN_DONE="true"  # Set to "true" to exit script when all workers finish, "false" to keep running until timeout
@@ -143,21 +132,6 @@ for i in $(seq 0 $((${NUM_GPUS}-1))); do
       
       # Note: PYTHONPATH and WANDB_DIR are inherited via export from parent script
 
-<<<<<<< HEAD
-        # export SLURM_NTASKS_PER_NODE=1
-        # export SLURM_NNODES=1
-        python ${WORK_DIR}/run_scripts/run_model.py --config ${MODEL_CONFIG_PATH} \\
-         --model ${MODEL} --mode tune --seed ${WORKER_SEED} ${RESTART_FLAG} \\
-         --tuning_phase ${TUNING_PHASE} --single_gpu # Crucial for making Lightning use only the assigned GPU" &
-        
-        # Store the process ID
-        WORKER_PIDS+=($!)
-        
-        # Add a small delay between starting workers on the same GPU
-        # to avoid initialization conflicts
-        sleep 2
-    done
-=======
       echo \"Worker ${i}: Running python script with WORKER_RANK=${WORKER_RANK}...\"
       # --- Run the tuning script ---
       # Workers connect to the already initialized study using the PG URL
@@ -186,7 +160,6 @@ for i in $(seq 0 $((${NUM_GPUS}-1))); do
       # Add a small delay between starting workers on the same GPU
       # to avoid initialization conflicts
       sleep 2
->>>>>>> 8310f6543afad5971a58a08dd1f6c2266dc8fc4c
 done
 
 echo "Started ${#WORKER_PIDS[@]} worker processes"
