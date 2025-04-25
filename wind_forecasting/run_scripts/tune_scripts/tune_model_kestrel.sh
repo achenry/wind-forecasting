@@ -125,7 +125,7 @@ for i in $(seq 0 $((${NUM_GPUS}-1))); do
 
       # --- Activate conda environment ---
       # eval \"\$(conda shell.bash hook)\"
-      conda activate wind_forecasting_env
+      mamba activate wind_forecasting_env
       echo \"Worker ${i}: Conda environment 'wind_forecasting_env' activated.\"
 
       # --- Set Worker-Specific Environment ---
