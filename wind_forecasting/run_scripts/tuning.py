@@ -13,6 +13,7 @@ from itertools import product
 import collections.abc
 from pathlib import Path
 import subprocess
+import re # Added for epoch parsing
 # Imports for Optuna
 import optuna
 from optuna import create_study, load_study
@@ -532,6 +533,36 @@ class MLTuningObjective:
 
                 logging.info(f"Trial {trial.number} - Loading checkpoint from: {checkpoint_path}")
                 checkpoint = torch.load(checkpoint_path, map_location=lambda storage, loc: storage, weights_only=False)
+
+                epoch_number = None
+                try:
+                    match = re.search(r"epoch=(\d+)", checkpoint_path)
+                    if match:
+                        epoch_number = int(match.group(1))
+                        logging.info(f"Trial {trial.number} - Extracted epoch {epoch_number} from checkpoint path.")
+                    else:
+                        raise ValueError(f"Could not parse epoch number from checkpoint path: {checkpoint_path}")
+                except (ValueError, TypeError) as parse_error:
+                    error_msg = f"Error parsing epoch from checkpoint path '{checkpoint_path}': {parse_error}"
+                    logging.error(f"Trial {trial.number} - {error_msg}")
+                    raise optuna.exceptions.TrialPruned(f"Trial {trial.number}: {error_msg}")
+
+                correct_stage = 1 # Default to stage 1
+                try:
+                    # Retrieve stage2_start_epoch from the kwargs
+                    stage2_start_epoch = estimator_kwargs.get('stage2_start_epoch')
+                    if stage2_start_epoch is not None:
+                        stage2_start_epoch = int(stage2_start_epoch)
+                        if epoch_number >= stage2_start_epoch:
+                            correct_stage = 2
+                        logging.info(f"Trial {trial.number} - Determined correct stage for re-instantiation: {correct_stage} (Epoch: {epoch_number}, Stage 2 Start: {stage2_start_epoch})")
+                    else:
+                        # If not stage2_start_epoch assume stage 1
+                        logging.info(f"Trial {trial.number} - 'stage2_start_epoch' not found in estimator_kwargs. Assuming Stage 1 for re-instantiation (Epoch: {epoch_number}).")
+                except (KeyError, ValueError, TypeError) as stage_error:
+                     error_msg = f"Error determining correct stage from estimator_kwargs: {stage_error}. Defaulting to Stage 1."
+                     logging.warning(f"Trial {trial.number} - {error_msg}")
+
             except (FileNotFoundError, RuntimeError) as e:
                 logging.error(f"Trial {trial.number} - Error loading checkpoint: {str(e)}", exc_info=True)
                 raise optuna.exceptions.TrialPruned(f"Error loading checkpoint in trial {trial.number}: {str(e)}")
@@ -561,13 +592,26 @@ class MLTuningObjective:
                 # Provide default values from the original config if not found in hparams, logging a warning
                 init_args = {
                     'model_config': model_config,
-                    **{k: hparams.get(k, self.config["model"][self.model].get(k)) for k in module_params}
+                    **{k: hparams.get(k, self.config["model"][self.model].get(k)) for k in module_params if k != 'model_config'}
                 }
-                
+
+                module_sig_for_stage = inspect.signature(self.lightning_module_class.__init__)
+                module_params_for_stage = [param.name for param in module_sig_for_stage.parameters.values()]
+
+                if 'initial_stage' in module_params_for_stage:
+                    init_args['initial_stage'] = correct_stage
+                    logging.info(f"Trial {trial.number} - Setting 'initial_stage={correct_stage}' in init_args for LightningModule re-instantiation as parameter is accepted.")
+                else:
+                    logging.info(f"Trial {trial.number} - Skipping 'initial_stage' in init_args as parameter is not accepted by {self.lightning_module_class.__name__}. Assuming single-stage model or stage handled internally.")
+
                 # Log if any defaults were used
                 for key, val in init_args.items():
-                     if key != 'model_config' and key not in hparams:
-                         logging.warning(f"Hyperparameter '{key}' not found in checkpoint, using default value: {val}")
+                     # Skip logging warnings for model_config (checked above) and the injected initial_stage
+                     if key not in ['model_config', 'initial_stage'] and key not in hparams:
+                         # Check if the key was expected based on the signature OR if it was just in the defaults
+                         if key in module_params:
+                              logging.warning(f"Hyperparameter '{key}' not found in checkpoint, using default value: {val}")
+                         #    logging.debug(f"Default value for '{key}' added but not in module signature: {val}")
 
                 # Check for missing essential args (should ideally not happen with defaults)
                 missing_args = [k for k, v in init_args.items() if v is None and k != 'model_config'] # model_config checked above
@@ -581,8 +625,9 @@ class MLTuningObjective:
                 logging.error(f"Trial {trial.number} - Error extracting hyperparameters: {str(e)}", exc_info=True)
                 raise optuna.exceptions.TrialPruned(f"Error extracting hyperparameters in trial {trial.number}: {str(e)}")
 
-            logging.info(f"Re-instantiating LightningModule for metric retrieval with stage: {init_args.get('stage')}")
-            logging.debug(f"Using init_args: {init_args}")
+            logging.info(f"Re-instantiating LightningModule for metric retrieval with initial_stage: {init_args.get('initial_stage')}")
+            # Log the full init_args being used for detailed debugging if needed
+            logging.debug(f"Trial {trial.number} - Using init_args for re-instantiation: { {k: type(v).__name__ if not isinstance(v, (str, int, float, bool, list, dict, tuple)) else v for k, v in init_args.items()} }") # Avoid logging large objects
 
             # Instantiate model and load state dict with specific error handling
             try:
@@ -592,15 +637,13 @@ class MLTuningObjective:
                 logging.info(f"Loading state_dict into re-instantiated model...")
                 model.load_state_dict(checkpoint['state_dict'])
                 logging.info("State_dict loaded successfully.")
-            except RuntimeError as e:
-                 error_msg = f"RuntimeError loading state_dict: {e}. This often indicates a mismatch between the model architecture defined by hparams and the saved weights."
-                 logging.error(f"Trial {trial.number} - {error_msg}", exc_info=True)
-                 # Log details about the mismatch if possible
-                 logging.error(f"Model architecture stage during load attempt: {model.stage if hasattr(model, 'stage') else 'N/A'}")
-                 raise optuna.exceptions.TrialPruned(f"Trial {trial.number}: {error_msg}")
+            
             except Exception as e:
-                 logging.error(f"Trial {trial.number} - Unexpected error instantiating model or loading state_dict: {str(e)}", exc_info=True)
-                 raise optuna.exceptions.TrialPruned(f"Error instantiating model or loading state_dict in trial {trial.number}: {str(e)}")
+                 # Log the stage used during the failed attempt
+                 stage_at_error = init_args.get('initial_stage', 'Unknown')
+                 logging.error(f"Trial {trial.number} - Unexpected error instantiating model (with initial_stage={stage_at_error}) or loading state_dict: {str(e)}", exc_info=True)
+                 # Keep raising TrialPruned for general instantiation/loading errors, but the specific RuntimeError masking is gone.
+                 raise optuna.exceptions.TrialPruned(f"Error instantiating model (stage {stage_at_error}) or loading state_dict in trial {trial.number}: {str(e)}")
 
             try:
                 transformation = estimator.create_transformation(use_lazyframe=False)
