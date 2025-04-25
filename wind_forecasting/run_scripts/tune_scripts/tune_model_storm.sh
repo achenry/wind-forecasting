@@ -1,12 +1,12 @@
 #!/bin/bash
 
-#SBATCH --partition=cfdg.p       # Partition for H100/A100 GPUs cfdg.p / all_gpu.p / mpcg.p(not allowed)
+#SBATCH --partition=cfdg.p          # Partition for H100/A100 GPUs cfdg.p / all_gpu.p / mpcg.p(not allowed)
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=4         # Match number of GPUs requested below
-#SBATCH --cpus-per-task=16          # CPUs per task (4 tasks * 32 = 128 CPUs total)
-#SBATCH --mem-per-cpu=8016          # Memory per CPU (Total Mem = ntasks * cpus-per-task * mem-per-cpu)
-#SBATCH --gres=gpu:H100:4                # Request 4 H100 GPUs
-#SBATCH --time=3-00:00              # Time limit (7 days)
+#SBATCH --cpus-per-task=1           # CPUs per task (4 tasks * 32 = 128 CPUs total) [1 CPU/GPU more than enough]
+#SBATCH --mem-per-cpu=4096          # Memory per CPU (Total Mem = ntasks * cpus-per-task * mem-per-cpu) [flasc uses only ~4-5 GiB max]
+#SBATCH --gres=gpu:H100:4           # Request 4 H100 GPUs
+#SBATCH --time=5-00:00              # Time limit (up to 7 days)
 #SBATCH --job-name=tactis_tune_flasc_sql
 #SBATCH --output=/user/taed7566/Forecasting/wind-forecasting/logs/slurm_logs/tactis_tune_flasc_sql_%j.out
 #SBATCH --error=/user/taed7566/Forecasting/wind-forecasting/logs/slurm_logs/tactis_tune_flasc_sql_%j.err
@@ -81,7 +81,7 @@ echo "Modules loaded."
 
 # Capture LD_LIBRARY_PATH after modules are loaded
 export CAPTURED_LD_LIBRARY_PATH=$LD_LIBRARY_PATH
-echo "Captured LD_LIBRARY_PATH: ${CAPTURED_LD_LIBRARY_PATH}"
+# echo "Captured LD_LIBRARY_PATH: ${CAPTURED_LD_LIBRARY_PATH}"
 
 # Find PostgreSQL binary directory after loading the module
 PG_INITDB_PATH=$(which initdb)
@@ -201,7 +201,7 @@ trap "echo '--- Stopping System Monitoring ---'; kill \$MONITOR_PID 2>/dev/null"
     eval "$(conda shell.bash hook)"
     conda activate wf_env_2
     
-    echo "--- Starting Periodic Resource Monitoring (every 5 minutes) ---"
+    echo "--- Starting Periodic Resource Monitoring (every 10 minutes) ---"
     
     while true; do
         # Current timestamp
@@ -230,8 +230,8 @@ trap "echo '--- Stopping System Monitoring ---'; kill \$MONITOR_PID 2>/dev/null"
         echo "Workers: ${ALIVE_WORKERS}/${#WORKER_PIDS[@]} still running"
         echo "------------------------------------------"
         
-        # Sleep for 5 minutes before next check
-        sleep 300
+        # Sleep for 10 minutes before next check
+        sleep 600
     done
 ) &
 
@@ -296,7 +296,10 @@ echo "--------------------------------------------------"
 exit $FINAL_EXIT_CODE
 
 # sbatch wind-forecasting/wind_forecasting/run_scripts/tune_scripts/tune_model_storm.sh
+# sacct --node=cfdg002 --state=RUNNING --allusers --format=JobID,JobName,User,State,NodeList,AllocCPUS,AllocTRES%45,ReqCPUS,ReqMem%15,ReqTRES%45,TRESUsageInAve,TRESUsageInMax
 # squeue -p cfdg.p,mpcg.p,all_gpu.p -o "%.10a %.10P %.25j %.8u %.2t %.10M %.6D %R"
+# squeue --node=cfdg002
+# scontrol show node cfdg002
 # ssh -L 8088:localhost:8088 taed7566@cfdg002
 # mamba activate wf_env_2
-# gpustat -P --no-processes --watch 0.2
+# gpustat -P --no-processes --watch 0.5
