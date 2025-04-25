@@ -3,6 +3,8 @@ from typing import List, Type, Optional
 import os
 import re
 import logging
+import torch
+import torch.distributed as dist
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 from torch.utils.data import DataLoader
@@ -187,16 +189,26 @@ class DataModule():
             splits = ["train", "val", "test"]
         assert all(split in ["train", "val", "test"] for split in splits)
         assert os.path.exists(self.train_ready_data_path), f"Must run generate_datasets before generate_splits to produce {self.train_ready_data_path}."
-        
-        logging.info(f"Scanning dataset {self.train_ready_data_path}.") 
+
+        rank = 0
+        world_size = 1
+        is_distributed = dist.is_available() and dist.is_initialized()
+        if is_distributed:
+            rank = dist.get_rank()
+            world_size = dist.get_world_size()
+            logging.info(f"Rank {rank}/{world_size}: Entering generate_splits.")
+
+        logging.info(f"Rank {rank}: Scanning dataset {self.train_ready_data_path}.")
         dataset = IterableLazyFrame(data_path=self.train_ready_data_path, dtype=self.dtype)
-        logging.info(f"Finished scanning dataset {self.train_ready_data_path}.")
-        
+        logging.info(f"Rank {rank}: Finished scanning dataset {self.train_ready_data_path}.")
+
         self.get_dataset_info(dataset)
-        
-        if reload or not all(os.path.exists(self.train_ready_data_path.replace(".parquet", f"_{split}.pkl")) for split in splits):
+        split_files_exist = all(os.path.exists(self.train_ready_data_path.replace(".parquet", f"_{split}.pkl")) for split in splits)
+
+        if rank == 0 and (not reload or not split_files_exist):
+            logging.info(f"Rank 0: Generating splits (reload={reload}, files_exist={split_files_exist}).")
             if self.per_turbine_target:
-                logging.info(f"Splitting datasets for per turbine case.") 
+                logging.info(f"Rank 0: Splitting datasets for per turbine case.")
 
                 cg_counts = dataset.select("continuity_group").collect().to_series().value_counts().sort("continuity_group").select("count").to_numpy().flatten()
                 self.rows_per_split = [
@@ -310,19 +322,56 @@ class DataModule():
                 logging.info(f"Finished splitting datasets for all turbine case.")
             
             if save:
+                logging.info(f"Rank 0: Saving generated splits.")
                 for split in splits:
                     if self.as_lazyframe:
-                        raise NotImplementedError()
+                        raise NotImplementedError("Saving LazyFrame splits not implemented.")
                     else:
-                        with open(self.train_ready_data_path.replace(".parquet", f"_{split}.pkl"), 'wb') as fp:
-                            pickle.dump(getattr(self, f"{split}_dataset"), fp)
-        else:
-            logging.info("Fetching saved split datasets.")
+                        final_path = self.train_ready_data_path.replace(".parquet", f"_{split}.pkl")
+                        temp_path = final_path + ".tmp"
+                        logging.info(f"Rank 0: Saving {split} data to {temp_path}")
+                        try:
+                            with open(temp_path, 'wb') as fp:
+                                pickle.dump(getattr(self, f"{split}_dataset"), fp)
+                            logging.info(f"Rank 0: Atomically moving {temp_path} to {final_path}")
+                            os.rename(temp_path, final_path)
+                        except Exception as e:
+                            logging.error(f"Rank 0: Error saving {split} data: {e}")
+                            if os.path.exists(temp_path):
+                                os.remove(temp_path)
+                            raise
+                        finally:
+                            if os.path.exists(temp_path):
+                                try:
+                                    os.remove(temp_path)
+                                except OSError as e:
+                                     logging.error(f"Rank 0: Error removing temp file {temp_path}: {e}")
+
+        if is_distributed:
+            logging.info(f"Rank {rank}: Waiting at barrier before loading splits.")
+            dist.barrier()
+            logging.info(f"Rank {rank}: Passed barrier.")
+        if rank != 0 or (reload and split_files_exist):
+            logging.info(f"Rank {rank}: Loading saved split datasets.")
             for split in splits:
-                with open(self.train_ready_data_path.replace(".parquet", f"_{split}.pkl"), 'rb') as fp:
-                    data = pickle.load(fp)
-                    setattr(self, f"{split}_dataset", data)
-                    
+                split_path = self.train_ready_data_path.replace(".parquet", f"_{split}.pkl")
+                if not os.path.exists(split_path):
+                     # This should ideally not happen after the barrier if rank 0 succeeded
+                     logging.error(f"Rank {rank}: ERROR - Split file {split_path} not found after barrier!")
+                     raise FileNotFoundError(f"Rank {rank}: Split file {split_path} not found after barrier!")
+                try:
+                    with open(split_path, 'rb') as fp:
+                        data = pickle.load(fp)
+                        setattr(self, f"{split}_dataset", data)
+                    logging.info(f"Rank {rank}: Successfully loaded {split} dataset from {split_path}.")
+                except EOFError as e:
+                     logging.error(f"Rank {rank}: EOFError loading {split_path}. File might be corrupted. Error: {e}")
+                     raise
+                except Exception as e:
+                     logging.error(f"Rank {rank}: Error loading {split_path}: {e}")
+                     raise
+
+
         # for split, datasets in [("train", self.train_dataset), ("val", self.val_dataset), ("test", self.test_dataset)]:
         #     for ds in iter(datasets):
         #         for key in ["target", "feat_dynamic_real"]:
