@@ -82,7 +82,7 @@ dataset:
     prediction_length: 60 # in seconds
     target_turbine_ids: # or leave blank to capture all
     normalize: False 
-    batch_size: 128
+    batch_size: 64
     workers: 12
     overfit: False
     test_split: 0.20
@@ -91,7 +91,6 @@ dataset:
     n_splits: 1 # how many divisions of each continuity group to make which is further subdivided into training test and validation data
     per_turbine_target: True
     context_length_factor: 2
-
 
 model:
   distr_output: 

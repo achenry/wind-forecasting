@@ -277,6 +277,7 @@ class MLTuningObjective:
         os.makedirs(checkpoint_dir, exist_ok=True)
         
         # Create a trial-specific ModelCheckpoint instance
+        # TODO JUAN shouldn't this dir be deleted before tuning again?
         trial_checkpoint_callback = ModelCheckpoint(
             dirpath=checkpoint_dir,
             filename=f"trial_{trial.number}_{{epoch}}-{{step}}-{{{monitor_metric}:.2f}}",
