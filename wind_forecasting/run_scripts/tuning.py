@@ -24,12 +24,8 @@ import lightning.pytorch as pl # Import pl alias
 from optuna.trial import TrialState # Added for checking trial status
 import wandb
 from lightning.pytorch.loggers import WandbLogger
-from lightning.pytorch.callbacks import ModelCheckpoint
 
 from optuna import create_study
-from mysql.connector import connect as sql_connect
-from optuna.storages import JournalStorage, RDBStorage
-from optuna.storages.journal import JournalFileBackend
 
 from wind_forecasting.utils.optuna_visualization import launch_optuna_dashboard, log_optuna_visualizations_to_wandb
 from wind_forecasting.utils.optuna_table import log_detailed_trials_table_to_wandb
@@ -136,7 +132,7 @@ class SafePruningCallback(pl.Callback):
 class MLTuningObjective:
     def __init__(self, *, model, config, lightning_module_class, estimator_class, 
                  distr_output_class, max_epochs, limit_train_batches, data_module, 
-                 metric, seed=42, tuning_phase=0, resample_freq_choices=None):
+                 metric, seed=42, tuning_phase=0, dynamic_params=None):
         self.model = model
         self.config = config
         self.lightning_module_class = lightning_module_class
@@ -145,10 +141,10 @@ class MLTuningObjective:
         self.data_module = data_module
         self.metric = metric # TODO unused
         self.evaluator = MultivariateEvaluator(num_workers=None, custom_eval_fn=None)
-        self.metrics = []
+        # self.metrics = []
         self.seed = seed
         self.tuning_phase = tuning_phase
-        self.resample_freq_choices = resample_freq_choices
+        self.dynamic_params = dynamic_params
 
         self.config["trainer"]["max_epochs"] = max_epochs
         self.config["trainer"]["limit_train_batches"] = limit_train_batches
@@ -206,14 +202,16 @@ class MLTuningObjective:
         self.log_gpu_stats(stage=f"Trial {trial.number} Start")
       
         params = self.estimator_class.get_params(trial, self.tuning_phase, 
-                                                 dynamic_kwargs={"resample_freq": self.resample_freq_choices})
+                                                 dynamic_kwargs=self.dynamic_params)
+        
+        
         if "resample_freq" in params or "per_turbine" in params:
             self.data_module.freq = f"{params['resample_freq']}s"
-            self.data_module.per_turbine = params["per_turbine"]
+            self.data_module.per_turbine_target = params["per_turbine"]
             self.data_module.set_train_ready_path()
-            assert os.path.exists(self.data_module.train_ready_data_path), "Must generates dataset and splits in tuning.py, rank 0. Requested resampling frequency may not be compatible."
+            assert os.path.exists(self.data_module.train_ready_data_path), "Must generate dataset and splits in tuning.py, rank 0. Requested resampling frequency may not be compatible."
             self.data_module.generate_splits(save=True, reload=False, splits=["train", "val"])
-
+        
         estimator_sig = inspect.signature(self.estimator_class.__init__)
         estimator_params = [param.name for param in estimator_sig.parameters.values()]
 
@@ -312,7 +310,7 @@ class MLTuningObjective:
 
             # Create a WandbLogger using the current W&B run
             # log_model=False as we only want metrics for this trial logger
-            wandb_logger_trial = WandbLogger(log_model=False, experiment=wandb.run)
+            wandb_logger_trial = WandbLogger(log_model=False, experiment=wandb.run, save_dir=self.config['logging']['wandb_dir'])
             logging.info(f"Rank {os.environ.get('WORKER_RANK', '0')}: Created WandbLogger for trial {trial.number}")
 
             # Add the trial-specific logger to the trainer kwargs for this worker
@@ -380,6 +378,9 @@ class MLTuningObjective:
         if self.model == 'tactis' and 'distr_output' in estimator_kwargs:
             estimator_kwargs.pop('distr_output')
 
+        # Get the metric key from config
+        metric_to_return = self.config.get("trainer", {}).get("monitor_metric", "val_loss") # Default to val_loss
+        
         logging.info(f"Trial {trial.number}: Instantiating estimator '{self.model}' with final args: {list(estimator_kwargs.keys())}")
         
 
@@ -450,7 +451,7 @@ class MLTuningObjective:
             except (FileNotFoundError, RuntimeError) as e:
                 logging.error(f"Trial {trial.number} - Error loading checkpoint: {str(e)}", exc_info=True)
                 raise optuna.exceptions.TrialPruned(f"Error loading checkpoint in trial {trial.number}: {str(e)}")
-
+                
             try:
                 # Extract hyperparameters, handling potential key variations
                 hparams = checkpoint.get('hyper_parameters', checkpoint.get('hparams'))
@@ -460,6 +461,7 @@ class MLTuningObjective:
                     raise optuna.exceptions.TrialPruned(f"Trial {trial.number}: {error_msg}")
 
                 logging.debug(f"Loaded hparams from checkpoint: {hparams}")
+
 
                 # Explicitly extract model_config and other necessary args for LightningModule.__init__
                 # Use .get() with default None to avoid KeyError if a param wasn't saved (though it should be)
@@ -477,14 +479,15 @@ class MLTuningObjective:
                 init_args = {
                     'model_config': model_config,
                     **{k: hparams.get(k, self.config["model"][self.model].get(k)) for k in module_params}
-                }
+                }   
                 
                 # Log if any defaults were used
                 for key, val in init_args.items():
                      if key != 'model_config' and key not in hparams:
                          logging.warning(f"Hyperparameter '{key}' not found in checkpoint, using default value: {val}")
 
-                # Check for missing essential args (should ideally not happen with defaults)
+            
+            # Check for missing essential args (should ideally not happen with defaults)
                 missing_args = [k for k, v in init_args.items() if v is None and k != 'model_config'] # model_config checked above
                 if missing_args:
                     error_msg = f"Missing required hyperparameters in checkpoint {checkpoint_path} even after checking defaults: {missing_args}"
@@ -516,44 +519,51 @@ class MLTuningObjective:
             except Exception as e:
                  logging.error(f"Trial {trial.number} - Unexpected error instantiating model or loading state_dict: {str(e)}", exc_info=True)
                  raise optuna.exceptions.TrialPruned(f"Error instantiating model or loading state_dict in trial {trial.number}: {str(e)}")
-
-            try:
-                transformation = estimator.create_transformation(use_lazyframe=False)
-                # Use the same conditional forecast_generator for creating the predictor
-                predictor = estimator.create_predictor(transformation, model,
+            
+            # remove evaluation if we don't use it ie if we use val_loss
+            if metric_to_return != "val_loss":
+                try:
+                    transformation = estimator.create_transformation(use_lazyframe=False)
+                    # Use the same conditional forecast_generator for creating the predictor
+                    predictor = estimator.create_predictor(transformation, model,
                                                         forecast_generator=forecast_generator)
-            except Exception as e:
-                logging.error(f"Trial {trial.number} - Error creating predictor: {str(e)}", exc_info=True)
-                raise optuna.exceptions.TrialPruned(f"Error creating predictor in trial {trial.number}: {str(e)}")
+                except Exception as e:
+                    logging.error(f"Trial {trial.number} - Error creating predictor: {str(e)}", exc_info=True)
+                    raise optuna.exceptions.TrialPruned(f"Error creating predictor in trial {trial.number}: {str(e)}")
+
+                try:
+                    # Conditional Evaluation Call
+                    eval_kwargs = {
+                         "dataset": self.data_module.val_dataset,
+                         "predictor": predictor,
+                    }
+                    if self.model == 'tactis':
+                        # TACTiS produces SampleForecast, no output_distr_params needed/possible
+                        logging.info(f"Trial {trial.number}: Evaluating TACTiS using SampleForecast.")
+                    else:
+                        # Other models produce DistributionForecast, specify params to extract
+                        # Example for LowRankMultivariateNormalOutput, adjust if other distrs are used
+                        eval_kwargs["output_distr_params"] = {"loc": "mean", "cov_factor": "cov_factor", "cov_diag": "cov_diag"}
+                        logging.info(f"Trial {trial.number}: Evaluating {self.model} using DistributionForecast with params: {eval_kwargs['output_distr_params']}")
+
+                    forecast_it, ts_it = make_evaluation_predictions(**eval_kwargs)
+                  
+                    agg_metrics, _ = self.evaluator(ts_it, forecast_it, num_series=self.data_module.num_target_vars)
+                
+                    # agg_metrics["trainable_parameters"] = summarize(estimator.create_lightning_module()).trainable_parameters
+                    # self.metrics.append(agg_metrics.copy())
+                except Exception as e:
+                    logging.error(f"Trial {trial.number} - Error making evaluation predictions: {str(e)}", exc_info=True)
+                    raise optuna.exceptions.TrialPruned(f"Error making evaluation predictions in trial {trial.number}: {str(e)}")
 
             try:
-                # Conditional Evaluation Call
-                eval_kwargs = {
-                    "dataset": self.data_module.val_dataset,
-                    "predictor": predictor,
-                }
-                if self.model == 'tactis':
-                    # TACTiS produces SampleForecast, no output_distr_params needed/possible
-                    logging.info(f"Trial {trial.number}: Evaluating TACTiS using SampleForecast.")
-                else:
-                    # Other models produce DistributionForecast, specify params to extract
-                    # Example for LowRankMultivariateNormalOutput, adjust if other distrs are used
-                    eval_kwargs["output_distr_params"] = {"loc": "mean", "cov_factor": "cov_factor", "cov_diag": "cov_diag"}
-                    logging.info(f"Trial {trial.number}: Evaluating {self.model} using DistributionForecast with params: {eval_kwargs['output_distr_params']}")
-
-                forecast_it, ts_it = make_evaluation_predictions(**eval_kwargs)
-            except Exception as e:
-                logging.error(f"Trial {trial.number} - Error making evaluation predictions: {str(e)}", exc_info=True)
-                raise optuna.exceptions.TrialPruned(f"Error making evaluation predictions in trial {trial.number}: {str(e)}")
-
-            try:
-                agg_metrics, _ = self.evaluator(ts_it, forecast_it, num_series=self.data_module.num_target_vars)
-                
-                agg_metrics["trainable_parameters"] = summarize(estimator.create_lightning_module()).trainable_parameters
-                self.metrics.append(agg_metrics.copy())
-                
+                    
                 model_checkpoint = [v for k, v in checkpoint["callbacks"].items() if "ModelCheckpoint" in k][0]
                 agg_metrics[model_checkpoint["monitor"]] = model_checkpoint["best_model_score"]
+                
+                # not a perfect comparision, multiply per turbine case with number of turbines to approximate val_loss over full dataset
+                if params["per_turbine"]:
+                     agg_metrics[model_checkpoint["monitor"]] = model_checkpoint["best_model_score"] * len(self.data_module.target_suffixes)
 
                 # Log available metrics for debugging
                 logging.info(f"Trial {trial.number} - Aggregated metrics calculated: {list(agg_metrics.keys())}")
@@ -649,11 +659,11 @@ def tune_model(model, config, study_name, optuna_storage, lightning_module_class
         pruning_type = config["optuna"]["pruning"].get("type", "hyperband").lower()
         min_resource = config["optuna"]["pruning"].get("min_resource", 2)
         max_resource = config["optuna"]["pruning"].get("max_resource", max_epochs)
-
         logging.info(f"Configuring pruner: type={pruning_type}, min_resource={min_resource}, max_resource={max_resource}")
 
         if pruning_type == "hyperband":
             reduction_factor = config["optuna"]["pruning"].get("reduction_factor", 2)
+            
             pruner = HyperbandPruner(
                 min_resource=min_resource,
                 max_resource=max_resource,
@@ -758,7 +768,8 @@ def tune_model(model, config, study_name, optuna_storage, lightning_module_class
         raise
 
     # Worker ID already fetched above for study creation/loading
-
+    dynamic_params = None
+    
     if tuning_phase == 0 and worker_id == "0":
         resample_freq_choices = config["optuna"]["resample_freq_choices"]
         per_turbine_choices = [True, False]
@@ -773,6 +784,7 @@ def tune_model(model, config, study_name, optuna_storage, lightning_module_class
             else:
                 reload = False
             data_module.generate_splits(save=True, reload=reload, splits=["train", "val"])
+        dynamic_params = {"resample_freq": resample_freq_choices}
 
     logging.info(f"Worker {worker_id}: Participating in Optuna study {study_name}")
 
@@ -792,7 +804,7 @@ def tune_model(model, config, study_name, optuna_storage, lightning_module_class
                                         metric=metric,
                                         seed=seed,
                                         tuning_phase=tuning_phase,
-                                        resample_freq_choices=resample_freq_choices)
+                                        dynamic_params=dynamic_params)
 
     # Use the trial protection callback if provided
     objective_fn = (lambda trial: trial_protection_callback(tuning_objective, trial)) if trial_protection_callback else tuning_objective
@@ -888,11 +900,11 @@ def tune_model(model, config, study_name, optuna_storage, lightning_module_class
             # Determine summary run name
             base_run_name = config['experiment']['run_name']
             if best_trial:
-                run_name = f"RESULTS_{base_run_name}_best_trial_{best_trial.number}"
+                run_name = f"RESULTS_{base_run_name}_tuning_phase{tuning_phase}_best_trial_{best_trial.number}"
             else:
-                run_name = f"RESULTS_{base_run_name}_optuna_summary"
+                run_name = f"RESULTS_{base_run_name}_tuning_phase{tuning_phase}_optuna_summary"
 
-            project_name = config['experiment'].get('project_name', 'wind_forecasting')
+            project_name = f"{config['experiment'].get('project_name', 'wind_forecasting')}_{model}_tuning_phase{tuning_phase}"
             group_name = config['experiment']['run_name']
             wandb_dir = config['logging'].get('wandb_dir', './logging/wandb')
             tags = [model, "optuna_summary"] + config['experiment'].get('extra_tags', [])
@@ -910,7 +922,7 @@ def tune_model(model, config, study_name, optuna_storage, lightning_module_class
                 dir=wandb_dir,
                 tags=tags,
                 config=git_info_config,
-                reinit=True # Allow reinitialization if needed, though the check above should handle most cases
+                reinit=True # TODO deprecated Allow reinitialization if needed, though the check above should handle most cases
             )
             logging.info(f"Rank 0: Initialized W&B summary run: {wandb.run.name} (ID: {wandb.run.id}) with Git info: {git_info_config}")
 

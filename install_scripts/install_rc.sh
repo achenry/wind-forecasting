@@ -1,7 +1,7 @@
 acompile
 ml mambaforge
 mamba create --prefix=/projects/aohe7145/software/anaconda/envs/wind_forecasting python=3.12 --y
-mamba activate wind_forecasting
+mamba activate wind_forecasting_env
 
 # mamba install conda-forge::cuda-version=12.4 nvidia/label/cuda-12.4.0::cuda-toolkit performer-pytorch pytorch torchvision torchaudio torchmetrics pytorch-cuda=12.4 lightning -c pytorch -c nvidia --y
 mamba install polars windrose statsmodels scikit-learn jupyterlab nb_conda_kernels pyyaml matplotlib numpy seaborn opt_einsum netcdf4 scipy h5pyd wandb einops --y 
