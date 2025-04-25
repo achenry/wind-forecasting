@@ -95,7 +95,7 @@ dataset:
     val_split: 0.1
     resample_freq: 60s
     n_splits: 1 # how many divisions of each continuity group to make which is further subdivided into training test and validation data
-    per_turbine_target: false
+    per_turbine_target: true # Supposedly is better true
     context_length_factor: 2  # Factor to multiply prediction_length by
 
 model:
