@@ -752,13 +752,10 @@ class MLTuningObjective:
             torch.cuda.empty_cache()
 
         finally:
-            # Check if wandb_logger_trial was created (only on rank 0) and if wandb.run is active
-            if wandb_logger_trial is not None and wandb.run is not None:
-                logging.info(f"Rank 0: Finishing trial-specific W&B run '{wandb.run.name}' for trial {trial.number}")
-                wandb.finish()
-            elif os.environ.get('WORKER_RANK', '0') == '0' and wandb.run is not None:
-                # If logger wasn't assigned but a run exists on rank 0, try finishing it.
-                logging.warning(f"Rank 0: wandb_logger_trial was None, but an active W&B run ('{wandb.run.name}') was found. Attempting to finish.")
+            # Always attempt to finish if a wandb run object exists for this process
+            if wandb.run is not None:
+                current_run_name = wandb.run.name # Get name before finishing
+                logging.info(f"Rank {os.environ.get('WORKER_RANK', 'N/A')}: Finishing trial-specific W&B run '{current_run_name}' for trial {trial.number if 'trial' in locals() else 'unknown'}")
                 wandb.finish()
 
         metric_to_return = self.config.get("trainer", {}).get("monitor_metric", "val_loss")
