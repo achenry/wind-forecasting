@@ -5,7 +5,7 @@ experiment:
   project_root: /user/taed7566/Forecasting/wind-forecasting
   log_dir: /user/taed7566/Forecasting/wind-forecasting/logs/
   notes: "Tuning FLASC with TACTiS-2"
-  extra_tags: ["flasc", "H100","25t","250b"] # By default already has GPU id, model and mode.
+  extra_tags: ["flasc", "H100","50t","250b"] # By default already has GPU id, model and mode.
 
 logging:
   entity: jmb0507-cu-boulder # Wandb entity (group name)

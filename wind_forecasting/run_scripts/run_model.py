@@ -316,23 +316,30 @@ def main():
         config["trainer"] = {}
 
     # Set DataLoader parameters within the trainer config
-    config["trainer"]["num_workers"] = num_workers
-    config["trainer"]["pin_memory"] = True
-    config["trainer"]["persistent_workers"] = True
-    logging.info(f"Updated config: trainer.num_workers={config['trainer']['num_workers']}, trainer.pin_memory={config['trainer']['pin_memory']}, trainer.persistent_workers={config['trainer']['persistent_workers']}")
     logging.info(f"Determined SLURM_CPUS_PER_TASK={cpus_per_task}. Setting num_workers = {num_workers}.")
 
-    # Update config for DataModule
-    logging.info(f"Updated config: dataset.workers={config['dataset']['workers']}, dataset.pin_memory={config['dataset']['pin_memory']}, dataset.persistent_workers={config['dataset']['persistent_workers']}")
-
     logging.info("Creating datasets")
-    data_module = DataModule(data_path=config["dataset"]["data_path"], n_splits=config["dataset"]["n_splits"],
-                            continuity_groups=None, train_split=(1.0 - config["dataset"]["val_split"] - config["dataset"]["test_split"]),
-                                val_split=config["dataset"]["val_split"], test_split=config["dataset"]["test_split"],
-                                prediction_length=config["dataset"]["prediction_length"], context_length=config["dataset"]["context_length"],
-                                target_prefixes=["ws_horz", "ws_vert"], feat_dynamic_real_prefixes=["nd_cos", "nd_sin"],
-                                freq=config["dataset"]["resample_freq"], target_suffixes=config["dataset"]["target_turbine_ids"],
-                                    per_turbine_target=config["dataset"]["per_turbine_target"], as_lazyframe=False, dtype=pl.Float32)
+    data_module = DataModule(
+        data_path=config["dataset"]["data_path"],
+        n_splits=config["dataset"]["n_splits"],
+        continuity_groups=None,
+        train_split=(1.0 - config["dataset"]["val_split"] - config["dataset"]["test_split"]),
+        val_split=config["dataset"]["val_split"],
+        test_split=config["dataset"]["test_split"],
+        prediction_length=config["dataset"]["prediction_length"],
+        context_length=config["dataset"]["context_length"],
+        target_prefixes=["ws_horz", "ws_vert"],
+        feat_dynamic_real_prefixes=["nd_cos", "nd_sin"],
+        freq=config["dataset"]["resample_freq"],
+        target_suffixes=config["dataset"]["target_turbine_ids"],
+        per_turbine_target=config["dataset"]["per_turbine_target"],
+        as_lazyframe=False,
+        dtype=pl.Float32,
+        batch_size=config["dataset"].get("batch_size", 128),
+        workers=num_workers,
+        pin_memory=True,
+        persistent_workers=True
+    )
 
     if rank_zero_only.rank == 0:
         logging.info("Preparing data for tuning")
@@ -408,7 +415,7 @@ def main():
             "scaling": False, # Scaling handled externally or internally by TACTiS
             "lags_seq": [0], # TACTiS doesn't typically use lags
             "time_features": [second_of_minute, minute_of_hour, hour_of_day, day_of_year],
-            "batch_size": config["dataset"].setdefault("batch_size", 128),
+            "batch_size": data_module.batch_size,
             "num_batches_per_epoch": config["trainer"].setdefault("limit_train_batches", 1000),
             "context_length": data_module.context_length,
             "train_sampler": ExpectedNumInstanceSampler(num_instances=1.0, min_past=data_module.context_length, min_future=data_module.prediction_length),
