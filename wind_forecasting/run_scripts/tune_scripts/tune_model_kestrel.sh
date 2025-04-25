@@ -20,6 +20,7 @@ ml cuda
 
 mamba activate wind_forecasting_env
 
+export MODEL=$1
 export TUNING_PHASE=1
 export BASE_DIR="/home/ahenry/toolboxes/wind_forecasting_env/wind-forecasting"
 export WORK_DIR="${BASE_DIR}/wind_forecasting"
@@ -113,7 +114,7 @@ for i in $(seq 0 $((${NUM_GPUS}-1))); do
         # export SLURM_NTASKS_PER_NODE=1
         # export SLURM_NNODES=1
         python ${WORK_DIR}/run_scripts/run_model.py --config ${MODEL_CONFIG_PATH} \\
-         --model $1 --mode tune --seed ${WORKER_SEED} ${RESTART_FLAG} \\
+         --model ${MODEL} --mode tune --seed ${WORKER_SEED} ${RESTART_FLAG} \\
          --tuning_phase ${TUNING_PHASE} --single_gpu # Crucial for making Lightning use only the assigned GPU" &
         
         # Store the process ID
