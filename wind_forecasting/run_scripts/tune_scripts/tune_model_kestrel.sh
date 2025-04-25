@@ -13,13 +13,20 @@
 
 # salloc --account=ssc --time=01:00:00 --gpus=2 --ntasks-per-node=2 --partition=debug
 
+# --- Command Line Args ---
+export MODEL_NAME=$1
+export CONFIG_FILE=$2
+
 # --- Base Directories ---
 export TUNING_PHASE=1
 export BASE_DIR="/home/ahenry/toolboxes/wind_forecasting_env/wind-forecasting"
 export WORK_DIR="${BASE_DIR}/wind_forecasting"
+<<<<<<< HEAD
 export MODEL_NAME=$1
 export CONFIG_FILE=$2
 export RESTART_FLAG="--restart_tuning"
+=======
+>>>>>>> 016891c12f4bbcdaebae7e49a61aa1d542dc4731
 export RESTART_TUNING_FLAG="--restart_tuning" # "" Or "--restart_tuning"
 export AUTO_EXIT_WHEN_DONE="true"  # Set to "true" to exit script when all workers finish, "false" to keep running until timeout
 export NUMEXPR_MAX_THREADS=128
@@ -30,7 +37,7 @@ mkdir -p ${LOG_DIR}/slurm_logs/${SLURM_JOB_ID}
 mkdir -p ${LOG_DIR}/checkpoints
 
 # --- Change to Working Directory ---
-cd ${WORK_DIR} || exit 1 # Exit if cd fails
+# cd ${WORK_DIR} || exit 1 # Exit if cd fails
 
 # --- Set Shared Environment Variables ---
 export PYTHONPATH=${WORK_DIR}:${PYTHONPATH}
@@ -123,7 +130,7 @@ for i in $(seq 0 $((${NUM_GPUS}-1))); do
       echo \"Worker ${i}: Modules loaded.\"
 
       # --- Activate conda environment ---
-      eval \"\$(conda shell.bash hook)\"
+      # eval \"\$(conda shell.bash hook)\"
       conda activate wind_forecasting_env
       echo \"Worker ${i}: Conda environment 'wind_forecasting_env' activated.\"
 
