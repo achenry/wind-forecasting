@@ -395,7 +395,7 @@ class MLTuningObjective:
                 # Logging and Behavior
                 save_code=self.config['optuna'].get('save_trial_code', False),
                 mode=self.config['logging'].get('wandb_mode', 'online'),
-                reinit=True
+                finish_previous=True
             )
             logging.info(f"Rank {os.environ.get('WORKER_RANK', '0')}: Initialized W&B run '{run_name}' for trial {trial.number}")
 
@@ -535,40 +535,71 @@ class MLTuningObjective:
                 checkpoint = torch.load(checkpoint_path, map_location=lambda storage, loc: storage, weights_only=False)
 
                 epoch_number = None
+                correct_stage = None
+
+                # Parse Epoch Number
                 try:
                     match = re.search(r"epoch=(\d+)", checkpoint_path)
                     if match:
                         epoch_number = int(match.group(1))
-                        logging.info(f"Trial {trial.number} - Extracted epoch {epoch_number} from checkpoint path.")
+                        logging.info(f"Trial {trial.number} - Extracted epoch {epoch_number} from checkpoint path: {checkpoint_path}")
                     else:
-                        raise ValueError(f"Could not parse epoch number from checkpoint path: {checkpoint_path}")
+                        # Raise error if epoch cannot be parsed from the *best* checkpoint path
+                        error_msg = f"Failed to parse epoch number from best checkpoint path: {checkpoint_path}"
+                        logging.error(f"Trial {trial.number} - {error_msg}")
+                        raise optuna.exceptions.TrialPruned(f"Trial {trial.number}: {error_msg}")
                 except (ValueError, TypeError) as parse_error:
                     error_msg = f"Error parsing epoch from checkpoint path '{checkpoint_path}': {parse_error}"
                     logging.error(f"Trial {trial.number} - {error_msg}")
                     raise optuna.exceptions.TrialPruned(f"Trial {trial.number}: {error_msg}")
 
-                correct_stage = 1 # Default to stage 1
-                try:
-                    # Retrieve stage2_start_epoch from the kwargs
-                    stage2_start_epoch = estimator_kwargs.get('stage2_start_epoch')
-                    if stage2_start_epoch is not None:
-                        stage2_start_epoch = int(stage2_start_epoch)
+                # Determine Stage if the model is TACTiS
+                if self.model == 'tactis':
+                    logging.info(f"Trial {trial.number} - Model is TACTiS. Attempting to determine stage for re-instantiation.")
+                    try:
+                        # Retrieve stage2_start_epoch from the trial parameters used to create the estimator
+                        stage2_start_epoch_param = estimator_kwargs.get('stage2_start_epoch')
+
+                        if stage2_start_epoch_param is None:
+                            error_msg = "'stage2_start_epoch' parameter missing in trial configuration (estimator_kwargs) for TACTiS model. Cannot determine stage."
+                            logging.error(f"Trial {trial.number} - {error_msg}")
+                            raise optuna.exceptions.TrialPruned(f"Trial {trial.number}: {error_msg}")
+
+                        stage2_start_epoch = int(stage2_start_epoch_param)
+                        logging.info(f"Trial {trial.number} - Retrieved stage2_start_epoch: {stage2_start_epoch}")
+
+                        # Calculate stage based on parsed epoch and start epoch
                         if epoch_number >= stage2_start_epoch:
                             correct_stage = 2
-                        logging.info(f"Trial {trial.number} - Determined correct stage for re-instantiation: {correct_stage} (Epoch: {epoch_number}, Stage 2 Start: {stage2_start_epoch})")
-                    else:
-                        # If not stage2_start_epoch assume stage 1
-                        logging.info(f"Trial {trial.number} - 'stage2_start_epoch' not found in estimator_kwargs. Assuming Stage 1 for re-instantiation (Epoch: {epoch_number}).")
-                except (KeyError, ValueError, TypeError) as stage_error:
-                     error_msg = f"Error determining correct stage from estimator_kwargs: {stage_error}. Defaulting to Stage 1."
-                     logging.warning(f"Trial {trial.number} - {error_msg}")
+                        else:
+                            correct_stage = 1
+                        logging.info(f"Trial {trial.number} - Determined correct stage for TACTiS re-instantiation: {correct_stage} (Epoch: {epoch_number}, Stage 2 Start: {stage2_start_epoch})")
 
-            except (FileNotFoundError, RuntimeError) as e:
-                logging.error(f"Trial {trial.number} - Error loading checkpoint: {str(e)}", exc_info=True)
-                raise optuna.exceptions.TrialPruned(f"Error loading checkpoint in trial {trial.number}: {str(e)}")
+                    except (ValueError, TypeError) as stage_error:
+                        error_msg = f"Error processing stage information for TACTiS (epoch={epoch_number}, stage2_start_epoch_param={stage2_start_epoch_param}): {stage_error}"
+                        logging.error(f"Trial {trial.number} - {error_msg}")
+                        raise optuna.exceptions.TrialPruned(f"Trial {trial.number}: {error_msg}")
+                    except optuna.exceptions.TrialPruned: # Re-raise prune exceptions
+                        raise
+                    except Exception as e: # Catch any other unexpected errors during stage determination
+                        error_msg = f"Unexpected error determining TACTiS stage: {e}"
+                        logging.error(f"Trial {trial.number} - {error_msg}", exc_info=True)
+                        raise optuna.exceptions.TrialPruned(f"Trial {trial.number}: {error_msg}")
+                else:
+                    logging.info(f"Trial {trial.number} - Model is {self.model} (not TACTiS). Skipping stage determination.")
+                # --- End Stage Determination ---
+
+            except (FileNotFoundError, RuntimeError) as e: # Errors during checkpoint loading itself
+                logging.error(f"Trial {trial.number} - Error loading checkpoint file: {str(e)}", exc_info=True)
+                raise optuna.exceptions.TrialPruned(f"Error loading checkpoint file in trial {trial.number}: {str(e)}")
+            except optuna.exceptions.TrialPruned: # Re-raise prune exceptions from epoch/stage logic
+                raise
+            except Exception as e: # Catch any other unexpected errors before hparam extraction
+                 logging.error(f"Trial {trial.number} - Unexpected error before hyperparameter extraction: {e}", exc_info=True)
+                 raise optuna.exceptions.TrialPruned(f"Trial {trial.number}: Unexpected error before hyperparameter extraction: {e}")
 
             try:
-                # Extract hyperparameters, handling potential key variations
+                # --- Hyperparameter Extraction ---
                 hparams = checkpoint.get('hyper_parameters', checkpoint.get('hparams'))
                 if hparams is None:
                     error_msg = f"Hyperparameters not found in checkpoint: {checkpoint_path}. Cannot re-instantiate model."
@@ -595,26 +626,24 @@ class MLTuningObjective:
                     **{k: hparams.get(k, self.config["model"][self.model].get(k)) for k in module_params if k != 'model_config'}
                 }
 
-                module_sig_for_stage = inspect.signature(self.lightning_module_class.__init__)
-                module_params_for_stage = [param.name for param in module_sig_for_stage.parameters.values()]
-
-                if 'initial_stage' in module_params_for_stage:
-                    init_args['initial_stage'] = correct_stage
-                    logging.info(f"Trial {trial.number} - Setting 'initial_stage={correct_stage}' in init_args for LightningModule re-instantiation as parameter is accepted.")
-                else:
-                    logging.info(f"Trial {trial.number} - Skipping 'initial_stage' in init_args as parameter is not accepted by {self.lightning_module_class.__name__}. Assuming single-stage model or stage handled internally.")
+                # Add initial_stage for TACTiS
+                instantiation_stage_info = "N/A (Not TACTiS)"
+                if self.model == 'tactis':
+                    if correct_stage is not None:
+                        instantiation_stage_info = f"Stage {correct_stage} (Determined, will be set post-init)"
+                    else:
+                        instantiation_stage_info = "Stage Unknown (Determination Failed)"
 
                 # Log if any defaults were used
                 for key, val in init_args.items():
-                     # Skip logging warnings for model_config (checked above) and the injected initial_stage
                      if key not in ['model_config', 'initial_stage'] and key not in hparams:
-                         # Check if the key was expected based on the signature OR if it was just in the defaults
                          if key in module_params:
-                              logging.warning(f"Hyperparameter '{key}' not found in checkpoint, using default value: {val}")
+                              logging.warning(f"Hyperparameter '{key}' not found in checkpoint, using default value from config: {val}")
+
                          #    logging.debug(f"Default value for '{key}' added but not in module signature: {val}")
 
                 # Check for missing essential args (should ideally not happen with defaults)
-                missing_args = [k for k, v in init_args.items() if v is None and k != 'model_config'] # model_config checked above
+                missing_args = [k for k, v in init_args.items() if v is None and k not in ['model_config', 'initial_stage']] # Exclude stage
                 if missing_args:
                     error_msg = f"Missing required hyperparameters in checkpoint {checkpoint_path} even after checking defaults: {missing_args}"
                     logging.error(f"Trial {trial.number} - {error_msg}")
@@ -622,18 +651,32 @@ class MLTuningObjective:
             except optuna.exceptions.TrialPruned:
                 raise
             except Exception as e:
-                logging.error(f"Trial {trial.number} - Error extracting hyperparameters: {str(e)}", exc_info=True)
-                raise optuna.exceptions.TrialPruned(f"Error extracting hyperparameters in trial {trial.number}: {str(e)}")
+                logging.error(f"Trial {trial.number} - Error preparing hyperparameters or stage for re-instantiation: {str(e)}", exc_info=True)
+                raise optuna.exceptions.TrialPruned(f"Error preparing hyperparameters/stage in trial {trial.number}: {str(e)}")
 
-            logging.info(f"Re-instantiating LightningModule for metric retrieval with initial_stage: {init_args.get('initial_stage')}")
+            logging.info(f"Re-instantiating {self.lightning_module_class.__name__} ({self.model}) for metric retrieval. Stage Info: {instantiation_stage_info}")
             # Log the full init_args being used for detailed debugging if needed
             logging.debug(f"Trial {trial.number} - Using init_args for re-instantiation: { {k: type(v).__name__ if not isinstance(v, (str, int, float, bool, list, dict, tuple)) else v for k, v in init_args.items()} }") # Avoid logging large objects
 
-            # Instantiate model and load state dict with specific error handling
+            # Instantiate Model and Load State Dict
             try:
                 model = self.lightning_module_class(**init_args)
-                
-                # Load the state dict
+
+                if self.model == 'tactis' and correct_stage is not None:
+                    try:
+                        logging.info(f"Trial {trial.number} - Setting TACTiS model stage to {correct_stage} before loading checkpoint.")
+                        # Set stage attribute on the LightningModule
+                        model.stage = correct_stage
+                        # Call the set_stage method on the underlying core model
+                        if hasattr(model.model, 'tactis') and hasattr(model.model.tactis, 'set_stage'):
+                             model.model.tactis.set_stage(correct_stage)
+                             logging.info(f"Trial {trial.number} - Successfully called model.model.tactis.set_stage({correct_stage}).")
+                        else:
+                             logging.warning(f"Trial {trial.number} - Could not find model.model.tactis.set_stage() method. Stage setting might not be fully applied.")
+                    except Exception as stage_set_error:
+                         logging.error(f"Trial {trial.number} - Error setting TACTiS stage post-instantiation: {stage_set_error}", exc_info=True)
+                         logging.warning(f"Trial {trial.number} - Proceeding with state_dict loading despite stage setting error.")
+
                 logging.info(f"Loading state_dict into re-instantiated model...")
                 model.load_state_dict(checkpoint['state_dict'])
                 logging.info("State_dict loaded successfully.")
@@ -751,10 +794,10 @@ class MLTuningObjective:
                  logging.error(f"Available metrics: {list(agg_metrics.keys())}")
                  raise optuna.exceptions.TrialPruned(f"Trial {trial.number} failed: {error_msg}")
             except Exception as e:
-                error_msg = f"Unexpected error extracting or processing metric '{metric_to_return}' from agg_metrics: {e}"
-                logging.error(f"Trial {trial.number} - {error_msg}", exc_info=True)
-                logging.error(f"Available metrics: {list(agg_metrics.keys())}")
-                raise optuna.exceptions.TrialPruned(f"Trial {trial.number} failed: {error_msg}")
+                 error_msg = f"Unexpected error extracting or processing metric '{metric_to_return}' from agg_metrics: {e}"
+                 logging.info(f"Trial {trial.number} pruned by Optuna: {str(e)}")
+                 logging.error(f"Available metrics: {list(agg_metrics.keys())}")
+                 raise optuna.exceptions.TrialPruned(f"Trial {trial.number} failed: {error_msg}")
 
 
 def get_tuned_params(storage, study_name):
@@ -1070,7 +1113,7 @@ def tune_model(model, config, study_name, optuna_storage, lightning_module_class
                 dir=wandb_dir,
                 tags=tags,
                 config=git_info_config,
-                reinit=True # Allow reinitialization if needed, though the check above should handle most cases
+                finish_previous=True # Allow reinitialization if needed, though the check above should handle most cases
             )
             logging.info(f"Rank 0: Initialized W&B summary run: {wandb.run.name} (ID: {wandb.run.id}) with Git info: {git_info_config}")
 

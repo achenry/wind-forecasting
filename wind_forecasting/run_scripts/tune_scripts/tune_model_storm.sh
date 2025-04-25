@@ -25,6 +25,7 @@ export LOG_DIR="${BASE_DIR}/logs"
 export CONFIG_FILE="${BASE_DIR}/config/training/training_inputs_juan_flasc.yaml"
 export MODEL_NAME="tactis"
 export RESTART_TUNING_FLAG="--restart_tuning" # "" Or "--restart_tuning"
+export AUTO_EXIT_WHEN_DONE="true"  # Set to "true" to exit script when all workers finish, "false" to keep running until timeout
 export NUMEXPR_MAX_THREADS=128
 
 # --- Create Logging Directories ---
@@ -58,6 +59,7 @@ echo "LOG_DIR: ${LOG_DIR}"
 echo "CONFIG_FILE: ${CONFIG_FILE}"
 echo "MODEL_NAME: ${MODEL_NAME}"
 echo "RESTART_TUNING_FLAG: '${RESTART_TUNING_FLAG}'"
+echo "AUTO_EXIT_WHEN_DONE: '${AUTO_EXIT_WHEN_DONE}'"
 echo "------------------------"
 
 # --- GPU  Monitoring Instructions ---
@@ -234,9 +236,37 @@ echo "System monitoring started (PID: ${MONITOR_PID})"
 echo "=== END MONITORING SETUP ==="
 echo "---------------------------------------"
 
-# --- Wait for all background workers to complete ---
-wait
-WAIT_EXIT_CODE=$? # Capture the exit code of the initial 'wait' command
+# --- Wait for all background workers to complete, with auto-exit option ---
+if [ "${AUTO_EXIT_WHEN_DONE}" = "true" ]; then
+    echo "Auto-exit when done is enabled. Script will terminate when all workers finish."
+    
+    # Check worker status every 60 seconds
+    while true; do
+        ALIVE_WORKERS=0
+        for pid in ${WORKER_PIDS[@]}; do
+            if kill -0 $pid 2>/dev/null; then
+                ((ALIVE_WORKERS++))
+            fi
+        done
+        
+        echo "$(date +"%Y-%m-%d %H:%M:%S") - Workers still running: ${ALIVE_WORKERS}/${#WORKER_PIDS[@]}"
+        
+        # If no workers are alive, exit the loop
+        if [ $ALIVE_WORKERS -eq 0 ]; then
+            echo "All workers have finished. Proceeding to final status check."
+            break
+        fi
+        
+        # Sleep for 60 seconds before checking again
+        sleep 60
+    done
+else
+    echo "Auto-exit when done is disabled. Script will wait until all workers finish or timeout occurs."
+    # Traditional wait for all workers (will wait until timeout if any worker hangs)
+    wait
+fi
+
+WAIT_EXIT_CODE=$? # Capture the exit code of the wait
 
 # --- Final Status Check based on Worker Logs ---
 echo "--- Worker Completion Status (from logs) ---"
