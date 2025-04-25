@@ -5,6 +5,7 @@ import re
 import logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
+from torch.utils.data import DataLoader
 # from gluonts.dataset.split import split, slice_data_entry
 from gluonts.dataset.pandas import PolarsDataset, PandasDataset, IterableLazyFrame
 from gluonts.dataset.multivariate_grouper import MultivariateGrouper
@@ -29,7 +30,7 @@ from memory_profiler import profile
 @dataclass
 class DataModule():
     """_summary_
-    # DataModule should use a polars LazyFrame and sink it into a parquet, 
+    # DataModule should use a polars LazyFrame and sink it into a parquet,
     # and store the indices in the full dataset to use for each cg, split_idx, and training/test/validation split
     """
     data_path: str
@@ -50,6 +51,10 @@ class DataModule():
     verbose: bool = False
     normalized: bool = True
     normalization_consts_path: Optional[str] = None
+    batch_size: int = 128
+    workers: int = 4
+    pin_memory: bool = True
+    persistent_workers: bool = True
     
     def __post_init__(self):
         self.set_train_ready_path()
@@ -490,3 +495,33 @@ class DataModule():
             # plt.legend(["sub dataset", "test input", "test label"], loc="upper left")
         
         fig.show()
+        
+    def train_dataloader(self):
+        return DataLoader(
+            self.train_dataset,
+            batch_size=self.batch_size,
+            num_workers=self.workers,
+            pin_memory=self.pin_memory,
+            persistent_workers=self.persistent_workers,
+            shuffle=True
+        )
+
+    def val_dataloader(self):
+        return DataLoader(
+            self.val_dataset,
+            batch_size=self.batch_size,
+            num_workers=self.workers,
+            pin_memory=self.pin_memory,
+            persistent_workers=self.persistent_workers,
+            shuffle=False
+        )
+
+    def test_dataloader(self):
+        return DataLoader(
+            self.test_dataset,
+            batch_size=self.batch_size,
+            num_workers=self.workers,
+            pin_memory=self.pin_memory,
+            persistent_workers=self.persistent_workers,
+            shuffle=False
+        )

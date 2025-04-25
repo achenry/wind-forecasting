@@ -416,10 +416,6 @@ def manage_postgres_instance(db_setup_params, restart=False, register_cleanup=Tr
     # Unpack the dictionary containing the required keyword arguments
     pg_config = _generate_pg_config(**db_setup_params) # This also sets _managed_pg_config
 
-    if restart: # If --restart_tuning flag was passed
-        # Pass the generated pg_config
-        logging.info("Performing cleanup due to --restart_tuning flag.")
-        delete_postgres_data(pg_config) # Initial cleanup if restarting
 
     # Recreate socket directory after cleanup if using sockets
     if pg_config.get("use_socket", False):

@@ -226,23 +226,19 @@ def setup_sqlite(sqlite_storage_dir, study_name, restart_tuning, rank):
     """
     # Construct the SQLite URL based on config
     db_path = os.path.join(sqlite_storage_dir, f'{study_name}.db')
-    if rank == 0 and restart_tuning:
-        if os.path.exists(db_path):
-            restart_sqlite_rank_zero(db_path)
-        else:
-            logging.warning(f"Could not find existing SQLite storage to delete at {db_path}.")
+    # if rank == 0 and restart_tuning:
+    #    if os.path.exists(db_path):
+    #        restart_sqlite_rank_zero(db_path)
+    #    else:
+    #        logging.warning(f"Could not find existing SQLite storage to delete at {db_path}.")
     
     optuna_storage_url = f"sqlite:///{db_path}"
     logging.info(f"Using SQLite storage URL: {optuna_storage_url}")
     
-    # Handle restart for SQLite on rank 0
-    # if rank == 0 and restart_tuning:
-    #     restart_sqlite_rank_zero(sqlite_abs_path)
-    # if rank == 0:
-    storage = RDBStorage(url=optuna_storage_url)
-    # else:
-    #     raise Exception("Cannot use SQLite storage with multiple workers. Please use a different backend.")
-    
+    if rank == 0:
+        storage = RDBStorage(url=optuna_storage_url)
+    else:
+
     
     return storage
 
@@ -250,9 +246,7 @@ def setup_journal(storage_dir, study_name, restart_tuning, rank):
     if rank == 0:
         logging.info(f"Connecting to Journal database {study_name}")
         optuna_storage_url = os.path.join(storage_dir, f"{study_name}.db")
-        if rank == 0 and restart_tuning:
-            restart_journal_rank_zero(optuna_storage_url)
-    
+        
     storage = JournalStorage(JournalFileBackend(optuna_storage_url))
     return storage
     
@@ -275,7 +269,5 @@ def setup_mysql(db_setup_params, restart_tuning, rank):
         optuna_storage_url = f"mysql://{db.user}@{db.server_host}:{db.server_port}/{db_setup_params['study_name']}"
         # restart_mysql_rank_zero(optuna_storage_url)
         storage = RDBStorage(url=optuna_storage_url)
-        if rank == 0 and restart_tuning:
-            delete_studies(storage)
         
     return storage
