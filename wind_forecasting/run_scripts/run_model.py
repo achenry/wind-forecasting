@@ -267,18 +267,18 @@ def main():
     checkpoint_dir = os.path.join(log_dir, project_name, unique_id)
     # Create WandB logger only for train/test modes
     if args.mode in ["train", "test"]:
-        wandb_logger = WandbLogger(            
+        wandb_logger = WandbLogger(
             project=project_name, # Project name in WandB, set in config
             entity=config['logging'].get('entity'),
             group=config['experiment']['run_name'],   # Group all workers under the same experiment
             name=run_name, # Unique name for the run, can also take config for hyperparameters. Keep brief
             save_dir=wandb_dir, # Directory for saving logs and metadata
-            log_model="all",            
+            log_model=False,
             job_type=args.mode,
             mode=config['logging'].get('wandb_mode', 'online'), # Configurable wandb mode
-            id=unique_id, # Unique ID for the run, can also use config hyperaparameters for comparison later 
+            id=unique_id,
             tags=[f"gpu_{gpu_id}", args.model, args.mode] + config['experiment'].get('extra_tags', []),
-            config=logger_config,            
+            config=logger_config,
             save_code=config['logging'].get('save_code', False)
         )
         config["trainer"]["logger"] = wandb_logger
@@ -286,6 +286,11 @@ def main():
         # For tuning mode, set logger to None
         config["trainer"]["logger"] = None
     
+    # Explicitly resolve any variable references in trainer config
+    
+    # Ensure default_root_dir exists and is set correctly
+    config["trainer"]["default_root_dir"] = checkpoint_dir
+
     # %% CREATE DATASET
     logging.info("Creating datasets")
     data_module = DataModule(data_path=config["dataset"]["data_path"], n_splits=config["dataset"]["n_splits"],
@@ -363,7 +368,7 @@ def main():
         
         # Use globals() to fetch the estimator class dynamically
         EstimatorClass = globals()[f"{args.model.capitalize()}Estimator"]
-
+            
         # Prepare all arguments in a dictionary
         estimator_kwargs = {
             "freq": data_module.freq,
@@ -419,6 +424,85 @@ def main():
         EstimatorClass = globals()[f"{args.model.capitalize()}Estimator"]
         DistrOutputClass = globals()[config["model"]["distr_output"]["class"]]
         
+        try:
+            callbacks_config = config.get('callbacks', {})
+            mc_config = callbacks_config.get('model_checkpoint', {})
+            mc_init_args = mc_config.get('init_args', {})
+
+            if 'dirpath' in mc_init_args:
+                original_dirpath = mc_init_args['dirpath']
+                resolved_dirpath = original_dirpath
+
+                if "${logging.checkpoint_dir}" in resolved_dirpath:
+                    base_checkpoint_dir = config.get('logging', {}).get('checkpoint_dir')
+                    if base_checkpoint_dir:
+                        project_root = config.get('experiment', {}).get('project_root', '.')
+                        abs_project_root = os.path.abspath(project_root)
+                        abs_base_checkpoint_dir = os.path.abspath(os.path.join(abs_project_root, base_checkpoint_dir))
+                        resolved_dirpath = resolved_dirpath.replace("${logging.checkpoint_dir}", abs_base_checkpoint_dir)
+                        logging.info(f"Resolved '${{logging.checkpoint_dir}}' to '{abs_base_checkpoint_dir}'")
+                    else:
+                        logging.warning("Cannot resolve ${logging.checkpoint_dir}.")
+
+                if not os.path.isabs(resolved_dirpath):
+                     project_root = config.get('experiment', {}).get('project_root', '.')
+                     abs_project_root = os.path.abspath(project_root)
+                     abs_resolved_dirpath = os.path.abspath(os.path.join(abs_project_root, resolved_dirpath))
+                else:
+                     abs_resolved_dirpath = os.path.abspath(resolved_dirpath)
+
+                config['callbacks']['model_checkpoint']['init_args']['dirpath'] = abs_resolved_dirpath
+
+                os.makedirs(abs_resolved_dirpath, exist_ok=True)
+            else:
+                logging.warning("No 'dirpath' found in ModelCheckpoint configuration in YAML.")
+
+        except KeyError as e:
+            logging.warning(f"Could not check ModelCheckpoint in config: {e}")
+        except Exception as e:
+            logging.error(f"Error during checkpoint path resolution: {e}", exc_info=True)
+
+        # Instantiate callbacks from configuration
+        import importlib
+
+        logging.info("Instantiating callbacks from configuration...")
+        instantiated_callbacks = []
+        if 'callbacks' in config and isinstance(config['callbacks'], dict):
+            for cb_name, cb_config in config['callbacks'].items():
+                if isinstance(cb_config, dict) and 'class_path' in cb_config:
+                    try:
+                        module_path, class_name = cb_config['class_path'].rsplit('.', 1)
+                        CallbackClass = getattr(importlib.import_module(module_path), class_name)
+                        init_args = cb_config.get('init_args', {})
+
+                        # Special handling for ModelCheckpoint dirpath
+                        if class_name == "ModelCheckpoint" and 'dirpath' in init_args and init_args['dirpath'] is not None:
+                            if isinstance(init_args['dirpath'], str) and '${logging.checkpoint_dir}' in init_args['dirpath']:
+                                init_args['dirpath'] = init_args['dirpath'].replace('${logging.checkpoint_dir}', checkpoint_dir)
+                            elif not os.path.isabs(init_args['dirpath']):
+                                project_root = config.get('experiment', {}).get('project_root', '.')
+                                init_args['dirpath'] = os.path.abspath(os.path.join(project_root, init_args['dirpath']))
+
+                        callback_instance = CallbackClass(**init_args)
+                        instantiated_callbacks.append(callback_instance)
+                        logging.info(f"Instantiated callback: {class_name}")
+
+                    except Exception as e:
+                        logging.error(f"Error instantiating callback {cb_name}: {e}")
+                elif isinstance(cb_config, bool) and cb_config is True:
+                    # Handle simple boolean flag callbacks
+                    if cb_name == "progress_bar":
+                        from lightning.pytorch.callbacks import RichProgressBar
+                        instantiated_callbacks.append(RichProgressBar())
+                    elif cb_name == "lr_monitor":
+                        from lightning.pytorch.callbacks import LearningRateMonitor
+                        lr_config = config['callbacks'].get('lr_monitor_config', {})
+                        instantiated_callbacks.append(LearningRateMonitor(**lr_config))
+
+            # Replace the dictionary in the config with the list of instances
+            config['callbacks'] = instantiated_callbacks
+            logging.info(f"Replaced config['callbacks'] with {len(instantiated_callbacks)} instantiated callback objects.")
+
         # Normal execution - pass the OOM protection wrapper and constructed storage URL
         tune_model(model=args.model, config=config, # Pass full config here for model/trainer params
                    study_name=db_setup_params["study_name"],

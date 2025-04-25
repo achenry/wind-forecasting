@@ -12,6 +12,7 @@ __pycache__/
 *.db
 *.db-shm
 *.db-wal
+launch.json
 
 # wind_forecasting/run_scripts/lightning_logs/
 # logging/lightning_logs
@@ -60,6 +61,7 @@ wind-forecasting.code-workspace
 lut/
 pg_data_study/
 optuna/
+lightning_logs/
 
 
 .DS_Store
@@ -93,6 +95,4 @@ examples/data/*
 _DOCS/*
 
 # wind_forecasting/preprocessing/.ipynb_checkpoints/
->>>>>>> 99cd2088896e09478d48932401a1c53a87cb3490
-*.sh.vscode/launch.json
-# examples/logging/wandb =
+
