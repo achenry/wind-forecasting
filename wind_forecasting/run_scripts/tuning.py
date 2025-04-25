@@ -395,7 +395,7 @@ class MLTuningObjective:
                 # Logging and Behavior
                 save_code=self.config['optuna'].get('save_trial_code', False),
                 mode=self.config['logging'].get('wandb_mode', 'online'),
-                reinit="create_new"
+                reinit="finish_previous"
             )
             logging.info(f"Rank {os.environ.get('WORKER_RANK', '0')}: Initialized W&B run '{run_name}' for trial {trial.number}")
 
