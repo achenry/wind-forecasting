@@ -900,25 +900,25 @@ def tune_model(model, config, study_name, optuna_storage, lightning_module_class
                     break # Exit loop on success
                 except KeyError as e: # Optuna <3.0 raises KeyError if study doesn't exist yet
                      if attempt < max_retries - 1:
-                          logging.warning(f"Rank {worker_id}: Study '{study_name}' not found yet (attempt {attempt+1}/{max_retries}). Retrying in {retry_delay}s... Error: {e}")
+                          logging.warning(f"Rank {worker_id}: Study '{final_study_name}' not found yet (attempt {attempt+1}/{max_retries}). Retrying in {retry_delay}s... Error: {e}")
                           time.sleep(retry_delay)
                      else:
-                          logging.error(f"Rank {worker_id}: Failed to load study '{study_name}' after {max_retries} attempts (KeyError). Aborting.")
+                          logging.error(f"Rank {worker_id}: Failed to load study '{final_study_name}' after {max_retries} attempts (KeyError). Aborting.")
                           raise
                 except Exception as e: # Catch other potential loading errors (e.g., DB connection issues)
-                     logging.error(f"Rank {worker_id}: An unexpected error occurred while loading study '{study_name}' on attempt {attempt+1}: {e}", exc_info=True)
+                     logging.error(f"Rank {worker_id}: An unexpected error occurred while loading study '{final_study_name}' on attempt {attempt+1}: {e}", exc_info=True)
                      # Decide whether to retry on other errors or raise immediately
                      if attempt < max_retries - 1:
                           logging.warning(f"Retrying in {retry_delay}s...")
                           time.sleep(retry_delay)
                      else:
-                          logging.error(f"Rank {worker_id}: Failed to load study '{study_name}' after {max_retries} attempts due to persistent errors. Aborting.")
+                          logging.error(f"Rank {worker_id}: Failed to load study '{final_study_name}' after {max_retries} attempts due to persistent errors. Aborting.")
                           raise # Re-raise other errors after retries
 
             # Check if study was successfully loaded after the loop
             if study is None:
                  # This condition should ideally be caught by the error handling within the loop, but added for safety.
-                 raise RuntimeError(f"Rank {worker_id}: Could not load study '{study_name}' after multiple retries.")
+                 raise RuntimeError(f"Rank {worker_id}: Could not load study '{final_study_name}' after multiple retries.")
 
     except Exception as e:
         # Log error with rank information
