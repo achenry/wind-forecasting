@@ -28,6 +28,7 @@ export WORK_DIR="${BASE_DIR}/wind_forecasting"
 #export RESTART_FLAG=""
 # export MODEL_PATH="${BASE_DIR}/examples/inputs/training_inputs_kestrel_awaken.yaml"
 export MODEL_CONFIG_PATH=$2
+export RESTART_FLAG="--restart_tuning"
 echo $MODEL_CONFIG_PATH
 
 # Set paths
@@ -70,11 +71,11 @@ declare -a WORKER_PIDS=()
 for i in $(seq 0 $((${NUM_GPUS}-1))); do
     for j in $(seq 0 $((${NUM_WORKERS_PER_GPU}-1))); do
         # The restart flag should only be set for the very first worker (i=0, j=0)
-        if [ $i -eq 0 ] && [ $j -eq 0 ]; then
-            export RESTART_FLAG="--restart_tuning"
-        else
-            export RESTART_FLAG=""
-        fi
+        # if [ $i -eq 0 ] && [ $j -eq 0 ]; then
+        #     export RESTART_FLAG="--restart_tuning"
+        # else
+        #     export RESTART_FLAG=""
+        # fi
         
         # Create a unique seed for each worker to ensure they explore different areas
         export WORKER_SEED=$((42 + i*10 + j))
