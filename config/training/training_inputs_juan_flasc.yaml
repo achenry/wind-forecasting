@@ -1,7 +1,7 @@
 experiment:
   username: jmb0507
   project_name: wind_forecasting_flasc
-  run_name: tune_hb_12_2 # [p = patience, d = min_delta, b = limit_train_batches, n = n_startup_trials] / hb = hyperband min_resource, reduction_factor
+  run_name: tune_hb_12_2_v2 # [p = patience, d = min_delta, b = limit_train_batches, n = n_startup_trials] / hb = hyperband min_resource, reduction_factor
   project_root: /user/taed7566/Forecasting/wind-forecasting
   log_dir: /user/taed7566/Forecasting/wind-forecasting/logs/
   notes: "Tuning FLASC with TACTiS-2"
