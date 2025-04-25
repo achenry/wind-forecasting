@@ -16,7 +16,7 @@
 module purge
 module load miniforge
 module load intel impi
-mamba activate wind_forecasting
+mamba activate wind_forecasting_env
 
 echo "SLURM_NTASKS=${SLURM_NTASKS}"
 echo "SLURM_JOB_NUM_NODES=${SLURM_JOB_NUM_NODES}"

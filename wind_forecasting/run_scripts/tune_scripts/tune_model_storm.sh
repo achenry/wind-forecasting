@@ -116,7 +116,7 @@ for i in $(seq 0 $((${NUM_GPUS}-1))); do
     CURRENT_WORKER_SEED=$((12 + i*100)) # Base seed + offset per worker (increased multiplier to avoid trials overlap on workers)
 
     echo "Starting worker ${i} on assigned GPU ${i} with seed ${CURRENT_WORKER_SEED}"
-
+    export WORKER_RANK=${i}          # Export rank for Python script
     # Launch worker in the background using nohup and a dedicated bash shell
     nohup bash -c "
         echo \"Worker ${i} starting environment setup...\"
@@ -137,7 +137,7 @@ for i in $(seq 0 $((${NUM_GPUS}-1))); do
 
         # --- Set Worker-Specific Environment ---
         export CUDA_VISIBLE_DEVICES=${i} # Assign specific GPU based on loop index
-        export WORKER_RANK=${i}          # Export rank for Python script
+        
         # Note: PYTHONPATH and WANDB_DIR are inherited via export from parent script
 
         echo \"Worker ${i}: Running python script with WORKER_RANK=${WORKER_RANK}...\"

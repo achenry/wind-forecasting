@@ -1,35 +1,41 @@
 #!/bin/bash 
 #SBATCH --account=ssc
-#SBATCH --time=01:00:00
+#SBATCH --time=24:00:00
 #SBATCH --output=%j-%x.out
-#SBATCH --partition=debug
+##SBATCH --partition=debug
 #SBATCH --nodes=1 # this needs to match Trainer(num_nodes...)
 #SBATCH --gres=gpu:1
 #SBATCH --ntasks-per-node=1 # this needs to match Trainer(devices=...)
 #SBATCH --mem-per-cpu=85G
 
 ##SBATCH --mem=0 # refers to CPU (not GPU) memory, automatically given all GPU memory in a SLURM job, 85G
-##SBATCH --ntasks=1
+#SBATCH --ntasks=1
 
 # salloc --account=ssc --time=01:00:00 --gpus=2 --ntasks-per-node=2 --partition=debug
 
 module purge
-ml PrgEnv-intel
+module load PrgEnv-intel
 ml mamba
 ml cuda
 
-mamba activate wind_forecasting
+mamba activate wind_forecasting_env
 
+export TUNING_PHASE=1
 export BASE_DIR="/home/ahenry/toolboxes/wind_forecasting_env/wind-forecasting"
 export WORK_DIR="${BASE_DIR}/wind_forecasting"
-export LOG_DIR="/projects/ssc/ahenry/wind_forecasting/logging"
+#export LOG_DIR="/projects/ssc/ahenry/wind_forecasting/logging"
+#export RESTART_FLAG=""
+# export MODEL_PATH="${BASE_DIR}/examples/inputs/training_inputs_kestrel_awaken.yaml"
+export MODEL_CONFIG_PATH=$2
+echo $MODEL_CONFIG_PATH
 
 # Set paths
 export PYTHONPATH=${WORK_DIR}:${PYTHONPATH}
-export WANDB_DIR=${LOG_DIR}/wandb
+#export WANDB_DIR=${LOG_DIR}/wandb
 
-API_FILE="./.wandb_api_key"
-if [ -f "${API_FILE}" ]; then
+export API_FILE="../.wandb_api_key"
+if [[ -f "${API_FILE}" ]]; then   
+  echo "WANDB API file exists";
   source "${API_FILE}"
 else
   echo "ERROR: WANDB API‑key file not found at ${API_FILE}" >&2
@@ -74,7 +80,8 @@ for i in $(seq 0 $((${NUM_GPUS}-1))); do
         
         # Calculate worker index for logging
         export WORKER_INDEX=$((i*NUM_WORKERS_PER_GPU + j))
-        
+        export WORKER_RANK=${i}          # Export rank for Python script
+        echo \"Worker ${i}: Running python script with WORKER_RANK=${WORKER_RANK}...\"
         echo "Starting worker ${WORKER_INDEX} on GPU ${i} with seed ${WORKER_SEED}"
         
         # Launch worker with environment settings
@@ -91,25 +98,23 @@ for i in $(seq 0 $((${NUM_GPUS}-1))); do
         echo \"Worker ${i}: Modules loaded.\"
 
         # --- Activate conda environment ---
-        eval \"\$(mamba shell.bash hook)\"
-        mamba activate wind_forecasting
-        echo \"Worker ${i}: Conda environment 'wind_forecasting' activated.\"
+        #eval \"\$(mamba shell.bash hook)\"
+        mamba activate wind_forecasting_env
+        echo \"Worker ${i}: Conda environment 'wind_forecasting_env' activated.\"
 
         # --- Set Worker-Specific Environment ---
         export CUDA_VISIBLE_DEVICES=${i} # Assign specific GPU based on loop index
-        export WORKER_RANK=${i}          # Export rank for Python script
         # Note: PYTHONPATH and WANDB_DIR are inherited via export from parent script
-
-        echo \"Worker ${i}: Running python script with WORKER_RANK=${WORKER_RANK}...\"
+        
         # --- Run the tuning script ---
         # Workers connect to the already initialized study using the PG URL
         # Pass --restart_tuning flag from the main script environment
 
         # export SLURM_NTASKS_PER_NODE=1
         # export SLURM_NNODES=1
-        python ${WORK_DIR}/run_scripts/run_model.py --config ${BASE_DIR}/examples/inputs/training_inputs_kestrel_awaken.yaml \\
+        python ${WORK_DIR}/run_scripts/run_model.py --config ${MODEL_CONFIG_PATH} \\
          --model $1 --mode tune --seed ${WORKER_SEED} ${RESTART_FLAG} \\
-         --single_gpu # Crucial for making Lightning use only the assigned GPU" &
+         --tuning_phase ${TUNING_PHASE} --single_gpu # Crucial for making Lightning use only the assigned GPU" &
         
         # Store the process ID
         WORKER_PIDS+=($!)

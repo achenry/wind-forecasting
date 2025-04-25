@@ -17,7 +17,6 @@ logging:
   slurm_output_dir: /user/taed7566/Forecasting/wind-forecasting/logs/slurm_logs
 
 optuna:
-  study_name: "flasc_tune"
   save_trial_code: false      # Default false
   n_trials_per_worker: 50     # Test a total of 4*25=100 trials - 25 good
   # ~3 min/epoch = 2.5 hours per trial = ~10 days for 100 trials / 4 workers = 2.5 days (with 100 batches no pruning)

@@ -31,7 +31,7 @@ def main():
     parser = argparse.ArgumentParser(prog="WindFarmForecasting")
     parser.add_argument("-cnf", "--config", type=str)
     parser.add_argument("-rl", "--reload", action="store_true")
-    # pretrained_filename = "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/logging/wf_forecasting/lznjshyo/checkpoints/epoch=0-step=50.ckpt"
+    # pretrained_filename = "/Users/ahenry/Documents/toolboxes/wind_forecasting/logging/wf_forecasting/lznjshyo/checkpoints/epoch=0-step=50.ckpt"
     args = parser.parse_args()
 
     with open(args.config, 'r') as file:
