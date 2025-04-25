@@ -1,11 +1,11 @@
 #!/bin/bash 
 #SBATCH --account=ssc
-#SBATCH --time=24:00:00
+#SBATCH --time=01:00:00
 #SBATCH --output=%j-%x.out
 ##SBATCH --partition=debug
 #SBATCH --nodes=1 # this needs to match Trainer(num_nodes...)
-#SBATCH --gres=gpu:1
-#SBATCH --ntasks-per-node=1 # this needs to match Trainer(devices=...)
+#SBATCH --gres=gpu:2
+#SBATCH --ntasks-per-node=2 # this needs to match Trainer(devices=...)
 #SBATCH --mem-per-cpu=85G
 
 ##SBATCH --mem=0 # refers to CPU (not GPU) memory, automatically given all GPU memory in a SLURM job, 85G
@@ -140,12 +140,12 @@ for i in $(seq 0 $((${NUM_GPUS}-1))); do
       # --- Run the tuning script ---
       # Workers connect to the already initialized study using the PG URL
       # Pass --restart_tuning flag from the main script environment
-      python ${WORK_DIR}/run_scripts/run_model.py \\
-        --config ${CONFIG_FILE} \\
-        --model ${MODEL_NAME} \\
-        --mode tune \\
-        --seed ${CURRENT_WORKER_SEED} \\
-        ${RESTART_TUNING_FLAG} \\
+      python ${WORK_DIR}/run_scripts/run_model.py \
+        --config ${CONFIG_FILE} \
+        --model ${MODEL_NAME} \
+        --mode tune \
+        --seed ${CURRENT_WORKER_SEED} \
+        ${RESTART_TUNING_FLAG} \
         --single_gpu # Crucial for making Lightning use only the assigned GPU
 
       # Check exit status
