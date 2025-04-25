@@ -271,6 +271,7 @@ class MLTuningObjective:
         # Create a unique directory for this trial's checkpoints
         checkpoint_dir = os.path.join(
             self.config.get("logging", {}).get("checkpoint_dir", "checkpoints"),
+            self.model,
             f"trial_{trial.number}"
         )
         os.makedirs(checkpoint_dir, exist_ok=True)
