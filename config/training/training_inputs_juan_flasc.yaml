@@ -1,11 +1,11 @@
 experiment:
   username: jmb0507
   project_name: wind_forecasting_flasc
-  run_name: tune_hb_12_2_v2 # [p = patience, d = min_delta, b = limit_train_batches, n = n_startup_trials] / hb = hyperband min_resource, reduction_factor
+  run_name: tune_hb_4_3 # [p = patience, d = min_delta, b = limit_train_batches, n = n_startup_trials] / hb = hyperband min_resource, reduction_factor
   project_root: /user/taed7566/Forecasting/wind-forecasting
   log_dir: /user/taed7566/Forecasting/wind-forecasting/logs/
   notes: "Tuning FLASC with TACTiS-2"
-  extra_tags: ["flasc", "H100","50t","250b"] # By default already has GPU id, model and mode.
+  extra_tags: ["flasc", "H100","restart","250b","150t"] # By default already has GPU id, model and mode.
 
 logging:
   entity: jmb0507-cu-boulder # Wandb entity (group name)
@@ -19,9 +19,9 @@ logging:
 optuna:
   study_name: "flasc_tune"
   save_trial_code: false      # Default false
-  n_trials_per_worker: 50     # Test a total of 4*25=100 trials - 25 good
+  n_trials_per_worker: 150     # Test a total of 4*25=100 trials - 25 good
   # ~3 min/epoch = 2.5 hours per trial = ~10 days for 100 trials / 4 workers = 2.5 days (with 100 batches no pruning)
-  max_epochs: 25              # epochs per trial - 25 good
+  max_epochs: 36              # epochs per trial - 25 good
   limit_train_batches: 250    # batches per epoch (large number to use all data) - 250 good
   metric: "val_loss"          # The metric to optimize (NLL)
   direction: "minimize"       # Whether to minimize or maximize the metric
@@ -32,9 +32,9 @@ optuna:
   pruning:
     enabled: true             # Whether to enable pruning
     type: "hyperband"         # Options: "hyperband", "median"
-    max_resource: 25          # Maximum number of epochs to train a trial [hyperband only] 
-    min_resource: 12          # Minimum number of epochs to train a trial [hyperband only]
-    reduction_factor: 2     # Reduction factor for hyperband pruning @boujuan 1.5 allows for ~3 brackets and more gentle pruning
+    max_resource: 36          # Maximum number of epochs to train a trial [hyperband only] 
+    min_resource: 4          # Minimum number of epochs to train a trial [hyperband only]
+    reduction_factor: 3     # Reduction factor for hyperband pruning @boujuan 1.5 allows for ~3 brackets and more gentle pruning
     # set up so log_n(max_resource/min_resource)+1 = between 4-6 brackets ideally [hyperband only]  
     bootstrap_count: 0        # Number of bootstrap samples to use 
     # n_startup_trials: 4       # Number of trials to wait until building the median for pruning - 6 good [median only]
@@ -88,8 +88,8 @@ dataset:
     prediction_length: 300 # in seconds
     target_turbine_ids: # or leave blank to capture all
     normalize: false
-    batch_size: 896 # 512-768, perhaps 896 (more seems to create some OOM errors)
-    workers: 1 # Consider adjusting based on CPU cores per task
+    batch_size: 1024 # 512-768, perhaps 896 (more seems to create some OOM errors)
+    workers: 32 # Consider adjusting based on CPU cores per task
     overfit: false
     test_split: 0.20
     val_split: 0.1
