@@ -10,7 +10,6 @@ import gc
 import time # Added for load_study retry delay
 import inspect
 from itertools import product
-import collections.abc
 from pathlib import Path
 import subprocess
 import re # Added for epoch parsing
@@ -26,7 +25,6 @@ from optuna.trial import TrialState # Added for checking trial status
 import wandb
 from lightning.pytorch.loggers import WandbLogger
 from lightning.pytorch.callbacks import ModelCheckpoint
-from optuna import create_study
 
 from wind_forecasting.utils.optuna_visualization import launch_optuna_dashboard, log_optuna_visualizations_to_wandb
 from wind_forecasting.utils.optuna_table import log_detailed_trials_table_to_wandb

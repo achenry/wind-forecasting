@@ -17,10 +17,13 @@
 export MODEL_NAME=$1
 export CONFIG_FILE=$2
 
+#export CONFIG_FILE=$HOME/toolboxes/wind_forecasting_env/wind-forecasting/config/training/training_inputs_kestrel_awaken_pred60.yaml
+#export MODEL_NAME=informer
+
 # --- Base Directories ---
 export TUNING_PHASE=1
 export BASE_DIR="/home/ahenry/toolboxes/wind_forecasting_env/wind-forecasting"
-export LOG_DIR="${BASE_DIR}/logs"
+export LOG_DIR="${BASE_DIR}/run_scripts/tune_scripts/logs"
 export WORK_DIR="${BASE_DIR}/wind_forecasting"
 export RESTART_TUNING_FLAG="--restart_tuning" # "" Or "--restart_tuning"
 export AUTO_EXIT_WHEN_DONE="true"  # Set to "true" to exit script when all workers finish, "false" to keep running until timeout
