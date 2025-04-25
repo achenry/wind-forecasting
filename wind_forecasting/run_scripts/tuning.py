@@ -692,13 +692,15 @@ class MLTuningObjective:
                         logging.info(f"Trial {trial.number}: Evaluating {self.model} using DistributionForecast with params: {eval_kwargs['output_distr_params']}")
 
                     forecast_it, ts_it = make_evaluation_predictions(**eval_kwargs)
+                    agg_metrics, _ = self.evaluator(ts_it, forecast_it, num_series=self.data_module.num_target_vars)
                 except Exception as e:
                     logging.error(f"Trial {trial.number} - Error making evaluation predictions: {str(e)}", exc_info=True)
                     raise RuntimeError(f"Error making evaluation predictions in trial {trial.number}: {str(e)}") from e
-
+            else:
+                agg_metrics = {}
+                
             # Metric Calculation
             try:
-                agg_metrics, _ = self.evaluator(ts_it, forecast_it, num_series=self.data_module.num_target_vars)
                 
                 # agg_metrics["trainable_parameters"] = summarize(estimator.create_lightning_module()).trainable_parameters
                 # self.metrics.append(agg_metrics.copy())
