@@ -386,7 +386,11 @@ def main():
             logging.info(f"Declaring estimator {args.model.capitalize()} with tuned parameters")
         else:
             logging.info(f"Declaring estimator {args.model.capitalize()} with default parameters")
-            context_length = data_module.context_length
+            if "context_length_factor" in config["model"][args.model]:
+                context_length = int(config["model"][args.model]["context_length_factor"] * data_module.prediction_length)
+                del config["model"][args.model]["context_length_factor"]
+            else:
+             context_length = data_module.context_length
             
         # Set up parameters for checkpoint finding
         metric = config.get("trainer", {}).get("monitor_metric", "val_loss")
