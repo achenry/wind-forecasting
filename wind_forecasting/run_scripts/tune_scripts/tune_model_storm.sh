@@ -328,5 +328,7 @@ exit $FINAL_EXIT_CODE
 # gpustat -P --no-processes --watch 0.5
 # htop
 
+# module purge && module load slurm/hpc-2023/23.02.7 && module load hpc-env/13.1 && module load mpi4py/3.1.4-gompi-2023a && module load Mamba/24.3.0-0 && module load CUDA/12.4.0 && module load git && source "$(mamba info --prefix wf_env_storm)/bin/activate" && sbatch wind-forecasting/wind_forecasting/run_scripts/tune_scripts/tune_model_storm.sh
+
 # JOB_ID=YOUR_JOB_ID
 # tail -f /user/taed7566/Forecasting/wind-forecasting/logs/slurm_logs/$JOB_ID/worker_0_$JOB_ID.log /user/taed7566/Forecasting/wind-forecasting/logs/slurm_logs/$JOB_ID/worker_1_$JOB_ID.log /user/taed7566/Forecasting/wind-forecasting/logs/slurm_logs/$JOB_ID/worker_2_$JOB_ID.log /user/taed7566/Forecasting/wind-forecasting/logs/slurm_logs/$JOB_ID/worker_3_$JOB_ID.log
