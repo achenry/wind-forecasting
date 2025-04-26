@@ -4,8 +4,8 @@
 #SBATCH --output=%j-%x.out
 ##SBATCH --partition=debug
 #SBATCH --nodes=1 # this needs to match Trainer(num_nodes...)
-#SBATCH --gres=gpu:2
-#SBATCH --ntasks-per-node=2 # this needs to match Trainer(devices=...)
+#SBATCH --gres=gpu:4
+#SBATCH --ntasks-per-node=4 # this needs to match Trainer(devices=...)
 ##SBATCH --mem-per-cpu=240G
 #SBATCH --mem-per-cpu=85G
 
