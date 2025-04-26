@@ -222,7 +222,7 @@ callbacks:
       init_args:
         logging_interval: epoch # Log every step/epoch
         log_momentum: false
-    dead_neuron_monitor: # Currently only works for tactis-2 (check utils/callbacks.py)
+    dead_neuron_monitor: #[custom callback] Currently only works for tactis-2 (check utils/callbacks.py)
       enabled: true
 
 trainer:
