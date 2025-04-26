@@ -106,64 +106,64 @@ echo "Launching ${NUM_GPUS} tuning workers..."
 
 # Launch multiple workers per GPU
 for i in $(seq 0 $((${NUM_GPUS}-1))); do
-      # Create a unique seed for this worker
-      export CURRENT_WORKER_SEED=$((12 + i*100)) # Base seed + offset per worker (increased multiplier to avoid trials overlap on workers)
-      
-      echo "Starting worker ${i} on assigned GPU ${i} with seed ${CURRENT_WORKER_SEED}"
-      export WORKER_RANK=${i}          # Export rank for Python script
-      # Launch worker in the background using nohup and a dedicated bash shell
-      
-      # Launch worker with environment settings
-      # CUDA_VISIBLE_DEVICES ensures each worker sees only one GPU
-      # The worker ID (SLURM_PROCID) helps Optuna identify workers
-      #srun --exclusive -n 1 --export=ALL,CUDA_VISIBLE_DEVICES=$i,SLURM_PROCID=${WORKER_INDEX},WANDB_DIR=${WANDB_DIR} \
-      nohup bash -c "
-      echo \"Worker ${i} starting environment setup...\"
-      # --- Module loading ---
-      module purge
-      # ml PrgEnv-intel
-      ml mamba
-      ml cuda
-      echo \"Worker ${i}: Modules loaded.\"
+    # Create a unique seed for this worker
+    export CURRENT_WORKER_SEED=$((12 + i*100)) # Base seed + offset per worker (increased multiplier to avoid trials overlap on workers)
+    
+    echo "Starting worker ${i} on assigned GPU ${i} with seed ${CURRENT_WORKER_SEED}"
+    export WORKER_RANK=${i}          # Export rank for Python script
+    # Launch worker in the background using nohup and a dedicated bash shell
+    
+    # Launch worker with environment settings
+    # CUDA_VISIBLE_DEVICES ensures each worker sees only one GPU
+    # The worker ID (SLURM_PROCID) helps Optuna identify workers
+    #srun --exclusive -n 1 --export=ALL,CUDA_VISIBLE_DEVICES=$i,SLURM_PROCID=${WORKER_INDEX},WANDB_DIR=${WANDB_DIR} \
+    nohup bash -c "
+    echo \"Worker ${i} starting environment setup...\"
+    # --- Module loading ---
+    module purge
+    # ml PrgEnv-intel
+    ml mamba
+    ml cuda
+    echo \"Worker ${i}: Modules loaded.\"
 
-      # --- Activate conda environment ---
-      # eval \"\$(conda shell.bash hook)\"
-      mamba activate wind_forecasting_env
-      echo \"Worker ${i}: Conda environment 'wind_forecasting_env' activated.\"
+    # --- Activate conda environment ---
+    # eval \"\$(conda shell.bash hook)\"
+    mamba activate wind_forecasting_env
+    echo \"Worker ${i}: Conda environment 'wind_forecasting_env' activated.\"
 
-      # --- Set Worker-Specific Environment ---
-      export CUDA_VISIBLE_DEVICES=${i} # Assign specific GPU based on loop index
-      
-      # Note: PYTHONPATH and WANDB_DIR are inherited via export from parent script
+    # --- Set Worker-Specific Environment ---
+    export CUDA_VISIBLE_DEVICES=${i} # Assign specific GPU based on loop index
+    
+    # Note: PYTHONPATH and WANDB_DIR are inherited via export from parent script
 
-      echo \"Worker ${i}: Running python script with WORKER_RANK=${WORKER_RANK}...\"
-      # --- Run the tuning script ---
-      # Workers connect to the already initialized study using the PG URL
-      # Pass --restart_tuning flag from the main script environment
-      python ${WORK_DIR}/run_scripts/run_model.py \
-        --config ${CONFIG_FILE} \
-        --model ${MODEL_NAME} \
-        --mode tune \
-        --seed ${CURRENT_WORKER_SEED} \
-        ${RESTART_TUNING_FLAG} \
-        --single_gpu # Crucial for making Lightning use only the assigned GPU
+    echo \"Worker ${i}: Running python script with WORKER_RANK=${WORKER_RANK}...\"
+    # --- Run the tuning script ---
+    # Workers connect to the already initialized study using the PG URL
+    # Pass --restart_tuning flag from the main script environment
+    python ${WORK_DIR}/run_scripts/run_model.py \
+      --config ${CONFIG_FILE} \
+      --model ${MODEL_NAME} \
+      --mode tune \
+      --seed ${CURRENT_WORKER_SEED} \
+      ${RESTART_TUNING_FLAG} \
+      --single_gpu # Crucial for making Lightning use only the assigned GPU
 
-      # Check exit status
-      status=\$?
-      if [ \$status -ne 0 ]; then
-          echo \"Worker ${i} FAILED with status \$status\"
-      else
-          echo \"Worker ${i} COMPLETED successfully\"
-      fi
-      exit \$status
-    " > "${LOG_DIR}/slurm_logs/${SLURM_JOB_ID}/worker_${i}_${SLURM_JOB_ID}.log" 2>&1 &
-      
-      # Store the process ID
-      WORKER_PIDS+=($!)
-      
-      # Add a small delay between starting workers on the same GPU
-      # to avoid initialization conflicts
-      sleep 2
+    # Check exit status
+    status=\$?
+    if [ \$status -ne 0 ]; then
+        echo \"Worker ${i} FAILED with status \$status\"
+    else
+        echo \"Worker ${i} COMPLETED successfully\"
+    fi
+    exit \$status
+  " > "${LOG_DIR}/slurm_logs/${SLURM_JOB_ID}/worker_${i}_${SLURM_JOB_ID}.log" 2>&1 &
+    
+    # Store the process ID
+    WORKER_PIDS+=($!)
+    
+    # Add a small delay between starting workers on the same GPU
+    # to avoid initialization conflicts
+    sleep 2
 done
 
 echo "Started ${#WORKER_PIDS[@]} worker processes"
