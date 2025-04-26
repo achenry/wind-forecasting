@@ -91,7 +91,6 @@ dataset:
     per_turbine_target: False
     context_length_factor: 2
 
-
 model:
   distr_output: 
     class: LowRankMultivariateNormalOutput
