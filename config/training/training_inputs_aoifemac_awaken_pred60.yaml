@@ -160,12 +160,18 @@ model:
     dim_feedforward: 2048
     activation: relu
   autoformer:
-    embedding_dimension: 32 # Determines dimension of the embedding space
+    # embedding_dimension: 32 # Determines dimension of the embedding space
     num_encoder_layers: 2 # Number of transformer blocks stacked
     num_decoder_layers: 1 # Number of transformer blocks stacked
     n_heads: 8 # Number of heads for spatio-temporal attention
     dim_feedforward: 2048
     activation: gelu
+    # num_encoder_layers: 3 # Number of transformer blocks stacked
+    # num_decoder_layers: 1 # Number of transformer blocks stacked
+    # n_heads: 6 # Number of heads for spatio-temporal attention
+    # dim_feedforward: 2048
+    # activation: gelu
+    # context_length_factor: 3
   spacetimeformer:
     # embedding_dimension: 32 # Determines dimension of the embedding space
     num_encoder_layers: 3 # Number of transformer blocks stacked
