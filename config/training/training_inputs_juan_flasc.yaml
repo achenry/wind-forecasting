@@ -222,6 +222,8 @@ callbacks:
       init_args:
         logging_interval: epoch # Log every step/epoch
         log_momentum: false
+    dead_neuron_monitor: # Currently only works for tactis-2 (check utils/callbacks.py)
+      enabled: true
 
 trainer:
     gradient_clip_val: 0.0 # Prevents gradient explosion if > 0. Renamed from grad_clip_norm. # TODO: check if this or model's setting being used

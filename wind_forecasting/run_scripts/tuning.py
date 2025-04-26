@@ -26,6 +26,7 @@ from optuna.trial import TrialState # Added for checking trial status
 import wandb
 from lightning.pytorch.loggers import WandbLogger
 from lightning.pytorch.callbacks import ModelCheckpoint
+from wind_forecasting.utils.callbacks import DeadNeuronMonitor
 from optuna import create_study
 
 from wind_forecasting.utils.optuna_visualization import launch_optuna_dashboard, log_optuna_visualizations_to_wandb
@@ -354,6 +355,16 @@ class MLTuningObjective:
         else:
             logging.warning(f"Trial {trial.number}: Could not find or extract args from a config-defined EarlyStopping callback.")
 
+
+        # Add DeadNeuronMonitor callback if enabled in config
+        callbacks_config = self.config.get('callbacks', {})
+        monitor_config = callbacks_config.get('dead_neuron_monitor', {})
+        monitor_enabled = monitor_config.get('enabled', False)
+        
+        if monitor_enabled:
+            dead_neuron_callback = DeadNeuronMonitor()
+            current_callbacks.append(dead_neuron_callback)
+            logging.info(f"Added DeadNeuronMonitor callback for trial {trial.number}")
 
         final_callbacks = instantiated_callbacks_from_config + current_callbacks
 
