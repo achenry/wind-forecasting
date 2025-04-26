@@ -198,24 +198,27 @@ class DataModule():
             self.cardinality = None 
     
     # @profile # prints memory usage
-    def generate_splits(self, splits=None, save=False, reload=True):
+    def generate_splits(self, splits=None, save=False, reload=True, verbose=None):
+        if verbose is None:
+            verbose = self.verbose
+            
         if splits is None:
             splits = ["train", "val", "test"]
         assert all(split in ["train", "val", "test"] for split in splits)
         assert os.path.exists(self.train_ready_data_path), f"Must run generate_datasets before generate_splits to produce {self.train_ready_data_path}."
         
-        if self.verbose:
+        if verbose:
             logging.info(f"Scanning dataset {self.train_ready_data_path}.") 
         dataset = IterableLazyFrame(data_path=self.train_ready_data_path, dtype=self.dtype)
         
-        if self.verbose:
+        if verbose:
             logging.info(f"Finished scanning dataset {self.train_ready_data_path}.")
         
         self.get_dataset_info(dataset)
         
         if reload or not all(os.path.exists(self.train_ready_data_path.replace(".parquet", f"_{split}.pkl")) for split in splits):
             if self.per_turbine_target:
-                if self.verbose:
+                if verbose:
                     logging.info(f"Splitting datasets for per turbine case.") 
 
                 cg_counts = dataset.select("continuity_group").collect().to_series().value_counts().sort("continuity_group").select("count").to_numpy().flatten()
@@ -258,7 +261,7 @@ class DataModule():
                         datasets = []
                         item_ids = list(getattr(self, f"{split}_dataset").keys())
                         for item_id in item_ids:
-                            if self.verbose:
+                            if verbose:
                                 logging.info(f"Transforming {split} dataset {item_id} into numpy form.")
                             ds = getattr(self, f"{split}_dataset")[item_id]
                             start_time = pd.Period(ds.select(pl.col("time").first()).collect().item(), freq=self.freq)
@@ -273,11 +276,11 @@ class DataModule():
                             del getattr(self, f"{split}_dataset")[item_id]
                         setattr(self, f"{split}_dataset", datasets)
 
-                if self.verbose:
+                if verbose:
                     logging.info(f"Finished splitting datasets for per turbine case.") 
 
             else:
-                if self.verbose:
+                if verbose:
                     logging.info(f"Splitting datasets for all turbine case.") 
                 
                 cg_counts = dataset.select("continuity_group").collect().to_series().value_counts().sort("continuity_group").select("count").to_numpy().flatten()
@@ -329,7 +332,7 @@ class DataModule():
                             })
                             del getattr(self, f"{split}_dataset")[item_id]
                         setattr(self, f"{split}_dataset", datasets)
-                if self.verbose:
+                if verbose:
                     logging.info(f"Finished splitting datasets for all turbine case.")
             
             if save:
@@ -340,17 +343,17 @@ class DataModule():
                         with open(self.train_ready_data_path.replace(".parquet", f"_{split}.pkl"), 'wb') as fp:
                             pickle.dump(getattr(self, f"{split}_dataset"), fp)
         else:
-            if self.verbose:
+            if verbose:
                 logging.info("Fetching saved split datasets.")
             for split in splits:
                 with open(self.train_ready_data_path.replace(".parquet", f"_{split}.pkl"), 'rb') as fp:
                     data = pickle.load(fp)
-                    if self.verbose:
+                    if verbose:
                         logging.info(f"Read saved split {split} dataset stored at {self.train_ready_data_path.replace('.parquet', f'_{split}.pkl')}.")
                     
                     setattr(self, f"{split}_dataset", data)
                     
-                    if self.verbose:
+                    if verbose:
                         logging.info(f"Set attribute '{split}_dataset'.")
                     
                     
