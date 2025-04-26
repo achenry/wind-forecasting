@@ -135,7 +135,7 @@ for i in $(seq 0 $((${NUM_GPUS}-1))); do
 
       # --- Set Worker-Specific Environment ---
       export CUDA_VISIBLE_DEVICES=${i} # Assign specific GPU based on loop index
-      
+    
       # Note: PYTHONPATH and WANDB_DIR are inherited via export from parent script
 
       echo \"Worker ${i}: Running python script with WORKER_RANK=${WORKER_RANK}...\"
@@ -151,22 +151,22 @@ for i in $(seq 0 $((${NUM_GPUS}-1))); do
         ${RESTART_TUNING_FLAG} \
         --single_gpu # Crucial for making Lightning use only the assigned GPU
 
-      # Check exit status
-      status=\$?
-      if [ \$status -ne 0 ]; then
-          echo \"Worker ${i} FAILED with status \$status\"
-      else
-          echo \"Worker ${i} COMPLETED successfully\"
-      fi
-      exit \$status
-    " > "${LOG_DIR}/slurm_logs/${SLURM_JOB_ID}/worker_${i}_${SLURM_JOB_ID}.log" 2>&1 &
-      
-      # Store the process ID
-      WORKER_PIDS+=($!)
-      
-      # Add a small delay between starting workers on the same GPU
-      # to avoid initialization conflicts
-      sleep 2
+    # Check exit status
+    status=\$?
+    if [ \$status -ne 0 ]; then
+        echo \"Worker ${i} FAILED with status \$status\"
+    else
+        echo \"Worker ${i} COMPLETED successfully\"
+    fi
+    exit \$status
+  " > "${LOG_DIR}/slurm_logs/${SLURM_JOB_ID}/worker_${i}_${SLURM_JOB_ID}.log" 2>&1 &
+    
+    # Store the process ID
+    WORKER_PIDS+=($!)
+    
+    # Add a small delay between starting workers on the same GPU
+    # to avoid initialization conflicts
+    sleep 2
 done
 
 echo "Started ${#WORKER_PIDS[@]} worker processes"
