@@ -502,7 +502,7 @@ def continuous_ranked_probability_score_gaussian(predicted_mean, true_values, pr
         return sigma * (z * (2 * cdf_z - 1) + 2 * pdf_z - 1 / np.sqrt(np.pi))
     
     # Compute the CRPS for each sample and take the mean
-    crps = np.mean([crps_gaussian(t, m, s) for t, m, s in zip(true_values, predicted_mean, predicted_std)])
+    crps = np.mean([crps_gaussian(t, m, s) for t, m, s in zip(true_values, predicted_mean, predicted_std)], axis=0)
 
     return crps
 
@@ -689,11 +689,6 @@ def coverage_width_criterion(predicted_mean, true_values, predicted_std, confide
     if not (0 < confidence_level < 1):
         raise ValueError("Confidence level must be between 0 and 1 (exclusive).")
 
-
-    z_score = np.abs(norm.ppf((1 - confidence_level) / 2))  # Two-tailed Z-score
-    upper_bound = predicted_mean + z_score * predicted_std
-    lower_bound = predicted_mean - z_score * predicted_std
-
     # computing PICP
     picp = pi_coverage_probability(predicted_mean, true_values, predicted_std, confidence_level)
     
@@ -740,7 +735,7 @@ def pi_coverage_probability(predicted_mean, true_values, predicted_std, confiden
     upper_bound = predicted_mean + z_score * predicted_std
     lower_bound = predicted_mean - z_score * predicted_std
 
-    covered = np.sum((true_values >= lower_bound) & (true_values <= upper_bound))
+    covered = np.sum((true_values >= lower_bound) & (true_values <= upper_bound), axis=0)
     picp = covered / len(true_values)
 
     return picp
@@ -769,8 +764,8 @@ def pi_normalized_average_width(predicted_mean, true_values, predicted_std, conf
     if not (0 < confidence_level < 1):
         raise ValueError("Confidence level must be between 0 and 1 (exclusive).")
     
-    true_range = np.max(true_values) - np.min(true_values)
-    if true_range == 0:
+    true_range = np.max(true_values, axis=0) - np.min(true_values, axis=0)
+    if np.any(true_range == 0):
         raise ValueError("The range of true values cannot be zero. Cannot normalize.")
 
     z_score = np.abs(norm.ppf((1 - confidence_level) / 2))  # Two-tailed Z-score
@@ -778,7 +773,7 @@ def pi_normalized_average_width(predicted_mean, true_values, predicted_std, conf
     lower_bound = predicted_mean - z_score * predicted_std
 
     interval_width = upper_bound - lower_bound
-    pinaw = np.mean(interval_width) / true_range
+    pinaw = np.mean(interval_width, axis=0) / true_range
 
     return pinaw
 

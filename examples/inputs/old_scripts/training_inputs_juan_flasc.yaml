@@ -17,12 +17,11 @@ logging:
   slurm_output_dir: /user/taed7566/wind-forecasting/logging/slurm_logs/
 
 optuna:
-  study_name: "flasc_tune"
   save_trial_code: false
   n_trials_per_worker: 5
   max_epochs: 2               # epochs per trial
   limit_train_batches: 100    # batches per epoch
-  metric: "mean_wQuantileLoss" # The metric to optimize
+  metric: "val_loss" # The metric to optimize
   direction: "minimize"       # Whether to minimize or maximize the metric
 
   resample_freq_choices: [60, 120, 180] # Resample frequency in seconds

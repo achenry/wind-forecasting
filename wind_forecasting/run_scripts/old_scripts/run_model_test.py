@@ -55,7 +55,7 @@ def main():
     parser.add_argument("-s", "--seed", type=int, default=42)
     parser.add_argument("-tp", "--use_tuned_parameters", action="store_true",
                         help="Use parameters tuned from Optuna optimization, otherwise use defaults set in Module class.")
-    # pretrained_filename = "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/logging/wf_forecasting/lznjshyo/checkpoints/epoch=0-step=50.ckpt"
+    # pretrained_filename = "/Users/ahenry/Documents/toolboxes/wind_forecasting/logging/wf_forecasting/lznjshyo/checkpoints/epoch=0-step=50.ckpt"
     args = parser.parse_args()
 
     with open(args.config, 'r') as file:

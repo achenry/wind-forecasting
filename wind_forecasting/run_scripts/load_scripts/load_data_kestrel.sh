@@ -11,6 +11,6 @@
 
 module purge
 module load mamba
-mamba activate wind_forecasting
+mamba activate wind_forecasting_env
 
 python load_data.py --config /$HOME/toolboxes/wind_forecasting_env/wind-forecasting/examples/inputs/training_inputs_kestrel_awaken.yaml --reload

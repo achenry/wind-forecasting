@@ -13,7 +13,7 @@
 
 module purge
 module load mamba
-mamba activate wind_forecasting
+mamba activate wind_forecasting_env
 #echo $SLURM_NNODES * $SLURM_NTASKS
 echo $SLURM_NTASKS
 #ntasks=$((SLURM_NTASKS*SLURM_NNODES))
