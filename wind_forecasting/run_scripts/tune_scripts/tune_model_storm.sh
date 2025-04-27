@@ -331,3 +331,5 @@ exit $FINAL_EXIT_CODE
 
 # JOB_ID=YOUR_JOB_ID
 # tail -f /user/taed7566/Forecasting/wind-forecasting/logs/slurm_logs/$JOB_ID/worker_0_$JOB_ID.log /user/taed7566/Forecasting/wind-forecasting/logs/slurm_logs/$JOB_ID/worker_1_$JOB_ID.log /user/taed7566/Forecasting/wind-forecasting/logs/slurm_logs/$JOB_ID/worker_2_$JOB_ID.log /user/taed7566/Forecasting/wind-forecasting/logs/slurm_logs/$JOB_ID/worker_3_$JOB_ID.log
+
+# optuna-dashboard sqlite:///wind-forecasting/optuna/SQL/flasc_tactis.db --port 8088
