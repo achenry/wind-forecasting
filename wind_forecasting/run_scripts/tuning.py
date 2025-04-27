@@ -786,7 +786,8 @@ class MLTuningObjective:
 def get_tuned_params(storage, study_name):
     logging.info(f"Getting storage for Optuna study {study_name}.")  
     try:
-        study_id = storage.get_study_id_from_name(study_name)
+        full_study_name = sorted(optuna_storage.get_all_studies(), key=lambda study: int(re.search(f"(?<={db_setup_params['study_name']}_)(\\d+)", study.study_name).group()))[-1]
+        study_id = storage.get_study_id_from_name(full_study_name)
     except Exception:
         available_studies = storage.get_all_studies()
         raise FileNotFoundError(f"Optuna study {study_name} not found. Please run tune_hyperparameters_multi for all outputs first. Available studies are: {available_studies}.")

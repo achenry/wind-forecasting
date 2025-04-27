@@ -350,6 +350,10 @@ def main():
     if args.mode == "tune" or (args.mode == "train" and args.use_tuned_parameters):
         # %% SETUP & SYNCHRONIZE DATABASE
         # Extract necessary parameters for DB setup explicitly
+        if args.mode == "train":
+            args.restart_tuning = False
+        
+        logging.info(f"Accessing Optuna storage.")
         db_setup_params = generate_df_setup_params(args.model, config)
         optuna_storage = setup_optuna_storage(
             db_setup_params=db_setup_params,
