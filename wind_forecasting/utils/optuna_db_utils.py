@@ -99,14 +99,33 @@ def setup_postgresql_rank_zero(db_setup_params, restart_tuning=False, register_c
         else:
             sync_file_path = pg_config["sync_file"]
             
-        if os.path.exists(sync_file_path):
-            logging.warning(f"Removing existing sync file: {sync_file_path}")
+        # Check if the sync file already exists
+        sync_file_ready = False
+        if os.path.exists(sync_file_path) and not restart_tuning:
+            try:
+                with open(sync_file_path, 'r') as f:
+                    content = f.read().strip()
+                    if content == 'ready':
+                        sync_file_ready = True
+                        logging.info(f"Rank 0: Existing sync file found with 'ready' status: {sync_file_path}")
+                    else:
+                        logging.warning(f"Rank 0: Sync file exists but has invalid content: '{content}'. Will recreate.")
+                        os.remove(sync_file_path)
+            except Exception as e:
+                logging.warning(f"Rank 0: Error reading existing sync file: {e}. Will recreate.")
+                if os.path.exists(sync_file_path):
+                    os.remove(sync_file_path)
+        elif os.path.exists(sync_file_path) and restart_tuning:
+            logging.info(f"Rank 0: Removing existing sync file due to restart_tuning=True: {sync_file_path}")
             os.remove(sync_file_path)
-
-        # Create sync file *after* storage/schema is ready
-        with open(sync_file_path, 'w') as f:
-            f.write('ready')
-        logging.info(f"Rank 0: PostgreSQL ready. Created sync file: {sync_file_path}")
+        
+        # Only create the sync file if it doesn't already exist with valid content
+        if not sync_file_ready:
+            with open(sync_file_path, 'w') as f:
+                f.write('ready')
+            logging.info(f"Rank 0: PostgreSQL ready. Created sync file: {sync_file_path}")
+        else:
+            logging.info(f"Rank 0: Using existing sync file: {sync_file_path}")
         
         return storage, pg_config # Return the created storage object
 

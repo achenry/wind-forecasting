@@ -344,12 +344,19 @@ def _generate_pg_config(*,
         if not socket_dir_base:
             raise ValueError("Missing 'socket_dir_base' (absolute path expected) when use_socket=True.")
         socket_base_path = Path(socket_dir_base)
-        job_id_for_socket = os.environ.get("SLURM_JOB_ID", os.getpid()) # Unique socket per job
-        socket_dir_name = f"pg_socket_{job_id_for_socket}"
-        socket_dir_path = (socket_base_path / socket_dir_name).resolve() # Resolve just in case base wasn't fully resolved
-        os.makedirs(socket_dir_path, exist_ok=True)
+        
+        pgdata_instance_name = os.path.basename(pgdata_path)
+        socket_dir_name = f"pg_socket_{pgdata_instance_name}"
+        socket_dir_path = (socket_base_path / socket_dir_name).resolve()
+        
+        # Only create the directory if it doesn't exist
+        if not os.path.exists(socket_dir_path):
+            os.makedirs(socket_dir_path, exist_ok=True)
+            logging.info(f"Created socket directory: {socket_dir_path}")
+        else:
+            logging.info(f"Using existing socket directory: {socket_dir_path}")
+            
         socket_dir = str(socket_dir_path)
-        logging.info(f"Using socket directory: {socket_dir}")
     elif use_tcp:
         logging.info(f"Using TCP/IP connection: host={db_host}, port={db_port}")
 
@@ -358,8 +365,11 @@ def _generate_pg_config(*,
         raise ValueError("Missing 'sync_dir' (absolute path expected).")
     sync_dir_path = Path(sync_dir)
     os.makedirs(sync_dir_path, exist_ok=True)
-    sync_file = str(sync_dir_path / f"optuna_pg_ready_{os.environ.get('SLURM_JOB_ID', os.getpid())}.sync")
-    logging.info(f"Using sync file: {sync_file}")
+    
+    # Use pgdata_instance_name
+    pgdata_instance_name = os.path.basename(pgdata_path)
+    sync_file = str(sync_dir_path / f"optuna_pg_ready_{pgdata_instance_name}.sync")
+    logging.info(f"Using sync file path: {sync_file}")
 
     # --- PostgreSQL Binaries ---
     pg_bin_dir = os.environ.get("POSTGRES_BIN_DIR")
@@ -417,18 +427,27 @@ def manage_postgres_instance(db_setup_params, restart=False, register_cleanup=Tr
     pg_config = _generate_pg_config(**db_setup_params) # This also sets _managed_pg_config
 
 
-    # Recreate socket directory after cleanup if using sockets
+    # Check if we need to set up the socket directory (only when using sockets)
     if pg_config.get("use_socket", False):
         socket_dir_base = db_setup_params.get("socket_dir_base")
         if not socket_dir_base:
              raise ValueError("Missing 'socket_dir_base' (absolute path expected) when use_socket=True.")
+        
         socket_base_path = Path(socket_dir_base)
-        job_id_for_socket = os.environ.get("SLURM_JOB_ID", os.getpid()) # Unique socket per job
-        socket_dir_name = f"pg_socket_{job_id_for_socket}"
-        socket_dir_path = (socket_base_path / socket_dir_name).resolve() # Resolve just in case base wasn't fully resolved
-        os.makedirs(socket_dir_path, exist_ok=True)
-        pg_config["socket_dir"] = str(socket_dir_path) # Update pg_config with the new path
-        logging.info(f"Recreated socket directory after restart cleanup: {pg_config['socket_dir']}")
+        
+        # Use pgdata_instance_name
+        pgdata_instance_name = os.path.basename(pg_config["pgdata"])
+        socket_dir_name = f"pg_socket_{pgdata_instance_name}"
+        socket_dir_path = (socket_base_path / socket_dir_name).resolve()
+        
+        # Only create the directory if it doesn't exist
+        if not os.path.exists(socket_dir_path):
+            os.makedirs(socket_dir_path, exist_ok=True)
+            logging.info(f"Created socket directory: {socket_dir_path}")
+        else:
+            logging.info(f"Using existing socket directory: {socket_dir_path}")
+            
+        pg_config["socket_dir"] = str(socket_dir_path) # Update pg_config with the correct path
 
     # Pass the consistent pg_config
     needs_setup = init_postgres(pg_config)

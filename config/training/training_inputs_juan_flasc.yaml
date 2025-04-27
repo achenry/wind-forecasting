@@ -18,7 +18,7 @@ logging:
 
 optuna:
   save_trial_code: false      # Default false
-  n_trials_per_worker: 400     # Test a total of 4*25=100 trials - 25 good
+  n_trials_per_worker: 400     # Test a total of 4*25=100 trials 
   # ~3 min/epoch = 2.5 hours per trial = ~10 days for 100 trials / 4 workers = 2.5 days (with 100 batches no pruning)
   max_epochs: 36              # epochs per trial - 36 good
   limit_train_batches: 250    # batches per epoch (large number to use all data) - 250 good
@@ -32,8 +32,8 @@ optuna:
     enabled: true             # Whether to enable pruning
     type: "hyperband"         # Options: "hyperband", "median"
     max_resource: 36          # Maximum number of epochs to train a trial [hyperband only] ~36
-    min_resource: 4          # Minimum number of epochs to train a trial [hyperband only] ~4
-    reduction_factor: 3     # Reduction factor for hyperband pruning ~3
+    min_resource: 4           # Minimum number of epochs to train a trial [hyperband only] ~4
+    reduction_factor: 3       # Reduction factor for hyperband pruning ~3
     # set up so log_n(max_resource/min_resource)+1 = between 4-6 brackets ideally [hyperband only]  
     bootstrap_count: 0        # Number of bootstrap samples to use 
     # n_startup_trials: 4       # Number of trials to wait until building the median for pruning - 6 good [median only]
@@ -54,7 +54,7 @@ optuna:
     # --- PostgreSQL Specific Settings ---
     # Path relative to project root (e.g., ~/wind-forecasting)
     pgdata_path: "/user/taed7566/Forecasting/wind-forecasting/optuna/pgdata" # Directory for PostgreSQL data files
-    pgdata_instance_name: "flasc_tactis" # CREATE NEW INSTANCE (DIRECTORY) FOR STUDIES #flasc_tactis, flasc_default
+    pgdata_instance_name: "flasc_tactis" # INFO: CREATE NEW INSTANCE (DIRECTORY) FOR STUDIES #flasc_tactis, flasc_default , keep same for resuming!!
     db_name: "optuna_study_db"  # Name of the PostgreSQL database
     db_user: "optuna_user"
     use_socket: true      # Use Unix domain socket for local connection (recommended on single node)
@@ -86,20 +86,20 @@ dataset:
     context_length: 600 # in seconds
     prediction_length: 300 # in seconds
     target_turbine_ids: # or leave blank to capture all
-    normalize: false
-    batch_size: 128 # for tuning: <= 128, for training: max_memory ~1024
+    normalize: false # TODO: Should I do this or Tactis-2 normalization?
+    batch_size: 128 # INFO: In tactis only affects gradient precision NOT SPEED! - for tuning: <= 128, for training: max_memory ~1024
     workers: 32 # Consider adjusting based on CPU cores per task
     overfit: false
     test_split: 0.20
     val_split: 0.1
     resample_freq: 60s
     n_splits: 1 # how many divisions of each continuity group to make which is further subdivided into training test and validation data
-    per_turbine_target: false # Supposedly is better true
-    context_length_factor: 2  # Factor to multiply prediction_length by
+    per_turbine_target: false # TODO: Test this option. Tune??
+    context_length_factor: 2  # INFO: Being tuned - Factor to multiply prediction_length by
 
 model:
   distr_output:
-    class: "LowRankMultivariateNormalOutput" # Doesn't apply to TACTiS-2 TODO: UPDATE
+    class: "LowRankMultivariateNormalOutput" # Doesn't apply to TACTiS-2
     kwargs:
       rank: 5
       sigma_init: 0.2
@@ -108,16 +108,16 @@ model:
   # [ TACTiS-2 ]
   tactis:
     # General TACTiS settings
-    initial_stage: 1
-    stage2_start_epoch: 10 # Epoch to start stage 2 (copula training)
-    ac_mlp_layers: 2
-    ac_activation_function: "relu"
-    input_encoding_normalization: true
-    scaling: null # Options: "mean", "std", null
-    loss_normalization: "series" # Options: "series", "timesteps", "both", "none"
+    initial_stage: 1 # INFO: FIXED
+    stage2_start_epoch: 10 # Epoch to start stage 2 (copula training) INFO: Now tuning
+    ac_mlp_layers: 2 # MLP layers for attention copula INFO: Now tuning
+    ac_activation_function: "relu" # Attention copula activation func. [relu, leaky-relu, gelu, swish, mish] INFO: Now tuning
+    input_encoding_normalization: true # INFO: FIXED
+    scaling: null # Options: "mean", "std", null # INFO: FIXED
+    loss_normalization: "series" # Options: "series", "timesteps", "both", "none" INFO: Now tuning
     encoder_type: "standard" # Options: "standard", "temporal"
-    bagging_size: null # Optional, defaults to None in estimator
-    num_parallel_samples: 100
+    bagging_size: null # Optional, defaults to None in estimator # INFO: Now tuning
+    num_parallel_samples: 100 # INFO: FIXED - Inference only setting
     # Marginal CDF Encoder
     marginal_embedding_dim_per_head: 8
     marginal_num_heads: 5
@@ -222,11 +222,11 @@ callbacks:
       init_args:
         logging_interval: epoch # Log every step/epoch
         log_momentum: false
-    dead_neuron_monitor: #[custom callback] Currently only works for tactis-2 (check utils/callbacks.py)
+    dead_neuron_monitor: # INFO @boujuan [custom callback] Currently only works for tactis-2 (check utils/callbacks.py)
       enabled: true
 
 trainer:
-    gradient_clip_val: 0.0 # Prevents gradient explosion if > 0. Renamed from grad_clip_norm. # TODO: check if this or model's setting being used
+    gradient_clip_val: 0.0 # Prevents gradient explosion if > 0. Renamed from grad_clip_norm.
     # limit_val_batches: 1.0
     # val_check_interval: 1.0
     accelerator: gpu # 'cpu' or 'gpu'
@@ -237,7 +237,7 @@ trainer:
     # debug: false
     # accumulate: 1.0
     max_epochs: 50 # Maximum number of epochs to train 100
-    limit_train_batches: 50000 # Set to integer number of steps to train on (context+prediction length)
+    limit_train_batches: 50000 # INFO: Training-only setting (not tuning) Set to integer number of steps to train on (context+prediction length)
     # default_root_dir: ${logging.checkpoint_dir}  # Changed from direct path to use log_dir
     # precision: 16-mixed # 16-mixed enables mixed precision training 32-true is full precision
     # batch_size: 32 # larger = more stable gradients
