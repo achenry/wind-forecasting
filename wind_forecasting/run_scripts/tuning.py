@@ -788,7 +788,8 @@ def get_tuned_params(storage, study_name):
     try:
         study_id = storage.get_study_id_from_name(study_name)
     except Exception:
-        raise FileNotFoundError(f"Optuna study {study_name} not found. Please run tune_hyperparameters_multi for all outputs first.")
+        available_studies = storage.get_all_studies()
+        raise FileNotFoundError(f"Optuna study {study_name} not found. Please run tune_hyperparameters_multi for all outputs first. Available studies are: {available_studies}.")
     # self.model[output].set_params(**storage.get_best_trial(study_id).params)
     # storage.get_all_studies()[0]._study_id
     # estimato = self.create_model(**storage.get_best_trial(study_id).params)
