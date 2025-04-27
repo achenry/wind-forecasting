@@ -58,8 +58,8 @@ optuna:
     db_name: "optuna_study_db"  # Name of the PostgreSQL database
     db_user: "optuna_user"
     use_socket: true      # Use Unix domain socket for local connection (recommended on single node)
-    socket_dir_base: "${logging.optuna_dir}/sockets" # Base directory for socket files
-    sync_dir: "${logging.optuna_dir}/sync"           # Directory for synchronization files
+    socket_dir_base: "/user/taed7566/Forecasting/wind-forecasting/optuna/sockets" # Base directory for socket files
+    sync_dir: "/user/taed7566/Forecasting/wind-forecasting/optuna/sync"           # Directory for synchronization files
 
     # --- Optional TCP/IP Settings (if use_socket is false) ---
     # use_tcp: false
