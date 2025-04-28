@@ -623,9 +623,8 @@ class MLTuningObjective:
                         instantiation_stage_info = "Stage Unknown (Determination Failed)"
 
                 for key, val in init_args.items():
-                     if key not in ['model_config', 'initial_stage'] and key not in hparams:
-                         if key in module_params:
-                              logging.warning(f"Hyperparameter '{key}' not found in checkpoint, using default value from config: {val}")
+                     if (key not in ['model_config', 'initial_stage']) and (key not in hparams) and (key in module_params):
+                        logging.warning(f"Hyperparameter '{key}' not found in checkpoint, using default value from config: {val}")
 
                 missing_args = [k for k, v in init_args.items() if v is None and k not in ['model_config', 'initial_stage']]
 
