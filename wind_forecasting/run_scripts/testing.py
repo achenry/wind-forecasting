@@ -185,18 +185,27 @@ def get_checkpoint(checkpoint, metric, mode, log_dir):
         checkpoint_paths = glob(os.path.join(log_dir, "*/*.ckpt")) + glob(os.path.join(log_dir, "*/*/*.ckpt"))
         # version_dirs = glob(os.path.join(log_dir, "*"))
         if len(checkpoint_paths) == 0:
-            logging.warning(f"There are no checkpoint files in {log_dir}, returning None.")
-            return None
+            logging.error(f"There are no checkpoint files in {log_dir}, returning None.")
+            raise FileNotFoundError
         
     elif not os.path.exists(checkpoint):
-        logging.warning(f"There is no checkpoint file at {checkpoint}, returning None.")
-        return None
+        logging.error(f"There is no checkpoint file at {checkpoint}, returning None.")
+        raise FileNotFoundError
+    
     # TODO high is the latest checkpoint always the best
     if checkpoint == "best":
         best_metric_value = float('inf') if mode == "min" else float('-inf')
         best_checkpoint_path = None
         for checkpoint_path in checkpoint_paths:
-            checkpoint = torch.load(checkpoint_path, map_location="gpu" if torch.cuda.is_available() else "cpu", weights_only=False)
+            if torch.cuda.is_available():
+                device = None # f"cuda:{int(os.environ['CUDA_VISIBLE_DEVICES'].split(",")[0])}"
+                # device = f"cuda:{assigned_gpu or 0}"
+                # logging.info(f"Loading checkpoint onto CUDA device {device}")
+            else:
+                device = "cpu"
+                logging.info(f"Loading checkpoint onto cpu core.")
+            checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
+            
             mc_callback = [cb_vals for cb_key, cb_vals in checkpoint["callbacks"].items() if "ModelCheckpoint" in cb_key][0]
             if (mode == "min" and mc_callback["best_model_score"] < best_metric_value) or (mode == "max" and mc_callback["best_model_score"] > best_metric_value):
                 best_metric_value = mc_callback["best_model_score"]
