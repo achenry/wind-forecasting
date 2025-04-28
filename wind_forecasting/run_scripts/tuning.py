@@ -783,9 +783,9 @@ class MLTuningObjective:
 
 
 def get_tuned_params(storage, study_name):
-    logging.info(f"Getting storage for Optuna study {study_name}.")  
+    logging.info(f"Getting storage for Optuna study {study_name}.")
+    full_study_name = sorted(storage.get_all_studies(), key=lambda study: int(re.search(f"(?<={study_name}_)(\\d+)", study.study_name).group()))[-1]
     try:
-        full_study_name = sorted(storage.get_all_studies(), key=lambda study: int(re.search(f"(?<={study_name}_)(\\d+)", study.study_name).group()))[-1]
         study_id = storage.get_study_id_from_name(full_study_name)
     except Exception:
         available_studies = [study.study_name for study in storage.get_all_studies()]
