@@ -83,8 +83,9 @@ optuna:
 dataset:
     data_path: /home/boujuan/wind-forecasting-project/wind-forecasting/examples/data/preprocessed_flasc_data/SMARTEOLE_WakeSteering_SCADA_1minData_normalized.parquet
     normalization_consts_path:  /home/boujuan/wind-forecasting-project/wind-forecasting/examples/data/preprocessed_flasc_data/SMARTEOLE_WakeSteering_SCADA_1minData_normalization_consts.csv
-    context_length: 600 # in seconds
-    prediction_length: 120 # in seconds
+    # Set lengths to match the apparent trained architecture (20 context + 5 prediction = 25 steps)
+    context_length: 1200 # 20 steps * 60s
+    prediction_length: 300 # 5 steps * 60s
     target_turbine_ids: # or leave blank to capture all
     normalize: false # TODO: Should I do this or Tactis-2 normalization?
     batch_size: 128 # INFO: In tactis only affects gradient precision NOT SPEED! - for tuning: <= 128, for training: max_memory ~1024
