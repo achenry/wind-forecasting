@@ -222,7 +222,6 @@ class MLTuningObjective:
         params = self.estimator_class.get_params(trial, self.tuning_phase, 
                                                  dynamic_kwargs=self.dynamic_params)
         
-        
         if "resample_freq" in params or "per_turbine" in params:
             self.data_module.freq = f"{params['resample_freq']}s"
             self.data_module.per_turbine_target = params["per_turbine"]

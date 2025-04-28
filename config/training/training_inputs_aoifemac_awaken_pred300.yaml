@@ -2,7 +2,7 @@
 
 experiment:
   username: aoife-henry
-  project_name: wind_forecasting_awaken
+  project_name: wind_forecasting_awaken_pred300
   run_name: aoifemac_awaken_pred300
   log_dir: /Users/ahenry/Documents/toolboxes/wind_forecasting/logging/
   project_root: /Users/ahenry/Documents/toolboxes/wind_forecasting
