@@ -50,18 +50,18 @@ optuna:
 
   # Storage backend configuration
   storage:
-    backend: "postgresql"  # Options: "postgresql", "sqlite"
-    # --- PostgreSQL Specific Settings ---
+    backend: "sqlite"  # Options: "postgresql", "sqlite"
+    # --- PostgreSQL Specific Settings (Commented out) ---
     # Path relative to project root (e.g., ~/wind-forecasting)
-    pgdata_path: "/home/boujuan/wind-forecasting-project/wind-forecasting/optuna/pgdata" # Directory for PostgreSQL data files
-    pgdata_instance_name: "flasc_tactis" # INFO: CREATE NEW INSTANCE (DIRECTORY) FOR STUDIES #flasc_tactis, flasc_default , keep same for resuming!!
-    db_name: "optuna_study_db"  # Name of the PostgreSQL database
-    db_user: "optuna_user"
-    use_socket: true      # Use Unix domain socket for local connection (recommended on single node)
-    socket_dir_base: "/home/boujuan/wind-forecasting-project/wind-forecasting/optuna/sockets" # Base directory for socket files
-    sync_dir: "/home/boujuan/wind-forecasting-project/wind-forecasting/optuna/sync"           # Directory for synchronization files
+    # pgdata_path: "/home/boujuan/wind-forecasting-project/wind-forecasting/optuna/pgdata" # Directory for PostgreSQL data files
+    # pgdata_instance_name: "flasc_tactis" # INFO: CREATE NEW INSTANCE (DIRECTORY) FOR STUDIES #flasc_tactis, flasc_default , keep same for resuming!!
+    # db_name: "optuna_study_db"  # Name of the PostgreSQL database
+    # db_user: "optuna_user"
+    # use_socket: true      # Use Unix domain socket for local connection (recommended on single node)
+    # socket_dir_base: "/home/boujuan/wind-forecasting-project/wind-forecasting/optuna/sockets" # Base directory for socket files
+    # sync_dir: "/home/boujuan/wind-forecasting-project/wind-forecasting/optuna/sync"           # Directory for synchronization files
 
-    # --- Optional TCP/IP Settings (if use_socket is false) ---
+    # --- Optional TCP/IP Settings (if use_socket is false) (Commented out) ---
     # use_tcp: false
     # db_host: "localhost"
     # db_port: 5432
@@ -70,9 +70,9 @@ optuna:
     # run_cmd_shell: false # Set to true if specific commands require shell=True
 
     # --- SQLite Specific Settings (not used if backend is postgresql) ---
-    # sqlite_path: "logging/optuna/study.db" Relative path for SQLite file if backend="sqlite"
-    # sqlite_wal: true  Enable WAL mode for SQLite
-    # sqlite_timeout: 600  Timeout in seconds for SQLite locks
+    sqlite_path: "wind-forecasting/optuna/flasc_tactis.db" # Relative path for SQLite file if backend="sqlite"
+    sqlite_wal: true  # Enable WAL mode for SQLite (Recommended)
+    sqlite_timeout: 600  # Timeout in seconds for SQLite locks
 
   # Optuna Dashboard auto-launch configuration
   dashboard:

@@ -34,8 +34,7 @@ def setup_optuna_storage(db_setup_params, restart_tuning, rank):
     elif storage_backend == "sqlite":
         # Setup for SQLite database
         storage = setup_sqlite(
-            sqlite_storage_dir=db_setup_params["storage_dir"], # Use resolved storage_dir
-            study_name=db_setup_params["study_name"],
+            db_setup_params=db_setup_params, # Pass the full params dict
             restart_tuning=restart_tuning,
             rank=rank
         )
@@ -239,17 +238,33 @@ def restart_sqlite_rank_zero(sqlite_abs_path):
          except OSError as e:
              logging.error(f"Failed to remove SQLite file {sqlite_abs_path}: {e}")
 
-def setup_sqlite(sqlite_storage_dir, study_name, restart_tuning, rank):
+def setup_sqlite(db_setup_params, restart_tuning, rank):
     """
-    Sets up SQLite storage for Optuna.
+    Sets up SQLite storage for Optuna, prioritizing explicit path if provided.
     """
-    # Construct the SQLite URL based on config
-    db_path = os.path.join(sqlite_storage_dir, f'{study_name}.db')
-    # if rank == 0 and restart_tuning:
-    #    if os.path.exists(db_path):
-    #        restart_sqlite_rank_zero(db_path)
-    #    else:
-    #        logging.warning(f"Could not find existing SQLite storage to delete at {db_path}.")
+    # Prioritize explicit sqlite_path from config if available
+    if "sqlite_path" in db_setup_params and db_setup_params["sqlite_path"]:
+        db_path = db_setup_params["sqlite_path"]
+        # Ensure the directory exists if the path is relative
+        db_dir = os.path.dirname(db_path)
+        if db_dir and not os.path.exists(db_dir):
+             os.makedirs(db_dir, exist_ok=True)
+        logging.info(f"Using explicit SQLite path from config: {db_path}")
+    else:
+        # Fallback: Construct the SQLite URL based on storage_dir and study_name
+        sqlite_storage_dir = db_setup_params.get("storage_dir", ".") # Default to current dir if not set
+        study_name = db_setup_params.get("study_name", "optuna_study")
+        db_path = os.path.join(sqlite_storage_dir, f'{study_name}.db')
+        logging.info(f"Constructed SQLite path: {db_path}")
+
+    # Handle restart logic (rank 0 only)
+    if rank == 0 and restart_tuning:
+       if os.path.exists(db_path):
+           # restart_sqlite_rank_zero(db_path) # Keep commented for now, but indent correctly
+           pass # Add pass to avoid empty block if restart is commented
+       # else: # Keep commented for now, but indent correctly
+           # logging.warning(f"Could not find existing SQLite storage to delete at {db_path}.")
+           # pass # Add pass if needed
     
     optuna_storage_url = f"sqlite:///{db_path}"
     logging.info(f"Using SQLite storage URL: {optuna_storage_url}")
