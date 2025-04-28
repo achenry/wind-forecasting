@@ -31,7 +31,7 @@ export NUMEXPR_MAX_THREADS=128
 # --- Create Logging Directories ---
 # Create the job-specific directory for worker logs and final main logs
 mkdir -p ${LOG_DIR}/slurm_logs/${SLURM_JOB_ID}
-mkdir -p ${LOG_DIR}/checkpoints
+mkdir -p ${LOG_DIR}/checkpoints # TODO this isn't used
 
 # --- Change to Working Directory ---
 # cd ${WORK_DIR} || exit 1 # Exit if cd fails

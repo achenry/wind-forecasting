@@ -101,7 +101,6 @@ model:
     initial_stage: 1
     stage2_start_epoch: 10
     input_encoding_normalization: true
-    scaling: null # Options: "mean", "std", null
     loss_normalization: "std" # Options: "series", "timesteps", "both", "none"
     encoder_type: "standard" # Options: "standard", "temporal"
     bagging_size: null # Optional, defaults to None in estimator
