@@ -224,7 +224,7 @@ class DataModule():
         self.get_dataset_info(dataset)
         split_files_exist = all(os.path.exists(self.train_ready_data_path.replace(".parquet", f"_{split}.pkl")) for split in splits)
 
-        if rank == 0 and (not reload or not split_files_exist):
+        if rank == 0 and (reload or not split_files_exist):
             logging.info(f"Rank 0: Generating splits (reload={reload}, files_exist={split_files_exist}).")
             if self.per_turbine_target:
                 if self.verbose:
@@ -374,7 +374,8 @@ class DataModule():
             logging.info(f"Rank {rank}: Waiting at barrier before loading splits.")
             dist.barrier()
             logging.info(f"Rank {rank}: Passed barrier.")
-        if rank != 0 or (reload and split_files_exist):
+        
+        if rank != 0 or (not reload and split_files_exist):
             logging.info(f"Rank {rank}: Loading saved split datasets.")
             for split in splits:
                 split_path = self.train_ready_data_path.replace(".parquet", f"_{split}.pkl")
