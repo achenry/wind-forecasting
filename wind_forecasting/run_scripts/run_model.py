@@ -147,6 +147,11 @@ def main():
                                 logging.info(f"Primary GPU is system device {actual_gpu}, mapped to CUDA index {device_id}")
                             except ValueError:
                                 logging.warning(f"Could not parse GPU index from CUDA_VISIBLE_DEVICES: {visible_gpus[0]}")
+                        
+                        if config["trainer"]["strategy"] == "ddp" and args.model == "tactis":
+                            logging.warning("Setting strategy to 'ddp_find_unused_parameters' since TACTiS-2 is used.")
+                            config["trainer"]["strategy"] = "ddp_find_unused_parameters"
+                        
                     else:
                         logging.warning("CUDA_VISIBLE_DEVICES is set but no valid GPU indices found")
                 except Exception as e:
@@ -350,6 +355,10 @@ def main():
     if args.mode == "tune" or (args.mode == "train" and args.use_tuned_parameters):
         # %% SETUP & SYNCHRONIZE DATABASE
         # Extract necessary parameters for DB setup explicitly
+        if args.mode == "train":
+            args.restart_tuning = False
+        
+        logging.info(f"Accessing Optuna storage.")
         db_setup_params = generate_df_setup_params(args.model, config)
         optuna_storage = setup_optuna_storage(
             db_setup_params=db_setup_params,
@@ -386,7 +395,11 @@ def main():
             logging.info(f"Declaring estimator {args.model.capitalize()} with tuned parameters")
         else:
             logging.info(f"Declaring estimator {args.model.capitalize()} with default parameters")
-            context_length = data_module.context_length
+            if "context_length_factor" in config["model"][args.model]:
+                context_length = int(config["model"][args.model]["context_length_factor"] * data_module.prediction_length)
+                del config["model"][args.model]["context_length_factor"]
+            else:
+             context_length = data_module.context_length
             
         # Set up parameters for checkpoint finding
         metric = config.get("trainer", {}).get("monitor_metric", "val_loss")

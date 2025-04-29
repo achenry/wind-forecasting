@@ -280,6 +280,7 @@ def setup_sqlite(db_setup_params, restart_tuning, rank):
 def setup_journal(storage_dir, study_name, restart_tuning, rank):
     if rank == 0:
         logging.info(f"Connecting to Journal database {study_name}")
+        
         optuna_storage_url = os.path.join(storage_dir, f"{study_name}.db")
         
     storage = JournalStorage(JournalFileBackend(optuna_storage_url))

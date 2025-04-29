@@ -2,7 +2,7 @@
 
 experiment:
   username: aoife-henry
-  project_name: wind_forecasting_awaken
+  project_name: wind_forecasting_awaken_pred300
   run_name: aoifemac_awaken_pred300
   log_dir: /projects/ssc/ahenry/wind_forecasting/logging/
   project_root: /projects/ssc/ahenry/wind_forecasting/
@@ -88,8 +88,8 @@ dataset:
     val_split: 0.1
     resample_freq: 30s
     n_splits: 1 # how many divisions of each continuity group to make which is further subdivided into training test and validation data
-    per_turbine_target: False
-    context_length_factor: 2
+    per_turbine_target: True
+    # context_length_factor: 2
 
 
 model:
@@ -217,6 +217,6 @@ trainer:
     accelerator: gpu
     devices: auto
     num_nodes: 1
-    strategy: ddp_find_unused_parameters_true
+    strategy: ddp
     max_epochs: 100 # Maximum number of epochs to train 100
     limit_train_batches: 5000

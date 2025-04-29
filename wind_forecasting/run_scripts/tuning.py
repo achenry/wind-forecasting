@@ -10,7 +10,6 @@ import gc
 import time # Added for load_study retry delay
 import inspect
 from itertools import product
-import collections.abc
 from pathlib import Path
 import subprocess
 import re # Added for epoch parsing
@@ -27,7 +26,6 @@ import wandb
 from lightning.pytorch.loggers import WandbLogger
 from lightning.pytorch.callbacks import ModelCheckpoint
 from wind_forecasting.utils.callbacks import DeadNeuronMonitor
-from optuna import create_study
 
 from wind_forecasting.utils.optuna_visualization import launch_optuna_dashboard, log_optuna_visualizations_to_wandb
 from wind_forecasting.utils.optuna_table import log_detailed_trials_table_to_wandb
@@ -55,10 +53,12 @@ def generate_df_setup_params(model, model_config):
     resolved_optuna_dir = resolve_path(project_root, optuna_dir_from_config)
     if not resolved_optuna_dir:
         raise ValueError("logging.optuna_dir is required but not found or resolved.")
+    
+    backend = storage_cfg.get("backend", "sqlite")
 
     # Get instance name for PostgreSQL data directory
     pgdata_instance_name = storage_cfg.get("pgdata_instance_name", "default")
-    if pgdata_instance_name == "default":
+    if backend == "postgresql" and pgdata_instance_name == "default":
         logging.warning("No 'pgdata_instance_name' specified in config. Using default instance name.")
     
     # Resolve pgdata path with instance name
@@ -89,7 +89,7 @@ def generate_df_setup_params(model, model_config):
     resolved_sync_dir = resolve_path(project_root, sync_dir_str) # Make absolute
 
     db_setup_params = {
-        "backend": storage_cfg.get("backend", "sqlite"),
+        "backend": backend,
         "project_root": project_root,
         "pgdata_path": resolved_pgdata_path,
         "study_name": base_study_prefix,  # This is now the base prefix, not final study name
@@ -235,7 +235,6 @@ class MLTuningObjective:
         params = self.estimator_class.get_params(trial, self.tuning_phase, 
                                                  dynamic_kwargs=self.dynamic_params)
         
-        
         if "resample_freq" in params or "per_turbine" in params:
             self.data_module.freq = f"{params['resample_freq']}s"
             self.data_module.per_turbine_target = params["per_turbine"]
@@ -284,11 +283,13 @@ class MLTuningObjective:
         # Create a unique directory for this trial's checkpoints
         checkpoint_dir = os.path.join(
             self.config.get("logging", {}).get("checkpoint_dir", "checkpoints"),
+            self.model,
             f"trial_{trial.number}"
         )
         os.makedirs(checkpoint_dir, exist_ok=True)
         
         # Create a trial-specific ModelCheckpoint instance
+        # TODO JUAN shouldn't this dir be deleted before tuning again?
         trial_checkpoint_callback = ModelCheckpoint(
             dirpath=checkpoint_dir,
             filename=f"trial_{trial.number}_{{epoch}}-{{step}}-{{{monitor_metric}:.2f}}",
@@ -645,9 +646,8 @@ class MLTuningObjective:
                         instantiation_stage_info = "Stage Unknown (Determination Failed)"
 
                 for key, val in init_args.items():
-                     if key not in ['model_config', 'initial_stage'] and key not in hparams:
-                         if key in module_params:
-                              logging.warning(f"Hyperparameter '{key}' not found in checkpoint, using default value from config: {val}")
+                     if (key not in ['model_config', 'initial_stage']) and (key not in hparams) and (key in module_params):
+                        logging.warning(f"Hyperparameter '{key}' not found in checkpoint, using default value from config: {val}")
 
                 missing_args = [k for k, v in init_args.items() if v is None and k not in ['model_config', 'initial_stage']]
 
@@ -715,19 +715,21 @@ class MLTuningObjective:
                         logging.info(f"Trial {trial.number}: Evaluating {self.model} using DistributionForecast with params: {eval_kwargs['output_distr_params']}")
 
                     forecast_it, ts_it = make_evaluation_predictions(**eval_kwargs)
+                    agg_metrics, _ = self.evaluator(ts_it, forecast_it, num_series=self.data_module.num_target_vars)
                 except Exception as e:
                     logging.error(f"Trial {trial.number} - Error making evaluation predictions: {str(e)}", exc_info=True)
                     raise RuntimeError(f"Error making evaluation predictions in trial {trial.number}: {str(e)}") from e
-
+            else:
+                agg_metrics = {}
+                
             # Metric Calculation
             try:
-                agg_metrics, _ = self.evaluator(ts_it, forecast_it, num_series=self.data_module.num_target_vars)
                 
                 # agg_metrics["trainable_parameters"] = summarize(estimator.create_lightning_module()).trainable_parameters
                 # self.metrics.append(agg_metrics.copy())
         
                 # not a perfect comparision, multiply per turbine case with number of turbines to approximate val_loss over full dataset
-                if params["per_turbine"]:
+                if params.get("per_turbine", False):
                      agg_metrics[model_checkpoint["monitor"]] = model_checkpoint["best_model_score"] * len(self.data_module.target_suffixes)
                 
                 monitor_metric = trial_checkpoint_callback.monitor
@@ -740,7 +742,6 @@ class MLTuningObjective:
                     logging.info(f"Trial {trial.number} - Setting {monitor_metric} to {best_score} from trial-specific checkpoint callback")
                 else:
                     logging.warning(f"Trial {trial.number} - No best_model_score available in the trial-specific checkpoint callback")
-
 
                 logging.info(f"Trial {trial.number} - Aggregated metrics calculated: {list(agg_metrics.keys())}")
             except Exception as e:
@@ -804,11 +805,19 @@ class MLTuningObjective:
 
 
 def get_tuned_params(storage, study_name):
-    logging.info(f"Getting storage for Optuna study {study_name}.")  
+    logging.info(f"Getting storage for Optuna prefix study name {study_name}.")
+    
+    available_studies = [study.study_name for study in storage.get_all_studies()]
+    if study_name in available_studies:
+        full_study_name = study_name
+    else:
+        full_study_name = sorted(storage.get_all_studies(), key=lambda study: int(re.search(f"(?<={study_name}_)(\\d+)", study.study_name).group()))[-1].study_name
+    
     try:
-        study_id = storage.get_study_id_from_name(study_name)
+        study_id = storage.get_study_id_from_name(full_study_name)
+        logging.info(f"Found storage for Optuna full study name {full_study_name}.")
     except Exception:
-        raise FileNotFoundError(f"Optuna study {study_name} not found. Please run tune_hyperparameters_multi for all outputs first.")
+        raise FileNotFoundError(f"Optuna study {full_study_name} not found. Please run tune_hyperparameters_multi for all outputs first. Available studies are: {available_studies}.")
     # self.model[output].set_params(**storage.get_best_trial(study_id).params)
     # storage.get_all_studies()[0]._study_id
     # estimato = self.create_model(**storage.get_best_trial(study_id).params)

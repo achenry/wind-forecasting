@@ -200,7 +200,10 @@ class DataModule():
             self.cardinality = None 
     
     # @profile # prints memory usage
-    def generate_splits(self, splits=None, save=False, reload=True):
+    def generate_splits(self, splits=None, save=False, reload=True, verbose=None):
+        if verbose is None:
+            verbose = self.verbose
+            
         if splits is None:
             splits = ["train", "val", "test"]
         assert all(split in ["train", "val", "test"] for split in splits)
@@ -221,12 +224,11 @@ class DataModule():
         self.get_dataset_info(dataset)
         split_files_exist = all(os.path.exists(self.train_ready_data_path.replace(".parquet", f"_{split}.pkl")) for split in splits)
 
-        if rank == 0 and (not reload or not split_files_exist):
+        if rank == 0 and (reload or not split_files_exist):
             logging.info(f"Rank 0: Generating splits (reload={reload}, files_exist={split_files_exist}).")
             if self.per_turbine_target:
                 if self.verbose:
                     logging.info(f"Rank 0: Splitting datasets for per turbine case.")
-
                 cg_counts = dataset.select("continuity_group").collect().to_series().value_counts().sort("continuity_group").select("count").to_numpy().flatten()
                 self.rows_per_split = [
                     int(n_rows / self.n_splits) 
@@ -267,7 +269,7 @@ class DataModule():
                         datasets = []
                         item_ids = list(getattr(self, f"{split}_dataset").keys())
                         for item_id in item_ids:
-                            if self.verbose:
+                            if verbose:
                                 logging.info(f"Transforming {split} dataset {item_id} into numpy form.")
                             ds = getattr(self, f"{split}_dataset")[item_id]
                             start_time = pd.Period(ds.select(pl.col("time").first()).collect().item(), freq=self.freq)
@@ -282,11 +284,11 @@ class DataModule():
                             del getattr(self, f"{split}_dataset")[item_id]
                         setattr(self, f"{split}_dataset", datasets)
 
-                if self.verbose:
+                if verbose:
                     logging.info(f"Finished splitting datasets for per turbine case.") 
 
             else:
-                if self.verbose:
+                if verbose:
                     logging.info(f"Splitting datasets for all turbine case.") 
                 
                 cg_counts = dataset.select("continuity_group").collect().to_series().value_counts().sort("continuity_group").select("count").to_numpy().flatten()
@@ -339,7 +341,7 @@ class DataModule():
                             })
                             del getattr(self, f"{split}_dataset")[item_id]
                         setattr(self, f"{split}_dataset", datasets)
-                if self.verbose:
+                if verbose:
                     logging.info(f"Finished splitting datasets for all turbine case.")
             
             if save:
@@ -354,7 +356,7 @@ class DataModule():
                         try:
                             with open(temp_path, 'wb') as fp:
                                 pickle.dump(getattr(self, f"{split}_dataset"), fp)
-                            logging.info(f"Rank 0: Atomically moving {temp_path} to {final_path}")
+                            logging.info(f"Rank 0: Automically moving {temp_path} to {final_path}")
                             os.rename(temp_path, final_path)
                         except Exception as e:
                             logging.error(f"Rank 0: Error saving {split} data: {e}")
@@ -372,7 +374,8 @@ class DataModule():
             logging.info(f"Rank {rank}: Waiting at barrier before loading splits.")
             dist.barrier()
             logging.info(f"Rank {rank}: Passed barrier.")
-        if rank != 0 or (reload and split_files_exist):
+        
+        if rank != 0 or (not reload and split_files_exist):
             logging.info(f"Rank {rank}: Loading saved split datasets.")
             for split in splits:
                 split_path = self.train_ready_data_path.replace(".parquet", f"_{split}.pkl")

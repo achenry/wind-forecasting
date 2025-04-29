@@ -2,8 +2,8 @@
 
 experiment:
   username: aoife-henry
-  project_name: wind_forecasting_awaken
-  run_name: aoifemac_awaken_pred60
+  project_name: wind_forecasting_awaken_pred300
+  run_name: aoifemac_awaken_pred300
   log_dir: /Users/ahenry/Documents/toolboxes/wind_forecasting/logging/
   project_root: /Users/ahenry/Documents/toolboxes/wind_forecasting
   notes: "Tuning AWAKEN with Informer+"
@@ -109,7 +109,6 @@ model:
     initial_stage: 1
     stage2_start_epoch: 10
     input_encoding_normalization: true
-    scaling: null # Options: "mean", "std", null
     loss_normalization: "std" # Options: "series", "timesteps", "both", "none"
     encoder_type: "standard" # Options: "standard", "temporal"
     bagging_size: null # Optional, defaults to None in estimator
@@ -225,7 +224,7 @@ trainer:
     accelerator: cpu
     devices: auto
     num_nodes: 1
-    strategy: ddp_find_unused_parameters_true
+    strategy: ddp
     # n_workers: auto
     # debug: False 
     # accumulate: 1.0

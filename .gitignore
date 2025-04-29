@@ -13,6 +13,7 @@ __pycache__/
 *.db-shm
 *.db-wal
 launch.json
+logs/
 
 # wind_forecasting/run_scripts/lightning_logs/
 # logging/lightning_logs

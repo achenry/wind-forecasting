@@ -1,0 +1,4 @@
+scp -r ahenry@kestrel.hpc.nrel.gov:/projects/ssc/ahenry/wind_forecasting/logging/wind_forecasting_awaken_autoformer/\* /Users/ahenry/Documents/toolboxes/wind_forecasting/logging/wind_forecasting_awaken_autoformer/
+scp -r ahenry@kestrel.hpc.nrel.gov:/projects/ssc/ahenry/wind_forecasting/logging/wind_forecasting_awaken_informer/\* /Users/ahenry/Documents/toolboxes/wind_forecasting/logging/wind_forecasting_awaken_informer/
+scp -r ahenry@kestrel.hpc.nrel.gov:/projects/ssc/ahenry/wind_forecasting/logging/wind_forecasting_awaken_tactis/\* /Users/ahenry/Documents/toolboxes/wind_forecasting/logging/wind_forecasting_awaken_tactis/
+scp -r ahenry@kestrel.hpc.nrel.gov:/projects/ssc/ahenry/wind_forecasting/logging/wind_forecasting_awaken_spacetimeformer/\* /Users/ahenry/Documents/toolboxes/wind_forecasting/logging/wind_forecasting_awaken_spacetimeformer/

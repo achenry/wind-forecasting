@@ -1,23 +1,30 @@
 
 
 experiment:
-  run_name: rc_awaken
-  log_dir: /pl/active/paolab/wind_forecasting/logging/
-  project_root: /projects/aohe7145/toolboxes/wind_forecasting_env/wind-forecasting/
+  username: aoife-henry
+  project_name: wind_forecasting_awaken_pred300
+  run_name: aoifemac_awaken_pred300
+  log_dir: /projects/ssc/ahenry/wind_forecasting/logging/
+  project_root: /projects/ssc/ahenry/wind_forecasting/
+  notes: "Tuning AWAKEN with Informer+"
+  extra_tags: ["awaken", "pred300"] # By default already has GPU id, model and mode.
 
-# logging:
-#   wandb_dir: /pl/active/paolab/wind_forecasting/logging/ # WandB will create a 'wandb' subdirectory here automatically
-#   optuna_dir: /pl/active/paolab/wind_forecasting/logging/optuna/
-#   checkpoint_dir: /pl/active/paolab/wind_forecasting/logging/checkpoints/
-#   slurm_output_dir: /pl/active/paolab/wind_forecasting/logging/slurm_logs/
+logging:
+  entity: jmb0507-cu-boulder # Wandb entity (group name)
+  wandb_mode: online
+  save_code: true # Save code to wandb
+  wandb_dir: /projects/ssc/ahenry/wind_forecasting/logging/ # WandB will create a 'wandb' subdirectory here automatically
+  optuna_dir: /projects/ssc/ahenry/wind_forecasting/logging/optuna/
+  checkpoint_dir: /projects/ssc/ahenry/wind_forecasting/logging/checkpoints/
+  slurm_output_dir: /projects/ssc/ahenry/wind_forecasting/logging/slurm_logs/
 
 optuna:
-  # storage_dir: /scratch/alpine/aohe7145/optuna
-  n_trials: 100
-  metric: val_loss
-  direction: minimize
-  max_epochs: 10
-  limit_train_batches: 1000
+  save_trial_code: false      # Default false
+  n_trials_per_worker: 100     # Test a total of 4*12=48 trials
+  max_epochs: 10              # epochs per trial
+  limit_train_batches: 1000    # batches per epoch
+  metric: "val_loss" # The metric to optimize
+  direction: "minimize"       # Whether to minimize or maximize the metric
 
   resample_freq_choices: [15, 30, 45, 60] # Resample frequency in seconds
   
@@ -29,7 +36,7 @@ optuna:
     reduction_factor: 3       # Hyperband reduction factor (default: 3)
     max_resource: 10
     percentile": 25
-  
+
   # Optuna visualization configuration (additional to wandb)
   visualization:
     enabled: true
@@ -41,10 +48,16 @@ optuna:
       
   # Storage backend configuration
   storage:
-    backend: "sqlite"  # Options: "postgresql", "sqlite", "mysql", "journal"
+    backend: "mysql"  # Options: "postgresql", "sqlite", "mysql", "journal"
     # --- SQLite Specific Settings (not used if backend is postgresql) ---
+    # storage_dir: /projects/ssc/ahenry/wind_forecasting/optuna
     sqlite_wal: true  # Enable WAL mode for SQLite
     sqlite_timeout: 600 # Timeout in seconds for SQLite locks
+
+    # --- MySQL Specific Settings --- #
+    db_host: tlv51ahenry01.nrel.gov # 10.121.2.72
+    db_port: 3306
+    db_user: optuna_user
 
     # --- Optional TCP/IP Settings (if use_socket is false) ---
     # use_tcp: false
@@ -53,7 +66,7 @@ optuna:
 
     # --- Optional Command Execution Settings ---
     # run_cmd_shell: false # Set to true if specific commands require shell=True
-
+    
   # Optuna Dashboard auto-launch configuration
   dashboard:
     enabled: true             # Set to true to automatically launch the dashboard on rank 0
@@ -62,8 +75,8 @@ optuna:
 
 
 dataset: 
-    data_path: /pl/active/paolab/wind_forecasting/awaken_data/awaken_processed_normalized.parquet
-    normalization_consts_path: /pl/active/paolab/wind_forecasting/awaken_data/awaken_processed_normalization_consts.csv
+    data_path: /projects/ssc/ahenry/wind_forecasting/awaken_data/awaken_processed_normalized.parquet
+    normalization_consts_path: /projects/ssc/ahenry/wind_forecasting/awaken_data/awaken_processed_normalization_consts.csv
     context_length: 600 # in seconds
     prediction_length: 300 # in seconds
     target_turbine_ids: # or leave blank to capture all
@@ -75,8 +88,8 @@ dataset:
     val_split: 0.1
     resample_freq: 30s
     n_splits: 1 # how many divisions of each continuity group to make which is further subdivided into training test and validation data
-    per_turbine_target: True
-    context_length_factor: 2
+    per_turbine_target: False
+    # context_length_factor: 2
 
 model:
   distr_output: 
@@ -145,7 +158,7 @@ model:
     # embedding_dimension: 32 # Determines dimension of the embedding space
     num_encoder_layers: 3 # Number of transformer blocks stacked
     num_decoder_layers: 3 # Number of transformer blocks stacked
-    n_heads: 4 # Number of heads for spatio-temporal attention
+    n_heads: 3 # Number of heads for spatio-temporal attention
     d_model: 200
     dim_feedforward: 800
     d_queries_keys: 30
@@ -203,15 +216,5 @@ trainer:
     devices: auto
     num_nodes: 1
     strategy: ddp
-    # n_workers: auto
-    # debug: False 
-    # accumulate: 1.0
-    max_epochs: 10 # Maximum number of epochs to train 100
-    limit_train_batches: 1000
-    default_root_dir: /pl/active/paolab/wind_forecasting/checkpoints
-    # precision: 32-true # 16-mixed enables mixed precision training 32-true is full precision
-    # batch_size: 32 # larger = more stable gradients
-    # lr: 0.0001 # Step size
-    # dropout: 0.1 # Regularization parameter (prevents overfitting)
-    # patience: 50 # Number of epochs to wait before early stopping
-    # accumulate_grad_batches: 2 # Simulates a larger batch size
+    max_epochs: 100 # Maximum number of epochs to train 100
+    limit_train_batches: 5000

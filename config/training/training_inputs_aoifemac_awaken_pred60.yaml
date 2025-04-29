@@ -2,7 +2,7 @@
 
 experiment:
   username: aoife-henry
-  project_name: wind_forecasting_awaken
+  project_name: wind_forecasting_awaken_pred60
   run_name: aoifemac_awaken_pred60
   log_dir: /Users/ahenry/Documents/toolboxes/wind_forecasting/logging/
   project_root: /Users/ahenry/Documents/toolboxes/wind_forecasting
@@ -86,7 +86,7 @@ dataset:
     prediction_length: 60 # in seconds
     target_turbine_ids:  # or leave blank to capture all
     normalize: False 
-    batch_size: 128
+    batch_size: 64
     workers: 12
     overfit: False
     test_split: 0.20
@@ -105,11 +105,16 @@ model:
     ############# MODEL-SPECIFIC PARAMETERS ##############
   # [ TACTiS-2 ]
   tactis:
+    # context_length_factor: 2
+    # encoder_type: standard
+    # marginal_embedding_dim_per_head: 64
+    # marginal_num_heads: 6
+    # marginal_num_layers: 4
+    # flow_input_encoder_layers: 3
     # General TACTiS settings
     initial_stage: 1
     stage2_start_epoch: 10
     input_encoding_normalization: true
-    scaling: null # Options: "mean", "std", null
     loss_normalization: "std" # Options: "series", "timesteps", "both", "none"
     encoder_type: "standard" # Options: "standard", "temporal"
     bagging_size: null # Optional, defaults to None in estimator
@@ -160,6 +165,12 @@ model:
     n_heads: 8 # Number of heads for spatio-temporal attention
     dim_feedforward: 2048
     activation: gelu
+    # num_encoder_layers: 3 # Number of transformer blocks stacked
+    # num_decoder_layers: 1 # Number of transformer blocks stacked
+    # n_heads: 6 # Number of heads for spatio-temporal attention
+    # dim_feedforward: 2048
+    # activation: gelu
+    # context_length_factor: 3
   spacetimeformer:
     # embedding_dimension: 32 # Determines dimension of the embedding space
     num_encoder_layers: 3 # Number of transformer blocks stacked
@@ -225,7 +236,7 @@ trainer:
     accelerator: cpu
     devices: auto
     num_nodes: 1
-    strategy: ddp_find_unused_parameters_true
+    strategy: ddp
     # n_workers: auto
     # debug: False 
     # accumulate: 1.0
