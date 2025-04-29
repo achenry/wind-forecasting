@@ -6,10 +6,10 @@
 #SBATCH --cpus-per-task=32           # CPUs per task (4 tasks * 32 = 128 CPUs total) [1 CPU/GPU more than enough]
 #SBATCH --mem-per-cpu=4096          # Memory per CPU (Total Mem = ntasks * cpus-per-task * mem-per-cpu) [flasc uses only ~4-5 GiB max]
 #SBATCH --gres=gpu:H100:4           # Request 4 H100 GPUs
-#SBATCH --time=2-00:00              # Time limit (up to 7 days)
-#SBATCH --job-name=flasc_tune_v2
-#SBATCH --output=/user/taed7566/Forecasting/wind-forecasting/logs/slurm_logs/flasc_tune_v2_%j.out
-#SBATCH --error=/user/taed7566/Forecasting/wind-forecasting/logs/slurm_logs/flasc_tune_v2_%j.err
+#SBATCH --time=1-12:00              # Time limit (up to 7 days)
+#SBATCH --job-name=flasc_tune
+#SBATCH --output=/user/taed7566/Forecasting/wind-forecasting/logs/slurm_logs/flasc_tune_%j.out
+#SBATCH --error=/user/taed7566/Forecasting/wind-forecasting/logs/slurm_logs/flasc_tune_%j.err
 #SBATCH --hint=nomultithread        # Disable hyperthreading
 #SBATCH --distribution=block:block  # Improve GPU-CPU affinity
 #SBATCH --gres-flags=enforce-binding # Enforce binding of GPUs to tasks
@@ -24,7 +24,7 @@ export WORK_DIR="${BASE_DIR}/wind_forecasting"
 export LOG_DIR="${BASE_DIR}/logs"
 export CONFIG_FILE="${BASE_DIR}/config/training/training_inputs_juan_flasc.yaml"
 export MODEL_NAME="tactis"
-export RESTART_TUNING_FLAG="--restart_tuning" # "" Or "--restart_tuning"
+export RESTART_TUNING_FLAG="" # "" Or "--restart_tuning"
 export AUTO_EXIT_WHEN_DONE="true"  # Set to "true" to exit script when all workers finish, "false" to keep running until timeout
 export NUMEXPR_MAX_THREADS=128
 
@@ -82,9 +82,6 @@ module load CUDA/12.4.0
 module load git
 echo "Modules loaded."
 
-# Capture LD_LIBRARY_PATH after modules are loaded
-export CAPTURED_LD_LIBRARY_PATH=$LD_LIBRARY_PATH
-# echo "Captured LD_LIBRARY_PATH: ${CAPTURED_LD_LIBRARY_PATH}"
 
 # Find PostgreSQL binary directory after loading the module
 PG_INITDB_PATH=$(which initdb)
@@ -99,6 +96,8 @@ echo "Found PostgreSQL bin directory: ${POSTGRES_BIN_DIR}"
 eval "$(conda shell.bash hook)"
 conda activate wf_env_storm
 echo "Conda environment 'wf_env_storm' activated."
+export CAPTURED_LD_LIBRARY_PATH=$LD_LIBRARY_PATH
+
 # --- End Main Environment Setup ---
 
 echo "=== STARTING PARALLEL OPTUNA TUNING WORKERS ==="
@@ -328,5 +327,9 @@ exit $FINAL_EXIT_CODE
 # gpustat -P --no-processes --watch 0.5
 # htop
 
+# module purge && module load slurm/hpc-2023/23.02.7 && module load hpc-env/13.1 && module load mpi4py/3.1.4-gompi-2023a && module load Mamba/24.3.0-0 && module load CUDA/12.4.0 && module load git && mamba deactivate && mamba activate wf_env_storm && sbatch wind-forecasting/wind_forecasting/run_scripts/tune_scripts/tune_model_storm.sh
+
 # JOB_ID=YOUR_JOB_ID
 # tail -f /user/taed7566/Forecasting/wind-forecasting/logs/slurm_logs/$JOB_ID/worker_0_$JOB_ID.log /user/taed7566/Forecasting/wind-forecasting/logs/slurm_logs/$JOB_ID/worker_1_$JOB_ID.log /user/taed7566/Forecasting/wind-forecasting/logs/slurm_logs/$JOB_ID/worker_2_$JOB_ID.log /user/taed7566/Forecasting/wind-forecasting/logs/slurm_logs/$JOB_ID/worker_3_$JOB_ID.log
+
+# optuna-dashboard sqlite:///wind-forecasting/optuna/SQL/flasc_tactis.db --port 8088

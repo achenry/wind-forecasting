@@ -25,6 +25,7 @@ from optuna.trial import TrialState # Added for checking trial status
 import wandb
 from lightning.pytorch.loggers import WandbLogger
 from lightning.pytorch.callbacks import ModelCheckpoint
+from wind_forecasting.utils.callbacks import DeadNeuronMonitor
 
 from wind_forecasting.utils.optuna_visualization import launch_optuna_dashboard, log_optuna_visualizations_to_wandb
 from wind_forecasting.utils.optuna_table import log_detailed_trials_table_to_wandb
@@ -137,15 +138,27 @@ class SafePruningCallback(pl.Callback):
         super().__init__()
         # Instantiate the actual Optuna callback internally
         self.optuna_pruning_callback = PyTorchLightningPruningCallback(trial, monitor)
+        self.trial = trial
+        self.monitor = monitor
 
     # Delegate the relevant callback method(s)
     def on_validation_end(self, trainer: "pl.Trainer", pl_module: "pl.LightningModule") -> None:
-        # Call the corresponding method on the wrapped Optuna callback
-        self.optuna_pruning_callback.on_validation_end(trainer, pl_module)
+        try:
+            # Call the corresponding method on the wrapped Optuna callback
+            self.optuna_pruning_callback.on_validation_end(trainer, pl_module)
+        except optuna.exceptions.TrialPruned as e:
+            # Explicitly mark trial as pruned and log appropriately
+            self.trial.set_user_attr('pruned_reason', str(e))
+            logging.info(f"Trial {self.trial.number} pruned at epoch {trainer.current_epoch} (monitoring '{self.monitor}')")
+            raise  # Re-raise to ensure trial state is properly set
 
     # Delegate check_pruned if needed
     def check_pruned(self) -> None:
-        self.optuna_pruning_callback.check_pruned()
+        try:
+            self.optuna_pruning_callback.check_pruned()
+        except optuna.exceptions.TrialPruned as e:
+            logging.info(f"Trial {self.trial.number} pruned (check_pruned): {str(e)}")
+            raise
 
 class MLTuningObjective:
     def __init__(self, *, model, config, lightning_module_class, estimator_class, 
@@ -343,6 +356,16 @@ class MLTuningObjective:
         else:
             logging.warning(f"Trial {trial.number}: Could not find or extract args from a config-defined EarlyStopping callback.")
 
+
+        # Add DeadNeuronMonitor callback if enabled in config
+        callbacks_config = self.config.get('callbacks', {})
+        monitor_config = callbacks_config.get('dead_neuron_monitor', {})
+        monitor_enabled = monitor_config.get('enabled', False)
+        
+        if monitor_enabled:
+            dead_neuron_callback = DeadNeuronMonitor()
+            current_callbacks.append(dead_neuron_callback)
+            logging.info(f"Added DeadNeuronMonitor callback for trial {trial.number}")
 
         final_callbacks = instantiated_callbacks_from_config + current_callbacks
 
@@ -918,25 +941,25 @@ def tune_model(model, config, study_name, optuna_storage, lightning_module_class
                     break # Exit loop on success
                 except KeyError as e: # Optuna <3.0 raises KeyError if study doesn't exist yet
                      if attempt < max_retries - 1:
-                          logging.warning(f"Rank {worker_id}: Study '{study_name}' not found yet (attempt {attempt+1}/{max_retries}). Retrying in {retry_delay}s... Error: {e}")
+                          logging.warning(f"Rank {worker_id}: Study '{final_study_name}' not found yet (attempt {attempt+1}/{max_retries}). Retrying in {retry_delay}s... Error: {e}")
                           time.sleep(retry_delay)
                      else:
-                          logging.error(f"Rank {worker_id}: Failed to load study '{study_name}' after {max_retries} attempts (KeyError). Aborting.")
+                          logging.error(f"Rank {worker_id}: Failed to load study '{final_study_name}' after {max_retries} attempts (KeyError). Aborting.")
                           raise
                 except Exception as e: # Catch other potential loading errors (e.g., DB connection issues)
-                     logging.error(f"Rank {worker_id}: An unexpected error occurred while loading study '{study_name}' on attempt {attempt+1}: {e}", exc_info=True)
+                     logging.error(f"Rank {worker_id}: An unexpected error occurred while loading study '{final_study_name}' on attempt {attempt+1}: {e}", exc_info=True)
                      # Decide whether to retry on other errors or raise immediately
                      if attempt < max_retries - 1:
                           logging.warning(f"Retrying in {retry_delay}s...")
                           time.sleep(retry_delay)
                      else:
-                          logging.error(f"Rank {worker_id}: Failed to load study '{study_name}' after {max_retries} attempts due to persistent errors. Aborting.")
+                          logging.error(f"Rank {worker_id}: Failed to load study '{final_study_name}' after {max_retries} attempts due to persistent errors. Aborting.")
                           raise # Re-raise other errors after retries
 
             # Check if study was successfully loaded after the loop
             if study is None:
                  # This condition should ideally be caught by the error handling within the loop, but added for safety.
-                 raise RuntimeError(f"Rank {worker_id}: Could not load study '{study_name}' after multiple retries.")
+                 raise RuntimeError(f"Rank {worker_id}: Could not load study '{final_study_name}' after multiple retries.")
 
     except Exception as e:
         # Log error with rank information
@@ -1003,9 +1026,6 @@ def tune_model(model, config, study_name, optuna_storage, lightning_module_class
             callbacks=optimize_callbacks,
             show_progress_bar=(worker_id=='0')
         )
-    except optuna.exceptions.TrialPruned:
-        logging.debug(f"Worker {worker_id}: Caught expected TrialPruned exception.")
-        pass
     except Exception as e:
         logging.error(f"Worker {worker_id}: Failed during study optimization: {str(e)}", exc_info=True)
         raise
