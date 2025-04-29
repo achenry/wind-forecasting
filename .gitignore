@@ -62,6 +62,7 @@ lut/
 pg_data_study/
 optuna/
 lightning_logs/
+wind_forecasting/run_scripts/analysis_scripts/optuna_results/*.json
 
 
 .DS_Store
@@ -89,6 +90,7 @@ wind_forecasting.code-workspace
 *.db-shm
 *.lock
 *.sync
+*.html
 
 examples/data/*
 .vscode/

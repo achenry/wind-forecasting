@@ -82,9 +82,6 @@ module load CUDA/12.4.0
 module load git
 echo "Modules loaded."
 
-# Capture LD_LIBRARY_PATH after modules are loaded
-export CAPTURED_LD_LIBRARY_PATH=$LD_LIBRARY_PATH
-# echo "Captured LD_LIBRARY_PATH: ${CAPTURED_LD_LIBRARY_PATH}"
 
 # Find PostgreSQL binary directory after loading the module
 PG_INITDB_PATH=$(which initdb)
@@ -99,6 +96,8 @@ echo "Found PostgreSQL bin directory: ${POSTGRES_BIN_DIR}"
 eval "$(conda shell.bash hook)"
 conda activate wf_env_storm
 echo "Conda environment 'wf_env_storm' activated."
+export CAPTURED_LD_LIBRARY_PATH=$LD_LIBRARY_PATH
+
 # --- End Main Environment Setup ---
 
 echo "=== STARTING PARALLEL OPTUNA TUNING WORKERS ==="
@@ -328,7 +327,9 @@ exit $FINAL_EXIT_CODE
 # gpustat -P --no-processes --watch 0.5
 # htop
 
-# module purge && module load slurm/hpc-2023/23.02.7 && module load hpc-env/13.1 && module load mpi4py/3.1.4-gompi-2023a && module load Mamba/24.3.0-0 && module load CUDA/12.4.0 && module load git && source "$(mamba info --prefix wf_env_storm)/bin/activate" && sbatch wind-forecasting/wind_forecasting/run_scripts/tune_scripts/tune_model_storm.sh
+# module purge && module load slurm/hpc-2023/23.02.7 && module load hpc-env/13.1 && module load mpi4py/3.1.4-gompi-2023a && module load Mamba/24.3.0-0 && module load CUDA/12.4.0 && module load git && mamba deactivate && mamba activate wf_env_storm && sbatch wind-forecasting/wind_forecasting/run_scripts/tune_scripts/tune_model_storm.sh
 
 # JOB_ID=YOUR_JOB_ID
 # tail -f /user/taed7566/Forecasting/wind-forecasting/logs/slurm_logs/$JOB_ID/worker_0_$JOB_ID.log /user/taed7566/Forecasting/wind-forecasting/logs/slurm_logs/$JOB_ID/worker_1_$JOB_ID.log /user/taed7566/Forecasting/wind-forecasting/logs/slurm_logs/$JOB_ID/worker_2_$JOB_ID.log /user/taed7566/Forecasting/wind-forecasting/logs/slurm_logs/$JOB_ID/worker_3_$JOB_ID.log
+
+# optuna-dashboard sqlite:///wind-forecasting/optuna/SQL/flasc_tactis.db --port 8088
