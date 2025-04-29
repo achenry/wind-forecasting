@@ -147,6 +147,11 @@ def main():
                                 logging.info(f"Primary GPU is system device {actual_gpu}, mapped to CUDA index {device_id}")
                             except ValueError:
                                 logging.warning(f"Could not parse GPU index from CUDA_VISIBLE_DEVICES: {visible_gpus[0]}")
+                        
+                        if config["trainer"]["strategy"] == "ddp" and args.model == "tactis":
+                            logging.warning("Setting strategy to 'ddp_find_unused_parameters' since TACTiS-2 is used.")
+                            config["trainer"]["strategy"] = "ddp_find_unused_parameters"
+                        
                     else:
                         logging.warning("CUDA_VISIBLE_DEVICES is set but no valid GPU indices found")
                 except Exception as e:
