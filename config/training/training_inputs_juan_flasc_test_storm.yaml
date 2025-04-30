@@ -84,7 +84,7 @@ dataset:
     data_path: /user/taed7566/Forecasting/wind-forecasting/examples/data/preprocessed_flasc_data/SMARTEOLE_WakeSteering_SCADA_1minData_normalized.parquet
     normalization_consts_path:  /user/taed7566/Forecasting/wind-forecasting/examples/data/preprocessed_flasc_data/SMARTEOLE_WakeSteering_SCADA_1minData_normalization_consts.csv
     context_length: 600 # in seconds
-    prediction_length: 120 # in seconds
+    prediction_length: 300 # in seconds
     target_turbine_ids: # or leave blank to capture all
     normalize: false # TODO: Should I do this or Tactis-2 normalization?
     batch_size: 128 # INFO: In tactis only affects gradient precision NOT SPEED! - for tuning: <= 128, for training: max_memory ~1024
