@@ -233,7 +233,7 @@ trainer:
     accelerator: gpu # 'cpu' or 'gpu'
     devices: auto
     num_nodes: 1
-    # strategy: "ddp" # Removed for single-GPU inference
+    strategy: "ddp" # Removed for single-GPU inference
     # n_workers: auto
     # debug: false
     # accumulate: 1.0
