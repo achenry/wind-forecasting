@@ -50,29 +50,26 @@ optuna:
 
   # Storage backend configuration
   storage:
-    backend: "postgresql"  # Options: "postgresql", "sqlite"
-    # --- PostgreSQL Specific Settings ---
-    # Path relative to project root (e.g., ~/wind-forecasting)
-    pgdata_path: "/user/taed7566/Forecasting/wind-forecasting/optuna/pgdata" # Directory for PostgreSQL data files
-    pgdata_instance_name: "flasc_tactis" # INFO: CREATE NEW INSTANCE (DIRECTORY) FOR STUDIES #flasc_tactis, flasc_default , keep same for resuming!!
-    db_name: "optuna_study_db"  # Name of the PostgreSQL database
-    db_user: "optuna_user"
-    use_socket: true      # Use Unix domain socket for local connection (recommended on single node)
-    socket_dir_base: "/user/taed7566/Forecasting/wind-forecasting/optuna/sockets" # Base directory for socket files
-    sync_dir: "/user/taed7566/Forecasting/wind-forecasting/optuna/sync"           # Directory for synchronization files
+    backend: "sqlite"  # Options: "postgresql", "sqlite"
 
-    # --- Optional TCP/IP Settings (if use_socket is false) ---
+    # --- SQLite Specific Settings ---
+    # Absolute path is recommended for SQLite when used across different contexts
+    sqlite_path: "/user/taed7566/Forecasting/wind-forecasting/optuna/SQL/flasc_tactis.db"
+    sqlite_wal: true  # Enable WAL mode for SQLite
+    sqlite_timeout: 600  # Timeout in seconds for SQLite locks
+
+    # --- PostgreSQL Specific Settings (Commented out as backend is sqlite) ---
+    # pgdata_path: "/user/taed7566/Forecasting/wind-forecasting/optuna/pgdata" # Directory for PostgreSQL data files
+    # pgdata_instance_name: "flasc_tactis" # INFO: CREATE NEW INSTANCE (DIRECTORY) FOR STUDIES #flasc_tactis, flasc_default , keep same for resuming!!
+    # db_name: "optuna_study_db"  # Name of the PostgreSQL database
+    # db_user: "optuna_user"
+    # use_socket: true      # Use Unix domain socket for local connection (recommended on single node)
+    # socket_dir_base: "/user/taed7566/Forecasting/wind-forecasting/optuna/sockets" # Base directory for socket files
+    # sync_dir: "/user/taed7566/Forecasting/wind-forecasting/optuna/sync"           # Directory for synchronization files
     # use_tcp: false
     # db_host: "localhost"
     # db_port: 5432
-
-    # --- Optional Command Execution Settings ---
     # run_cmd_shell: false # Set to true if specific commands require shell=True
-
-    # --- SQLite Specific Settings (not used if backend is postgresql) ---
-    # sqlite_path: "logging/optuna/study.db" Relative path for SQLite file if backend="sqlite"
-    # sqlite_wal: true  Enable WAL mode for SQLite
-    # sqlite_timeout: 600  Timeout in seconds for SQLite locks
 
   # Optuna Dashboard auto-launch configuration
   dashboard:
@@ -87,7 +84,7 @@ dataset:
     prediction_length: 300 # in seconds
     target_turbine_ids: # or leave blank to capture all
     normalize: false # TODO: Should I do this or Tactis-2 normalization?
-    batch_size: 1024 # INFO: In tactis only affects gradient precision NOT SPEED! - for tuning: <= 128, for training: max_memory ~1024
+    batch_size: 512 # INFO: In tactis only affects gradient precision NOT SPEED! - for tuning: <= 128, for training: max_memory ~1024
     workers: 32 # Consider adjusting based on CPU cores per task
     overfit: False
     test_split: 0.20

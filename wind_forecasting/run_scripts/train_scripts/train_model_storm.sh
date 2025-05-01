@@ -2,11 +2,11 @@
 
 #SBATCH --partition=cfdg.p          # Partition for H100/A100 GPUs cfdg.p / all_gpu.p / mpcg.p(not allowed)
 #SBATCH --nodes=1
-#SBATCH --ntasks-per-node=1         # Match number of GPUs requested below (for DDP training)
+#SBATCH --ntasks-per-node=4         # Match number of GPUs requested below (for DDP training)
 #SBATCH --cpus-per-task=32           # CPUs per task (adjust if needed for data loading)
 #SBATCH --mem-per-cpu=4096          # Memory per CPU
-#SBATCH --gres=gpu:H100:1           # Request 4 H100 GPUs
-#SBATCH --time=1-12:00              # Time limit (adjust as needed for training)
+#SBATCH --gres=gpu:H100:4           # Request 4 H100 GPUs
+#SBATCH --time=2-00:00              # Time limit (adjust as needed for training)
 #SBATCH --job-name=flasc_train      # Updated job name
 #SBATCH --output=/user/taed7566/Forecasting/wind-forecasting/logs/slurm_logs/flasc_train_%j.out # Updated output log path
 #SBATCH --error=/user/taed7566/Forecasting/wind-forecasting/logs/slurm_logs/flasc_train_%j.err  # Updated error log path
@@ -68,19 +68,20 @@ conda activate wf_env_storm
 echo "Conda environment 'wf_env_storm' activated."
 export CAPTURED_LD_LIBRARY_PATH=$LD_LIBRARY_PATH
 export CUDA_VISIBLE_DEVICES=$SLURM_JOB_GPUS
+echo "CUDA_VISIBLE_DEVICES set to: $CUDA_VISIBLE_DEVICES"
 
 # --- End Main Environment Setup ---
 # --- Find and Export PostgreSQL Bin Directory ---
-echo "Attempting to find PostgreSQL binaries within the conda environment..."
-PG_INITDB_PATH=$(which initdb)
-if [[ -z "$PG_INITDB_PATH" ]]; then
-  echo "FATAL: Could not find 'initdb' after activating conda environment 'wf_env_storm'." >&2
-  echo "Ensure PostgreSQL client tools are installed in this environment (e.g., 'conda install postgresql')." >&2
-  exit 1
-fi
-# Extract the directory path (e.g., /path/to/conda/env/bin)
-export POSTGRES_BIN_DIR=$(dirname "$PG_INITDB_PATH")
-echo "Found and exported POSTGRES_BIN_DIR: ${POSTGRES_BIN_DIR}"
+# echo "Attempting to find PostgreSQL binaries within the conda environment..."
+# PG_INITDB_PATH=$(which initdb)
+# if [[ -z "$PG_INITDB_PATH" ]]; then
+#   echo "FATAL: Could not find 'initdb' after activating conda environment 'wf_env_storm'." >&2
+#   echo "Ensure PostgreSQL client tools are installed in this environment (e.g., 'conda install postgresql')." >&2
+#   exit 1
+# fi
+# # Extract the directory path (e.g., /path/to/conda/env/bin)
+# export POSTGRES_BIN_DIR=$(dirname "$PG_INITDB_PATH")
+# echo "Found and exported POSTGRES_BIN_DIR: ${POSTGRES_BIN_DIR}"
 # --- End PostgreSQL Setup ---
 
 echo "=== STARTING MODEL TRAINING ==="

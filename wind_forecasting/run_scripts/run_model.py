@@ -15,6 +15,7 @@ import polars as pl
 from lightning.pytorch.loggers import WandbLogger
 from lightning.pytorch.utilities import rank_zero_only
 import yaml
+from lightning.pytorch.strategies import DDPStrategy # Ensure import
 
 # Internal imports
 from wind_forecasting.utils.trial_utils import handle_trial_with_oom_protection
@@ -148,9 +149,22 @@ def main():
                             except ValueError:
                                 logging.warning(f"Could not parse GPU index from CUDA_VISIBLE_DEVICES: {visible_gpus[0]}")
                         
-                        if config["trainer"]["strategy"] == "ddp" and args.model == "tactis":
-                            logging.warning("Setting strategy to 'ddp_find_unused_parameters' since TACTiS-2 is used.")
-                            config["trainer"]["strategy"] = "ddp_find_unused_parameters"
+                        # Check if strategy needs special handling for TACTiS DDP
+                        # Use .get() with default to avoid KeyError if 'strategy' not in config['trainer']
+                        current_strategy_setting = config.get("trainer", {}).get("strategy", "auto")
+
+                        if isinstance(current_strategy_setting, str) and current_strategy_setting.lower() == "ddp" and args.model == "tactis":
+                             logging.warning("Instantiating DDPStrategy with find_unused_parameters=True for TACTiS-2.")
+                             # Instantiate the strategy object with the flag
+                             strategy_object = DDPStrategy(find_unused_parameters=True)
+                             # Store the object back into the config dictionary
+                             # Ensure config['trainer'] exists
+                             if "trainer" not in config: config["trainer"] = {}
+                             config["trainer"]["strategy"] = strategy_object
+                        # else:
+                             # Keep the original strategy setting (e.g., 'auto', 'ddp_spawn', or maybe already an object)
+                             # No change needed to config["trainer"]["strategy"]
+                             # logging.info(f"Using strategy setting from config: {current_strategy_setting}")
                         
                     else:
                         logging.warning("CUDA_VISIBLE_DEVICES is set but no valid GPU indices found")
@@ -352,42 +366,80 @@ def main():
     data_module.generate_splits(save=True, reload=False, splits=["train", "val", "test"])
 
     # %% DEFINE ESTIMATOR
-    if args.mode == "tune" or (args.mode == "train" and args.use_tuned_parameters):
-        # %% SETUP & SYNCHRONIZE DATABASE
-        # Extract necessary parameters for DB setup explicitly
-        if args.mode == "train":
-            args.restart_tuning = False
+    # Initialize storage and connection info variables
+    optuna_storage = None
+    db_connection_info = None # Will hold pg_config if PostgreSQL is used
+    db_setup_params = None # Initialize
+
+    if args.mode == "tune" or (args.mode == "train" and args.use_tuned_parameters) or (args.mode == "test" and args.use_tuned_parameters):
+        # %% SETUP OPTUNA STORAGE (PostgreSQL for tuning, SQLite for loading tuned params)
         
-        logging.info(f"Accessing Optuna storage.")
+        # Generate DB setup parameters regardless of mode (needed for study name)
+        logging.info("Generating Optuna DB setup parameters...")
         db_setup_params = generate_df_setup_params(args.model, config)
-        optuna_storage = setup_optuna_storage(
+        
+        # Determine if restart_tuning should be overridden
+        # We never want to restart/delete the study when just loading parameters
+        effective_restart_tuning = args.restart_tuning
+        if args.mode in ["train", "test"] and args.use_tuned_parameters:
+            logging.info(f"Mode is '{args.mode}' with --use_tuned_parameters. Ensuring restart_tuning is False.")
+            effective_restart_tuning = False
+        elif args.mode == "tune":
+            logging.info(f"Mode is 'tune'. Using restart_tuning={args.restart_tuning} from command line.")
+        else:
+            # Should not happen with the main condition, but safety check
+             logging.warning(f"Unexpected combination: mode={args.mode}, use_tuned_parameters={args.use_tuned_parameters}. Defaulting restart_tuning to False.")
+             effective_restart_tuning = False
+
+        logging.info(f"Setting up Optuna storage (rank {rank}) using backend from config...")
+        # Call setup_optuna_storage using config-derived params and effective restart flag
+        optuna_storage, db_connection_info = setup_optuna_storage(
             db_setup_params=db_setup_params,
-            restart_tuning=args.restart_tuning,
+            restart_tuning=effective_restart_tuning, # Use the potentially overridden flag
             rank=rank
+            # No force_sqlite_path argument anymore
         )
-    
+        logging.info(f"Optuna storage setup complete. Storage type: {type(optuna_storage).__name__}")
+        if db_connection_info:
+             logging.info("PostgreSQL connection info returned (likely tuning mode).")
+        else:
+             logging.info("No connection info returned (likely SQLite or Journal mode).")
+
     if args.mode in ["train", "test"]:
         
         # TODO refactor this to just use hparams from checkpoint
-        found_tuned_params = True
+        found_tuned_params = False # Initialize to False
+        tuned_params = {} # Initialize empty dict
+
         if args.use_tuned_parameters:
-            try:
-                logging.info(f"Getting tuned parameters.")
-                tuned_params = get_tuned_params(optuna_storage, db_setup_params["study_name"])
-                config["model"]["distr_output"]["kwargs"].update({k: v for k, v in tuned_params.items() if k in config["model"]["distr_output"]["kwargs"]})
-                config["dataset"].update({k: v for k, v in tuned_params.items() if k in config["dataset"]})
-                config["model"][args.model].update({k: v for k, v in tuned_params.items() if k in config["model"][args.model]})
-                config["trainer"].update({k: v for k, v in tuned_params.items() if k in config["trainer"]})
-                
-                context_length_factor = tuned_params.get('context_length_factor', config["dataset"].get("context_length_factor", 2)) # Default to config or 2 if not in trial/config
-                context_length = int(context_length_factor * data_module.prediction_length)
-                
-            except FileNotFoundError as e:
-                logging.warning(e)
-                found_tuned_params = False
-            except KeyError as e:
-                logging.warning(f"KeyError accessing Optuna config for tuned params: {e}. Using defaults.")
-                found_tuned_params = False
+            if optuna_storage and db_setup_params:
+                try:
+                    logging.info(f"Attempting to load tuned parameters from study '{db_setup_params['study_name']}' using provided storage.")
+                    # Pass the specific study name from db_setup_params
+                    tuned_params = get_tuned_params(optuna_storage, db_setup_params["study_name"])
+                    logging.info(f"Successfully loaded {len(tuned_params)} tuned parameters.")
+                    
+                    # Apply loaded parameters to the config
+                    config["model"]["distr_output"]["kwargs"].update({k: v for k, v in tuned_params.items() if k in config["model"]["distr_output"]["kwargs"]})
+                    config["dataset"].update({k: v for k, v in tuned_params.items() if k in config["dataset"]})
+                    config["model"][args.model].update({k: v for k, v in tuned_params.items() if k in config["model"][args.model]})
+                    config["trainer"].update({k: v for k, v in tuned_params.items() if k in config["trainer"]})
+                    
+                    context_length_factor = tuned_params.get('context_length_factor', config["dataset"].get("context_length_factor", 2)) # Default to config or 2 if not in trial/config
+                    context_length = int(context_length_factor * data_module.prediction_length)
+                    
+                    # Mark as found only if loading succeeds without exceptions
+                    found_tuned_params = True
+                    
+                except FileNotFoundError as e:
+                    logging.warning(f"Could not find Optuna study or parameters: {e}. Using default parameters.")
+                    found_tuned_params = False
+                except KeyError as e:
+                    logging.warning(f"KeyError accessing Optuna config/study for tuned params: {e}. Using default parameters.")
+                    found_tuned_params = False
+                except Exception as e: # Catch other potential errors during loading
+                    logging.error(f"An unexpected error occurred while loading tuned parameters: {e}", exc_info=True)
+                    found_tuned_params = False
         else:
             found_tuned_params = False 
         
