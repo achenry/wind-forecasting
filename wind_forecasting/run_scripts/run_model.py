@@ -78,6 +78,7 @@ def main():
     parser.add_argument("-s", "--seed", type=int, help="Seed for random number generator", default=42)
     parser.add_argument("--save_to", type=str, help="Path to save the predicted output", default=None)
     parser.add_argument("--single_gpu", action="store_true", help="Force using only a single GPU (the one specified by CUDA_VISIBLE_DEVICES)")
+    parser.add_argument("-or", "--override", nargs="*", help="List of hyperparameters to override from YAML config instead of using tuned values", default=[])
 
     args = parser.parse_args()
     
@@ -91,6 +92,12 @@ def main():
     logging.info(f"Parsing configuration from yaml and command line arguments")
     with open(args.config, "r") as file:
         config = yaml.safe_load(file)
+    
+    # Store the original YAML config to access original values later if needed for overrides
+    original_yaml_config = yaml.safe_load(open(args.config, "r"))
+    
+    if args.override:
+        logging.info(f"Parameters specified for override from YAML: {args.override}")
         
     # if (type(config["dataset"]["target_turbine_ids"]) is str) and (
     #     (config["dataset"]["target_turbine_ids"].lower() == "none") or (config["dataset"]["target_turbine_ids"].lower() == "all")):
@@ -424,6 +431,45 @@ def main():
                     config["dataset"].update({k: v for k, v in tuned_params.items() if k in config["dataset"]})
                     config["model"][args.model].update({k: v for k, v in tuned_params.items() if k in config["model"][args.model]})
                     config["trainer"].update({k: v for k, v in tuned_params.items() if k in config["trainer"]})
+                    
+                    # Apply overrides from YAML config for any parameters specified with --override
+                    if args.override and args.use_tuned_parameters:
+                        logging.info("Applying YAML overrides for specified parameters:")
+                        
+                        for param_name in args.override:
+                            # Handle TACTiS-specific parameters in model.tactis section
+                            if param_name in ["gradient_clip_val_stage1", "gradient_clip_val_stage2"] and args.model == "tactis":
+                                if "model" in original_yaml_config and "tactis" in original_yaml_config["model"] and param_name in original_yaml_config["model"]["tactis"]:
+                                    original_value = original_yaml_config["model"]["tactis"][param_name]
+                                    
+                                    # Ensure nested dictionaries exist
+                                    if "model" not in config: config["model"] = {}
+                                    if "tactis" not in config["model"]: config["model"]["tactis"] = {}
+                                    
+                                    # Apply the override
+                                    config["model"]["tactis"][param_name] = original_value
+                                    logging.info(f"  - Overriding model.tactis.{param_name} with YAML value: {original_value}")
+                            
+                            # Handle trainer parameters
+                            elif param_name in ["gradient_clip_val"] and "trainer" in original_yaml_config and param_name in original_yaml_config["trainer"]:
+                                original_value = original_yaml_config["trainer"][param_name]
+                                config["trainer"][param_name] = original_value
+                                logging.info(f"  - Overriding trainer.{param_name} with YAML value: {original_value}")
+                            
+                            # Handle dataset parameters
+                            elif param_name in original_yaml_config.get("dataset", {}):
+                                original_value = original_yaml_config["dataset"][param_name]
+                                config["dataset"][param_name] = original_value
+                                logging.info(f"  - Overriding dataset.{param_name} with YAML value: {original_value}")
+                            
+                            # Handle general model parameters for current model
+                            elif param_name in original_yaml_config.get("model", {}).get(args.model, {}):
+                                original_value = original_yaml_config["model"][args.model][param_name]
+                                config["model"][args.model][param_name] = original_value
+                                logging.info(f"  - Overriding model.{args.model}.{param_name} with YAML value: {original_value}")
+                            
+                            else:
+                                logging.warning(f"  - Parameter '{param_name}' not found in original YAML config, cannot override")
                     
                     context_length_factor = tuned_params.get('context_length_factor', config["dataset"].get("context_length_factor", 2)) # Default to config or 2 if not in trial/config
                     context_length = int(context_length_factor * data_module.prediction_length)

@@ -84,7 +84,7 @@ dataset:
     prediction_length: 300 # in seconds
     target_turbine_ids: # or leave blank to capture all
     normalize: false # TODO: Should I do this or Tactis-2 normalization?
-    batch_size: 512 # INFO: In tactis only affects gradient precision NOT SPEED! - for tuning: <= 128, for training: max_memory ~1024
+    batch_size: 256 # INFO: In tactis only affects gradient precision NOT SPEED! - for tuning: <= 128, for training: max_memory ~1024
     workers: 32 # Consider adjusting based on CPU cores per task
     overfit: False
     test_split: 0.20
@@ -236,7 +236,7 @@ trainer:
     # debug: false
     # accumulate: 1.0
     max_epochs: 100 # Maximum number of epochs to train 100
-    limit_train_batches: 5000 # INFO: Training-only setting (not tuning) Set to integer number of steps to train on (context+prediction length)
+    limit_train_batches: 2500 # INFO: Training-only setting (not tuning) Set to integer number of steps to train on (context+prediction length)
     # default_root_dir: ${logging.checkpoint_dir}  # Changed from direct path to use log_dir
     # precision: 16-mixed # 16-mixed enables mixed precision training 32-true is full precision
     # batch_size: 32 # larger = more stable gradients

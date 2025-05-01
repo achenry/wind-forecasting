@@ -2,10 +2,10 @@
 
 #SBATCH --partition=cfdg.p          # Partition for H100/A100 GPUs cfdg.p / all_gpu.p / mpcg.p(not allowed)
 #SBATCH --nodes=1
-#SBATCH --ntasks-per-node=4         # Match number of GPUs requested below (for DDP training)
+#SBATCH --ntasks-per-node=1         # Match number of GPUs requested below (for DDP training)
 #SBATCH --cpus-per-task=32           # CPUs per task (adjust if needed for data loading)
 #SBATCH --mem-per-cpu=4096          # Memory per CPU
-#SBATCH --gres=gpu:H100:4           # Request 4 H100 GPUs
+#SBATCH --gres=gpu:H100:1           # Request 4 H100 GPUs
 #SBATCH --time=2-00:00              # Time limit (adjust as needed for training)
 #SBATCH --job-name=flasc_train      # Updated job name
 #SBATCH --output=/user/taed7566/Forecasting/wind-forecasting/logs/slurm_logs/flasc_train_%j.out # Updated output log path
@@ -93,7 +93,8 @@ srun python ${WORK_DIR}/run_scripts/run_model.py \
   --config ${CONFIG_FILE} \
   --model ${MODEL_NAME} \
   --mode train \
-  --use_tuned_parameters # Add flag to use best hyperparameters
+  --use_tuned_parameters \
+  --override gradient_clip_val_stage1 gradient_clip_val_stage2 # Override gradient clipping values from YAML
 
 TRAIN_EXIT_CODE=$?
 
