@@ -1,4 +1,6 @@
-scp -r ahenry@kestrel.hpc.nrel.gov:/projects/ssc/ahenry/wind_forecasting/logging/wind_forecasting_awaken_autoformer/\* /Users/ahenry/Documents/toolboxes/wind_forecasting/logging/wind_forecasting_awaken_autoformer/
-scp -r ahenry@kestrel.hpc.nrel.gov:/projects/ssc/ahenry/wind_forecasting/logging/wind_forecasting_awaken_informer/\* /Users/ahenry/Documents/toolboxes/wind_forecasting/logging/wind_forecasting_awaken_informer/
-scp -r ahenry@kestrel.hpc.nrel.gov:/projects/ssc/ahenry/wind_forecasting/logging/wind_forecasting_awaken_tactis/\* /Users/ahenry/Documents/toolboxes/wind_forecasting/logging/wind_forecasting_awaken_tactis/
-scp -r ahenry@kestrel.hpc.nrel.gov:/projects/ssc/ahenry/wind_forecasting/logging/wind_forecasting_awaken_spacetimeformer/\* /Users/ahenry/Documents/toolboxes/wind_forecasting/logging/wind_forecasting_awaken_spacetimeformer/
+scp -r ahenry@kestrel.hpc.nrel.gov:"/projects/ssc/ahenry/wind_forecasting/logging/wind_forecasting_awaken_*_autoformer/" /Users/ahenry/Documents/toolboxes/wind_forecasting/logging/
+scp -r ahenry@kestrel.hpc.nrel.gov:"/projects/ssc/ahenry/wind_forecasting/logging/wind_forecasting_awaken_*_informer/" /Users/ahenry/Documents/toolboxes/wind_forecasting/logging/
+scp -r ahenry@kestrel.hpc.nrel.gov:"/projects/ssc/ahenry/wind_forecasting/logging/wind_forecasting_awaken_*_tactis/" /Users/ahenry/Documents/toolboxes/wind_forecasting/logging/
+scp -r ahenry@kestrel.hpc.nrel.gov:"/projects/ssc/ahenry/wind_forecasting/logging/wind_forecasting_awaken_*_spacetimeformer/" /Users/ahenry/Documents/toolboxes/wind_forecasting/logging/
+
+scp -r ahenry@kestrel.hpc.nrel.gov:"/projects/ssc/ahenry/wind_forecasting/logging/tuning_svr_aoifemac_awaken_pred*/"  /Users/ahenry/Documents/toolboxes/wind_forecasting/logging/
