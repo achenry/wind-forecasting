@@ -2,10 +2,10 @@
 
 #SBATCH --partition=cfdg.p          # Partition for H100/A100 GPUs cfdg.p / all_gpu.p / mpcg.p(not allowed)
 #SBATCH --nodes=1
-#SBATCH --ntasks-per-node=4         # Match number of GPUs requested below (for DDP training)
+#SBATCH --ntasks-per-node=1         # Match number of GPUs requested below (for DDP training)
 #SBATCH --cpus-per-task=32           # CPUs per task (adjust if needed for data loading)
 #SBATCH --mem-per-cpu=4096          # Memory per CPU
-#SBATCH --gres=gpu:H100:4           # Request 4 H100 GPUs
+#SBATCH --gres=gpu:H100:1           # Request 4 H100 GPUs
 #SBATCH --time=1-12:00              # Time limit (adjust as needed for training)
 #SBATCH --job-name=flasc_train      # Updated job name
 #SBATCH --output=/user/taed7566/Forecasting/wind-forecasting/logs/slurm_logs/flasc_train_%j.out # Updated output log path
@@ -67,6 +67,7 @@ eval "$(conda shell.bash hook)"
 conda activate wf_env_storm
 echo "Conda environment 'wf_env_storm' activated."
 export CAPTURED_LD_LIBRARY_PATH=$LD_LIBRARY_PATH
+export CUDA_VISIBLE_DEVICES=$SLURM_JOB_GPUS
 
 # --- End Main Environment Setup ---
 # --- Find and Export PostgreSQL Bin Directory ---
