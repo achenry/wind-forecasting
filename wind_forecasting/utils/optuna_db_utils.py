@@ -1,6 +1,7 @@
 import os
 import logging
 import time
+from shutil import rmtree
 
 from wind_forecasting.utils import db_utils
 from lightning.pytorch.utilities import rank_zero_only
@@ -16,6 +17,11 @@ def setup_optuna_storage(db_setup_params, restart_tuning, rank):
     """
     storage_backend = db_setup_params.get("backend", "sqlite")
     logging.info(f"Optuna storage backend configured as: {storage_backend}")
+    
+    # if "storage_dir" in db_setup_params:
+    #     # Ensure the directory exists
+    #     os.makedirs(db_setup_params["storage_dir"], exist_ok=True)
+    #     logging.info(f"Using explicitly defined Optuna storage_dir: {db_setup_params['storage_dir']}")
 
     if storage_backend == "postgresql":
         # Setup for PostgreSQL database
@@ -28,8 +34,7 @@ def setup_optuna_storage(db_setup_params, restart_tuning, rank):
     elif storage_backend == "sqlite":
         # Setup for SQLite database
         storage = setup_sqlite(
-            sqlite_storage_dir=db_setup_params["storage_dir"], # Use resolved storage_dir
-            study_name=db_setup_params["study_name"],
+            db_setup_params=db_setup_params, # Pass the full params dict
             restart_tuning=restart_tuning,
             rank=rank
         )
@@ -93,14 +98,33 @@ def setup_postgresql_rank_zero(db_setup_params, restart_tuning=False, register_c
         else:
             sync_file_path = pg_config["sync_file"]
             
-        if os.path.exists(sync_file_path):
-            logging.warning(f"Removing existing sync file: {sync_file_path}")
+        # Check if the sync file already exists
+        sync_file_ready = False
+        if os.path.exists(sync_file_path) and not restart_tuning:
+            try:
+                with open(sync_file_path, 'r') as f:
+                    content = f.read().strip()
+                    if content == 'ready':
+                        sync_file_ready = True
+                        logging.info(f"Rank 0: Existing sync file found with 'ready' status: {sync_file_path}")
+                    else:
+                        logging.warning(f"Rank 0: Sync file exists but has invalid content: '{content}'. Will recreate.")
+                        os.remove(sync_file_path)
+            except Exception as e:
+                logging.warning(f"Rank 0: Error reading existing sync file: {e}. Will recreate.")
+                if os.path.exists(sync_file_path):
+                    os.remove(sync_file_path)
+        elif os.path.exists(sync_file_path) and restart_tuning:
+            logging.info(f"Rank 0: Removing existing sync file due to restart_tuning=True: {sync_file_path}")
             os.remove(sync_file_path)
-
-        # Create sync file *after* storage/schema is ready
-        with open(sync_file_path, 'w') as f:
-            f.write('ready')
-        logging.info(f"Rank 0: PostgreSQL ready. Created sync file: {sync_file_path}")
+        
+        # Only create the sync file if it doesn't already exist with valid content
+        if not sync_file_ready:
+            with open(sync_file_path, 'w') as f:
+                f.write('ready')
+            logging.info(f"Rank 0: PostgreSQL ready. Created sync file: {sync_file_path}")
+        else:
+            logging.info(f"Rank 0: Using existing sync file: {sync_file_path}")
         
         return storage, pg_config # Return the created storage object
 
@@ -214,33 +238,51 @@ def restart_sqlite_rank_zero(sqlite_abs_path):
          except OSError as e:
              logging.error(f"Failed to remove SQLite file {sqlite_abs_path}: {e}")
 
-def setup_sqlite(sqlite_storage_dir, study_name, restart_tuning, rank):
+def setup_sqlite(db_setup_params, restart_tuning, rank):
     """
-    Sets up SQLite storage for Optuna.
+    Sets up SQLite storage for Optuna, prioritizing explicit path if provided.
     """
-    # Construct the SQLite URL based on config
-    optuna_storage_url = f"sqlite:///{os.path.join(sqlite_storage_dir, f'{study_name}.db')}"
+    # Prioritize explicit sqlite_path from config if available
+    if "sqlite_path" in db_setup_params and db_setup_params["sqlite_path"]:
+        db_path = db_setup_params["sqlite_path"]
+        # Ensure the directory exists if the path is relative
+        db_dir = os.path.dirname(db_path)
+        if db_dir and not os.path.exists(db_dir):
+             os.makedirs(db_dir, exist_ok=True)
+        logging.info(f"Using explicit SQLite path from config: {db_path}")
+    else:
+        # Fallback: Construct the SQLite URL based on storage_dir and study_name
+        sqlite_storage_dir = db_setup_params.get("storage_dir", ".") # Default to current dir if not set
+        study_name = db_setup_params.get("study_name", "optuna_study")
+        db_path = os.path.join(sqlite_storage_dir, f'{study_name}.db')
+        logging.info(f"Constructed SQLite path: {db_path}")
+
+    # Handle restart logic (rank 0 only)
+    if rank == 0 and restart_tuning:
+       if os.path.exists(db_path):
+           # restart_sqlite_rank_zero(db_path) # Keep commented for now, but indent correctly
+           pass # Add pass to avoid empty block if restart is commented
+       # else: # Keep commented for now, but indent correctly
+           # logging.warning(f"Could not find existing SQLite storage to delete at {db_path}.")
+           # pass # Add pass if needed
+    
+    optuna_storage_url = f"sqlite:///{db_path}"
     logging.info(f"Using SQLite storage URL: {optuna_storage_url}")
     
-    # Handle restart for SQLite on rank 0
-    # if rank == 0 and restart_tuning:
-    #     restart_sqlite_rank_zero(sqlite_abs_path)
     if rank == 0:
         storage = RDBStorage(url=optuna_storage_url)
     else:
-        raise Exception("Cannot use SQLite storage with multiple workers. Please use a different backend.")
-    if rank == 0 and restart_tuning:
-        delete_studies(storage)
+        logging.error(f"Cannot access SQLite with multiple workers.")
+        raise Exception
     
     return storage
 
 def setup_journal(storage_dir, study_name, restart_tuning, rank):
     if rank == 0:
         logging.info(f"Connecting to Journal database {study_name}")
+        
         optuna_storage_url = os.path.join(storage_dir, f"{study_name}.db")
-        if restart_tuning:
-            restart_journal_rank_zero(optuna_storage_url)
-    
+        
     storage = JournalStorage(JournalFileBackend(optuna_storage_url))
     return storage
     
@@ -263,7 +305,5 @@ def setup_mysql(db_setup_params, restart_tuning, rank):
         optuna_storage_url = f"mysql://{db.user}@{db.server_host}:{db.server_port}/{db_setup_params['study_name']}"
         # restart_mysql_rank_zero(optuna_storage_url)
         storage = RDBStorage(url=optuna_storage_url)
-        if restart_tuning:
-            delete_studies(storage)
         
     return storage

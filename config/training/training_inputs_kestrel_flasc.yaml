@@ -14,7 +14,7 @@ experiment:
 #   slurm_output_dir: /projects/ssc/ahenry/wind_forecasting/logging/slurm_logs/
 
 optuna:
-  storage_dir: /projects/ssc/ahenry/wind_forecasting/optuna
+  # storage_dir: /projects/ssc/ahenry/wind_forecasting/optuna
   backend: mysql # sqlite, mysql, or journal
   n_trials: 100
   metric: val_loss
@@ -95,7 +95,6 @@ model:
     initial_stage: 1
     stage2_start_epoch: 10
     input_encoding_normalization: true
-    scaling: null # Options: "mean", "std", null
     loss_normalization: "std" # Options: "series", "timesteps", "both", "none"
     encoder_type: "standard" # Options: "standard", "temporal"
     bagging_size: null # Optional, defaults to None in estimator

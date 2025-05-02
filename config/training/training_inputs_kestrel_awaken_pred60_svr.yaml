@@ -2,12 +2,12 @@
 
 experiment:
   username: aoife-henry
-  project_name: wind_forecasting_awaken
-  run_name: aoifemac_awaken
+  project_name: wind_forecasting_awaken_pred60
+  run_name: aoifemac_awaken_pred60
   log_dir: /projects/ssc/ahenry/wind_forecasting/logging/
   project_root: /projects/ssc/ahenry/wind_forecasting/
   notes: "Tuning AWAKEN with Informer+"
-  extra_tags: ["awaken"] # By default already has GPU id, model and mode.
+  extra_tags: ["awaken", "pred60"] # By default already has GPU id, model and mode.
 
 logging:
   entity: jmb0507-cu-boulder # Wandb entity (group name)
@@ -19,7 +19,6 @@ logging:
   slurm_output_dir: /projects/ssc/ahenry/wind_forecasting/logging/slurm_logs/
 
 optuna:
-  study_name: "awaken_tune"
   save_trial_code: false      # Default false
   n_trials_per_worker: 100     # Test a total of 4*12=48 trials
   max_epochs: 10              # epochs per trial
@@ -51,13 +50,15 @@ optuna:
   storage:
     backend: "sqlite"  # Options: "postgresql", "sqlite", "mysql", "journal"
     # --- SQLite Specific Settings (not used if backend is postgresql) ---
-    storage_dir: /projects/ssc/ahenry/wind_forecasting/optuna
+    # storage_dir: /projects/ssc/ahenry/wind_forecasting/optuna
     sqlite_wal: true  # Enable WAL mode for SQLite
     sqlite_timeout: 600 # Timeout in seconds for SQLite locks
 
     # --- MySQL Specific Settings --- #
-    db_host: "tlv51ahenry01.plv10telauth03.nrel.gov"
+    db_host: tlv51ahenry01.nrel.gov # 10.121.2.72
     db_port: 3306
+    db_user: optuna_user
+    # db_name: wind_forecasting
 
     # --- Optional TCP/IP Settings (if use_socket is false) ---
     # use_tcp: false
@@ -78,26 +79,18 @@ dataset:
     data_path: /projects/ssc/ahenry/wind_forecasting/awaken_data/awaken_processed_normalized.parquet
     normalization_consts_path: /projects/ssc/ahenry/wind_forecasting/awaken_data/awaken_processed_normalization_consts.csv
     context_length: 600 # in seconds
-    prediction_length: 300 # in seconds
+    prediction_length: 60 # in seconds
     target_turbine_ids: # or leave blank to capture all
     normalize: False 
-    batch_size: 128
+    batch_size: 64
     workers: 12
     overfit: False
     test_split: 0.20
     val_split: 0.1
-    #resample_freq: 5s
-    #resample_freq: 15s
     resample_freq: 30s
-    #resample_freq: 45s
-    #resample_freq: 60s
-    #resample_freq: 120s
-    #resample_freq: 180s
     n_splits: 1 # how many divisions of each continuity group to make which is further subdivided into training test and validation data
-    per_turbine_target: False
-    #per_turbine_target: True
+    per_turbine_target: True
     context_length_factor: 2
-
 
 model:
   distr_output: 
@@ -112,7 +105,6 @@ model:
     initial_stage: 1
     stage2_start_epoch: 10
     input_encoding_normalization: true
-    scaling: null # Options: "mean", "std", null
     loss_normalization: "std" # Options: "series", "timesteps", "both", "none"
     encoder_type: "standard" # Options: "standard", "temporal"
     bagging_size: null # Optional, defaults to None in estimator
@@ -157,7 +149,7 @@ model:
     dim_feedforward: 2048
     activation: relu
   autoformer:
-    # embedding_dimension: 32 # Determines dimension of the embedding space
+    embedding_dimension: 32 # Determines dimension of the embedding space
     num_encoder_layers: 2 # Number of transformer blocks stacked
     num_decoder_layers: 1 # Number of transformer blocks stacked
     n_heads: 8 # Number of heads for spatio-temporal attention
@@ -229,8 +221,8 @@ trainer:
     # debug: False 
     # accumulate: 1.0
     max_epochs: 100 # Maximum number of epochs to train 100
-    limit_train_batches: 1000
-    default_root_dir: /projects/ssc/ahenry/wind_forecasting/checkpoints
+    limit_train_batches: 5000
+    # default_root_dir: /projects/ssc/ahenry/wind_forecasting/checkpoints
     # precision: 32-true # 16-mixed enables mixed precision training 32-true is full precision
     # batch_size: 32 # larger = more stable gradients
     # lr: 0.0001 # Step size

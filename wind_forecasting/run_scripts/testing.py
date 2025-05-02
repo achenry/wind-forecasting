@@ -3,8 +3,7 @@ from collections import defaultdict
 import logging
 from memory_profiler import profile
 from glob import glob
-import re
-from torch import load as torch_load
+import torch
 from datetime import datetime
 
 import numpy as np
@@ -12,34 +11,15 @@ import pandas as pd
 import seaborn as sns
 from matplotlib import pyplot as plt
 
-from gluonts.torch.distributions import LowRankMultivariateNormalOutput
-from gluonts.model.forecast_generator import DistributionForecastGenerator
 from gluonts.evaluation import MultivariateEvaluator, make_evaluation_predictions
 
-from pytorch_transformer_ts.informer.lightning_module import InformerLightningModule
-from pytorch_transformer_ts.informer.estimator import InformerEstimator
-from pytorch_transformer_ts.autoformer.estimator import AutoformerEstimator
-from pytorch_transformer_ts.autoformer.lightning_module import AutoformerLightningModule
-from pytorch_transformer_ts.spacetimeformer.estimator import SpacetimeformerEstimator
-from pytorch_transformer_ts.spacetimeformer.lightning_module import SpacetimeformerLightningModule
-from wind_forecasting.preprocessing.data_module import DataModule
-from gluonts.time_feature._base import second_of_minute, minute_of_hour, hour_of_day, day_of_year
-from gluonts.transform import ExpectedNumInstanceSampler, ValidationSplitSampler, SequentialSampler
-from wind_forecasting.postprocessing.probabilistic_metrics import continuous_ranked_probability_score_gaussian, reliability, resolution, uncertainty, sharpness, pi_coverage_probability, pi_normalized_average_width, coverage_width_criterion 
+from wind_forecasting.postprocessing.probabilistic_metrics import continuous_ranked_probability_score_gaussian, pi_coverage_probability, pi_normalized_average_width, coverage_width_criterion 
 
 # Configure logging and matplotlib backend
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # if sys.platform == "darwin":
 #     matplotlib.use('TkAgg')
-    
-mpi_exists = False
-try:
-    from mpi4py import MPI
-    mpi_exists = True
-except:
-    print("No MPI available on system.")
-
 
 def test_model(*, data_module, checkpoint, lightning_module_class, normalization_consts_path, estimator, forecast_generator):
     
@@ -202,25 +182,32 @@ def get_checkpoint(checkpoint, metric, mode, log_dir):
     if checkpoint is None:
         return None
     elif checkpoint in ["best", "latest"]:
-        checkpoint_paths = glob(os.path.join(log_dir, "*/*/*/*/*.ckpt"))
+        checkpoint_paths = glob(os.path.join(log_dir, "*/*.ckpt")) + glob(os.path.join(log_dir, "*/*/*.ckpt"))
         # version_dirs = glob(os.path.join(log_dir, "*"))
         if len(checkpoint_paths) == 0:
-            logging.warning(f"There are no checkpoint files in {log_dir}, returning None.")
-            return None
+            raise FileNotFoundError(f"There are no checkpoint files in {log_dir}, returning None.")
         
     elif not os.path.exists(checkpoint):
-        logging.warning(f"There is no checkpoint file at {checkpoint}, returning None.")
-        return None
-
+        raise FileNotFoundError(f"There is no checkpoint file at {checkpoint}, returning None.")
+    
+    # TODO high is the latest checkpoint always the best
     if checkpoint == "best":
         best_metric_value = float('inf') if mode == "min" else float('-inf')
         best_checkpoint_path = None
         for checkpoint_path in checkpoint_paths:
-            checkpoint = torch_load(checkpoint_path, weights_only=False)
+            if torch.cuda.is_available():
+                device = None # f"cuda:{int(os.environ['CUDA_VISIBLE_DEVICES'].split(",")[0])}"
+                # device = f"cuda:{assigned_gpu or 0}"
+                # logging.info(f"Loading checkpoint onto CUDA device {device}")
+            else:
+                device = "cpu"
+                logging.info(f"Loading checkpoint onto cpu core.")
+            checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
+            
             mc_callback = [cb_vals for cb_key, cb_vals in checkpoint["callbacks"].items() if "ModelCheckpoint" in cb_key][0]
             if (mode == "min" and mc_callback["best_model_score"] < best_metric_value) or (mode == "max" and mc_callback["best_model_score"] > best_metric_value):
                 best_metric_value = mc_callback["best_model_score"]
-                best_checkpoint_path = mc_callback["best_model_path"]
+                best_checkpoint_path = checkpoint_path # mc_callback["best_model_path"]
             
         if best_checkpoint_path and os.path.exists(best_checkpoint_path):
             logging.info(f"Found best pretrained model: {best_checkpoint_path}")

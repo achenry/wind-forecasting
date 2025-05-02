@@ -1,11 +1,11 @@
 experiment:
   username: jmb0507
   project_name: wind_forecasting_flasc
-  run_name: tune_hb_4_3_farm_128BS_400trials # [p = patience, d = min_delta, b = limit_train_batches, n = n_startup_trials] / hb = hyperband min_resource, reduction_factor
+  run_name: test_flasc_inference
   project_root: /user/taed7566/Forecasting/wind-forecasting
   log_dir: /user/taed7566/Forecasting/wind-forecasting/logs/
   notes: ""
-  extra_tags: ["flasc", "H100","restart","250b","400t"] # By default already has GPU id and model name.
+  extra_tags: ["inference"] # By default already has GPU id and model name.
 
 logging:
   entity: jmb0507-cu-boulder # Wandb entity (group name)
@@ -81,10 +81,10 @@ optuna:
     log_file: "${logging.optuna_dir}/optuna_dashboard.log" # Log file for the dashboard process
 
 dataset:
-    data_path: /user/taed7566/Forecasting/wind-forecasting/examples/inputs/SMARTEOLE-WFC-open-dataset/processed/SMARTEOLE_WakeSteering_SCADA_1minData_normalized.parquet
-    normalization_consts_path:  /user/taed7566/Forecasting/wind-forecasting/examples/inputs/SMARTEOLE-WFC-open-dataset/processed/SMARTEOLE_WakeSteering_SCADA_1minData_normalization_consts.csv
+    data_path: /user/taed7566/Forecasting/wind-forecasting/examples/data/preprocessed_flasc_data/SMARTEOLE_WakeSteering_SCADA_1minData_normalized.parquet
+    normalization_consts_path:  /user/taed7566/Forecasting/wind-forecasting/examples/data/preprocessed_flasc_data/SMARTEOLE_WakeSteering_SCADA_1minData_normalization_consts.csv
     context_length: 600 # in seconds
-    prediction_length: 300 # in seconds
+    prediction_length: 120 # in seconds
     target_turbine_ids: # or leave blank to capture all
     normalize: false # TODO: Should I do this or Tactis-2 normalization?
     batch_size: 128 # INFO: In tactis only affects gradient precision NOT SPEED! - for tuning: <= 128, for training: max_memory ~1024
@@ -229,10 +229,10 @@ trainer:
     gradient_clip_val: 0.0 # Prevents gradient explosion if > 0. Renamed from grad_clip_norm.
     # limit_val_batches: 1.0
     # val_check_interval: 1.0
-    accelerator: gpu # 'cpu' or 'gpu'
+    accelerator: cpu # 'cpu' or 'gpu'
     devices: auto
     num_nodes: 1
-    strategy: "ddp" # 'ddp' or 'ddp_spawn'
+    strategy: "ddp" # 'ddp' , 'ddp_find_unused_params', etc.
     # n_workers: auto
     # debug: false
     # accumulate: 1.0

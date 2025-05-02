@@ -147,6 +147,11 @@ def main():
                                 logging.info(f"Primary GPU is system device {actual_gpu}, mapped to CUDA index {device_id}")
                             except ValueError:
                                 logging.warning(f"Could not parse GPU index from CUDA_VISIBLE_DEVICES: {visible_gpus[0]}")
+                        
+                        if config["trainer"]["strategy"] == "ddp" and args.model == "tactis":
+                            logging.warning("Setting strategy to 'ddp_find_unused_parameters' since TACTiS-2 is used.")
+                            config["trainer"]["strategy"] = "ddp_find_unused_parameters"
+                        
                     else:
                         logging.warning("CUDA_VISIBLE_DEVICES is set but no valid GPU indices found")
                 except Exception as e:
@@ -191,22 +196,23 @@ def main():
 
     wandb_dir = config["logging"]["wandb_dir"] = config["logging"].get("wandb_dir", os.path.join(log_dir, "wandb"))
     optuna_dir = config["logging"]["optuna_dir"] = config["logging"].get("optuna_dir", os.path.join(log_dir, "optuna"))
-    checkpoint_dir = config["logging"]["checkpoint_dir"] = config["logging"].get("checkpoint_dir", os.path.join(log_dir, "checkpoints")) # NOTE: no need, checkpoints are saved by Model Checkpoint callback in loggers save_dir (wandb_dir)
-
+    # TODO: do we need this, checkpoints are saved by Model Checkpoint callback in loggers save_dir (wandb_dir)
+    # config["trainer"]["default_root_dir"] = checkpoint_dir = config["logging"]["checkpoint_dir"] = config["logging"].get("checkpoint_dir", os.path.join(log_dir, "checkpoints")) 
+    
     os.makedirs(wandb_dir, exist_ok=True)
     os.makedirs(optuna_dir, exist_ok=True)
-    os.makedirs(checkpoint_dir, exist_ok=True)
+    # os.makedirs(checkpoint_dir, exist_ok=True)
     
     logging.info(f"WandB will create logs in {wandb_dir}")
     logging.info(f"Optuna will create logs in {optuna_dir}")
-    logging.info(f"Checkpoints will be saved in {checkpoint_dir}")
+    # logging.info(f"Checkpoints will be saved in {checkpoint_dir}")
 
     # Get worker info from environment variables
     worker_id = os.environ.get('SLURM_PROCID', '0')
     gpu_id = os.environ.get('CUDA_VISIBLE_DEVICES', '0')
 
     # Create a unique run name for each worker
-    project_name = config['experiment'].get('project_name', 'wind_forecasting')
+    project_name = f"{config['experiment'].get('project_name', 'wind_forecasting')}_{args.model}"
     run_name = f"{config['experiment']['username']}_{args.model}_{args.mode}_{gpu_id}"
 
     # Set an explicit run directory to avoid nesting issues
@@ -216,7 +222,7 @@ def main():
     # Configure WandB to use the correct checkpoint location
     # This ensures artifacts are saved in the correct checkpoint directory
     os.environ["WANDB_RUN_DIR"] = run_dir
-    os.environ["WANDB_ARTIFACT_DIR"] = os.environ["WANDB_CHECKPOINT_PATH"] = checkpoint_dir
+    # os.environ["WANDB_ARTIFACT_DIR"] = os.environ["WANDB_CHECKPOINT_PATH"] = checkpoint_dir
     os.environ["WANDB_DIR"] = wandb_dir
     
     # Fetch GitHub repo URL and current commit and set WandB environment variables
@@ -263,56 +269,76 @@ def main():
         **dynamic_info,
         "git_info": git_info
     }
-
+    checkpoint_dir = os.path.join(log_dir, project_name, unique_id)
     # Create WandB logger only for train/test modes
     if args.mode in ["train", "test"]:
-        wandb_logger = WandbLogger(            
+        wandb_logger = WandbLogger(
             project=project_name, # Project name in WandB, set in config
             entity=config['logging'].get('entity'),
             group=config['experiment']['run_name'],   # Group all workers under the same experiment
             name=run_name, # Unique name for the run, can also take config for hyperparameters. Keep brief
             save_dir=wandb_dir, # Directory for saving logs and metadata
-            log_model="all",            
+            log_model=False,
             job_type=args.mode,
             mode=config['logging'].get('wandb_mode', 'online'), # Configurable wandb mode
-            id=unique_id, # Unique ID for the run, can also use config hyperaparameters for comparison later 
+            id=unique_id,
             tags=[f"gpu_{gpu_id}", args.model, args.mode] + config['experiment'].get('extra_tags', []),
-            config=logger_config,            
+            config=logger_config,
             save_code=config['logging'].get('save_code', False)
         )
         config["trainer"]["logger"] = wandb_logger
     else:
         # For tuning mode, set logger to None
         config["trainer"]["logger"] = None
-
-    # Ensure optuna storage_dir is set correctly with absolute path
-    # Only override storage_dir if it's not explicitly set
-    if "storage_dir" not in config["optuna"]["storage"] or config["optuna"]["storage"]["storage_dir"] is None:
-        config["optuna"]["storage"]["storage_dir"] = optuna_dir
-    else:
-        # Ensure the directory exists
-        os.makedirs(config["optuna"]["storage"]["storage_dir"], exist_ok=True)
-        logging.info(f"Using explicitly defined Optuna storage_dir: {config['optuna']['storage']['storage_dir']}")
     
     # Explicitly resolve any variable references in trainer config
-
-    if "default_root_dir" in config["trainer"]:
-        config["trainer"]["default_root_dir"] = checkpoint_dir # TODO i think these are saved elsewhere by model checkpoint callback?  
-    else:
-        # Replace ${logging.checkpoint_dir} with the actual path
-        if isinstance(config["trainer"]["default_root_dir"], str) and "${logging.checkpoint_dir}" in config["trainer"]["default_root_dir"]:
-            config["trainer"]["default_root_dir"] = config["trainer"]["default_root_dir"].replace("${logging.checkpoint_dir}", checkpoint_dir)
+    
+    # Ensure default_root_dir exists and is set correctly
+    config["trainer"]["default_root_dir"] = checkpoint_dir
 
     # %% CREATE DATASET
+    # Dynamically set DataLoader workers based on SLURM_CPUS_PER_TASK
+    cpus_per_task_str = os.environ.get('SLURM_CPUS_PER_TASK', '1') # Default to 1 CPU if var not set
+    try:
+        cpus_per_task = int(cpus_per_task_str)
+        if cpus_per_task <= 0:
+             logging.warning(f"SLURM_CPUS_PER_TASK is non-positive ({cpus_per_task}), defaulting cpus_per_task to 1.")
+             cpus_per_task = 1
+    except ValueError:
+        logging.warning(f"Could not parse SLURM_CPUS_PER_TASK ('{cpus_per_task_str}'), defaulting cpus_per_task to 1.")
+        cpus_per_task = 1
+
+    num_workers = max(0, cpus_per_task - 1)
+    if "trainer" not in config:
+        config["trainer"] = {}
+
+    # Set DataLoader parameters within the trainer config
+    logging.info(f"Determined SLURM_CPUS_PER_TASK={cpus_per_task}. Setting num_workers = {num_workers}.")
+
     logging.info("Creating datasets")
-    data_module = DataModule(data_path=config["dataset"]["data_path"], n_splits=config["dataset"]["n_splits"],
-                            continuity_groups=None, train_split=(1.0 - config["dataset"]["val_split"] - config["dataset"]["test_split"]),
-                                val_split=config["dataset"]["val_split"], test_split=config["dataset"]["test_split"],
-                                prediction_length=config["dataset"]["prediction_length"], context_length=config["dataset"]["context_length"],
-                                target_prefixes=["ws_horz", "ws_vert"], feat_dynamic_real_prefixes=["nd_cos", "nd_sin"],
-                                freq=config["dataset"]["resample_freq"], target_suffixes=config["dataset"]["target_turbine_ids"],
-                                    per_turbine_target=config["dataset"]["per_turbine_target"], as_lazyframe=False, dtype=pl.Float32)
-    
+    data_module = DataModule(
+        data_path=config["dataset"]["data_path"],
+        n_splits=config["dataset"]["n_splits"],
+        continuity_groups=None,
+        train_split=(1.0 - config["dataset"]["val_split"] - config["dataset"]["test_split"]),
+        val_split=config["dataset"]["val_split"],
+        test_split=config["dataset"]["test_split"],
+        prediction_length=config["dataset"]["prediction_length"],
+        context_length=config["dataset"]["context_length"],
+        target_prefixes=["ws_horz", "ws_vert"],
+        feat_dynamic_real_prefixes=["nd_cos", "nd_sin"],
+        freq=config["dataset"]["resample_freq"],
+        target_suffixes=config["dataset"]["target_turbine_ids"],
+        per_turbine_target=config["dataset"]["per_turbine_target"],
+        as_lazyframe=False,
+        dtype=pl.Float32,
+        batch_size=config["dataset"].get("batch_size", 128),
+        workers=num_workers,
+        pin_memory=True,
+        persistent_workers=True,
+        verbose=True
+    )
+
     if rank_zero_only.rank == 0:
         logging.info("Preparing data for tuning")
         if not os.path.exists(data_module.train_ready_data_path):
@@ -320,8 +346,8 @@ def main():
             reload = True
         else:
             reload = False
-    
-        data_module.generate_splits(save=True, reload=reload, splits=["train", "val", "test"]) 
+
+        data_module.generate_splits(save=True, reload=reload, splits=["train", "val", "test"])
     
     data_module.generate_splits(save=True, reload=False, splits=["train", "val", "test"])
 
@@ -329,6 +355,10 @@ def main():
     if args.mode == "tune" or (args.mode == "train" and args.use_tuned_parameters):
         # %% SETUP & SYNCHRONIZE DATABASE
         # Extract necessary parameters for DB setup explicitly
+        if args.mode == "train":
+            args.restart_tuning = False
+        
+        logging.info(f"Accessing Optuna storage.")
         db_setup_params = generate_df_setup_params(args.model, config)
         optuna_storage = setup_optuna_storage(
             db_setup_params=db_setup_params,
@@ -337,6 +367,8 @@ def main():
         )
     
     if args.mode in ["train", "test"]:
+        
+        # TODO refactor this to just use hparams from checkpoint
         found_tuned_params = True
         if args.use_tuned_parameters:
             try:
@@ -346,6 +378,10 @@ def main():
                 config["dataset"].update({k: v for k, v in tuned_params.items() if k in config["dataset"]})
                 config["model"][args.model].update({k: v for k, v in tuned_params.items() if k in config["model"][args.model]})
                 config["trainer"].update({k: v for k, v in tuned_params.items() if k in config["trainer"]})
+                
+                context_length_factor = tuned_params.get('context_length_factor', config["dataset"].get("context_length_factor", 2)) # Default to config or 2 if not in trial/config
+                context_length = int(context_length_factor * data_module.prediction_length)
+                
             except FileNotFoundError as e:
                 logging.warning(e)
                 found_tuned_params = False
@@ -359,6 +395,11 @@ def main():
             logging.info(f"Declaring estimator {args.model.capitalize()} with tuned parameters")
         else:
             logging.info(f"Declaring estimator {args.model.capitalize()} with default parameters")
+            if "context_length_factor" in config["model"][args.model]:
+                context_length = int(config["model"][args.model]["context_length_factor"] * data_module.prediction_length)
+                del config["model"][args.model]["context_length_factor"]
+            else:
+             context_length = data_module.context_length
             
         # Set up parameters for checkpoint finding
         metric = config.get("trainer", {}).get("monitor_metric", "val_loss")
@@ -366,15 +407,14 @@ def main():
         mode_mapping = {"minimize": "min", "maximize": "max"}
         mode = mode_mapping.get(mode, "min")
         
-        log_dir = config["trainer"]["default_root_dir"]
-        logging.info(f"Checkpoint selection: Monitoring metric '{metric}' with mode '{mode}' in directory '{log_dir}'")
+        logging.info(f"Checkpoint selection: Monitoring metric '{metric}' with mode '{mode}' in directory '{checkpoint_dir}'")
         
         # Use the get_checkpoint function to handle checkpoint finding
-        checkpoint = get_checkpoint(args.checkpoint, metric, mode, log_dir)
+        checkpoint = get_checkpoint(args.checkpoint, metric, mode, checkpoint_dir)
         
         # Use globals() to fetch the estimator class dynamically
         EstimatorClass = globals()[f"{args.model.capitalize()}Estimator"]
-
+            
         # Prepare all arguments in a dictionary
         estimator_kwargs = {
             "freq": data_module.freq,
@@ -387,11 +427,11 @@ def main():
             "scaling": False, # Scaling handled externally or internally by TACTiS
             "lags_seq": [0], # TACTiS doesn't typically use lags
             "time_features": [second_of_minute, minute_of_hour, hour_of_day, day_of_year],
-            "batch_size": config["dataset"].setdefault("batch_size", 128),
+            "batch_size": data_module.batch_size,
             "num_batches_per_epoch": config["trainer"].setdefault("limit_train_batches", 1000),
-            "context_length": data_module.context_length,
-            "train_sampler": ExpectedNumInstanceSampler(num_instances=1.0, min_past=data_module.context_length, min_future=data_module.prediction_length),
-            "validation_sampler": ValidationSplitSampler(min_past=data_module.context_length, min_future=data_module.prediction_length),
+            "context_length": context_length,
+            "train_sampler": ExpectedNumInstanceSampler(num_instances=1.0, min_past=context_length, min_future=data_module.prediction_length),
+            "validation_sampler": ValidationSplitSampler(min_past=context_length, min_future=data_module.prediction_length),
             "trainer_kwargs": config["trainer"],
         }
 
@@ -419,7 +459,6 @@ def main():
                 raise AttributeError(f"Estimator for model '{args.model}' is missing 'distr_output' attribute needed for DistributionForecastGenerator.")
             forecast_generator = DistributionForecastGenerator(estimator.distr_output)
             
-
     if args.mode == "tune":
         logging.info("Starting Optuna hyperparameter tuning...")
         
@@ -431,6 +470,85 @@ def main():
         EstimatorClass = globals()[f"{args.model.capitalize()}Estimator"]
         DistrOutputClass = globals()[config["model"]["distr_output"]["class"]]
         
+        try:
+            callbacks_config = config.get('callbacks', {})
+            mc_config = callbacks_config.get('model_checkpoint', {})
+            mc_init_args = mc_config.get('init_args', {})
+
+            if 'dirpath' in mc_init_args:
+                original_dirpath = mc_init_args['dirpath']
+                resolved_dirpath = original_dirpath
+
+                if "${logging.checkpoint_dir}" in resolved_dirpath:
+                    base_checkpoint_dir = config.get('logging', {}).get('checkpoint_dir')
+                    if base_checkpoint_dir:
+                        project_root = config.get('experiment', {}).get('project_root', '.')
+                        abs_project_root = os.path.abspath(project_root)
+                        abs_base_checkpoint_dir = os.path.abspath(os.path.join(abs_project_root, base_checkpoint_dir))
+                        resolved_dirpath = resolved_dirpath.replace("${logging.checkpoint_dir}", abs_base_checkpoint_dir)
+                        logging.info(f"Resolved '${{logging.checkpoint_dir}}' to '{abs_base_checkpoint_dir}'")
+                    else:
+                        logging.warning("Cannot resolve ${logging.checkpoint_dir}.")
+
+                if not os.path.isabs(resolved_dirpath):
+                     project_root = config.get('experiment', {}).get('project_root', '.')
+                     abs_project_root = os.path.abspath(project_root)
+                     abs_resolved_dirpath = os.path.abspath(os.path.join(abs_project_root, resolved_dirpath))
+                else:
+                     abs_resolved_dirpath = os.path.abspath(resolved_dirpath)
+
+                config['callbacks']['model_checkpoint']['init_args']['dirpath'] = abs_resolved_dirpath
+
+                os.makedirs(abs_resolved_dirpath, exist_ok=True)
+            else:
+                logging.warning("No 'dirpath' found in ModelCheckpoint configuration in YAML.")
+
+        except KeyError as e:
+            logging.warning(f"Could not check ModelCheckpoint in config: {e}")
+        except Exception as e:
+            logging.error(f"Error during checkpoint path resolution: {e}", exc_info=True)
+
+        # Instantiate callbacks from configuration
+        import importlib
+
+        logging.info("Instantiating callbacks from configuration...")
+        instantiated_callbacks = []
+        if 'callbacks' in config and isinstance(config['callbacks'], dict):
+            for cb_name, cb_config in config['callbacks'].items():
+                if isinstance(cb_config, dict) and 'class_path' in cb_config:
+                    try:
+                        module_path, class_name = cb_config['class_path'].rsplit('.', 1)
+                        CallbackClass = getattr(importlib.import_module(module_path), class_name)
+                        init_args = cb_config.get('init_args', {})
+
+                        # Special handling for ModelCheckpoint dirpath
+                        if class_name == "ModelCheckpoint" and 'dirpath' in init_args and init_args['dirpath'] is not None:
+                            if isinstance(init_args['dirpath'], str) and '${logging.checkpoint_dir}' in init_args['dirpath']:
+                                init_args['dirpath'] = init_args['dirpath'].replace('${logging.checkpoint_dir}', checkpoint_dir)
+                            elif not os.path.isabs(init_args['dirpath']):
+                                project_root = config.get('experiment', {}).get('project_root', '.')
+                                init_args['dirpath'] = os.path.abspath(os.path.join(project_root, init_args['dirpath']))
+
+                        callback_instance = CallbackClass(**init_args)
+                        instantiated_callbacks.append(callback_instance)
+                        logging.info(f"Instantiated callback: {class_name}")
+
+                    except Exception as e:
+                        logging.error(f"Error instantiating callback {cb_name}: {e}")
+                elif isinstance(cb_config, bool) and cb_config is True:
+                    # Handle simple boolean flag callbacks
+                    if cb_name == "progress_bar":
+                        from lightning.pytorch.callbacks import RichProgressBar
+                        instantiated_callbacks.append(RichProgressBar())
+                    elif cb_name == "lr_monitor":
+                        from lightning.pytorch.callbacks import LearningRateMonitor
+                        lr_config = config['callbacks'].get('lr_monitor_config', {})
+                        instantiated_callbacks.append(LearningRateMonitor(**lr_config))
+
+            # Replace the dictionary in the config with the list of instances
+            config['callbacks'] = instantiated_callbacks
+            logging.info(f"Replaced config['callbacks'] with {len(instantiated_callbacks)} instantiated callback objects.")
+
         # Normal execution - pass the OOM protection wrapper and constructed storage URL
         tune_model(model=args.model, config=config, # Pass full config here for model/trainer params
                    study_name=db_setup_params["study_name"],
@@ -445,7 +563,8 @@ def main():
                    direction=config["optuna"]["direction"],
                    n_trials_per_worker=config["optuna"]["n_trials_per_worker"],
                    trial_protection_callback=handle_trial_with_oom_protection,
-                   seed=args.seed, tuning_phase=args.tuning_phase)
+                   seed=args.seed, tuning_phase=args.tuning_phase,
+                   restart_tuning=args.restart_tuning) # Add restart_tuning parameter
         
         # After training completes
         torch.cuda.empty_cache()
@@ -455,7 +574,7 @@ def main():
     elif args.mode == "train":
         logging.info("Starting model training...")
         # %% TRAIN MODEL
-        
+        # TODO lightning_logs still being created by something  in log dir...
         logging.info("Training model")
         estimator.train(
             training_data=data_module.train_dataset,

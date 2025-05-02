@@ -1,15 +1,15 @@
 #!/bin/bash
 
-#SBATCH --partition=cfdg.p       # Partition for H100/A100 GPUs cfdg.p / all_gpu.p / mpcg.p(not allowed)
+#SBATCH --partition=cfdg.p          # Partition for H100/A100 GPUs cfdg.p / all_gpu.p / mpcg.p(not allowed)
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=4         # Match number of GPUs requested below
-#SBATCH --cpus-per-task=16          # CPUs per task (4 tasks * 32 = 128 CPUs total)
-#SBATCH --mem-per-cpu=8016          # Memory per CPU (Total Mem = ntasks * cpus-per-task * mem-per-cpu)
-#SBATCH --gres=gpu:H100:4                # Request 4 H100 GPUs
-#SBATCH --time=3-00:00              # Time limit (7 days)
-#SBATCH --job-name=tactis_tune_flasc_sql
-#SBATCH --output=/user/taed7566/Forecasting/wind-forecasting/logs/slurm_logs/tactis_tune_flasc_sql_%j.out
-#SBATCH --error=/user/taed7566/Forecasting/wind-forecasting/logs/slurm_logs/tactis_tune_flasc_sql_%j.err
+#SBATCH --cpus-per-task=32           # CPUs per task (4 tasks * 32 = 128 CPUs total) [1 CPU/GPU more than enough]
+#SBATCH --mem-per-cpu=4096          # Memory per CPU (Total Mem = ntasks * cpus-per-task * mem-per-cpu) [flasc uses only ~4-5 GiB max]
+#SBATCH --gres=gpu:H100:4           # Request 4 H100 GPUs
+#SBATCH --time=1-12:00              # Time limit (up to 7 days)
+#SBATCH --job-name=flasc_tune
+#SBATCH --output=/user/taed7566/Forecasting/wind-forecasting/logs/slurm_logs/flasc_tune_%j.out
+#SBATCH --error=/user/taed7566/Forecasting/wind-forecasting/logs/slurm_logs/flasc_tune_%j.err
 #SBATCH --hint=nomultithread        # Disable hyperthreading
 #SBATCH --distribution=block:block  # Improve GPU-CPU affinity
 #SBATCH --gres-flags=enforce-binding # Enforce binding of GPUs to tasks
@@ -24,7 +24,9 @@ export WORK_DIR="${BASE_DIR}/wind_forecasting"
 export LOG_DIR="${BASE_DIR}/logs"
 export CONFIG_FILE="${BASE_DIR}/config/training/training_inputs_juan_flasc.yaml"
 export MODEL_NAME="tactis"
-export RESTART_TUNING_FLAG="--restart_tuning" # "" Or "--restart_tuning"
+export RESTART_TUNING_FLAG="" # "" Or "--restart_tuning"
+export AUTO_EXIT_WHEN_DONE="true"  # Set to "true" to exit script when all workers finish, "false" to keep running until timeout
+export NUMEXPR_MAX_THREADS=128
 
 # --- Create Logging Directories ---
 # Create the job-specific directory for worker logs and final main logs
@@ -57,6 +59,7 @@ echo "LOG_DIR: ${LOG_DIR}"
 echo "CONFIG_FILE: ${CONFIG_FILE}"
 echo "MODEL_NAME: ${MODEL_NAME}"
 echo "RESTART_TUNING_FLAG: '${RESTART_TUNING_FLAG}'"
+echo "AUTO_EXIT_WHEN_DONE: '${AUTO_EXIT_WHEN_DONE}'"
 echo "------------------------"
 
 # --- GPU  Monitoring Instructions ---
@@ -64,7 +67,7 @@ echo "--- MANUAL MONITORING INSTRUCTIONS ---"
 echo "To monitor GPU usage, open a NEW terminal session on the login node and run:"
 echo "ssh -L 8088:localhost:8088 ${USER}@${SLURM_JOB_NODELIST}"
 echo "After connecting, activate the environment and run gpustat:"
-echo "mamba activate wf_env_2"
+echo "mamba activate wf_env_storm"
 echo "gpustat -P --no-processes --watch 0.5"
 echo "------------------------------------"
 
@@ -73,15 +76,12 @@ echo "Setting up main environment..."
 module purge
 module load slurm/hpc-2023/23.02.7
 module load hpc-env/13.1
-module load PostgreSQL/16.1-GCCcore-13.1.0
+module load mpi4py/3.1.4-gompi-2023a
 module load Mamba/24.3.0-0
 module load CUDA/12.4.0
 module load git
 echo "Modules loaded."
 
-# Capture LD_LIBRARY_PATH after modules are loaded
-export CAPTURED_LD_LIBRARY_PATH=$LD_LIBRARY_PATH
-echo "Captured LD_LIBRARY_PATH: ${CAPTURED_LD_LIBRARY_PATH}"
 
 # Find PostgreSQL binary directory after loading the module
 PG_INITDB_PATH=$(which initdb)
@@ -94,8 +94,10 @@ export POSTGRES_BIN_DIR=$(dirname "$PG_INITDB_PATH")
 echo "Found PostgreSQL bin directory: ${POSTGRES_BIN_DIR}"
 
 eval "$(conda shell.bash hook)"
-conda activate wf_env_2
-echo "Conda environment 'wf_env_2' activated."
+conda activate wf_env_storm
+echo "Conda environment 'wf_env_storm' activated."
+export CAPTURED_LD_LIBRARY_PATH=$LD_LIBRARY_PATH
+
 # --- End Main Environment Setup ---
 
 echo "=== STARTING PARALLEL OPTUNA TUNING WORKERS ==="
@@ -113,7 +115,7 @@ for i in $(seq 0 $((${NUM_GPUS}-1))); do
     CURRENT_WORKER_SEED=$((12 + i*100)) # Base seed + offset per worker (increased multiplier to avoid trials overlap on workers)
 
     echo "Starting worker ${i} on assigned GPU ${i} with seed ${CURRENT_WORKER_SEED}"
-
+    export WORKER_RANK=${i}          # Export rank for Python script
     # Launch worker in the background using nohup and a dedicated bash shell
     nohup bash -c "
         echo \"Worker ${i} starting environment setup...\"
@@ -121,6 +123,7 @@ for i in $(seq 0 $((${NUM_GPUS}-1))); do
         module purge
         module load slurm/hpc-2023/23.02.7
         module load hpc-env/13.1
+        module load mpi4py/3.1.4-gompi-2023a
         module load Mamba/24.3.0-0
         module load CUDA/12.4.0
         module load git
@@ -128,12 +131,12 @@ for i in $(seq 0 $((${NUM_GPUS}-1))); do
 
         # --- Activate conda environment ---
         eval \"\$(conda shell.bash hook)\"
-        conda activate wf_env_2
-        echo \"Worker ${i}: Conda environment 'wf_env_2' activated.\"
+        conda activate wf_env_storm
+        echo \"Worker ${i}: Conda environment 'wf_env_storm' activated.\"
 
         # --- Set Worker-Specific Environment ---
         export CUDA_VISIBLE_DEVICES=${i} # Assign specific GPU based on loop index
-        export WORKER_RANK=${i}          # Export rank for Python script
+        
         # Note: PYTHONPATH and WANDB_DIR are inherited via export from parent script
 
         echo \"Worker ${i}: Running python script with WORKER_RANK=${WORKER_RANK}...\"
@@ -199,27 +202,20 @@ trap "echo '--- Stopping System Monitoring ---'; kill \$MONITOR_PID 2>/dev/null"
 (
     # Setup environment for monitoring commands
     eval "$(conda shell.bash hook)"
-    conda activate wf_env_2
-    
-    echo "--- Starting Periodic Resource Monitoring (every 5 minutes) ---"
-    
+    conda activate wf_env_storm    
+    echo "--- Starting Periodic Resource Monitoring (every 10 minutes) ---"    
     while true; do
         # Current timestamp
-        echo "====== SYSTEM STATUS: $(date +"%Y-%m-%d %H:%M:%S") ======"
-        
+        echo "====== SYSTEM STATUS: $(date +"%Y-%m-%d %H:%M:%S") ======"        
         # CPU load (1, 5, 15 min averages)
-        echo "CPU Load: $(cat /proc/loadavg | awk '{print $1, $2, $3}')"
-        
+        echo "CPU Load: $(cat /proc/loadavg | awk '{print $1, $2, $3}')"        
         # Memory usage summary
-        echo "Memory (GiB): $(free -g | grep Mem | awk '{print "Total:", $2, "Used:", $3, "Free:", $4, "Cache:", $6}')"
-        
+        echo "Memory (GiB): $(free -g | grep Mem | awk '{print "Total:", $2, "Used:", $3, "Free:", $4, "Cache:", $6}')"        
         # Disk usage (root partition)
-        echo "Disk: $(df -h / | grep -v Filesystem | awk '{print "Used:", $3, "Free:", $4, "of", $2, "("$5")"}')"
-        
+        echo "Disk: $(df -h / | grep -v Filesystem | awk '{print "Used:", $3, "Free:", $4, "of", $2, "("$5")"}')"        
         # GPU usage - compact format
         echo "GPU Status:"
-        gpustat --no-header
-        
+        gpustat --no-header        
         # Worker process check (confirm they're still running)
         ALIVE_WORKERS=0
         for pid in ${WORKER_PIDS[@]}; do
@@ -228,10 +224,9 @@ trap "echo '--- Stopping System Monitoring ---'; kill \$MONITOR_PID 2>/dev/null"
             fi
         done
         echo "Workers: ${ALIVE_WORKERS}/${#WORKER_PIDS[@]} still running"
-        echo "------------------------------------------"
-        
-        # Sleep for 5 minutes before next check
-        sleep 300
+        echo "------------------------------------------"        
+        # Sleep for 10 minutes before next check
+        sleep 600
     done
 ) &
 
@@ -240,9 +235,37 @@ echo "System monitoring started (PID: ${MONITOR_PID})"
 echo "=== END MONITORING SETUP ==="
 echo "---------------------------------------"
 
-# --- Wait for all background workers to complete ---
-wait
-WAIT_EXIT_CODE=$? # Capture the exit code of the initial 'wait' command
+# --- Wait for all background workers to complete, with auto-exit option ---
+if [ "${AUTO_EXIT_WHEN_DONE}" = "true" ]; then
+    echo "Auto-exit when done is enabled. Script will terminate when all workers finish."
+    
+    # Check worker status every 60 seconds
+    while true; do
+        ALIVE_WORKERS=0
+        for pid in ${WORKER_PIDS[@]}; do
+            if kill -0 $pid 2>/dev/null; then
+                ((ALIVE_WORKERS++))
+            fi
+        done
+        
+        echo "$(date +"%Y-%m-%d %H:%M:%S") - Workers still running: ${ALIVE_WORKERS}/${#WORKER_PIDS[@]}"
+        
+        # If no workers are alive, exit the loop
+        if [ $ALIVE_WORKERS -eq 0 ]; then
+            echo "All workers have finished. Proceeding to final status check."
+            break
+        fi
+        
+        # Sleep for 60 seconds before checking again
+        sleep 60
+    done
+else
+    echo "Auto-exit when done is disabled. Script will wait until all workers finish or timeout occurs."
+    # Traditional wait for all workers (will wait until timeout if any worker hangs)
+    wait
+fi
+
+WAIT_EXIT_CODE=$? # Capture the exit code of the wait
 
 # --- Final Status Check based on Worker Logs ---
 echo "--- Worker Completion Status (from logs) ---"
@@ -279,7 +302,6 @@ else
     echo "SUMMARY: All ${TOTAL_WORKERS} workers reported success."
     FINAL_EXIT_CODE=0 # Use 0 if all logs indicate success
 fi
-
 echo "=== TUNING SCRIPT COMPLETED ==="
 date +"%Y-%m-%d %H:%M:%S"
 
@@ -296,7 +318,18 @@ echo "--------------------------------------------------"
 exit $FINAL_EXIT_CODE
 
 # sbatch wind-forecasting/wind_forecasting/run_scripts/tune_scripts/tune_model_storm.sh
+# sacct --node=cfdg002 --state=RUNNING --allusers --format=JobID,JobName,User,State,NodeList,AllocCPUS,AllocTRES%45,ReqCPUS,ReqMem%15,ReqTRES%45,TRESUsageInAve,TRESUsageInMax
 # squeue -p cfdg.p,mpcg.p,all_gpu.p -o "%.10a %.10P %.25j %.8u %.2t %.10M %.6D %R"
+# squeue --node=cfdg002
+# scontrol show node cfdg002
 # ssh -L 8088:localhost:8088 taed7566@cfdg002
-# mamba activate wf_env_2
-# gpustat -P --no-processes --watch 0.2
+# mamba activate wf_env_storm
+# gpustat -P --no-processes --watch 0.5
+# htop
+
+# module purge && module load slurm/hpc-2023/23.02.7 && module load hpc-env/13.1 && module load mpi4py/3.1.4-gompi-2023a && module load Mamba/24.3.0-0 && module load CUDA/12.4.0 && module load git && mamba deactivate && mamba activate wf_env_storm && sbatch wind-forecasting/wind_forecasting/run_scripts/tune_scripts/tune_model_storm.sh
+
+# JOB_ID=YOUR_JOB_ID
+# tail -f /user/taed7566/Forecasting/wind-forecasting/logs/slurm_logs/$JOB_ID/worker_0_$JOB_ID.log /user/taed7566/Forecasting/wind-forecasting/logs/slurm_logs/$JOB_ID/worker_1_$JOB_ID.log /user/taed7566/Forecasting/wind-forecasting/logs/slurm_logs/$JOB_ID/worker_2_$JOB_ID.log /user/taed7566/Forecasting/wind-forecasting/logs/slurm_logs/$JOB_ID/worker_3_$JOB_ID.log
+
+# optuna-dashboard sqlite:///wind-forecasting/optuna/SQL/flasc_tactis.db --port 8088

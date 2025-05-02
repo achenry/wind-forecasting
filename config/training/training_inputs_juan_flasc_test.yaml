@@ -1,20 +1,20 @@
 experiment:
   username: jmb0507
   project_name: wind_forecasting_flasc
-  run_name: tune_hb_4_3_farm_128BS_400trials # [p = patience, d = min_delta, b = limit_train_batches, n = n_startup_trials] / hb = hyperband min_resource, reduction_factor
-  project_root: /user/taed7566/Forecasting/wind-forecasting
-  log_dir: /user/taed7566/Forecasting/wind-forecasting/logs/
+  run_name: test_flasc_inference
+  project_root: /home/boujuan/wind-forecasting-project/wind-forecasting
+  log_dir: /home/boujuan/wind-forecasting-project/wind-forecasting/logs/
   notes: ""
-  extra_tags: ["flasc", "H100","restart","250b","400t"] # By default already has GPU id and model name.
+  extra_tags: ["inference"] # By default already has GPU id and model name.
 
 logging:
   entity: jmb0507-cu-boulder # Wandb entity (group name)
   wandb_mode: online
   save_code: false # Do not save code to W&B
-  wandb_dir: /user/taed7566/Forecasting/wind-forecasting/logs # Let WandB create the 'wandb' subdir here
-  optuna_dir: /user/taed7566/Forecasting/wind-forecasting/optuna
-  checkpoint_dir: /user/taed7566/Forecasting/wind-forecasting/logs/checkpoints
-  slurm_output_dir: /user/taed7566/Forecasting/wind-forecasting/logs/slurm_logs
+  wandb_dir: /home/boujuan/wind-forecasting-project/wind-forecasting/logs # Let WandB create the 'wandb' subdir here
+  optuna_dir: /home/boujuan/wind-forecasting-project/wind-forecasting/optuna
+  checkpoint_dir: /home/boujuan/wind-forecasting-project/wind-forecasting/logs/checkpoints
+  slurm_output_dir: /home/boujuan/wind-forecasting-project/wind-forecasting/logs/slurm_logs
 
 optuna:
   save_trial_code: false      # Default false
@@ -50,18 +50,18 @@ optuna:
 
   # Storage backend configuration
   storage:
-    backend: "postgresql"  # Options: "postgresql", "sqlite"
-    # --- PostgreSQL Specific Settings ---
+    backend: "sqlite"  # Options: "postgresql", "sqlite"
+    # --- PostgreSQL Specific Settings (Commented out) ---
     # Path relative to project root (e.g., ~/wind-forecasting)
-    pgdata_path: "/user/taed7566/Forecasting/wind-forecasting/optuna/pgdata" # Directory for PostgreSQL data files
-    pgdata_instance_name: "flasc_tactis" # INFO: CREATE NEW INSTANCE (DIRECTORY) FOR STUDIES #flasc_tactis, flasc_default , keep same for resuming!!
-    db_name: "optuna_study_db"  # Name of the PostgreSQL database
-    db_user: "optuna_user"
-    use_socket: true      # Use Unix domain socket for local connection (recommended on single node)
-    socket_dir_base: "/user/taed7566/Forecasting/wind-forecasting/optuna/sockets" # Base directory for socket files
-    sync_dir: "/user/taed7566/Forecasting/wind-forecasting/optuna/sync"           # Directory for synchronization files
+    # pgdata_path: "/home/boujuan/wind-forecasting-project/wind-forecasting/optuna/pgdata" # Directory for PostgreSQL data files
+    # pgdata_instance_name: "flasc_tactis" # INFO: CREATE NEW INSTANCE (DIRECTORY) FOR STUDIES #flasc_tactis, flasc_default , keep same for resuming!!
+    # db_name: "optuna_study_db"  # Name of the PostgreSQL database
+    # db_user: "optuna_user"
+    # use_socket: true      # Use Unix domain socket for local connection (recommended on single node)
+    # socket_dir_base: "/home/boujuan/wind-forecasting-project/wind-forecasting/optuna/sockets" # Base directory for socket files
+    # sync_dir: "/home/boujuan/wind-forecasting-project/wind-forecasting/optuna/sync"           # Directory for synchronization files
 
-    # --- Optional TCP/IP Settings (if use_socket is false) ---
+    # --- Optional TCP/IP Settings (if use_socket is false) (Commented out) ---
     # use_tcp: false
     # db_host: "localhost"
     # db_port: 5432
@@ -70,9 +70,9 @@ optuna:
     # run_cmd_shell: false # Set to true if specific commands require shell=True
 
     # --- SQLite Specific Settings (not used if backend is postgresql) ---
-    # sqlite_path: "logging/optuna/study.db" Relative path for SQLite file if backend="sqlite"
-    # sqlite_wal: true  Enable WAL mode for SQLite
-    # sqlite_timeout: 600  Timeout in seconds for SQLite locks
+    sqlite_path: "wind-forecasting/optuna/flasc_tactis.db" # Relative path for SQLite file if backend="sqlite"
+    sqlite_wal: true  # Enable WAL mode for SQLite (Recommended)
+    sqlite_timeout: 600  # Timeout in seconds for SQLite locks
 
   # Optuna Dashboard auto-launch configuration
   dashboard:
@@ -81,10 +81,11 @@ optuna:
     log_file: "${logging.optuna_dir}/optuna_dashboard.log" # Log file for the dashboard process
 
 dataset:
-    data_path: /user/taed7566/Forecasting/wind-forecasting/examples/inputs/SMARTEOLE-WFC-open-dataset/processed/SMARTEOLE_WakeSteering_SCADA_1minData_normalized.parquet
-    normalization_consts_path:  /user/taed7566/Forecasting/wind-forecasting/examples/inputs/SMARTEOLE-WFC-open-dataset/processed/SMARTEOLE_WakeSteering_SCADA_1minData_normalization_consts.csv
-    context_length: 600 # in seconds
-    prediction_length: 300 # in seconds
+    data_path: /home/boujuan/wind-forecasting-project/wind-forecasting/examples/data/preprocessed_flasc_data/SMARTEOLE_WakeSteering_SCADA_1minData_normalized.parquet
+    normalization_consts_path:  /home/boujuan/wind-forecasting-project/wind-forecasting/examples/data/preprocessed_flasc_data/SMARTEOLE_WakeSteering_SCADA_1minData_normalization_consts.csv
+    # Set lengths to match the apparent trained architecture (20 context + 5 prediction = 25 steps)
+    context_length: 1200 # 20 steps * 60s
+    prediction_length: 300 # 5 steps * 60s
     target_turbine_ids: # or leave blank to capture all
     normalize: false # TODO: Should I do this or Tactis-2 normalization?
     batch_size: 128 # INFO: In tactis only affects gradient precision NOT SPEED! - for tuning: <= 128, for training: max_memory ~1024
@@ -229,10 +230,10 @@ trainer:
     gradient_clip_val: 0.0 # Prevents gradient explosion if > 0. Renamed from grad_clip_norm.
     # limit_val_batches: 1.0
     # val_check_interval: 1.0
-    accelerator: gpu # 'cpu' or 'gpu'
+    accelerator: cpu # 'cpu' or 'gpu'
     devices: auto
     num_nodes: 1
-    strategy: "ddp" # 'ddp' or 'ddp_spawn'
+    strategy: "ddp" # 'ddp' , 'ddp_find_unused_params', etc.
     # n_workers: auto
     # debug: false
     # accumulate: 1.0
