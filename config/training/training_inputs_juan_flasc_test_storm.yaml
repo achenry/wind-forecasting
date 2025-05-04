@@ -106,17 +106,17 @@ model:
   tactis:
     # General TACTiS settings
     initial_stage: 1
-    stage2_start_epoch: 30 # Epoch to start stage 2 (copula training)
+    stage2_start_epoch: 10 # Epoch to start stage 2 (copula training) # DEBUG
     ac_mlp_num_layers: 2 # Number of layers in AC's internal MLP. INFO: Now tuning
     ac_mlp_dim: 128      # Dimension of AC's internal MLP layers. INFO: Now tuning
     ac_activation_function: "relu" # Activation in AC's internal MLP. [ReLU, GeLU, LeakyReLU] INFO: Now tuning
-    input_encoding_normalization: true # INFO: FIXED
-    scaling: "std" # Options: "mean", "std", null # Enable internal standardization
+    input_encoding_normalization: true # DEBUG
+    scaling: "std" # Options: "mean", "std", null # Enable internal standardization # INFO NEEDED std!
     loss_normalization: "series" # Options: "series", "timesteps", "both", "none" INFO: Now tuning
     encoder_type: "standard" # Options: "standard", "temporal"
     bagging_size: null # Optional, defaults to None in estimator # INFO: Now tuning
-    num_parallel_samples: 100 # INFO: FIXED - Inference only setting
-    inference_num_samples: 100
+    num_parallel_samples: 100 # INFO: Inference only setting
+    inference_num_samples: 100 # INFO: Inference only setting
     # Marginal CDF Encoder
     marginal_embedding_dim_per_head: 8
     marginal_num_heads: 5
@@ -139,13 +139,13 @@ model:
     decoder_transformer_num_heads: 6
     decoder_num_bins: 50
     # Optimizer Params
-    lr_stage1: 1e-5 # Keeping stable low LR
-    lr_stage2: 5e-6 # Keeping stage 2 LR proportional
-    weight_decay_stage1: 1e-5 # Added small weight decay
-    weight_decay_stage2: 1e-5 # Added small weight decay
+    lr_stage1: 1e-5
+    lr_stage2: 5e-6
+    weight_decay_stage1: 1e-5
+    weight_decay_stage2: 1e-5
     # Dropout & Clipping
-    dropout_rate: 0.1 # Reset to standard dropout
-    warmup_steps: 2000 # Keeping warmup for initial stability
+    dropout_rate: 0.1
+    warmup_steps: 2000
   
   # [ Informer ]
   informer:
@@ -222,7 +222,7 @@ callbacks:
         log_momentum: false
         log_weight_decay : false
     dead_neuron_monitor: # INFO @boujuan [custom callback] Currently only works for tactis-2 (check utils/callbacks.py)
-      enabled: true
+      enabled: true # DEBUG
 
 trainer:
     gradient_clip_val: 0.0 # Global clipping
