@@ -222,7 +222,7 @@ callbacks:
         log_momentum: false
         log_weight_decay : false
     dead_neuron_monitor: # INFO @boujuan [custom callback] Currently only works for tactis-2 (check utils/callbacks.py)
-      enabled: true # DEBUG
+      enabled: false # DEBUG
 
 trainer:
     gradient_clip_val: 0.0 # Global clipping # DEBUG make sure it works

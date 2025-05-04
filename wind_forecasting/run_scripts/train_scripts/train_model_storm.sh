@@ -95,7 +95,7 @@ srun python ${WORK_DIR}/run_scripts/run_model.py \
   --mode train \
   --seed 69 \
   --use_tuned_parameters \
-  --override lr_stage1 lr_stage2 dropout_rate # Override gradient clipping values from YAML
+  --override model.tactis.lr_stage1=1e-5 model.tactis.lr_stage2=5e-6 model.tactis.dropout_rate trainer.gradient_clip_val
 
 TRAIN_EXIT_CODE=$?
 

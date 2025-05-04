@@ -96,36 +96,6 @@ def main():
     
     # Store the original YAML config to access original values later if needed for overrides
     original_yaml_config = yaml.safe_load(open(args.config, "r")) # Keep this if needed for the --use_tuned_params logic below
-    if args.override:
-        logging.info(f"Applying command-line overrides: {args.override}")
-        for override in args.override:
-            try:
-                key_path, value_str = override.split('=', 1)
-                keys = key_path.split('.')
-                
-                # Try to parse value (int, float, bool, or string)
-                try:
-                    value = yaml.safe_load(value_str) # Handles basic types like int, float, bool, strings
-                except yaml.YAMLError:
-                    value = value_str # Keep as string if parsing fails
-                    
-                # Navigate nested dictionary and set value
-                d = config
-                for key in keys[:-1]:
-                    if key not in d or not isinstance(d[key], dict):
-                        d[key] = {} # Create nested dict if needed
-                    d = d[key]
-                
-                last_key = keys[-1]
-                d[last_key] = value
-                logging.info(f"  - Overrode '{key_path}' with value: {value} (type: {type(value).__name__})")
-                
-            except ValueError:
-                logging.warning(f"  - Skipping invalid override format: '{override}'. Expected 'key.path=value'.")
-            except Exception as e:
-                logging.error(f"  - Error applying override '{override}': {e}")
-    # --- End Override Application ---
-        
     # if (type(config["dataset"]["target_turbine_ids"]) is str) and (
     #     (config["dataset"]["target_turbine_ids"].lower() == "none") or (config["dataset"]["target_turbine_ids"].lower() == "all")):
     #     config["dataset"]["target_turbine_ids"] = None # select all turbines
@@ -466,45 +436,6 @@ def main():
                     config["model"][args.model].update({k: v for k, v in tuned_params.items() if k in config["model"][args.model]})
                     config["trainer"].update({k: v for k, v in tuned_params.items() if k in config["trainer"]})
                     
-                    # Apply overrides from YAML config for any parameters specified with --override
-                    if args.override and args.use_tuned_parameters:
-                        logging.info("Applying YAML overrides for specified parameters:")
-                        
-                        for param_name in args.override:
-                            # Handle TACTiS-specific parameters in model.tactis section
-                            if param_name in ["gradient_clip_val_stage1", "gradient_clip_val_stage2"] and args.model == "tactis":
-                                if "model" in original_yaml_config and "tactis" in original_yaml_config["model"] and param_name in original_yaml_config["model"]["tactis"]:
-                                    original_value = original_yaml_config["model"]["tactis"][param_name]
-                                    
-                                    # Ensure nested dictionaries exist
-                                    if "model" not in config: config["model"] = {}
-                                    if "tactis" not in config["model"]: config["model"]["tactis"] = {}
-                                    
-                                    # Apply the override
-                                    config["model"]["tactis"][param_name] = original_value
-                                    logging.info(f"  - Overriding model.tactis.{param_name} with YAML value: {original_value}")
-                            
-                            # Handle trainer parameters
-                            elif param_name in ["gradient_clip_val"] and "trainer" in original_yaml_config and param_name in original_yaml_config["trainer"]:
-                                original_value = original_yaml_config["trainer"][param_name]
-                                config["trainer"][param_name] = original_value
-                                logging.info(f"  - Overriding trainer.{param_name} with YAML value: {original_value}")
-                            
-                            # Handle dataset parameters
-                            elif param_name in original_yaml_config.get("dataset", {}):
-                                original_value = original_yaml_config["dataset"][param_name]
-                                config["dataset"][param_name] = original_value
-                                logging.info(f"  - Overriding dataset.{param_name} with YAML value: {original_value}")
-                            
-                            # Handle general model parameters for current model
-                            elif param_name in original_yaml_config.get("model", {}).get(args.model, {}):
-                                original_value = original_yaml_config["model"][args.model][param_name]
-                                config["model"][args.model][param_name] = original_value
-                                logging.info(f"  - Overriding model.{args.model}.{param_name} with YAML value: {original_value}")
-                            
-                            else:
-                                logging.warning(f"  - Parameter '{param_name}' not found in original YAML config, cannot override")
-                    
                     context_length_factor = tuned_params.get('context_length_factor', config["dataset"].get("context_length_factor", 2)) # Default to config or 2 if not in trial/config
                     context_length = int(context_length_factor * data_module.prediction_length)
                     
@@ -521,8 +452,79 @@ def main():
                     logging.error(f"An unexpected error occurred while loading tuned parameters: {e}", exc_info=True)
                     found_tuned_params = False
         else:
-            found_tuned_params = False 
-        
+            found_tuned_params = False
+            
+        # Apply command-line overrides AFTER potentially loading tuned params
+        if args.override:
+            logging.info(f"Applying command-line overrides (final step): {args.override}")
+            for override_item in args.override:
+                try:
+                    if '=' in override_item:
+                        # Case 1: key=value provided - Use command-line value
+                        key_path, value_str = override_item.split('=', 1)
+                        keys = key_path.split('.')
+                        
+                        # Try to parse value (int, float, bool, or string)
+                        try:
+                            value = yaml.safe_load(value_str) # Handles basic types
+                        except yaml.YAMLError:
+                            value = value_str # Keep as string if parsing fails
+                            
+                        # Navigate nested dictionary and set value
+                        d = config
+                        for key in keys[:-1]:
+                            d = d.setdefault(key, {})
+                            if not isinstance(d, dict):
+                                logging.warning(f"Overriding non-dictionary key '{key}' in path '{key_path}'. Existing value will be replaced.")
+                                parent_d = config
+                                for parent_key in keys[:keys.index(key)]: parent_d = parent_d[parent_key]
+                                parent_d[key] = {}
+                                d = parent_d[key]
+                                
+                        last_key = keys[-1]
+                        d[last_key] = value
+                        logging.info(f"  - Final override applied (from command line): '{key_path}' = {value} (type: {type(value).__name__})")
+
+                    else:
+                        # Case 2: Only key provided - Revert to original YAML value
+                        key_path = override_item
+                        keys = key_path.split('.')
+                        
+                        # Navigate original YAML config to get the value
+                        original_d = original_yaml_config
+                        found_original = True
+                        for key in keys:
+                            if isinstance(original_d, dict) and key in original_d:
+                                original_d = original_d[key]
+                            else:
+                                logging.warning(f"  - Override key '{key_path}' not found in original YAML config. Cannot revert.")
+                                found_original = False
+                                break
+                        
+                        if found_original:
+                            original_value = original_d # The value found at the end of the path
+                            
+                            # Navigate current config to set the value
+                            d = config
+                            for key in keys[:-1]:
+                                d = d.setdefault(key, {})
+                                if not isinstance(d, dict):
+                                     # This case is less likely when reverting, but handle defensively
+                                     logging.warning(f"Overriding non-dictionary key '{key}' in path '{key_path}' while reverting. Existing value will be replaced.")
+                                     parent_d = config
+                                     for parent_key in keys[:keys.index(key)]: parent_d = parent_d[parent_key]
+                                     parent_d[key] = {}
+                                     d = parent_d[key]
+
+                            last_key = keys[-1]
+                            d[last_key] = original_value
+                            logging.info(f"  - Final override applied (reverted to YAML): '{key_path}' = {original_value} (type: {type(original_value).__name__})")
+
+                except ValueError:
+                     # This error should now only happen if split fails unexpectedly
+                     logging.warning(f"  - Skipping invalid override format: '{override_item}'.")
+                except Exception as e:
+                    logging.error(f"  - Error applying override '{override_item}': {e}", exc_info=True)
         if found_tuned_params:
             logging.info(f"Declaring estimator {args.model.capitalize()} with tuned parameters")
         else:
