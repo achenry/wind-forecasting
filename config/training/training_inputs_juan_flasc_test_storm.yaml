@@ -105,8 +105,8 @@ model:
   # [ TACTiS-2 ]
   tactis:
     # General TACTiS settings
-    initial_stage: 1 # INFO: FIXED
-    stage2_start_epoch: 30 # Epoch to start stage 2 (copula training) - Further Increased for stability
+    initial_stage: 1
+    stage2_start_epoch: 30 # Epoch to start stage 2 (copula training)
     ac_mlp_num_layers: 2 # Number of layers in AC's internal MLP. INFO: Now tuning
     ac_mlp_dim: 128      # Dimension of AC's internal MLP layers. INFO: Now tuning
     ac_activation_function: "relu" # Activation in AC's internal MLP. [ReLU, GeLU, LeakyReLU] INFO: Now tuning
@@ -145,8 +145,6 @@ model:
     weight_decay_stage2: 1e-5 # Added small weight decay
     # Dropout & Clipping
     dropout_rate: 0.1 # Reset to standard dropout
-    # gradient_clip_val_stage1: 1.0 # No longer used with automatic optimization
-    # gradient_clip_val_stage2: 1.0 # No longer used with automatic optimization
     warmup_steps: 2000 # Keeping warmup for initial stability
   
   # [ Informer ]
@@ -227,7 +225,7 @@ callbacks:
       enabled: true
 
 trainer:
-    gradient_clip_val: 1.0 # Global clipping for automatic optimization
+    gradient_clip_val: 0.0 # Global clipping for automatic optimization
     # limit_val_batches: 1.0
     # val_check_interval: 1.0
     accelerator: gpu # 'cpu' or 'gpu'
