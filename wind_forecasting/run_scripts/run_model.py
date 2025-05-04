@@ -430,7 +430,8 @@ def main():
             "batch_size": data_module.batch_size,
             "num_batches_per_epoch": config["trainer"].setdefault("limit_train_batches", 1000),
             "context_length": context_length,
-            "train_sampler": ExpectedNumInstanceSampler(num_instances=1.0, min_past=context_length, min_future=data_module.prediction_length),
+            # "train_sampler": ExpectedNumInstanceSampler(num_instances=1.0, min_past=context_length, min_future=data_module.prediction_length),
+            "train_sampler": SequentialSampler(min_past=context_length, min_future=data_module.prediction_length), # TODO TEST, w/ num_batches_per_epoch=None or float
             "validation_sampler": ValidationSplitSampler(min_past=context_length, min_future=data_module.prediction_length),
             "trainer_kwargs": config["trainer"],
         }
