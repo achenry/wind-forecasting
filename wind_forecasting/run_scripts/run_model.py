@@ -94,10 +94,36 @@ def main():
         config = yaml.safe_load(file)
     
     # Store the original YAML config to access original values later if needed for overrides
-    original_yaml_config = yaml.safe_load(open(args.config, "r"))
-    
+    original_yaml_config = yaml.safe_load(open(args.config, "r")) # Keep this if needed for the --use_tuned_params logic below
     if args.override:
-        logging.info(f"Parameters specified for override from YAML: {args.override}")
+        logging.info(f"Applying command-line overrides: {args.override}")
+        for override in args.override:
+            try:
+                key_path, value_str = override.split('=', 1)
+                keys = key_path.split('.')
+                
+                # Try to parse value (int, float, bool, or string)
+                try:
+                    value = yaml.safe_load(value_str) # Handles basic types like int, float, bool, strings
+                except yaml.YAMLError:
+                    value = value_str # Keep as string if parsing fails
+                    
+                # Navigate nested dictionary and set value
+                d = config
+                for key in keys[:-1]:
+                    if key not in d or not isinstance(d[key], dict):
+                        d[key] = {} # Create nested dict if needed
+                    d = d[key]
+                
+                last_key = keys[-1]
+                d[last_key] = value
+                logging.info(f"  - Overrode '{key_path}' with value: {value} (type: {type(value).__name__})")
+                
+            except ValueError:
+                logging.warning(f"  - Skipping invalid override format: '{override}'. Expected 'key.path=value'.")
+            except Exception as e:
+                logging.error(f"  - Error applying override '{override}': {e}")
+    # --- End Override Application ---
         
     # if (type(config["dataset"]["target_turbine_ids"]) is str) and (
     #     (config["dataset"]["target_turbine_ids"].lower() == "none") or (config["dataset"]["target_turbine_ids"].lower() == "all")):
@@ -353,6 +379,8 @@ def main():
         per_turbine_target=config["dataset"]["per_turbine_target"],
         as_lazyframe=False,
         dtype=pl.Float32,
+        normalized=False, # Feed raw-scale data to use with internal scaling="std"
+        normalization_consts_path=config["dataset"]["normalization_consts_path"], # Needed for denormalization
         batch_size=config["dataset"].get("batch_size", 128),
         workers=num_workers,
         pin_memory=True,
@@ -671,6 +699,53 @@ def main():
         
     elif args.mode == "train":
         logging.info("Starting model training...")
+        
+        # %% Instantiate Callbacks for Training Mode
+        import importlib
+        logging.info("Instantiating callbacks from configuration for training...")
+        instantiated_callbacks = []
+        if 'callbacks' in config and isinstance(config['callbacks'], dict):
+            for cb_name, cb_config in config['callbacks'].items():
+                # Skip disabled callbacks explicitly marked as enabled: false
+                if isinstance(cb_config, dict) and cb_config.get('enabled', True) is False:
+                     logging.info(f"Skipping disabled callback: {cb_name}")
+                     continue
+                     
+                if isinstance(cb_config, dict) and 'class_path' in cb_config:
+                    try:
+                        module_path, class_name = cb_config['class_path'].rsplit('.', 1)
+                        CallbackClass = getattr(importlib.import_module(module_path), class_name)
+                        init_args = cb_config.get('init_args', {})
+
+                        # Resolve dirpath for ModelCheckpoint if necessary
+                        if class_name == "ModelCheckpoint" and 'dirpath' in init_args:
+                             if isinstance(init_args['dirpath'], str) and '${logging.checkpoint_dir}' in init_args['dirpath']:
+                                 # Note: checkpoint_dir was defined earlier based on unique_id
+                                 init_args['dirpath'] = init_args['dirpath'].replace('${logging.checkpoint_dir}', checkpoint_dir)
+                             # Ensure absolute path if not already
+                             if not os.path.isabs(init_args['dirpath']):
+                                  project_root = config.get('experiment', {}).get('project_root', '.')
+                                  init_args['dirpath'] = os.path.abspath(os.path.join(project_root, init_args['dirpath']))
+                             os.makedirs(init_args['dirpath'], exist_ok=True) # Ensure dir exists
+
+                        callback_instance = CallbackClass(**init_args)
+                        instantiated_callbacks.append(callback_instance)
+                        logging.info(f"Instantiated callback: {class_name}")
+                    except Exception as e:
+                        logging.error(f"Error instantiating callback {cb_name}: {e}", exc_info=True)
+                # Handle simple boolean flags if needed (though YAML structure is preferred)
+                # elif isinstance(cb_config, bool) and cb_config is True: ...
+
+            # Add the list of instantiated callbacks to the trainer_kwargs within the estimator object
+            # This assumes estimator_kwargs['trainer_kwargs'] exists
+            if 'trainer_kwargs' in estimator_kwargs:
+                 estimator_kwargs['trainer_kwargs']['callbacks'] = instantiated_callbacks
+                 logging.info(f"Added {len(instantiated_callbacks)} callbacks to trainer_kwargs.")
+            else:
+                 logging.warning("Could not add callbacks: 'trainer_kwargs' not found in estimator_kwargs.")
+        else:
+             logging.info("No callbacks dictionary found in config or it's not a dictionary.")
+
         # %% TRAIN MODEL
         # TODO lightning_logs still being created by something  in log dir...
         logging.info("Training model")

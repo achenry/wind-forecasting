@@ -93,8 +93,9 @@ srun python ${WORK_DIR}/run_scripts/run_model.py \
   --config ${CONFIG_FILE} \
   --model ${MODEL_NAME} \
   --mode train \
+  --seed 43 \
   --use_tuned_parameters \
-  --override gradient_clip_val_stage1 gradient_clip_val_stage2 # Override gradient clipping values from YAML
+  --override lr_stage1 lr_stage2 weight_decay_stage1 weight_decay_stage2 dropout_rate gradient_clip_val_stage1 gradient_clip_val_stage2 # Override gradient clipping values from YAML
 
 TRAIN_EXIT_CODE=$?
 

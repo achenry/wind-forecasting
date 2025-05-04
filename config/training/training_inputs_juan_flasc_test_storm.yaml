@@ -84,14 +84,14 @@ dataset:
     prediction_length: 300 # in seconds
     target_turbine_ids: # or leave blank to capture all
     normalize: false # TODO: Should I do this or Tactis-2 normalization?
-    batch_size: 256 # INFO: In tactis only affects gradient precision NOT SPEED! - for tuning: <= 128, for training: max_memory ~1024
+    batch_size: 1024 # INFO: In tactis only affects gradient precision NOT SPEED! - for tuning: <= 128, for training: max_memory ~1024
     workers: 32 # Consider adjusting based on CPU cores per task
     overfit: False
     test_split: 0.20
     val_split: 0.1
     resample_freq: 60s
     n_splits: 1 # how many divisions of each continuity group to make which is further subdivided into training test and validation data
-    per_turbine_target: false # TODO: Test this option. Tune??
+    per_turbine_target: true # TODO: Test this option. Tune??
     context_length_factor: 2  # INFO: Being tuned - Factor to multiply prediction_length by
 
 model:
@@ -106,12 +106,12 @@ model:
   tactis:
     # General TACTiS settings
     initial_stage: 1 # INFO: FIXED
-    stage2_start_epoch: 10 # Epoch to start stage 2 (copula training) INFO: Now tuning
+    stage2_start_epoch: 30 # Epoch to start stage 2 (copula training) - Further Increased for stability
     ac_mlp_num_layers: 2 # Number of layers in AC's internal MLP. INFO: Now tuning
     ac_mlp_dim: 128      # Dimension of AC's internal MLP layers. INFO: Now tuning
     ac_activation_function: "relu" # Activation in AC's internal MLP. [ReLU, GeLU, LeakyReLU] INFO: Now tuning
     input_encoding_normalization: true # INFO: FIXED
-    scaling: null # Options: "mean", "std", null # INFO: FIXED
+    scaling: "std" # Options: "mean", "std", null # Enable internal standardization
     loss_normalization: "series" # Options: "series", "timesteps", "both", "none" INFO: Now tuning
     encoder_type: "standard" # Options: "standard", "temporal"
     bagging_size: null # Optional, defaults to None in estimator # INFO: Now tuning
@@ -139,15 +139,16 @@ model:
     decoder_transformer_num_heads: 6
     decoder_num_bins: 50
     # Optimizer Params
-    lr_stage1: 0.0018
-    lr_stage2: 0.0007
-    weight_decay_stage1: 0.0
-    weight_decay_stage2: 0.0
+    lr_stage1: 5e-6 # Keeping stable low LR
+    lr_stage2: 1e-6 # Keeping stage 2 LR proportional
+    weight_decay_stage1: 1e-5 # Added small weight decay
+    weight_decay_stage2: 1e-5 # Added small weight decay
     # Dropout & Clipping
-    dropout_rate: 0.1
-    gradient_clip_val_stage1: 1000.0
-    gradient_clip_val_stage2: 1000.0
-
+    dropout_rate: 0.1 # Reset to standard dropout
+    gradient_clip_val_stage1: 1.0 # Keep strict clipping
+    gradient_clip_val_stage2: 1.0 # Keep strict clipping
+    warmup_steps: 2000 # Keeping warmup for initial stability
+  
   # [ Informer ]
   informer:
     # embedding_dimension: 32 # Determines dimension of the embedding space
@@ -219,8 +220,8 @@ callbacks:
     lr_monitor: # Log learning rate
       class_path: lightning.pytorch.callbacks.LearningRateMonitor
       init_args:
-        logging_interval: epoch # Log every step/epoch
-        log_momentum: false
+        logging_interval: step # Log every training step to see warmup
+        log_momentum: true
     dead_neuron_monitor: # INFO @boujuan [custom callback] Currently only works for tactis-2 (check utils/callbacks.py)
       enabled: true
 
@@ -236,7 +237,7 @@ trainer:
     # debug: false
     # accumulate: 1.0
     max_epochs: 100 # Maximum number of epochs to train 100
-    limit_train_batches: 2500 # INFO: Training-only setting (not tuning) Set to integer number of steps to train on (context+prediction length)
+    limit_train_batches: 5000 # INFO: Training-only setting (not tuning) Set to integer number of steps to train on (context+prediction length)
     # default_root_dir: ${logging.checkpoint_dir}  # Changed from direct path to use log_dir
     # precision: 16-mixed # 16-mixed enables mixed precision training 32-true is full precision
     # batch_size: 32 # larger = more stable gradients
