@@ -342,7 +342,12 @@ def main():
     
     # Ensure default_root_dir exists and is set correctly
     config["trainer"]["default_root_dir"] = checkpoint_dir
-
+    
+    # Add global gradient clipping for automatic optimization
+    if "trainer" not in config: config["trainer"] = {}
+    config["trainer"]["gradient_clip_val"] = 1.0
+    logging.info(f"Set global gradient_clip_val = {config['trainer']['gradient_clip_val']} for automatic optimization.")
+ 
     # %% CREATE DATASET
     # Dynamically set DataLoader workers based on SLURM_CPUS_PER_TASK
     cpus_per_task_str = os.environ.get('SLURM_CPUS_PER_TASK', '1') # Default to 1 CPU if var not set
@@ -540,8 +545,54 @@ def main():
         
         # Use globals() to fetch the estimator class dynamically
         EstimatorClass = globals()[f"{args.model.capitalize()}Estimator"]
-            
-        # Prepare all arguments in a dictionary
+        
+        # --- Instantiate Callbacks ---
+        # We need to do this BEFORE creating the estimator,
+        # so the instantiated list can be placed in trainer_kwargs.
+        import importlib
+        logging.info("Instantiating callbacks from configuration...")
+        instantiated_callbacks = []
+        if 'callbacks' in config and isinstance(config['callbacks'], dict):
+            for cb_name, cb_config in config['callbacks'].items():
+                 # Skip disabled callbacks explicitly marked as enabled: false
+                 if isinstance(cb_config, dict) and cb_config.get('enabled', True) is False:
+                      logging.info(f"Skipping disabled callback: {cb_name}")
+                      continue
+
+                 if isinstance(cb_config, dict) and 'class_path' in cb_config:
+                     try:
+                         module_path, class_name = cb_config['class_path'].rsplit('.', 1)
+                         CallbackClass = getattr(importlib.import_module(module_path), class_name)
+                         init_args = cb_config.get('init_args', {})
+
+                         # Resolve dirpath for ModelCheckpoint if necessary
+                         if class_name == "ModelCheckpoint" and 'dirpath' in init_args:
+                              if isinstance(init_args['dirpath'], str) and '${logging.checkpoint_dir}' in init_args['dirpath']:
+                                  # Note: checkpoint_dir was defined earlier based on unique_id
+                                  init_args['dirpath'] = init_args['dirpath'].replace('${logging.checkpoint_dir}', checkpoint_dir)
+                              # Ensure absolute path if not already
+                              if not os.path.isabs(init_args['dirpath']):
+                                   project_root = config.get('experiment', {}).get('project_root', '.')
+                                   init_args['dirpath'] = os.path.abspath(os.path.join(project_root, init_args['dirpath']))
+                              os.makedirs(init_args['dirpath'], exist_ok=True) # Ensure dir exists
+
+                         callback_instance = CallbackClass(**init_args)
+                         instantiated_callbacks.append(callback_instance)
+                         logging.info(f"Instantiated callback: {class_name}")
+                     except Exception as e:
+                         logging.error(f"Error instantiating callback {cb_name}: {e}", exc_info=True)
+                 # Handle simple boolean flags if needed (though YAML structure is preferred)
+                 # elif isinstance(cb_config, bool) and cb_config is True: ...
+        else:
+             logging.info("No callbacks dictionary found in config or it's not a dictionary.")
+        # --- End Callback Instantiation ---
+
+        # Ensure trainer_kwargs exists and add the instantiated callbacks list
+        if "trainer" not in config: config["trainer"] = {}
+        config["trainer"]["callbacks"] = instantiated_callbacks
+        logging.info(f"Assigned {len(instantiated_callbacks)} callbacks to config['trainer']['callbacks'].")
+
+        # Prepare all arguments in a dictionary for the Estimator
         estimator_kwargs = {
             "freq": data_module.freq,
             "prediction_length": data_module.prediction_length,
@@ -563,7 +614,7 @@ def main():
 
         # Add model-specific arguments from the config YAML
         estimator_kwargs.update(config["model"][args.model])
-
+        
         if args.model != 'tactis':
             estimator_kwargs["distr_output"] = globals()[config["model"]["distr_output"]["class"]](dim=data_module.num_target_vars, **config["model"]["distr_output"]["kwargs"])
         elif 'distr_output' in estimator_kwargs:
@@ -699,55 +750,8 @@ def main():
         
     elif args.mode == "train":
         logging.info("Starting model training...")
-        
-        # %% Instantiate Callbacks for Training Mode
-        import importlib
-        logging.info("Instantiating callbacks from configuration for training...")
-        instantiated_callbacks = []
-        if 'callbacks' in config and isinstance(config['callbacks'], dict):
-            for cb_name, cb_config in config['callbacks'].items():
-                # Skip disabled callbacks explicitly marked as enabled: false
-                if isinstance(cb_config, dict) and cb_config.get('enabled', True) is False:
-                     logging.info(f"Skipping disabled callback: {cb_name}")
-                     continue
-                     
-                if isinstance(cb_config, dict) and 'class_path' in cb_config:
-                    try:
-                        module_path, class_name = cb_config['class_path'].rsplit('.', 1)
-                        CallbackClass = getattr(importlib.import_module(module_path), class_name)
-                        init_args = cb_config.get('init_args', {})
-
-                        # Resolve dirpath for ModelCheckpoint if necessary
-                        if class_name == "ModelCheckpoint" and 'dirpath' in init_args:
-                             if isinstance(init_args['dirpath'], str) and '${logging.checkpoint_dir}' in init_args['dirpath']:
-                                 # Note: checkpoint_dir was defined earlier based on unique_id
-                                 init_args['dirpath'] = init_args['dirpath'].replace('${logging.checkpoint_dir}', checkpoint_dir)
-                             # Ensure absolute path if not already
-                             if not os.path.isabs(init_args['dirpath']):
-                                  project_root = config.get('experiment', {}).get('project_root', '.')
-                                  init_args['dirpath'] = os.path.abspath(os.path.join(project_root, init_args['dirpath']))
-                             os.makedirs(init_args['dirpath'], exist_ok=True) # Ensure dir exists
-
-                        callback_instance = CallbackClass(**init_args)
-                        instantiated_callbacks.append(callback_instance)
-                        logging.info(f"Instantiated callback: {class_name}")
-                    except Exception as e:
-                        logging.error(f"Error instantiating callback {cb_name}: {e}", exc_info=True)
-                # Handle simple boolean flags if needed (though YAML structure is preferred)
-                # elif isinstance(cb_config, bool) and cb_config is True: ...
-
-            # Add the list of instantiated callbacks to the trainer_kwargs within the estimator object
-            # This assumes estimator_kwargs['trainer_kwargs'] exists
-            if 'trainer_kwargs' in estimator_kwargs:
-                 estimator_kwargs['trainer_kwargs']['callbacks'] = instantiated_callbacks
-                 logging.info(f"Added {len(instantiated_callbacks)} callbacks to trainer_kwargs.")
-            else:
-                 logging.warning("Could not add callbacks: 'trainer_kwargs' not found in estimator_kwargs.")
-        else:
-             logging.info("No callbacks dictionary found in config or it's not a dictionary.")
-
         # %% TRAIN MODEL
-        # TODO lightning_logs still being created by something  in log dir...
+        # Callbacks are now instantiated and added to estimator_kwargs above
         logging.info("Training model")
         estimator.train(
             training_data=data_module.train_dataset,
