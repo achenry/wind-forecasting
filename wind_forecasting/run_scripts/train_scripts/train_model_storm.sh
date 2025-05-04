@@ -93,7 +93,7 @@ srun python ${WORK_DIR}/run_scripts/run_model.py \
   --config ${CONFIG_FILE} \
   --model ${MODEL_NAME} \
   --mode train \
-  --seed 69 \
+  --seed 44 \
   --use_tuned_parameters \
   --override model.tactis.lr_stage1=1e-5 model.tactis.lr_stage2=5e-6 model.tactis.dropout_rate trainer.gradient_clip_val
 
