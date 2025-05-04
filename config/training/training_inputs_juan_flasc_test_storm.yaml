@@ -225,7 +225,7 @@ callbacks:
       enabled: true # DEBUG
 
 trainer:
-    gradient_clip_val: 0.0 # Global clipping
+    gradient_clip_val: 0.0 # Global clipping # DEBUG make sure it works
     # limit_val_batches: 1.0
     # val_check_interval: 1.0
     accelerator: gpu # 'cpu' or 'gpu'
