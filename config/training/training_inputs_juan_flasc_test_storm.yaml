@@ -139,8 +139,8 @@ model:
     decoder_transformer_num_heads: 6
     decoder_num_bins: 50
     # Optimizer Params
-    lr_stage1: 5e-6 # Keeping stable low LR
-    lr_stage2: 1e-6 # Keeping stage 2 LR proportional
+    lr_stage1: 1e-5 # Keeping stable low LR
+    lr_stage2: 5e-6 # Keeping stage 2 LR proportional
     weight_decay_stage1: 1e-5 # Added small weight decay
     weight_decay_stage2: 1e-5 # Added small weight decay
     # Dropout & Clipping
@@ -225,7 +225,7 @@ callbacks:
       enabled: true
 
 trainer:
-    gradient_clip_val: 0.0 # Global clipping for automatic optimization
+    gradient_clip_val: 0.0 # Global clipping
     # limit_val_batches: 1.0
     # val_check_interval: 1.0
     accelerator: gpu # 'cpu' or 'gpu'
