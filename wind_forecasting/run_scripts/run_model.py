@@ -3,6 +3,7 @@ import argparse
 import logging
 from memory_profiler import profile
 import os
+import re
 import torch
 import gc
 import random
@@ -406,15 +407,19 @@ def main():
         mode = config.get("optuna", {}).get("direction", "minimize")
         mode_mapping = {"minimize": "min", "maximize": "max"}
         mode = mode_mapping.get(mode, "min")
-        
-        logging.info(f"Checkpoint selection: Monitoring metric '{metric}' with mode '{mode}' in directory '{checkpoint_dir}'")
+        base_checkpoint_dir = os.path.join(log_dir, project_name)
+        logging.info(f"Checkpoint selection: Monitoring metric '{metric}' with mode '{mode}' in directory '{base_checkpoint_dir}'")
         
         # Use the get_checkpoint function to handle checkpoint finding
-        checkpoint = get_checkpoint(args.checkpoint, metric, mode, checkpoint_dir)
+        checkpoint = get_checkpoint(args.checkpoint, metric, mode, base_checkpoint_dir)
         
         # Use globals() to fetch the estimator class dynamically
         EstimatorClass = globals()[f"{args.model.capitalize()}Estimator"]
             
+        if args.mode == "train" and args.checkpoint is not None:
+            logging.info("Restarting training from checkpoint, updating max_epochs accordingly.")
+            config["trainer"]["max_epochs"] += int(re.search("(?<=epoch=)\\d+", os.path.basename(checkpoint)).group())
+        
         # Prepare all arguments in a dictionary
         estimator_kwargs = {
             "freq": data_module.freq,
