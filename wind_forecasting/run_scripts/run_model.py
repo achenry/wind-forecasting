@@ -28,6 +28,7 @@ from gluonts.transform import ExpectedNumInstanceSampler, ValidationSplitSampler
 
 torch.set_float32_matmul_precision('medium') # or high to trade off performance for precision
 
+from wind_forecasting.utils.callbacks import DeadNeuronMonitor
 from pytorch_transformer_ts.informer.lightning_module import InformerLightningModule
 from pytorch_transformer_ts.informer.estimator import InformerEstimator
 from pytorch_transformer_ts.autoformer.estimator import AutoformerEstimator
@@ -559,28 +560,39 @@ def main():
                       logging.info(f"Skipping disabled callback: {cb_name}")
                       continue
 
-                 if isinstance(cb_config, dict) and 'class_path' in cb_config:
+                 # Handle DeadNeuronMonitor specifically based on 'enabled' flag
+                 if cb_name == 'dead_neuron_monitor' and isinstance(cb_config, dict) and cb_config.get('enabled', False) is True:
                      try:
-                         module_path, class_name = cb_config['class_path'].rsplit('.', 1)
-                         CallbackClass = getattr(importlib.import_module(module_path), class_name)
-                         init_args = cb_config.get('init_args', {})
-
-                         # Resolve dirpath for ModelCheckpoint if necessary
-                         if class_name == "ModelCheckpoint" and 'dirpath' in init_args:
-                              if isinstance(init_args['dirpath'], str) and '${logging.checkpoint_dir}' in init_args['dirpath']:
-                                  # Note: checkpoint_dir was defined earlier based on unique_id
-                                  init_args['dirpath'] = init_args['dirpath'].replace('${logging.checkpoint_dir}', checkpoint_dir)
-                              # Ensure absolute path if not already
-                              if not os.path.isabs(init_args['dirpath']):
-                                   project_root = config.get('experiment', {}).get('project_root', '.')
-                                   init_args['dirpath'] = os.path.abspath(os.path.join(project_root, init_args['dirpath']))
-                              os.makedirs(init_args['dirpath'], exist_ok=True) # Ensure dir exists
-
-                         callback_instance = CallbackClass(**init_args)
+                         callback_instance = DeadNeuronMonitor()
                          instantiated_callbacks.append(callback_instance)
-                         logging.info(f"Instantiated callback: {class_name}")
+                         logging.info("Instantiated callback: DeadNeuronMonitor")
+                         continue # Skip to the next callback in the loop
                      except Exception as e:
-                         logging.error(f"Error instantiating callback {cb_name}: {e}", exc_info=True)
+                         logging.error(f"Error instantiating DeadNeuronMonitor: {e}", exc_info=True)
+                         continue # Continue to the next callback even if this one failed
+
+                 if isinstance(cb_config, dict) and 'class_path' in cb_config:
+                    try:
+                        module_path, class_name = cb_config['class_path'].rsplit('.', 1)
+                        CallbackClass = getattr(importlib.import_module(module_path), class_name)
+                        init_args = cb_config.get('init_args', {})
+
+                        # Resolve dirpath for ModelCheckpoint if necessary
+                        if class_name == "ModelCheckpoint" and 'dirpath' in init_args:
+                            if isinstance(init_args['dirpath'], str) and '${logging.checkpoint_dir}' in init_args['dirpath']:
+                                # Note: checkpoint_dir was defined earlier based on unique_id
+                                init_args['dirpath'] = init_args['dirpath'].replace('${logging.checkpoint_dir}', checkpoint_dir)
+                            # Ensure absolute path if not already
+                            if not os.path.isabs(init_args['dirpath']):
+                                project_root = config.get('experiment', {}).get('project_root', '.')
+                                init_args['dirpath'] = os.path.abspath(os.path.join(project_root, init_args['dirpath']))
+                            os.makedirs(init_args['dirpath'], exist_ok=True) # Ensure dir exists
+
+                        callback_instance = CallbackClass(**init_args)
+                        instantiated_callbacks.append(callback_instance)
+                        logging.info(f"Instantiated callback: {class_name}")
+                    except Exception as e:
+                        logging.error(f"Error instantiating callback {cb_name}: {e}", exc_info=True)
                  # Handle simple boolean flags if needed (though YAML structure is preferred)
                  # elif isinstance(cb_config, bool) and cb_config is True: ...
         else:

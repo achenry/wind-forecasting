@@ -91,7 +91,7 @@ dataset:
     val_split: 0.1
     resample_freq: 60s
     n_splits: 1 # how many divisions of each continuity group to make which is further subdivided into training test and validation data
-    per_turbine_target: true # TODO: Test this option. Tune??
+    per_turbine_target: false # TODO: Test this option. Tune??
     context_length_factor: 2  # INFO: Being tuned - Factor to multiply prediction_length by
 
 model:
@@ -219,7 +219,7 @@ callbacks:
       class_path: lightning.pytorch.callbacks.LearningRateMonitor
       init_args:
         logging_interval: step # Log every training step to see warmup
-        log_momentum: true
+        log_momentum: false
         log_weight_decay : false
     dead_neuron_monitor: # INFO @boujuan [custom callback] Currently only works for tactis-2 (check utils/callbacks.py)
       enabled: true
