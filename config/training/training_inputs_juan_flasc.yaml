@@ -118,6 +118,7 @@ model:
     encoder_type: "standard" # Options: "standard", "temporal"
     bagging_size: null # Optional, defaults to None in estimator # INFO: Now tuning
     num_parallel_samples: 100 # INFO: FIXED - Inference only setting
+    inference_num_samples: 100
     # Marginal CDF Encoder
     marginal_embedding_dim_per_head: 8
     marginal_num_heads: 5

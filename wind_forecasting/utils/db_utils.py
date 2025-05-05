@@ -341,24 +341,22 @@ def _generate_pg_config(*,
     # db_host and db_port are passed directly
 
     if use_socket:
-        if not socket_dir_base:
-            raise ValueError("Missing 'socket_dir_base' (absolute path expected) when use_socket=True.")
-        socket_base_path = Path(socket_dir_base)
-        
-        pgdata_instance_name = os.path.basename(pgdata_path)
-        socket_dir_name = f"pg_socket_{pgdata_instance_name}"
-        socket_dir_path = (socket_base_path / socket_dir_name).resolve()
-        
-        # Only create the directory if it doesn't exist
-        if not os.path.exists(socket_dir_path):
-            os.makedirs(socket_dir_path, exist_ok=True)
-            logging.info(f"Created socket directory: {socket_dir_path}")
-        else:
-            logging.info(f"Using existing socket directory: {socket_dir_path}")
-            
-        socket_dir = str(socket_dir_path)
+        # DEBUG--- Force short socket path in /tmp ---
+        username = getpass.getuser()
+        # Extract instance name from pgdata_path (assuming pgdata_path is absolute)
+        pgdata_instance_name = Path(pgdata_path).name
+        # Construct a short path
+        short_socket_base = f"/tmp/pg_sockets_{username}"
+        socket_dir_path = Path(short_socket_base) / pgdata_instance_name
+        socket_dir = str(socket_dir_path.resolve()) # Resolve to absolute path
+
+        # Ensure the directory exists
+        os.makedirs(socket_dir, exist_ok=True)
+        logging.info(f"Forcing use of short socket directory: {socket_dir}")
+        # --- End short path logic ---
     elif use_tcp:
         logging.info(f"Using TCP/IP connection: host={db_host}, port={db_port}")
+        # socket_dir remains None
 
     # --- Sync Directory ---
     if not sync_dir:
@@ -400,6 +398,29 @@ def _generate_pg_config(*,
              logging.error(f"PostgreSQL executable not found at expected path: {path} (derived from POSTGRES_BIN_DIR={pg_bin_dir})")
              raise FileNotFoundError(f"PostgreSQL executable '{os.path.basename(path)}' not found at expected path: {path}")
 
+# *** Force the short socket path override ***
+    # This block unconditionally sets the socket path after initial config creation.
+    username = getpass.getuser()
+    # pgdata_path is expected to be an absolute path string here
+    pgdata_instance_name = Path(pgdata_path).name 
+    
+    forced_socket_dir = f"/tmp/pg_{username}_{pgdata_instance_name}" 
+    try:
+        os.makedirs(forced_socket_dir, exist_ok=True)
+        logging.info(f"ALERT: Forcing short socket directory override: {forced_socket_dir}")
+        
+        # Overwrite values in the pg_config dictionary
+        # pg_config is guaranteed to exist at this point (created around line 378)
+        pg_config['socket_dir'] = forced_socket_dir 
+        pg_config['use_socket'] = True # Ensure socket use is enabled
+        pg_config['use_tcp'] = False # Ensure TCP is disabled (socket takes precedence)
+    except OSError as e:
+        logging.error(f"CRITICAL: Failed to create forced socket directory {forced_socket_dir}: {e}")
+        # Re-raise the error to prevent proceeding with an unusable configuration
+        raise 
+
+    # Subsequent code (like get_optuna_storage_url and start_postgres called later)
+    # will now use the forced socket_dir from the modified pg_config.
     _managed_pg_config = pg_config # Store globally for atexit
     return pg_config
 
@@ -427,27 +448,8 @@ def manage_postgres_instance(db_setup_params, restart=False, register_cleanup=Tr
     pg_config = _generate_pg_config(**db_setup_params) # This also sets _managed_pg_config
 
 
-    # Check if we need to set up the socket directory (only when using sockets)
-    if pg_config.get("use_socket", False):
-        socket_dir_base = db_setup_params.get("socket_dir_base")
-        if not socket_dir_base:
-             raise ValueError("Missing 'socket_dir_base' (absolute path expected) when use_socket=True.")
-        
-        socket_base_path = Path(socket_dir_base)
-        
-        # Use pgdata_instance_name
-        pgdata_instance_name = os.path.basename(pg_config["pgdata"])
-        socket_dir_name = f"pg_socket_{pgdata_instance_name}"
-        socket_dir_path = (socket_base_path / socket_dir_name).resolve()
-        
-        # Only create the directory if it doesn't exist
-        if not os.path.exists(socket_dir_path):
-            os.makedirs(socket_dir_path, exist_ok=True)
-            logging.info(f"Created socket directory: {socket_dir_path}")
-        else:
-            logging.info(f"Using existing socket directory: {socket_dir_path}")
-            
-        pg_config["socket_dir"] = str(socket_dir_path) # Update pg_config with the correct path
+    # Redundant socket directory setup removed.
+    # _generate_pg_config now handles setting the correct short socket path.
 
     # Pass the consistent pg_config
     needs_setup = init_postgres(pg_config)
