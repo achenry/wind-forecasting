@@ -441,8 +441,10 @@ def main():
                 # config["model"][args.model].update({k: v for k, v in tuned_params.items() if k in config["model"][args.model]})
                 config["trainer"].update({k: v for k, v in tuned_params.items() if k in config["trainer"]})
                 
-                model_hparams = {k: v for k, v in tuned_params.items() if 
-                                 (k not in config["model"]["distr_output"]["kwargs"] and k not in config["dataset"] and k not in config["trainer"])}
+                data_module.batch_size = config["dataset"]["batch_size"]
+                
+                model_hparams.update({k: v for k, v in tuned_params.items() if 
+                                 (k not in config["model"]["distr_output"]["kwargs"] and k not in config["dataset"] and k not in config["trainer"])})
                 
                 context_length_factor = tuned_params.get('context_length_factor', config["dataset"].get("context_length_factor", None)) # Default to config or 2 if not in trial/config
                 if context_length_factor:
@@ -485,16 +487,18 @@ def main():
         
             checkpoint_path = get_checkpoint(args.checkpoint, metric, mode, base_checkpoint_dir)
             checkpoint_hparams = load_estimator_from_checkpoint(checkpoint_path, LightningModuleClass, config, args.model)
-            model_hparams = checkpoint_hparams["init_args"]["model_config"]
+            model_hparams.update(checkpoint_hparams["init_args"]["model_config"])
             
             # Update DataModule params
             data_module.prediction_length = checkpoint_hparams["prediction_length_int"]
             data_module.context_length = checkpoint_hparams["context_length_int"]
             data_module.freq = checkpoint_hparams["freq_str"]
             
+            
             logging.info(f"Updating estimator {args.model.capitalize()} kwargs with checkpoint parameters {model_hparams}.")
         else:
             checkpoint_path = None
+            
         # Apply command-line overrides AFTER potentially loading tuned params
         if args.override:
             logging.info(f"Applying command-line overrides (final step): {args.override}")
@@ -679,7 +683,8 @@ def main():
             estimator_kwargs["distr_output"] = DistrOutputClass(dim=data_module.num_target_vars, **config["model"]["distr_output"]["kwargs"]) # TODO or checkpoint_hparams["model_config"]["distr_output"]
         elif 'distr_output' in estimator_kwargs:
              del estimator_kwargs['distr_output']
-
+        
+        logging.info(f"Using final estimator_kwargs:\n {estimator_kwargs}")
         estimator = EstimatorClass(**estimator_kwargs)
 
         # Conditionally Create Forecast Generator
