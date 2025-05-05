@@ -112,7 +112,7 @@ model:
     ac_activation_function: "relu" # Activation in AC's internal MLP. [ReLU, GeLU, LeakyReLU] INFO: Now tuning
     input_encoding_normalization: true # TODO: Changed now
     scaling: "std" # Options: "mean", "std", null # Enable internal standardization # INFO NEEDED std!
-    loss_normalization: "series" # Options: "series", "timesteps", "both", "none" INFO: Now tuning # TODO: what does this do?
+    loss_normalization: "series" # Options: "series", "timesteps", "both", "none"
     encoder_type: "standard" # Options: "standard", "temporal"
     bagging_size: null # Optional, defaults to None in estimator
     num_parallel_samples: 100 # INFO: Inference only setting
