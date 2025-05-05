@@ -493,7 +493,8 @@ def main():
             data_module.freq = checkpoint_hparams["freq_str"]
             
             logging.info(f"Updating estimator {args.model.capitalize()} kwargs with checkpoint parameters {model_hparams}.")
-        
+        else:
+            checkpoint_path = None
         # Apply command-line overrides AFTER potentially loading tuned params
         if args.override:
             logging.info(f"Applying command-line overrides (final step): {args.override}")
