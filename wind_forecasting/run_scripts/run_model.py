@@ -380,9 +380,11 @@ def main():
     else:
         reload = False
     
-    # other ranks should wait for this one
+    # other ranks should wait for this one 
     data_module.generate_splits(save=True, reload=reload, splits=["train", "val", "test"])
 
+    # data_module.train_dataset = [ds for ds in data_module.train_dataset if ds["item_id"].endswith("SPLIT0")]
+    
     # %% DEFINE ESTIMATOR
     # Initialize storage and connection info variables
     optuna_storage = None
@@ -425,18 +427,67 @@ def main():
 
     if args.mode in ["train", "test"]:
 
-        # Set up parameters for checkpoint finding
-        metric = config.get("trainer", {}).get("monitor_metric", "val_loss")
-        mode = config.get("optuna", {}).get("direction", "minimize")
-        mode_mapping = {"minimize": "min", "maximize": "max"}
-        mode = mode_mapping.get(mode, "min")
-
-        base_checkpoint_dir = os.path.join(log_dir, project_name)
-        logging.info(f"Checkpoint selection: Monitoring metric '{metric}' with mode '{mode}' in directory '{base_checkpoint_dir}'")
-
+        # get tuned params
+        found_tuned_params = True
+        if args.use_tuned_parameters:
+            try:
+                logging.info(f"Getting tuned parameters.")
+                tuned_params = get_tuned_params(optuna_storage, db_setup_params["study_name"])
+                config["model"]["distr_output"]["kwargs"].update({k: v for k, v in tuned_params.items() if k in config["model"]["distr_output"]["kwargs"]})
+                config["dataset"].update({k: v for k, v in tuned_params.items() if k in config["dataset"]})
+                config["model"][args.model].update({k: v for k, v in tuned_params.items() if k in config["model"][args.model]})
+                config["trainer"].update({k: v for k, v in tuned_params.items() if k in config["trainer"]})
+                
+                context_length_factor = tuned_params.get('context_length_factor', config["dataset"].get("context_length_factor", None)) # Default to config or 2 if not in trial/config
+                if context_length_factor:
+                    data_module.context_length = int(context_length_factor * data_module.prediction_length)
+                else:
+                    data_module.context_length = config["dataset"]["context_length"]
+                
+                data_module.freq = config["dataset"]["resample_freq"]
+            except FileNotFoundError as e:
+                logging.warning(e)
+                found_tuned_params = False
+            except KeyError as e:
+                logging.warning(f"KeyError accessing Optuna config for tuned params: {e}. Using defaults.")
+                found_tuned_params = False
+        else:
+            found_tuned_params = False 
+        
+        if found_tuned_params:
+            logging.info(f"Updating estimator {args.model.capitalize()} kwargs with tuned parameters")
+        else:
+            logging.info(f"Updating estimator {args.model.capitalize()} kwargs with default parameters")
+            if "context_length_factor" in config["model"][args.model]:
+                data_module.context_length = int(config["model"][args.model]["context_length_factor"] * data_module.prediction_length)
+                del config["model"][args.model]["context_length_factor"]
+            
         # Use the get_checkpoint function to handle checkpoint finding
-        checkpoint_path = get_checkpoint(args.checkpoint, metric, mode, base_checkpoint_dir)
-        checkpoint_hparams = load_estimator_from_checkpoint(checkpoint_path, LightningModuleClass, config, args.model)
+        if args.checkpoint:
+            # Set up parameters for checkpoint finding
+            metric = config.get("trainer", {}).get("monitor_metric", "val_loss")
+            mode = config.get("optuna", {}).get("direction", "minimize")
+            mode_mapping = {"minimize": "min", "maximize": "max"}
+            mode = mode_mapping.get(mode, "min")
+
+            base_checkpoint_dir = os.path.join(log_dir, project_name)
+            logging.info(f"Checkpoint selection: Monitoring metric '{metric}' with mode '{mode}' in directory '{base_checkpoint_dir}'")
+        
+            checkpoint_path = get_checkpoint(args.checkpoint, metric, mode, base_checkpoint_dir)
+            checkpoint_hparams = load_estimator_from_checkpoint(checkpoint_path, LightningModuleClass, config, args.model)
+            
+            # Update Estimator params
+            # config["model"]["distr_output"]["kwargs"].update({k: v for k, v in checkpoint_hparams.items() if k in config["model"]["distr_output"]["kwargs"]})
+            # config["dataset"].update({k: v for k, v in checkpoint_hparams.items() if k in config["dataset"]})
+            config["model"][args.model].update({k: v for k, v in checkpoint_hparams["init_args"]["model_config"].items()})
+            # config["trainer"].update({k: v for k, v in checkpoint_hparams.items() if k in config["trainer"]})
+            
+            # Update DataModule params
+            data_module.prediction_length = checkpoint_hparams["prediction_length_int"]
+            data_module.context_length = checkpoint_hparams["context_length_int"]
+            data_module.freq = checkpoint_hparams["freq_str"]
+            
+            logging.info(f"Updating estimator {args.model.capitalize()} kwargs with checkpoint parameters.")
         
         # Apply command-line overrides AFTER potentially loading tuned params
         if args.override:
@@ -510,10 +561,7 @@ def main():
                 except Exception as e:
                     logging.error(f"  - Error applying override '{override_item}': {e}", exc_info=True)
                     
-        # Update DataModule params
-        data_module.prediction_length = (checkpoint_hparams["prediction_length_int"] * checkpoint_hparams["freq"]).total_seconds()
-        data_module.context_length = (checkpoint_hparams["context_length_int"] * checkpoint_hparams["freq"]).total_seconds()
-        data_module.freq = checkpoint_hparams["freq_str"]
+        
             
         if args.mode == "train" and args.checkpoint is not None:
             logging.info("Restarting training from checkpoint, updating max_epochs accordingly.")
@@ -586,8 +634,8 @@ def main():
             "cardinality": data_module.cardinality,
             "num_feat_static_real": data_module.num_feat_static_real,
             "input_size": data_module.num_target_vars,
-            "scaling": "std" if checkpoint_hparams["init_args"]["model_config"]["scaling"] == "True" else False, # Scaling handled externally or internally by TACTiS
-            "lags_seq": checkpoint_hparams["init_args"]["model_config"]["lags_seq"], # TACTiS doesn't typically use lags
+            "scaling": "std" if config["model"][args.model]["scaling"] == "True" else False, # Scaling handled externally or internally by TACTiS
+            "lags_seq": config["model"][args.model]["lags_seq"], # TACTiS doesn't typically use lags
             "time_features": [second_of_minute, minute_of_hour, hour_of_day, day_of_year],
             "batch_size": data_module.batch_size,
             "num_batches_per_epoch": config["trainer"].get("limit_train_batches", 1000),
@@ -603,7 +651,7 @@ def main():
             a, b = estimator_kwargs["train_sampler"]._get_bounds(ds["target"])
             n_training_samples += (b - a + 1)
         
-        n_training_steps = int(n_training_samples // data_module.batch_size)
+        n_training_steps = np.ceil(n_training_samples / data_module.batch_size).astype(int)
         if estimator_kwargs["num_batches_per_epoch"]:
             n_training_steps = min(n_training_steps, estimator_kwargs["num_batches_per_epoch"])
         
