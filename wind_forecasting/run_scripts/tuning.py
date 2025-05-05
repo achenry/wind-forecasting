@@ -729,8 +729,8 @@ class MLTuningObjective:
                 # self.metrics.append(agg_metrics.copy())
         
                 # not a perfect comparision, multiply per turbine case with number of turbines to approximate val_loss over full dataset
-                if params.get("per_turbine", False):
-                     agg_metrics[model_checkpoint["monitor"]] = model_checkpoint["best_model_score"] * len(self.data_module.target_suffixes)
+                # if params.get("per_turbine", False):
+                #      agg_metrics[model_checkpoint["monitor"]] = model_checkpoint["best_model_score"] * len(self.data_module.target_suffixes)
                 
                 monitor_metric = trial_checkpoint_callback.monitor
                 best_score = trial_checkpoint_callback.best_model_score
