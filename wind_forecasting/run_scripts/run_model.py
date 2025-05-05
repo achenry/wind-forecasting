@@ -479,7 +479,6 @@ def main():
                 del config["model"][args.model]["context_length_factor"]
                 
             
-            
         # Use the get_checkpoint function to handle checkpoint finding
         if args.checkpoint:
             # Set up parameters for checkpoint finding
@@ -493,6 +492,8 @@ def main():
         
             checkpoint_path = get_checkpoint(args.checkpoint, metric, mode, base_checkpoint_dir)
             checkpoint_hparams = load_estimator_from_checkpoint(checkpoint_path, LightningModuleClass, config, args.model)
+            
+            
             model_hparams.update(checkpoint_hparams["init_args"]["model_config"])
             
             # Update DataModule params
@@ -500,6 +501,21 @@ def main():
             data_module.context_length = checkpoint_hparams["context_length_int"]
             data_module.freq = checkpoint_hparams["freq_str"]
             
+            # check if any new hyperparameters are incompatible with data_module
+            core_data_module_params = ["num_feat_dynamic_real", "num_feat_static_real", "num_feat_static_cat",
+                                  "cardinality", "embedding_dimension", "input_size"]
+            # data_module_sig = inspect.signature(DataModule.__init__)
+            # data_module_params = [param.name for param in data_module_sig.parameters.values()]
+            incompatible_params = []
+            for param in core_data_module_params:
+                if ((param in checkpoint_hparams["init_args"]["model_config"]) 
+                    and (checkpoint_hparams["init_args"]["model_config"][param] is not None)
+                    and (getattr(data_module, param) is not None) 
+                    and (checkpoint_hparams["init_args"]["model_config"][param] != getattr(data_module, param))):
+                    incompatible_params.append(param)
+            
+            if incompatible_params:
+                raise TypeError(f"Checkpoint parameters and data module parameters {incompatible_params} are incompatible.")
             
             logging.info(f"Updating estimator {args.model.capitalize()} kwargs with checkpoint parameters {checkpoint_hparams['init_args']['model_config']}.")
         else:
@@ -661,6 +677,8 @@ def main():
             "validation_sampler": ValidationSplitSampler(min_past=data_module.context_length, min_future=data_module.prediction_length),
             "trainer_kwargs": config["trainer"],
         }
+        
+        
         
         n_training_samples = 0
         for ds in data_module.train_dataset:
