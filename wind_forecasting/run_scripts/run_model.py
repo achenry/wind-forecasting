@@ -430,6 +430,7 @@ def main():
     if args.mode in ["train", "test"]:
 
         # get tuned params
+        model_hparams = {}
         found_tuned_params = True
         if args.use_tuned_parameters:
             try:
@@ -437,8 +438,11 @@ def main():
                 tuned_params = get_tuned_params(optuna_storage, db_setup_params["study_name"])
                 config["model"]["distr_output"]["kwargs"].update({k: v for k, v in tuned_params.items() if k in config["model"]["distr_output"]["kwargs"]})
                 config["dataset"].update({k: v for k, v in tuned_params.items() if k in config["dataset"]})
-                config["model"][args.model].update({k: v for k, v in tuned_params.items() if k in config["model"][args.model]})
+                # config["model"][args.model].update({k: v for k, v in tuned_params.items() if k in config["model"][args.model]})
                 config["trainer"].update({k: v for k, v in tuned_params.items() if k in config["trainer"]})
+                
+                model_hparams = {k: v for k, v in tuned_params.items() if 
+                                 (k not in config["model"]["distr_output"]["kwargs"] and k not in config["dataset"] and k not in config["trainer"])}
                 
                 context_length_factor = tuned_params.get('context_length_factor', config["dataset"].get("context_length_factor", None)) # Default to config or 2 if not in trial/config
                 if context_length_factor:
@@ -457,12 +461,13 @@ def main():
             found_tuned_params = False 
         
         if found_tuned_params:
-            logging.info(f"Updating estimator {args.model.capitalize()} kwargs with tuned parameters")
+            logging.info(f"Updating estimator {args.model.capitalize()} kwargs with tuned parameters {tuned_params}")
         else:
             logging.info(f"Updating estimator {args.model.capitalize()} kwargs with default parameters")
             if "context_length_factor" in config["model"][args.model]:
                 data_module.context_length = int(config["model"][args.model]["context_length_factor"] * data_module.prediction_length)
                 del config["model"][args.model]["context_length_factor"]
+            
             
         # Use the get_checkpoint function to handle checkpoint finding
         if args.checkpoint:
@@ -477,19 +482,14 @@ def main():
         
             checkpoint_path = get_checkpoint(args.checkpoint, metric, mode, base_checkpoint_dir)
             checkpoint_hparams = load_estimator_from_checkpoint(checkpoint_path, LightningModuleClass, config, args.model)
-            
-            # Update Estimator params
-            # config["model"]["distr_output"]["kwargs"].update({k: v for k, v in checkpoint_hparams.items() if k in config["model"]["distr_output"]["kwargs"]})
-            # config["dataset"].update({k: v for k, v in checkpoint_hparams.items() if k in config["dataset"]})
-            config["model"][args.model].update({k: v for k, v in checkpoint_hparams["init_args"]["model_config"].items()})
-            # config["trainer"].update({k: v for k, v in checkpoint_hparams.items() if k in config["trainer"]})
+            model_hparams = checkpoint_hparams["init_args"]["model_config"]
             
             # Update DataModule params
             data_module.prediction_length = checkpoint_hparams["prediction_length_int"]
             data_module.context_length = checkpoint_hparams["context_length_int"]
             data_module.freq = checkpoint_hparams["freq_str"]
             
-            logging.info(f"Updating estimator {args.model.capitalize()} kwargs with checkpoint parameters.")
+            logging.info(f"Updating estimator {args.model.capitalize()} kwargs with checkpoint parameters {model_hparams}.")
         
         # Apply command-line overrides AFTER potentially loading tuned params
         if args.override:
@@ -636,8 +636,8 @@ def main():
             "cardinality": data_module.cardinality,
             "num_feat_static_real": data_module.num_feat_static_real,
             "input_size": data_module.num_target_vars,
-            "scaling": "std" if config["model"][args.model]["scaling"] == "True" else False, # Scaling handled externally or internally by TACTiS
-            "lags_seq": config["model"][args.model]["lags_seq"], # TACTiS doesn't typically use lags
+            "scaling": "std", #if model_hparams.get("scaling", "True") == "True" else False, # TODO ALLOW US TO SPECIFY SCALING, ALSO WHY STRING NOT B00L Scaling handled externally or internally by TACTiS
+            "lags_seq": [0], #model_hparams.get("lags_seq", [0]), #TODOconfig["model"][args.model]["lags_seq"], # TACTiS doesn't typically use lags
             "time_features": [second_of_minute, minute_of_hour, hour_of_day, day_of_year],
             "batch_size": data_module.batch_size,
             "num_batches_per_epoch": config["trainer"].get("limit_train_batches", 1000),
@@ -661,7 +661,7 @@ def main():
         estimator_params = [param.name for param in estimator_sig.parameters.values()]
         
         # Add model-specific arguments
-        estimator_kwargs.update({k: v for k, v in checkpoint_hparams["init_args"]["model_config"].items() if k in estimator_params and k not in estimator_kwargs})
+        estimator_kwargs.update({k: v for k, v in model_hparams.items() if k in estimator_params})
         
         # Add distr_output only if the model is NOT tactis
         if args.model != 'tactis':
