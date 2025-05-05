@@ -660,6 +660,13 @@ def main():
         estimator_sig = inspect.signature(EstimatorClass.__init__)
         estimator_params = [param.name for param in estimator_sig.parameters.values()]
         
+        if "dim_feedforward" not in model_hparams and "d_model" in model_hparams:
+            # set dim_feedforward to 4x the d_model found in this trial
+            model_hparams["dim_feedforward"] = model_hparams["d_model"] * 4
+        elif "d_model" in estimator_params and estimator_sig.parameters["d_model"].default is not inspect.Parameter.empty:
+            # if d_model is not contained in the trial but is a paramter, get the default
+            model_hparams["dim_feedforward"] = estimator_sig.parameters["d_model"].default * 4
+
         # Add model-specific arguments
         estimator_kwargs.update({k: v for k, v in model_hparams.items() if k in estimator_params})
         
