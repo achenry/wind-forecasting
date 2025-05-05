@@ -561,59 +561,59 @@ def main():
         # --- Instantiate Callbacks ---
         # We need to do this BEFORE creating the estimator,
         # so the instantiated list can be placed in trainer_kwargs.
+        import importlib
+        logging.info("Instantiating callbacks from configuration...")
+        instantiated_callbacks = []
+        if 'callbacks' in config and isinstance(config['callbacks'], dict):
+            for cb_name, cb_config in config['callbacks'].items():
+                 # Skip disabled callbacks explicitly marked as enabled: false
+                 if isinstance(cb_config, dict) and cb_config.get('enabled', True) is False:
+                      logging.info(f"Skipping disabled callback: {cb_name}")
+                      continue
 
-        # import importlib
-        # logging.info("Instantiating callbacks from configuration...")
-        # instantiated_callbacks = []
-        # if 'callbacks' in config and isinstance(config['callbacks'], dict):
-        #     for cb_name, cb_config in config['callbacks'].items():
-        #          # Skip disabled callbacks explicitly marked as enabled: false
-        #          if isinstance(cb_config, dict) and cb_config.get('enabled', True) is False:
-        #               logging.info(f"Skipping disabled callback: {cb_name}")
-        #               continue
+                 # Handle DeadNeuronMonitor specifically based on 'enabled' flag
+                 if cb_name == 'dead_neuron_monitor' and isinstance(cb_config, dict) and cb_config.get('enabled', False) is True:
+                     try:
+                         callback_instance = DeadNeuronMonitor()
+                         instantiated_callbacks.append(callback_instance)
+                         logging.info("Instantiated callback: DeadNeuronMonitor")
+                         continue # Skip to the next callback in the loop
+                     except Exception as e:
+                         logging.error(f"Error instantiating DeadNeuronMonitor: {e}", exc_info=True)
+                         continue # Continue to the next callback even if this one failed
 
-        #          # Handle DeadNeuronMonitor specifically based on 'enabled' flag
-        #          if cb_name == 'dead_neuron_monitor' and isinstance(cb_config, dict) and cb_config.get('enabled', False) is True:
-        #              try:
-        #                  callback_instance = DeadNeuronMonitor()
-        #                  instantiated_callbacks.append(callback_instance)
-        #                  logging.info("Instantiated callback: DeadNeuronMonitor")
-        #                  continue # Skip to the next callback in the loop
-        #              except Exception as e:
-        #                  logging.error(f"Error instantiating DeadNeuronMonitor: {e}", exc_info=True)
-        #                  continue # Continue to the next callback even if this one failed
+                 if isinstance(cb_config, dict) and 'class_path' in cb_config:
+                    try:
+                        module_path, class_name = cb_config['class_path'].rsplit('.', 1)
+                        CallbackClass = getattr(importlib.import_module(module_path), class_name)
+                        init_args = cb_config.get('init_args', {})
 
-        #          if isinstance(cb_config, dict) and 'class_path' in cb_config:
-        #             try:
-        #                 module_path, class_name = cb_config['class_path'].rsplit('.', 1)
-        #                 CallbackClass = getattr(importlib.import_module(module_path), class_name)
-        #                 init_args = cb_config.get('init_args', {})
+                        # Resolve dirpath for ModelCheckpoint if necessary
+                        if class_name == "ModelCheckpoint" and 'dirpath' in init_args:
+                            if isinstance(init_args['dirpath'], str) and '${logging.checkpoint_dir}' in init_args['dirpath']:
+                                # Note: checkpoint_dir was defined earlier based on unique_id
+                                init_args['dirpath'] = init_args['dirpath'].replace('${logging.checkpoint_dir}', checkpoint_dir)
+                            # Ensure absolute path if not already
+                            if not os.path.isabs(init_args['dirpath']):
+                                project_root = config.get('experiment', {}).get('project_root', '.')
+                                init_args['dirpath'] = os.path.abspath(os.path.join(project_root, init_args['dirpath']))
+                            os.makedirs(init_args['dirpath'], exist_ok=True) # Ensure dir exists
 
-        #                 # Resolve dirpath for ModelCheckpoint if necessary
-        #                 if class_name == "ModelCheckpoint" and 'dirpath' in init_args:
-        #                     if isinstance(init_args['dirpath'], str) and '${logging.checkpoint_dir}' in init_args['dirpath']:
-        #                         # Note: checkpoint_dir was defined earlier based on unique_id
-        #                         init_args['dirpath'] = init_args['dirpath'].replace('${logging.checkpoint_dir}', checkpoint_dir)
-        #                     # Ensure absolute path if not already
-        #                     if not os.path.isabs(init_args['dirpath']):
-        #                         project_root = config.get('experiment', {}).get('project_root', '.')
-        #                         init_args['dirpath'] = os.path.abspath(os.path.join(project_root, init_args['dirpath']))
-        #                     os.makedirs(init_args['dirpath'], exist_ok=True) # Ensure dir exists
-
-        #                 callback_instance = CallbackClass(**init_args)
-        #                 instantiated_callbacks.append(callback_instance)
-        #                 logging.info(f"Instantiated callback: {class_name}")
-        #             except Exception as e:
-        #                 logging.error(f"Error instantiating callback {cb_name}: {e}", exc_info=True)
-        #          # Handle simple boolean flags if needed (though YAML structure is preferred)
-        #          # elif isinstance(cb_config, bool) and cb_config is True: ...
-        # else:
-        #      logging.info("No callbacks dictionary found in config or it's not a dictionary.")
-
-        # # Ensure trainer_kwargs exists and add the instantiated callbacks list
-        # if "trainer" not in config: config["trainer"] = {}
-        # config["trainer"]["callbacks"] = instantiated_callbacks
-        # logging.info(f"Assigned {len(instantiated_callbacks)} callbacks to config['trainer']['callbacks'].")
+                        callback_instance = CallbackClass(**init_args)
+                        instantiated_callbacks.append(callback_instance)
+                        logging.info(f"Instantiated callback: {class_name}")
+                    except Exception as e:
+                        logging.error(f"Error instantiating callback {cb_name}: {e}", exc_info=True)
+                 # Handle simple boolean flags if needed (though YAML structure is preferred)
+                 # elif isinstance(cb_config, bool) and cb_config is True: ...
+        else:
+             logging.info("No callbacks dictionary found in config or it's not a dictionary.")
+        # --- End Callback Instantiation ---
+        
+        # Ensure trainer_kwargs exists and add the instantiated callbacks list
+        config.setdefault("trainer", {})
+        config["trainer"]["callbacks"] = instantiated_callbacks
+        logging.info(f"Assigned {len(instantiated_callbacks)} callbacks to config['trainer']['callbacks'].")
 
         # Prepare all arguments in a dictionary for the Estimator
 
