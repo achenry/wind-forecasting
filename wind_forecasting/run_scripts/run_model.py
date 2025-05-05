@@ -11,6 +11,7 @@ import numpy as np
 from datetime import datetime
 import platform
 import subprocess
+import inspect
 
 import polars as pl
 from lightning.pytorch.loggers import WandbLogger
@@ -37,7 +38,7 @@ from pytorch_transformer_ts.spacetimeformer.lightning_module import Spacetimefor
 from pytorch_transformer_ts.tactis_2.estimator import TACTiS2Estimator as TactisEstimator
 from pytorch_transformer_ts.tactis_2.lightning_module import TACTiS2LightningModule as TactisLightningModule
 from wind_forecasting.preprocessing.data_module import DataModule
-from wind_forecasting.run_scripts.testing import test_model, get_checkpoint
+from wind_forecasting.run_scripts.testing import test_model, get_checkpoint, load_estimator_from_checkpoint
 from wind_forecasting.run_scripts.tuning import get_tuned_params, generate_df_setup_params
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -339,6 +340,11 @@ def main():
         persistent_workers=True,
         verbose=True
     )
+    
+    # Use globals() to fetch the module and estimator classes dynamically
+    LightningModuleClass = globals()[f"{args.model.capitalize()}LightningModule"]
+    EstimatorClass = globals()[f"{args.model.capitalize()}Estimator"]
+    DistrOutputClass = globals()[config["model"]["distr_output"]["class"]]
 
     if rank_zero_only.rank == 0:
         logging.info("Preparing data for tuning")
@@ -370,37 +376,37 @@ def main():
     if args.mode in ["train", "test"]:
         
         # TODO refactor this to just use hparams from checkpoint
-        found_tuned_params = True
-        if args.use_tuned_parameters:
-            try:
-                logging.info(f"Getting tuned parameters.")
-                tuned_params = get_tuned_params(optuna_storage, db_setup_params["study_name"])
-                config["model"]["distr_output"]["kwargs"].update({k: v for k, v in tuned_params.items() if k in config["model"]["distr_output"]["kwargs"]})
-                config["dataset"].update({k: v for k, v in tuned_params.items() if k in config["dataset"]})
-                config["model"][args.model].update({k: v for k, v in tuned_params.items() if k in config["model"][args.model]})
-                config["trainer"].update({k: v for k, v in tuned_params.items() if k in config["trainer"]})
+        # found_tuned_params = True
+        # if args.use_tuned_parameters:
+        #     try:
+        #         logging.info(f"Getting tuned parameters.")
+        #         tuned_params = get_tuned_params(optuna_storage, db_setup_params["study_name"])
+        #         config["model"]["distr_output"]["kwargs"].update({k: v for k, v in tuned_params.items() if k in config["model"]["distr_output"]["kwargs"]})
+        #         config["dataset"].update({k: v for k, v in tuned_params.items() if k in config["dataset"]})
+        #         config["model"][args.model].update({k: v for k, v in tuned_params.items() if k in config["model"][args.model]})
+        #         config["trainer"].update({k: v for k, v in tuned_params.items() if k in config["trainer"]})
                 
-                context_length_factor = tuned_params.get('context_length_factor', config["dataset"].get("context_length_factor", 2)) # Default to config or 2 if not in trial/config
-                context_length = int(context_length_factor * data_module.prediction_length)
+        #         context_length_factor = tuned_params.get('context_length_factor', config["dataset"].get("context_length_factor", 2)) # Default to config or 2 if not in trial/config
+        #         context_length = int(context_length_factor * data_module.prediction_length)
                 
-            except FileNotFoundError as e:
-                logging.warning(e)
-                found_tuned_params = False
-            except KeyError as e:
-                logging.warning(f"KeyError accessing Optuna config for tuned params: {e}. Using defaults.")
-                found_tuned_params = False
-        else:
-            found_tuned_params = False 
+        #     except FileNotFoundError as e:
+        #         logging.warning(e)
+        #         found_tuned_params = False
+        #     except KeyError as e:
+        #         logging.warning(f"KeyError accessing Optuna config for tuned params: {e}. Using defaults.")
+        #         found_tuned_params = False
+        # else:
+        #     found_tuned_params = False 
         
-        if found_tuned_params:
-            logging.info(f"Declaring estimator {args.model.capitalize()} with tuned parameters")
-        else:
-            logging.info(f"Declaring estimator {args.model.capitalize()} with default parameters")
-            if "context_length_factor" in config["model"][args.model]:
-                context_length = int(config["model"][args.model]["context_length_factor"] * data_module.prediction_length)
-                del config["model"][args.model]["context_length_factor"]
-            else:
-             context_length = data_module.context_length
+        # if found_tuned_params:
+        #     logging.info(f"Declaring estimator {args.model.capitalize()} with tuned parameters")
+        # else:
+        #     logging.info(f"Declaring estimator {args.model.capitalize()} with default parameters")
+        #     if "context_length_factor" in config["model"][args.model]:
+        #         context_length = int(config["model"][args.model]["context_length_factor"] * data_module.prediction_length)
+        #         del config["model"][args.model]["context_length_factor"]
+        #     else:
+        #      context_length = data_module.context_length
             
         # Set up parameters for checkpoint finding
         metric = config.get("trainer", {}).get("monitor_metric", "val_loss")
@@ -411,14 +417,17 @@ def main():
         logging.info(f"Checkpoint selection: Monitoring metric '{metric}' with mode '{mode}' in directory '{base_checkpoint_dir}'")
         
         # Use the get_checkpoint function to handle checkpoint finding
-        checkpoint = get_checkpoint(args.checkpoint, metric, mode, base_checkpoint_dir)
+        checkpoint_path = get_checkpoint(args.checkpoint, metric, mode, base_checkpoint_dir)
+        checkpoint_hparams = load_estimator_from_checkpoint(checkpoint_path, LightningModuleClass, config, args.model)
         
-        # Use globals() to fetch the estimator class dynamically
-        EstimatorClass = globals()[f"{args.model.capitalize()}Estimator"]
+        # Update DataModule params
+        data_module.prediction_length = (checkpoint_hparams["prediction_length_int"] * checkpoint_hparams["freq"]).total_seconds()
+        data_module.context_length = (checkpoint_hparams["context_length_int"] * checkpoint_hparams["freq"]).total_seconds()
+        data_module.freq = checkpoint_hparams["freq_str"]
             
         if args.mode == "train" and args.checkpoint is not None:
             logging.info("Restarting training from checkpoint, updating max_epochs accordingly.")
-            config["trainer"]["max_epochs"] += int(re.search("(?<=epoch=)\\d+", os.path.basename(checkpoint)).group())
+            config["trainer"]["max_epochs"] += int(re.search("(?<=epoch=)\\d+", os.path.basename(checkpoint_path)).group())
         
         # Prepare all arguments in a dictionary
         estimator_kwargs = {
@@ -429,23 +438,27 @@ def main():
             "cardinality": data_module.cardinality,
             "num_feat_static_real": data_module.num_feat_static_real,
             "input_size": data_module.num_target_vars,
-            "scaling": False, # Scaling handled externally or internally by TACTiS
-            "lags_seq": [0], # TACTiS doesn't typically use lags
+            "scaling": True if checkpoint_hparams["init_args"]["model_config"]["scaling"] == "True" else False, # Scaling handled externally or internally by TACTiS
+            "lags_seq": checkpoint_hparams["init_args"]["model_config"]["lags_seq"], # TACTiS doesn't typically use lags
             "time_features": [second_of_minute, minute_of_hour, hour_of_day, day_of_year],
             "batch_size": data_module.batch_size,
             "num_batches_per_epoch": config["trainer"].setdefault("limit_train_batches", 1000),
-            "context_length": context_length,
+            "context_length": data_module.context_length,
             # "train_sampler": ExpectedNumInstanceSampler(num_instances=1.0, min_past=context_length, min_future=data_module.prediction_length),
-            "train_sampler": SequentialSampler(min_past=context_length, min_future=data_module.prediction_length), # TODO TEST, w/ num_batches_per_epoch=None or float
-            "validation_sampler": ValidationSplitSampler(min_past=context_length, min_future=data_module.prediction_length),
+            "train_sampler": SequentialSampler(min_past=data_module.context_length, min_future=data_module.prediction_length), # TODO TEST, w/ num_batches_per_epoch=None or float
+            "validation_sampler": ValidationSplitSampler(min_past=data_module.context_length, min_future=data_module.prediction_length),
             "trainer_kwargs": config["trainer"],
         }
-
-        # Add model-specific arguments from the config YAML
-        estimator_kwargs.update(config["model"][args.model])
-
+        
+        estimator_sig = inspect.signature(EstimatorClass.__init__)
+        estimator_params = [param.name for param in estimator_sig.parameters.values()]
+        
+        # Add model-specific arguments
+        estimator_kwargs.update({k: v for k, v in checkpoint_hparams["init_args"]["model_config"].items() if k in estimator_params and k not in estimator_kwargs})
+        
+        # Add distr_output only if the model is NOT tactis
         if args.model != 'tactis':
-            estimator_kwargs["distr_output"] = globals()[config["model"]["distr_output"]["class"]](dim=data_module.num_target_vars, **config["model"]["distr_output"]["kwargs"])
+            estimator_kwargs["distr_output"] = DistrOutputClass(dim=data_module.num_target_vars, **config["model"]["distr_output"]["kwargs"]) # TODO or checkpoint_hparams["model_config"]["distr_output"]
         elif 'distr_output' in estimator_kwargs:
              del estimator_kwargs['distr_output']
 
@@ -471,11 +484,6 @@ def main():
         # %% TUNE MODEL WITH OPTUNA
         from wind_forecasting.run_scripts.tuning import tune_model
 
-        # Use globals() to fetch the module and estimator classes dynamically
-        LightningModuleClass = globals()[f"{args.model.capitalize()}LightningModule"]
-        EstimatorClass = globals()[f"{args.model.capitalize()}Estimator"]
-        DistrOutputClass = globals()[config["model"]["distr_output"]["class"]]
-        
         try:
             callbacks_config = config.get('callbacks', {})
             mc_config = callbacks_config.get('model_checkpoint', {})
@@ -586,7 +594,7 @@ def main():
             training_data=data_module.train_dataset,
             validation_data=data_module.val_dataset,
             forecast_generator=forecast_generator,
-            ckpt_path=checkpoint,
+            ckpt_path=checkpoint_path,
             shuffle_buffer_length=1024
         )
         # train_output.trainer.checkpoint_callback.best_model_path
@@ -596,7 +604,7 @@ def main():
         # %% TEST MODEL
        
         test_model(data_module=data_module,
-                    checkpoint=checkpoint,
+                    checkpoint=checkpoint_path,
                     lightning_module_class=globals()[f"{args.model.capitalize()}LightningModule"], 
                     estimator=estimator, 
                     forecast_generator=forecast_generator,
