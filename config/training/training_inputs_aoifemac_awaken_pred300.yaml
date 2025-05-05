@@ -216,6 +216,8 @@ callbacks:
       init_args:
         logging_interval: step # Log every step/epoch
         log_momentum: false
+    dead_neuron_monitor:
+      enabled: false
 
 trainer: 
     # grad_clip_norm: 0.0 # Prevents gradient explosion if > 0 
