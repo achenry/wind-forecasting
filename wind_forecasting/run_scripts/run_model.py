@@ -7,6 +7,7 @@ import re
 import torch
 import gc
 import random
+import json
 import numpy as np
 from datetime import datetime
 import platform
@@ -14,6 +15,7 @@ import subprocess
 import inspect
 
 import polars as pl
+from lightning.pytorch import Trainer
 from lightning.pytorch.loggers import WandbLogger
 from lightning.pytorch.utilities import rank_zero_only
 import yaml
@@ -436,10 +438,14 @@ def main():
             try:
                 logging.info(f"Getting tuned parameters.")
                 tuned_params = get_tuned_params(optuna_storage, db_setup_params["study_name"])
+                # tuned_params = {'context_length_factor': 2, 'batch_size': 128, 'num_encoder_layers': 2, 'num_decoder_layers': 3, 'd_model': 128, 'n_heads': 6}
                 config["model"]["distr_output"]["kwargs"].update({k: v for k, v in tuned_params.items() if k in config["model"]["distr_output"]["kwargs"]})
                 config["dataset"].update({k: v for k, v in tuned_params.items() if k in config["dataset"]})
                 # config["model"][args.model].update({k: v for k, v in tuned_params.items() if k in config["model"][args.model]})
-                config["trainer"].update({k: v for k, v in tuned_params.items() if k in config["trainer"]})
+                
+                trainer_sig = inspect.signature(Trainer.__init__)
+                trainer_params = [param.name for param in trainer_sig.parameters.values()]
+                config["trainer"].update({k: v for k, v in tuned_params.items() if k in trainer_params})
                 
                 data_module.batch_size = config["dataset"]["batch_size"]
                 
@@ -495,7 +501,7 @@ def main():
             data_module.freq = checkpoint_hparams["freq_str"]
             
             
-            logging.info(f"Updating estimator {args.model.capitalize()} kwargs with checkpoint parameters {model_hparams}.")
+            logging.info(f"Updating estimator {args.model.capitalize()} kwargs with checkpoint parameters {checkpoint_hparams['init_args']['model_config']}.")
         else:
             checkpoint_path = None
             
@@ -679,7 +685,7 @@ def main():
         estimator_kwargs.update({k: v for k, v in model_hparams.items() if k in estimator_params})
         
         # Add distr_output only if the model is NOT tactis
-        if args.model != 'tactis':
+        if args.model != 'tactis' and "distr_output" not in estimator_kwargs:
             estimator_kwargs["distr_output"] = DistrOutputClass(dim=data_module.num_target_vars, **config["model"]["distr_output"]["kwargs"]) # TODO or checkpoint_hparams["model_config"]["distr_output"]
         elif 'distr_output' in estimator_kwargs:
              del estimator_kwargs['distr_output']
