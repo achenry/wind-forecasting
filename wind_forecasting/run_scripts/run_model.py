@@ -609,9 +609,9 @@ def main():
         else:
              logging.info("No callbacks dictionary found in config or it's not a dictionary.")
         # --- End Callback Instantiation ---
-
+        
         # Ensure trainer_kwargs exists and add the instantiated callbacks list
-        if "trainer" not in config: config["trainer"] = {}
+        config.setdefault("trainer", {})
         config["trainer"]["callbacks"] = instantiated_callbacks
         logging.info(f"Assigned {len(instantiated_callbacks)} callbacks to config['trainer']['callbacks'].")
 
