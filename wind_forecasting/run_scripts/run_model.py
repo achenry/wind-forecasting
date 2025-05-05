@@ -561,6 +561,7 @@ def main():
         # --- Instantiate Callbacks ---
         # We need to do this BEFORE creating the estimator,
         # so the instantiated list can be placed in trainer_kwargs.
+
         # import importlib
         # logging.info("Instantiating callbacks from configuration...")
         # instantiated_callbacks = []
@@ -608,7 +609,6 @@ def main():
         #          # elif isinstance(cb_config, bool) and cb_config is True: ...
         # else:
         #      logging.info("No callbacks dictionary found in config or it's not a dictionary.")
-        # # --- End Callback Instantiation ---
 
         # # Ensure trainer_kwargs exists and add the instantiated callbacks list
         # if "trainer" not in config: config["trainer"] = {}

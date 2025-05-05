@@ -114,7 +114,7 @@ model:
     scaling: "std" # Options: "mean", "std", null # Enable internal standardization # INFO NEEDED std!
     loss_normalization: "series" # Options: "series", "timesteps", "both", "none" INFO: Now tuning
     encoder_type: "standard" # Options: "standard", "temporal"
-    bagging_size: null # Optional, defaults to None in estimator # INFO: Now tuning
+    bagging_size: null # Optional, defaults to None in estimator
     num_parallel_samples: 100 # INFO: Inference only setting
     inference_num_samples: 100 # INFO: Inference only setting
     # Marginal CDF Encoder
@@ -236,7 +236,7 @@ trainer:
     # debug: false
     # accumulate: 1.0
     max_epochs: 100 # Maximum number of epochs to train 100
-    limit_train_batches: 5000 # INFO: Training-only setting (not tuning) Set to integer number of steps to train on (context+prediction length)
+    limit_train_batches: #5000 # INFO: Training-only setting (not tuning) Set to null to use all data
     # default_root_dir: ${logging.checkpoint_dir}  # Changed from direct path to use log_dir
     # precision: 16-mixed # 16-mixed enables mixed precision training 32-true is full precision
     # batch_size: 32 # larger = more stable gradients
