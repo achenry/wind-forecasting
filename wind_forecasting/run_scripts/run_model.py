@@ -82,6 +82,8 @@ def main():
     parser.add_argument("--save_to", type=str, help="Path to save the predicted output", default=None)
     parser.add_argument("--single_gpu", action="store_true", help="Force using only a single GPU (the one specified by CUDA_VISIBLE_DEVICES)")
     parser.add_argument("-or", "--override", nargs="*", help="List of hyperparameters to override from YAML config instead of using tuned values", default=[])
+    parser.add_argument("-rl", "--reload_data", action="store_true", help="Whether to reload train/test/val datasets from preprocessed parquets or not.")
+
 
     args = parser.parse_args()
 
@@ -371,7 +373,7 @@ def main():
 
     if rank_zero_only.rank == 0:
         logging.info("Preparing data for tuning")
-        if not os.path.exists(data_module.train_ready_data_path):
+        if args.reload_data or not os.path.exists(data_module.train_ready_data_path):
             data_module.generate_datasets()
             reload = True
         else:
