@@ -317,7 +317,7 @@ def main():
     config["trainer"]["default_root_dir"] = checkpoint_dir
 
     # Add global gradient clipping for automatic optimization
-    if "trainer" not in config: config["trainer"] = {}
+    config.setdefault("trainer", {})
     config["trainer"]["gradient_clip_val"] = 1.0
     logging.info(f"Set global gradient_clip_val = {config['trainer']['gradient_clip_val']} for automatic optimization.")
 
@@ -334,8 +334,6 @@ def main():
         cpus_per_task = 1
 
     num_workers = max(0, cpus_per_task - 1)
-    if "trainer" not in config:
-        config["trainer"] = {}
 
     # Set DataLoader parameters within the trainer config
     logging.info(f"Determined SLURM_CPUS_PER_TASK={cpus_per_task}. Setting num_workers = {num_workers}.")
@@ -427,43 +425,6 @@ def main():
 
     if args.mode in ["train", "test"]:
 
-        # TODO refactor this to just use hparams from checkpoint
-        # found_tuned_params = False # Initialize to False
-        # tuned_params = {} # Initialize empty dict
-
-        # if args.use_tuned_parameters:
-        #     if optuna_storage and db_setup_params:
-        #         try:
-        #             logging.info(f"Attempting to load tuned parameters from study '{db_setup_params['study_name']}' using provided storage.")
-        #             # Pass the specific study name from db_setup_params
-        #             tuned_params = get_tuned_params(optuna_storage, db_setup_params["study_name"])
-        #             logging.info(f"Successfully loaded {len(tuned_params)} tuned parameters.")
-
-        #             # Apply loaded parameters to the config
-        #             config["model"]["distr_output"]["kwargs"].update({k: v for k, v in tuned_params.items() if k in config["model"]["distr_output"]["kwargs"]})
-        #             config["dataset"].update({k: v for k, v in tuned_params.items() if k in config["dataset"]})
-        #             config["model"][args.model].update({k: v for k, v in tuned_params.items() if k in config["model"][args.model]})
-        #             config["trainer"].update({k: v for k, v in tuned_params.items() if k in config["trainer"]})
-
-        #             context_length_factor = tuned_params.get('context_length_factor', config["dataset"].get("context_length_factor", 2)) # Default to config or 2 if not in trial/config
-        #             context_length = int(context_length_factor * data_module.prediction_length)
-
-        #             # Mark as found only if loading succeeds without exceptions
-        #             found_tuned_params = True
-
-        #         except FileNotFoundError as e:
-        #             logging.warning(f"Could not find Optuna study or parameters: {e}. Using default parameters.")
-        #             found_tuned_params = False
-        #         except KeyError as e:
-        #             logging.warning(f"KeyError accessing Optuna config/study for tuned params: {e}. Using default parameters.")
-        #             found_tuned_params = False
-        #         except Exception as e: # Catch other potential errors during loading
-        #             logging.error(f"An unexpected error occurred while loading tuned parameters: {e}", exc_info=True)
-        #             found_tuned_params = False
-        # else:
-        #     found_tuned_params = False
-
-        
         # Set up parameters for checkpoint finding
         metric = config.get("trainer", {}).get("monitor_metric", "val_loss")
         mode = config.get("optuna", {}).get("direction", "minimize")
@@ -629,13 +590,22 @@ def main():
             "lags_seq": checkpoint_hparams["init_args"]["model_config"]["lags_seq"], # TACTiS doesn't typically use lags
             "time_features": [second_of_minute, minute_of_hour, hour_of_day, day_of_year],
             "batch_size": data_module.batch_size,
-            "num_batches_per_epoch": config["trainer"].setdefault("limit_train_batches", 1000),
+            "num_batches_per_epoch": config["trainer"].get("limit_train_batches", 1000),
             "context_length": data_module.context_length,
             # "train_sampler": ExpectedNumInstanceSampler(num_instances=1.0, min_past=context_length, min_future=data_module.prediction_length),
             "train_sampler": SequentialSampler(min_past=data_module.context_length, min_future=data_module.prediction_length), # TODO TEST, w/ num_batches_per_epoch=None or float
             "validation_sampler": ValidationSplitSampler(min_past=data_module.context_length, min_future=data_module.prediction_length),
             "trainer_kwargs": config["trainer"],
         }
+        
+        n_training_samples = 0
+        for ds in data_module.train_dataset:
+            a, b = estimator_kwargs["train_sampler"]._get_bounds(ds["target"])
+            n_training_samples += (b - a + 1)
+        
+        n_training_steps = int(n_training_samples // data_module.batch_size)
+        if estimator_kwargs["num_batches_per_epoch"]:
+            n_training_steps = min(n_training_steps, estimator_kwargs["num_batches_per_epoch"])
         
         estimator_sig = inspect.signature(EstimatorClass.__init__)
         estimator_params = [param.name for param in estimator_sig.parameters.values()]
@@ -775,7 +745,7 @@ def main():
         logging.info("Starting model training...")
         # %% TRAIN MODEL
         # Callbacks are now instantiated and added to estimator_kwargs above
-        logging.info("Training model")
+        logging.info(f"Training model with a total of {n_training_steps} training steps.")
         estimator.train(
             training_data=data_module.train_dataset,
             validation_data=data_module.val_dataset,
