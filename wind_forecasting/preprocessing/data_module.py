@@ -168,7 +168,7 @@ class DataModule():
             logging.info(f"Getting column names.") 
         if self.target_suffixes is None:
             self.target_cols = dataset.select(*[cs.starts_with(pfx) for pfx in self.target_prefixes]).collect_schema().names()
-            self.target_suffixes = sorted(list(set(col.split("_")[-1] for col in self.target_cols)))
+            self.target_suffixes = sorted(list(set(col.split("_")[-1] for col in self.target_cols)), key=lambda col: int(re.search("\\d+", col).group()))
         else:
             # float64_cols = list(dataset.select_dtypes(include="float64"))
             # dataset[float64_cols] = dataset[float64_cols].astype("float32")
@@ -242,15 +242,15 @@ class DataModule():
                 for split in splits:
                     ds = getattr(self, f"{split}_dataset")
                     setattr(self, f"{split}_dataset", 
-                            {f"TURBINE{turbine_id}_SPLIT{split}": 
-                            self.get_df_by_turbine(ds[split], turbine_id) 
-                            for turbine_id in self.target_suffixes for split in range(len(ds))})
+                            {f"TURBINE{turbine_id}_SPLIT{cg}": 
+                            self.get_df_by_turbine(ds[cg], turbine_id) 
+                            for turbine_id in self.target_suffixes for cg in range(len(ds))})
                 
                 if self.as_lazyframe:
-                    static_index = [f"TURBINE{turbine_id}_SPLIT{split}" for turbine_id in self.target_suffixes for split in range(len(self.train_dataset))]
+                    static_index = [f"TURBINE{turbine_id}_SPLIT{split}" for turbine_id in self.target_suffixes for cg in range(len(self.train_dataset))]
                     self.static_features = pd.DataFrame(
                         {
-                            "turbine_id": pd.Categorical(turbine_id for turbine_id in self.target_suffixes for split in range(len(self.train_dataset)))
+                            "turbine_id": pd.Categorical(turbine_id for turbine_id in self.target_suffixes for cg in range(len(self.train_dataset)))
                         },
                         index=static_index
                     )

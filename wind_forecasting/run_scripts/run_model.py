@@ -82,6 +82,8 @@ def main():
     parser.add_argument("--save_to", type=str, help="Path to save the predicted output", default=None)
     parser.add_argument("--single_gpu", action="store_true", help="Force using only a single GPU (the one specified by CUDA_VISIBLE_DEVICES)")
     parser.add_argument("-or", "--override", nargs="*", help="List of hyperparameters to override from YAML config instead of using tuned values", default=[])
+    parser.add_argument("-rl", "--reload_data", action="store_true", help="Whether to reload train/test/val datasets from preprocessed parquets or not.")
+
 
     args = parser.parse_args()
 
@@ -371,7 +373,7 @@ def main():
 
     if rank_zero_only.rank == 0:
         logging.info("Preparing data for tuning")
-        if not os.path.exists(data_module.train_ready_data_path):
+        if args.reload_data or not os.path.exists(data_module.train_ready_data_path):
             data_module.generate_datasets()
             reload = True
         else:
@@ -380,9 +382,11 @@ def main():
     else:
         reload = False
     
-    # other ranks should wait for this one
+    # other ranks should wait for this one 
     data_module.generate_splits(save=True, reload=reload, splits=["train", "val", "test"])
 
+    # data_module.train_dataset = [ds for ds in data_module.train_dataset if ds["item_id"].endswith("SPLIT0")]
+    
     # %% DEFINE ESTIMATOR
     # Initialize storage and connection info variables
     optuna_storage = None
@@ -425,18 +429,67 @@ def main():
 
     if args.mode in ["train", "test"]:
 
-        # Set up parameters for checkpoint finding
-        metric = config.get("trainer", {}).get("monitor_metric", "val_loss")
-        mode = config.get("optuna", {}).get("direction", "minimize")
-        mode_mapping = {"minimize": "min", "maximize": "max"}
-        mode = mode_mapping.get(mode, "min")
-
-        base_checkpoint_dir = os.path.join(log_dir, project_name)
-        logging.info(f"Checkpoint selection: Monitoring metric '{metric}' with mode '{mode}' in directory '{base_checkpoint_dir}'")
-
+        # get tuned params
+        model_hparams = {}
+        found_tuned_params = True
+        if args.use_tuned_parameters:
+            try:
+                logging.info(f"Getting tuned parameters.")
+                tuned_params = get_tuned_params(optuna_storage, db_setup_params["study_name"])
+                config["model"]["distr_output"]["kwargs"].update({k: v for k, v in tuned_params.items() if k in config["model"]["distr_output"]["kwargs"]})
+                config["dataset"].update({k: v for k, v in tuned_params.items() if k in config["dataset"]})
+                # config["model"][args.model].update({k: v for k, v in tuned_params.items() if k in config["model"][args.model]})
+                config["trainer"].update({k: v for k, v in tuned_params.items() if k in config["trainer"]})
+                
+                model_hparams = {k: v for k, v in tuned_params.items() if 
+                                 (k not in config["model"]["distr_output"]["kwargs"] and k not in config["dataset"] and k not in config["trainer"])}
+                
+                context_length_factor = tuned_params.get('context_length_factor', config["dataset"].get("context_length_factor", None)) # Default to config or 2 if not in trial/config
+                if context_length_factor:
+                    data_module.context_length = int(context_length_factor * data_module.prediction_length)
+                else:
+                    data_module.context_length = config["dataset"]["context_length"]
+                
+                data_module.freq = config["dataset"]["resample_freq"]
+            except FileNotFoundError as e:
+                logging.warning(e)
+                found_tuned_params = False
+            except KeyError as e:
+                logging.warning(f"KeyError accessing Optuna config for tuned params: {e}. Using defaults.")
+                found_tuned_params = False
+        else:
+            found_tuned_params = False 
+        
+        if found_tuned_params:
+            logging.info(f"Updating estimator {args.model.capitalize()} kwargs with tuned parameters {tuned_params}")
+        else:
+            logging.info(f"Updating estimator {args.model.capitalize()} kwargs with default parameters")
+            if "context_length_factor" in config["model"][args.model]:
+                data_module.context_length = int(config["model"][args.model]["context_length_factor"] * data_module.prediction_length)
+                del config["model"][args.model]["context_length_factor"]
+            
+            
         # Use the get_checkpoint function to handle checkpoint finding
-        checkpoint_path = get_checkpoint(args.checkpoint, metric, mode, base_checkpoint_dir)
-        checkpoint_hparams = load_estimator_from_checkpoint(checkpoint_path, LightningModuleClass, config, args.model)
+        if args.checkpoint:
+            # Set up parameters for checkpoint finding
+            metric = config.get("trainer", {}).get("monitor_metric", "val_loss")
+            mode = config.get("optuna", {}).get("direction", "minimize")
+            mode_mapping = {"minimize": "min", "maximize": "max"}
+            mode = mode_mapping.get(mode, "min")
+
+            base_checkpoint_dir = os.path.join(log_dir, project_name)
+            logging.info(f"Checkpoint selection: Monitoring metric '{metric}' with mode '{mode}' in directory '{base_checkpoint_dir}'")
+        
+            checkpoint_path = get_checkpoint(args.checkpoint, metric, mode, base_checkpoint_dir)
+            checkpoint_hparams = load_estimator_from_checkpoint(checkpoint_path, LightningModuleClass, config, args.model)
+            model_hparams = checkpoint_hparams["init_args"]["model_config"]
+            
+            # Update DataModule params
+            data_module.prediction_length = checkpoint_hparams["prediction_length_int"]
+            data_module.context_length = checkpoint_hparams["context_length_int"]
+            data_module.freq = checkpoint_hparams["freq_str"]
+            
+            logging.info(f"Updating estimator {args.model.capitalize()} kwargs with checkpoint parameters {model_hparams}.")
         
         # Apply command-line overrides AFTER potentially loading tuned params
         if args.override:
@@ -510,10 +563,7 @@ def main():
                 except Exception as e:
                     logging.error(f"  - Error applying override '{override_item}': {e}", exc_info=True)
                     
-        # Update DataModule params
-        data_module.prediction_length = (checkpoint_hparams["prediction_length_int"] * checkpoint_hparams["freq"]).total_seconds()
-        data_module.context_length = (checkpoint_hparams["context_length_int"] * checkpoint_hparams["freq"]).total_seconds()
-        data_module.freq = checkpoint_hparams["freq_str"]
+        
             
         if args.mode == "train" and args.checkpoint is not None:
             logging.info("Restarting training from checkpoint, updating max_epochs accordingly.")
@@ -584,8 +634,8 @@ def main():
             "cardinality": data_module.cardinality,
             "num_feat_static_real": data_module.num_feat_static_real,
             "input_size": data_module.num_target_vars,
-            "scaling": "std" if checkpoint_hparams["init_args"]["model_config"]["scaling"] == "True" else False, # Scaling handled externally or internally by TACTiS
-            "lags_seq": checkpoint_hparams["init_args"]["model_config"]["lags_seq"], # TACTiS doesn't typically use lags
+            "scaling": "std", #if model_hparams.get("scaling", "True") == "True" else False, # TODO ALLOW US TO SPECIFY SCALING, ALSO WHY STRING NOT B00L Scaling handled externally or internally by TACTiS
+            "lags_seq": [0], #model_hparams.get("lags_seq", [0]), #TODOconfig["model"][args.model]["lags_seq"], # TACTiS doesn't typically use lags
             "time_features": [second_of_minute, minute_of_hour, hour_of_day, day_of_year],
             "batch_size": data_module.batch_size,
             "num_batches_per_epoch": config["trainer"].get("limit_train_batches", 1000),
@@ -601,7 +651,7 @@ def main():
             a, b = estimator_kwargs["train_sampler"]._get_bounds(ds["target"])
             n_training_samples += (b - a + 1)
         
-        n_training_steps = int(n_training_samples // data_module.batch_size)
+        n_training_steps = np.ceil(n_training_samples / data_module.batch_size).astype(int)
         if estimator_kwargs["num_batches_per_epoch"]:
             n_training_steps = min(n_training_steps, estimator_kwargs["num_batches_per_epoch"])
         
@@ -609,7 +659,7 @@ def main():
         estimator_params = [param.name for param in estimator_sig.parameters.values()]
         
         # Add model-specific arguments
-        estimator_kwargs.update({k: v for k, v in checkpoint_hparams["init_args"]["model_config"].items() if k in estimator_params and k not in estimator_kwargs})
+        estimator_kwargs.update({k: v for k, v in model_hparams.items() if k in estimator_params})
         
         # Add distr_output only if the model is NOT tactis
         if args.model != 'tactis':
