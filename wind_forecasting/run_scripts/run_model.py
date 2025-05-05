@@ -447,8 +447,10 @@ def main():
                 context_length_factor = tuned_params.get('context_length_factor', config["dataset"].get("context_length_factor", None)) # Default to config or 2 if not in trial/config
                 if context_length_factor:
                     data_module.context_length = int(context_length_factor * data_module.prediction_length)
+                    logging.info(f"Setting context_length to {context_length_factor} times the prediction length {data_module.prediction_length} = {data_module.context_length} from tuned parameters.")
                 else:
                     data_module.context_length = config["dataset"]["context_length"]
+                    logging.info(f"Setting context_length to default value {data_module.context_length} from default values.")
                 
                 data_module.freq = config["dataset"]["resample_freq"]
             except FileNotFoundError as e:
@@ -467,6 +469,7 @@ def main():
             if "context_length_factor" in config["model"][args.model]:
                 data_module.context_length = int(config["model"][args.model]["context_length_factor"] * data_module.prediction_length)
                 del config["model"][args.model]["context_length_factor"]
+                
             
             
         # Use the get_checkpoint function to handle checkpoint finding
@@ -660,6 +663,13 @@ def main():
         estimator_sig = inspect.signature(EstimatorClass.__init__)
         estimator_params = [param.name for param in estimator_sig.parameters.values()]
         
+        if "dim_feedforward" not in model_hparams and "d_model" in model_hparams:
+            # set dim_feedforward to 4x the d_model found in this trial
+            model_hparams["dim_feedforward"] = model_hparams["d_model"] * 4
+        elif "d_model" in estimator_params and estimator_sig.parameters["d_model"].default is not inspect.Parameter.empty:
+            # if d_model is not contained in the trial but is a paramter, get the default
+            model_hparams["dim_feedforward"] = estimator_sig.parameters["d_model"].default * 4
+
         # Add model-specific arguments
         estimator_kwargs.update({k: v for k, v in model_hparams.items() if k in estimator_params})
         
