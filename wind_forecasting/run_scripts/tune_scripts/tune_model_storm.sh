@@ -6,7 +6,7 @@
 #SBATCH --cpus-per-task=32           # CPUs per task (4 tasks * 32 = 128 CPUs total) [1 CPU/GPU more than enough]
 #SBATCH --mem-per-cpu=4096          # Memory per CPU (Total Mem = ntasks * cpus-per-task * mem-per-cpu) [flasc uses only ~4-5 GiB max]
 #SBATCH --gres=gpu:H100:4           # Request 4 H100 GPUs
-#SBATCH --time=1-12:00              # Time limit (up to 7 days)
+#SBATCH --time=7-00:00              # Time limit (up to 7 days)
 #SBATCH --job-name=flasc_tune
 #SBATCH --output=/user/taed7566/Forecasting/wind-forecasting/logs/slurm_logs/flasc_tune_%j.out
 #SBATCH --error=/user/taed7566/Forecasting/wind-forecasting/logs/slurm_logs/flasc_tune_%j.err
@@ -22,7 +22,7 @@
 BASE_DIR="/user/taed7566/Forecasting/wind-forecasting" # Absolute path to the base directory
 export WORK_DIR="${BASE_DIR}/wind_forecasting"
 export LOG_DIR="${BASE_DIR}/logs"
-export CONFIG_FILE="${BASE_DIR}/config/training/training_inputs_juan_flasc.yaml"
+export CONFIG_FILE="${BASE_DIR}/config/training/training_inputs_juan_flasc_tune_storm.yaml"
 export MODEL_NAME="tactis"
 export RESTART_TUNING_FLAG="" # "" Or "--restart_tuning"
 export AUTO_EXIT_WHEN_DONE="true"  # Set to "true" to exit script when all workers finish, "false" to keep running until timeout

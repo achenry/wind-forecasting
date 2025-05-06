@@ -769,46 +769,7 @@ def main():
         except Exception as e:
             logging.error(f"Error during checkpoint path resolution: {e}", exc_info=True)
 
-        # Instantiate callbacks from configuration
-        import importlib
-
-        logging.info("Instantiating callbacks from configuration...")
-        instantiated_callbacks = []
-        if 'callbacks' in config and isinstance(config['callbacks'], dict):
-            for cb_name, cb_config in config['callbacks'].items():
-                if isinstance(cb_config, dict) and 'class_path' in cb_config:
-                    try:
-                        module_path, class_name = cb_config['class_path'].rsplit('.', 1)
-                        CallbackClass = getattr(importlib.import_module(module_path), class_name)
-                        init_args = cb_config.get('init_args', {})
-
-                        # Special handling for ModelCheckpoint dirpath
-                        if class_name == "ModelCheckpoint" and 'dirpath' in init_args and init_args['dirpath'] is not None:
-                            if isinstance(init_args['dirpath'], str) and '${logging.checkpoint_dir}' in init_args['dirpath']:
-                                init_args['dirpath'] = init_args['dirpath'].replace('${logging.checkpoint_dir}', checkpoint_dir)
-                            elif not os.path.isabs(init_args['dirpath']):
-                                project_root = config.get('experiment', {}).get('project_root', '.')
-                                init_args['dirpath'] = os.path.abspath(os.path.join(project_root, init_args['dirpath']))
-                        os.makedirs(init_args['dirpath'], exist_ok=True)
-                        callback_instance = CallbackClass(**init_args)
-                        instantiated_callbacks.append(callback_instance)
-                        logging.info(f"Instantiated callback: {class_name}")
-
-                    except Exception as e:
-                        logging.error(f"Error instantiating callback {cb_name}: {e}")
-                elif isinstance(cb_config, bool) and cb_config is True:
-                    # Handle simple boolean flag callbacks
-                    if cb_name == "progress_bar":
-                        from lightning.pytorch.callbacks import RichProgressBar
-                        instantiated_callbacks.append(RichProgressBar())
-                    elif cb_name == "lr_monitor":
-                        from lightning.pytorch.callbacks import LearningRateMonitor
-                        lr_config = config['callbacks'].get('lr_monitor_config', {})
-                        instantiated_callbacks.append(LearningRateMonitor(**lr_config))
-
-            # Replace the dictionary in the config with the list of instances
-            config['callbacks'] = instantiated_callbacks
-            logging.info(f"Replaced config['callbacks'] with {len(instantiated_callbacks)} instantiated callback objects.")
+        # Callbacks from config will be handled by MLTuningObjective.
 
         # Normal execution - pass the OOM protection wrapper and constructed storage URL
         tune_model(model=args.model, config=config, # Pass full config here for model/trainer params
