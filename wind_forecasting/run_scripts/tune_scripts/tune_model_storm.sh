@@ -76,7 +76,7 @@ echo "Setting up main environment..."
 module purge
 module load slurm/hpc-2023/23.02.7
 module load hpc-env/13.1
-module load mpi4py/3.1.4-gompi-2023a
+# module load mpi4py/3.1.4-gompi-2023a
 module load Mamba/24.3.0-0
 module load CUDA/12.4.0
 module load git

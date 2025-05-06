@@ -502,7 +502,7 @@ def continuous_ranked_probability_score_gaussian(predicted_mean, true_values, pr
         return sigma * (z * (2 * cdf_z - 1) + 2 * pdf_z - 1 / np.sqrt(np.pi))
     
     # Compute the CRPS for each sample and take the mean
-    crps = np.mean([crps_gaussian(t, m, s) for t, m, s in zip(true_values, predicted_mean, predicted_std)], axis=0)
+    crps = np.nanmean([crps_gaussian(t, m, s) for t, m, s in zip(true_values, predicted_mean, predicted_std)], axis=0)
 
     return crps
 
@@ -608,7 +608,7 @@ def continuous_ranked_probability_score(obs, fx, fx_prob):
     f = fx_prob / 100.0
 
     # integrate along each sample, then average all samples
-    crps = np.mean(np.trapz((f - o) ** 2, x=fx, axis=1))
+    crps = np.nanmean(np.trapz((f - o) ** 2, x=fx, axis=1))
 
     return crps
 
@@ -773,7 +773,7 @@ def pi_normalized_average_width(predicted_mean, true_values, predicted_std, conf
     lower_bound = predicted_mean - z_score * predicted_std
 
     interval_width = upper_bound - lower_bound
-    pinaw = np.mean(interval_width, axis=0) / true_range
+    pinaw = np.nanmean(interval_width, axis=0) / true_range
 
     return pinaw
 
