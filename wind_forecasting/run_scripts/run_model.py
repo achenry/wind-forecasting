@@ -430,9 +430,18 @@ def main():
              logging.info("No connection info returned (likely SQLite or Journal mode).")
 
     if args.mode in ["train", "test"]:
-
-        # get tuned params
-        model_hparams = {}
+        
+        # get parameters expected by estimator and trainer
+        estimator_sig = inspect.signature(EstimatorClass.__init__)
+        estimator_params = [param.name for param in estimator_sig.parameters.values()]
+        
+        trainer_sig = inspect.signature(Trainer.__init__)
+        trainer_params = [param.name for param in trainer_sig.parameters.values()]
+       
+        # get default params
+        model_hparams = config["model"].get(args.model, {})
+        
+         # get tuned params
         found_tuned_params = True
         if args.use_tuned_parameters:
             try:
@@ -443,14 +452,12 @@ def main():
                 config["dataset"].update({k: v for k, v in tuned_params.items() if k in config["dataset"]})
                 # config["model"][args.model].update({k: v for k, v in tuned_params.items() if k in config["model"][args.model]})
                 
-                trainer_sig = inspect.signature(Trainer.__init__)
-                trainer_params = [param.name for param in trainer_sig.parameters.values()]
                 config["trainer"].update({k: v for k, v in tuned_params.items() if k in trainer_params})
                 
                 data_module.batch_size = config["dataset"]["batch_size"]
                 
-                model_hparams.update({k: v for k, v in tuned_params.items() if 
-                                 (k not in config["model"]["distr_output"]["kwargs"] and k not in config["dataset"] and k not in config["trainer"])})
+                model_hparams.update(
+                    {k: v for k, v in tuned_params.items() if k in estimator_params})
                 
                 context_length_factor = tuned_params.get('context_length_factor', config["dataset"].get("context_length_factor", None)) # Default to config or 2 if not in trial/config
                 if context_length_factor:
@@ -477,7 +484,6 @@ def main():
             if "context_length_factor" in config["model"][args.model]:
                 data_module.context_length = int(config["model"][args.model]["context_length_factor"] * data_module.prediction_length)
                 del config["model"][args.model]["context_length_factor"]
-                
             
         # Use the get_checkpoint function to handle checkpoint finding
         if args.checkpoint:
@@ -492,7 +498,6 @@ def main():
         
             checkpoint_path = get_checkpoint(args.checkpoint, metric, mode, base_checkpoint_dir)
             checkpoint_hparams = load_estimator_from_checkpoint(checkpoint_path, LightningModuleClass, config, args.model)
-            
             
             model_hparams.update(checkpoint_hparams["init_args"]["model_config"])
             
@@ -594,7 +599,6 @@ def main():
                     logging.error(f"  - Error applying override '{override_item}': {e}", exc_info=True)
                     
         
-            
         if args.mode == "train" and args.checkpoint is not None:
             logging.info("Restarting training from checkpoint, updating max_epochs accordingly.")
             config["trainer"]["max_epochs"] += int(re.search("(?<=epoch=)\\d+", os.path.basename(checkpoint_path)).group())
@@ -678,8 +682,6 @@ def main():
             "trainer_kwargs": config["trainer"],
         }
         
-        
-        
         n_training_samples = 0
         for ds in data_module.train_dataset:
             a, b = estimator_kwargs["train_sampler"]._get_bounds(ds["target"])
@@ -688,9 +690,6 @@ def main():
         n_training_steps = np.ceil(n_training_samples / data_module.batch_size).astype(int)
         if estimator_kwargs["num_batches_per_epoch"]:
             n_training_steps = min(n_training_steps, estimator_kwargs["num_batches_per_epoch"])
-        
-        estimator_sig = inspect.signature(EstimatorClass.__init__)
-        estimator_params = [param.name for param in estimator_sig.parameters.values()]
         
         if "dim_feedforward" not in model_hparams and "d_model" in model_hparams:
             # set dim_feedforward to 4x the d_model found in this trial
@@ -788,7 +787,7 @@ def main():
                             elif not os.path.isabs(init_args['dirpath']):
                                 project_root = config.get('experiment', {}).get('project_root', '.')
                                 init_args['dirpath'] = os.path.abspath(os.path.join(project_root, init_args['dirpath']))
-
+                        os.makedirs(init_args['dirpath'], exist_ok=True)
                         callback_instance = CallbackClass(**init_args)
                         instantiated_callbacks.append(callback_instance)
                         logging.info(f"Instantiated callback: {class_name}")
