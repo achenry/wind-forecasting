@@ -7,6 +7,7 @@ import re
 import torch
 import gc
 import random
+import json
 import numpy as np
 from datetime import datetime
 import platform
@@ -14,6 +15,7 @@ import subprocess
 import inspect
 
 import polars as pl
+from lightning.pytorch import Trainer
 from lightning.pytorch.loggers import WandbLogger
 from lightning.pytorch.utilities import rank_zero_only
 import yaml
@@ -436,19 +438,27 @@ def main():
             try:
                 logging.info(f"Getting tuned parameters.")
                 tuned_params = get_tuned_params(optuna_storage, db_setup_params["study_name"])
+                # tuned_params = {'context_length_factor': 2, 'batch_size': 128, 'num_encoder_layers': 2, 'num_decoder_layers': 3, 'd_model': 128, 'n_heads': 6}
                 config["model"]["distr_output"]["kwargs"].update({k: v for k, v in tuned_params.items() if k in config["model"]["distr_output"]["kwargs"]})
                 config["dataset"].update({k: v for k, v in tuned_params.items() if k in config["dataset"]})
                 # config["model"][args.model].update({k: v for k, v in tuned_params.items() if k in config["model"][args.model]})
-                config["trainer"].update({k: v for k, v in tuned_params.items() if k in config["trainer"]})
                 
-                model_hparams = {k: v for k, v in tuned_params.items() if 
-                                 (k not in config["model"]["distr_output"]["kwargs"] and k not in config["dataset"] and k not in config["trainer"])}
+                trainer_sig = inspect.signature(Trainer.__init__)
+                trainer_params = [param.name for param in trainer_sig.parameters.values()]
+                config["trainer"].update({k: v for k, v in tuned_params.items() if k in trainer_params})
+                
+                data_module.batch_size = config["dataset"]["batch_size"]
+                
+                model_hparams.update({k: v for k, v in tuned_params.items() if 
+                                 (k not in config["model"]["distr_output"]["kwargs"] and k not in config["dataset"] and k not in config["trainer"])})
                 
                 context_length_factor = tuned_params.get('context_length_factor', config["dataset"].get("context_length_factor", None)) # Default to config or 2 if not in trial/config
                 if context_length_factor:
                     data_module.context_length = int(context_length_factor * data_module.prediction_length)
+                    logging.info(f"Setting context_length to {context_length_factor} times the prediction length {data_module.prediction_length} = {data_module.context_length} from tuned parameters.")
                 else:
                     data_module.context_length = config["dataset"]["context_length"]
+                    logging.info(f"Setting context_length to default value {data_module.context_length} from default values.")
                 
                 data_module.freq = config["dataset"]["resample_freq"]
             except FileNotFoundError as e:
@@ -467,7 +477,7 @@ def main():
             if "context_length_factor" in config["model"][args.model]:
                 data_module.context_length = int(config["model"][args.model]["context_length_factor"] * data_module.prediction_length)
                 del config["model"][args.model]["context_length_factor"]
-            
+                
             
         # Use the get_checkpoint function to handle checkpoint finding
         if args.checkpoint:
@@ -482,15 +492,35 @@ def main():
         
             checkpoint_path = get_checkpoint(args.checkpoint, metric, mode, base_checkpoint_dir)
             checkpoint_hparams = load_estimator_from_checkpoint(checkpoint_path, LightningModuleClass, config, args.model)
-            model_hparams = checkpoint_hparams["init_args"]["model_config"]
+            
+            
+            model_hparams.update(checkpoint_hparams["init_args"]["model_config"])
             
             # Update DataModule params
             data_module.prediction_length = checkpoint_hparams["prediction_length_int"]
             data_module.context_length = checkpoint_hparams["context_length_int"]
             data_module.freq = checkpoint_hparams["freq_str"]
             
-            logging.info(f"Updating estimator {args.model.capitalize()} kwargs with checkpoint parameters {model_hparams}.")
-        
+            # check if any new hyperparameters are incompatible with data_module
+            core_data_module_params = ["num_feat_dynamic_real", "num_feat_static_real", "num_feat_static_cat",
+                                  "cardinality", "embedding_dimension", "input_size"]
+            # data_module_sig = inspect.signature(DataModule.__init__)
+            # data_module_params = [param.name for param in data_module_sig.parameters.values()]
+            incompatible_params = []
+            for param in core_data_module_params:
+                if ((param in checkpoint_hparams["init_args"]["model_config"]) 
+                    and (checkpoint_hparams["init_args"]["model_config"][param] is not None)
+                    and (getattr(data_module, param) is not None) 
+                    and (checkpoint_hparams["init_args"]["model_config"][param] != getattr(data_module, param))):
+                    incompatible_params.append(param)
+            
+            if incompatible_params:
+                raise TypeError(f"Checkpoint parameters and data module parameters {incompatible_params} are incompatible.")
+            
+            logging.info(f"Updating estimator {args.model.capitalize()} kwargs with checkpoint parameters {checkpoint_hparams['init_args']['model_config']}.")
+        else:
+            checkpoint_path = None
+            
         # Apply command-line overrides AFTER potentially loading tuned params
         if args.override:
             logging.info(f"Applying command-line overrides (final step): {args.override}")
@@ -646,6 +676,8 @@ def main():
             "trainer_kwargs": config["trainer"],
         }
         
+        
+        
         n_training_samples = 0
         for ds in data_module.train_dataset:
             a, b = estimator_kwargs["train_sampler"]._get_bounds(ds["target"])
@@ -658,15 +690,23 @@ def main():
         estimator_sig = inspect.signature(EstimatorClass.__init__)
         estimator_params = [param.name for param in estimator_sig.parameters.values()]
         
+        if "dim_feedforward" not in model_hparams and "d_model" in model_hparams:
+            # set dim_feedforward to 4x the d_model found in this trial
+            model_hparams["dim_feedforward"] = model_hparams["d_model"] * 4
+        elif "d_model" in estimator_params and estimator_sig.parameters["d_model"].default is not inspect.Parameter.empty:
+            # if d_model is not contained in the trial but is a paramter, get the default
+            model_hparams["dim_feedforward"] = estimator_sig.parameters["d_model"].default * 4
+
         # Add model-specific arguments
         estimator_kwargs.update({k: v for k, v in model_hparams.items() if k in estimator_params})
         
         # Add distr_output only if the model is NOT tactis
-        if args.model != 'tactis':
+        if args.model != 'tactis' and "distr_output" not in estimator_kwargs:
             estimator_kwargs["distr_output"] = DistrOutputClass(dim=data_module.num_target_vars, **config["model"]["distr_output"]["kwargs"]) # TODO or checkpoint_hparams["model_config"]["distr_output"]
         elif 'distr_output' in estimator_kwargs:
              del estimator_kwargs['distr_output']
-
+        
+        logging.info(f"Using final estimator_kwargs:\n {estimator_kwargs}")
         estimator = EstimatorClass(**estimator_kwargs)
 
         # Conditionally Create Forecast Generator
