@@ -20,7 +20,7 @@ optuna:
   save_trial_code: false      # Default false
   n_trials_per_worker: 400     # Test a total of 4*25=100 trials 
   # ~3 min/epoch = 2.5 hours per trial = ~10 days for 100 trials / 4 workers = 2.5 days (with 100 batches no pruning)
-  max_epochs: 36              # epochs per trial - 36 good
+  max_epochs: 100              # epochs per trial - 36 good
   limit_train_batches: 250    # batches per epoch (large number to use all data) - 250 good
   metric: "val_loss"          # The metric to optimize (NLL)
   direction: "minimize"       # Whether to minimize or maximize the metric
@@ -81,8 +81,8 @@ optuna:
     log_file: "${logging.optuna_dir}/optuna_dashboard.log" # Log file for the dashboard process
 
 dataset:
-    data_path: /user/taed7566/Forecasting/wind-forecasting/examples/inputs/SMARTEOLE-WFC-open-dataset/processed/SMARTEOLE_WakeSteering_SCADA_1minData_normalized.parquet
-    normalization_consts_path:  /user/taed7566/Forecasting/wind-forecasting/examples/inputs/SMARTEOLE-WFC-open-dataset/processed/SMARTEOLE_WakeSteering_SCADA_1minData_normalization_consts.csv
+    data_path: /user/taed7566/Forecasting/wind-forecasting/examples/data/preprocessed_flasc_data/SMARTEOLE_WakeSteering_SCADA_1minData_normalized.parquet
+    normalization_consts_path:  /user/taed7566/Forecasting/wind-forecasting/examples/data/preprocessed_flasc_data/SMARTEOLE_WakeSteering_SCADA_1minData_normalization_consts.csv
     context_length: 600 # in seconds
     prediction_length: 300 # in seconds
     target_turbine_ids: # or leave blank to capture all
@@ -109,14 +109,16 @@ model:
   tactis:
     # General TACTiS settings
     initial_stage: 1 # INFO: FIXED
-    stage2_start_epoch: 10 # Epoch to start stage 2 (copula training) INFO: Now tuning
+    stage2_start_epoch: 30 # Epoch to start stage 2 (copula training) INFO: Now tuning
     ac_mlp_layers: 2 # MLP layers for attention copula INFO: Now tuning
-    ac_activation_function: "relu" # Attention copula activation func. [relu, leaky-relu, gelu, swish, mish] INFO: Now tuning
+    ac_mlp_dim: 128      # Dimension of AC's internal MLP layers. INFO: Now tuning
+    stage1_activation_function: "relu" # Activation for Stage 1 encoders (e.g., "relu", "gelu", "leaky_relu")
+    stage2_activation_function: "relu" # Activation for Stage 2 encoders (e.g., "relu", "gelu", "leaky_relu")
     input_encoding_normalization: true # INFO: FIXED
-    scaling: null # Options: "mean", "std", null # INFO: FIXED
+    scaling: "std" # Options: "mean", "std", null # INFO: FIXED
     loss_normalization: "series" # Options: "series", "timesteps", "both", "none" INFO: Now tuning
     encoder_type: "standard" # Options: "standard", "temporal"
-    bagging_size: null # Optional, defaults to None in estimator # INFO: Now tuning
+    bagging_size: null
     num_parallel_samples: 100 # INFO: FIXED - Inference only setting
     inference_num_samples: 100
     # Marginal CDF Encoder
@@ -141,14 +143,13 @@ model:
     decoder_transformer_num_heads: 6
     decoder_num_bins: 50
     # Optimizer Params
-    lr_stage1: 0.0018
-    lr_stage2: 0.0007
-    weight_decay_stage1: 0.0
-    weight_decay_stage2: 0.0
+    lr_stage1: 5e-5
+    lr_stage2: 1e-6
+    weight_decay_stage1: 1e-5
+    weight_decay_stage2: 1e-5
     # Dropout & Clipping
     dropout_rate: 0.1
-    gradient_clip_val_stage1: 1000.0
-    gradient_clip_val_stage2: 1000.0
+    warmup_steps: 2000
 
   # [ Informer ]
   informer:
@@ -199,8 +200,8 @@ callbacks:
     progress_bar:
       class_path: lightning.pytorch.callbacks.TQDMProgressBar
       init_args:
-        refresh_rate: 25  # every n steps, set to 0 to disable - 25 good
-        leave: false
+        refresh_rate: 1  # every n steps, set to 0 to disable - 25 good
+        leave: true
     # early_stopping:
     #   class_path: lightning.pytorch.callbacks.EarlyStopping
     #   init_args:
@@ -221,24 +222,25 @@ callbacks:
     lr_monitor: # Log learning rate
       class_path: lightning.pytorch.callbacks.LearningRateMonitor
       init_args:
-        logging_interval: epoch # Log every step/epoch
+        logging_interval: step # Log every training step to see warmup
         log_momentum: false
+        log_weight_decay : false
     dead_neuron_monitor: # INFO @boujuan [custom callback] Currently only works for tactis-2 (check utils/callbacks.py)
-      enabled: true
+      enabled: false
 
 trainer:
-    gradient_clip_val: 0.0 # Prevents gradient explosion if > 0. Renamed from grad_clip_norm.
+    gradient_clip_val: 0.0 # Global clipping # DEBUG make sure it works
     # limit_val_batches: 1.0
     # val_check_interval: 1.0
     accelerator: gpu # 'cpu' or 'gpu'
     devices: auto
     num_nodes: 1
-    strategy: "ddp" # 'ddp' or 'ddp_spawn'
+    strategy: "ddp" # Removed for single-GPU inference
     # n_workers: auto
     # debug: false
     # accumulate: 1.0
-    max_epochs: 50 # Maximum number of epochs to train 100
-    limit_train_batches: 50000 # INFO: Training-only setting (not tuning) Set to integer number of steps to train on (context+prediction length)
+    max_epochs: 1000 # Maximum number of epochs to train 100
+    limit_train_batches: #5000 # INFO: Training-only setting (not tuning) Set to null to use all data
     # default_root_dir: ${logging.checkpoint_dir}  # Changed from direct path to use log_dir
     # precision: 16-mixed # 16-mixed enables mixed precision training 32-true is full precision
     # batch_size: 32 # larger = more stable gradients
@@ -249,4 +251,3 @@ trainer:
     log_every_n_steps: 1 # For wandb logging
     deterministic: false
     benchmark: true
-    monitor_metric: "val_loss" # Metric to monitor for checkpointing and Optuna

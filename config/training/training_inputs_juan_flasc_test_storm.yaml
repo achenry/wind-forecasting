@@ -21,7 +21,7 @@ optuna:
   n_trials_per_worker: 400     # Test a total of 4*25=100 trials 
   # ~3 min/epoch = 2.5 hours per trial = ~10 days for 100 trials / 4 workers = 2.5 days (with 100 batches no pruning)
   max_epochs: 36              # epochs per trial - 36 good
-  limit_train_batches: 250    # batches per epoch (large number to use all data) - 250 good
+  limit_train_batches: #250    # batches per epoch (large number to use all data) - 250 good
   metric: "val_loss"          # The metric to optimize (NLL)
   direction: "minimize"       # Whether to minimize or maximize the metric
 
@@ -54,7 +54,7 @@ optuna:
 
     # --- SQLite Specific Settings ---
     # Absolute path is recommended for SQLite when used across different contexts
-    sqlite_path: "/user/taed7566/Forecasting/wind-forecasting/optuna/SQL/flasc_tactis.db"
+    sqlite_path: "/user/taed7566/Forecasting/wind-forecasting/optuna/SQL/flasc_tactis_2.db"
     sqlite_wal: true  # Enable WAL mode for SQLite
     sqlite_timeout: 600  # Timeout in seconds for SQLite locks
 
@@ -106,10 +106,11 @@ model:
   tactis:
     # General TACTiS settings
     initial_stage: 1
-    stage2_start_epoch: 10 # Epoch to start stage 2 (copula training) # DEBUG
+    stage2_start_epoch: 30 # Epoch to start stage 2 (copula training) # DEBUG
     ac_mlp_num_layers: 2 # Number of layers in AC's internal MLP. INFO: Now tuning
     ac_mlp_dim: 128      # Dimension of AC's internal MLP layers. INFO: Now tuning
-    ac_activation_function: "relu" # Activation in AC's internal MLP. [ReLU, GeLU, LeakyReLU] INFO: Now tuning
+    stage1_activation_function: "relu" # Activation for Stage 1 encoders (e.g., "relu", "gelu", "leaky_relu")
+    stage2_activation_function: "relu" # Activation for Stage 2 encoders (e.g., "relu", "gelu", "leaky_relu")
     input_encoding_normalization: true # DEBUG
     scaling: "std" # Options: "mean", "std", null # Enable internal standardization # INFO NEEDED std!
     loss_normalization: "series" # Options: "series", "timesteps", "both", "none" INFO: Now tuning
@@ -139,8 +140,8 @@ model:
     decoder_transformer_num_heads: 6
     decoder_num_bins: 50
     # Optimizer Params
-    lr_stage1: 1e-5
-    lr_stage2: 5e-6
+    lr_stage1: 5e-5
+    lr_stage2: 1e-6
     weight_decay_stage1: 1e-5
     weight_decay_stage2: 1e-5
     # Dropout & Clipping
@@ -196,7 +197,7 @@ callbacks:
     progress_bar:
       class_path: lightning.pytorch.callbacks.TQDMProgressBar
       init_args:
-        refresh_rate: 25  # every n steps, set to 0 to disable - 25 good
+        refresh_rate: 1  # every n steps, set to 0 to disable - 25 good
         leave: true
     # early_stopping:
     #   class_path: lightning.pytorch.callbacks.EarlyStopping
@@ -235,7 +236,7 @@ trainer:
     # n_workers: auto
     # debug: false
     # accumulate: 1.0
-    max_epochs: 100 # Maximum number of epochs to train 100
+    max_epochs: 1000 # Maximum number of epochs to train 100
     limit_train_batches: #5000 # INFO: Training-only setting (not tuning) Set to null to use all data
     # default_root_dir: ${logging.checkpoint_dir}  # Changed from direct path to use log_dir
     # precision: 16-mixed # 16-mixed enables mixed precision training 32-true is full precision
