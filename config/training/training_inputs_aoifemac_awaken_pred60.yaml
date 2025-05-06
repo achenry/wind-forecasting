@@ -204,7 +204,7 @@ callbacks:
     progress_bar:
       class_path: lightning.pytorch.callbacks.TQDMProgressBar
       init_args:
-        refresh_rate: 50  # every n steps
+        refresh_rate: 1  # every n steps
         leave: true
     early_stopping:
       class_path: lightning.pytorch.callbacks.EarlyStopping
@@ -223,15 +223,18 @@ callbacks:
         mode: 'min'
         save_top_k: 1
         save_last: true
+        verbose: true
     lr_monitor: # Log learning rate
       class_path: lightning.pytorch.callbacks.LearningRateMonitor
       init_args:
         logging_interval: step # Log every step/epoch
         log_momentum: false
+    dead_neuron_monitor:
+      enabled: false
 
 trainer: 
     # grad_clip_norm: 0.0 # Prevents gradient explosion if > 0 
-    # limit_val_batches: 1.0 
+    limit_val_batches: 10 
     # val_check_interval: 1.0
     accelerator: cpu
     devices: auto
@@ -241,7 +244,7 @@ trainer:
     # debug: False 
     # accumulate: 1.0
     max_epochs: 2 # Maximum number of epochs to train 100
-    limit_train_batches: 100
+    limit_train_batches: 10 # 100
     default_root_dir: /Users/ahenry/Documents/toolboxes/wind_forecasting/logging/wind_forecasting
     # precision: 32-true # 16-mixed enables mixed precision training 32-true is full precision
     # batch_size: 32 # larger = more stable gradients

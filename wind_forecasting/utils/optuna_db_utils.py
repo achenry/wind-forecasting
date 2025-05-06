@@ -13,11 +13,24 @@ from optuna.storages.journal import JournalFileBackend
 def setup_optuna_storage(db_setup_params, restart_tuning, rank):
     """
     Sets up the Optuna storage backend based on configuration and handles synchronization
-    between workers.
+    between workers. The backend type and specific paths/settings are determined
+    by the db_setup_params dictionary, derived from the YAML configuration.
+
+    Args:
+        db_setup_params (dict): Parameters for database setup (e.g., backend, paths, credentials).
+        restart_tuning (bool): Whether to restart the tuning study (primarily affects rank 0 actions).
+        rank (int): The rank of the current worker.
+
+    Returns:
+        tuple: A tuple containing (optuna.storages.BaseStorage, dict or None).
+               The second element is connection info (like pg_config for PostgreSQL) or None.
     """
     storage_backend = db_setup_params.get("backend", "sqlite")
-    logging.info(f"Optuna storage backend configured as: {storage_backend}")
+    logging.info(f"Setting up Optuna storage using configured backend: {storage_backend}")
     
+    storage = None
+    connection_info = None
+
     # if "storage_dir" in db_setup_params:
     #     # Ensure the directory exists
     #     os.makedirs(db_setup_params["storage_dir"], exist_ok=True)
@@ -26,32 +39,40 @@ def setup_optuna_storage(db_setup_params, restart_tuning, rank):
     if storage_backend == "postgresql":
         # Setup for PostgreSQL database
         # Pass only the necessary parameters for postgresql setup
-        storage = setup_postgresql(
+        # setup_postgresql now returns (storage, pg_config)
+        storage, connection_info = setup_postgresql(
             db_setup_params=db_setup_params,
             restart_tuning=restart_tuning,
             rank=rank
         )
     elif storage_backend == "sqlite":
         # Setup for SQLite database
-        storage = setup_sqlite(
+        # setup_sqlite now returns (storage, None)
+        storage, connection_info = setup_sqlite(
             db_setup_params=db_setup_params, # Pass the full params dict
             restart_tuning=restart_tuning,
             rank=rank
         )
     elif storage_backend == "journal":
-        return setup_journal(
+        # setup_journal now returns (storage, None)
+        storage, connection_info = setup_journal(
             storage_dir=db_setup_params["storage_dir"], # Use resolved storage_dir
             study_name=db_setup_params["study_name"],
             restart_tuning=restart_tuning,
             rank=rank
         )
     elif storage_backend == "mysql":
-        storage = setup_mysql(db_setup_params=db_setup_params, 
-                              restart_tuning=restart_tuning, 
+        # setup_mysql now returns (storage, None) - adjust if mysql info needed
+        storage, connection_info = setup_mysql(db_setup_params=db_setup_params,
+                              restart_tuning=restart_tuning,
                               rank=rank)
     else:
-        raise ValueError(f"Unsupported optuna storage backend: {storage_backend}") 
-    return storage
+        raise ValueError(f"Unsupported optuna storage backend: {storage_backend}")
+
+    if storage is None:
+         raise RuntimeError(f"Failed to initialize Optuna storage for backend: {storage_backend}")
+
+    return storage, connection_info
 
 @rank_zero_only
 def delete_studies(storage):
@@ -141,14 +162,21 @@ def setup_postgresql_rank_zero(db_setup_params, restart_tuning=False, register_c
 def setup_postgresql(db_setup_params, rank, restart_tuning):
     """
     Handles PostgreSQL setup for all ranks.
+
+    Returns:
+        tuple: (optuna.storages.RDBStorage, dict) containing storage and pg_config.
     """
     optuna_storage_url = None
     pg_config = None # Initialize
+    storage = None # Initialize
 
     # Rank 0 is responsible for setting up the database
     if rank == 0:
         # Pass the explicit params dict
+        # setup_postgresql_rank_zero returns storage, pg_config
         storage, pg_config = setup_postgresql_rank_zero(db_setup_params, restart_tuning=restart_tuning)
+        if storage is None or pg_config is None:
+             raise RuntimeError("Rank 0 failed to setup PostgreSQL and return valid storage/config.")
 
     else:
         # Worker ranks: Generate config *only* to find sync file and wait
@@ -194,7 +222,7 @@ def setup_postgresql(db_setup_params, rank, restart_tuning):
 
                 time.sleep(wait_interval)
                 waited_time += wait_interval
-                
+
             if sync_status != 'ready':
                  logging.error(f"Rank {rank}: Timed out waiting for sync file '{sync_file_path}' or file did not indicate 'ready'.")
                  raise TimeoutError("Timed out waiting for Rank 0 PostgreSQL setup.")
@@ -202,12 +230,22 @@ def setup_postgresql(db_setup_params, rank, restart_tuning):
             # Generate the storage URL using the generated config
             optuna_storage_url = db_utils.get_optuna_storage_url(pg_config)
             storage = RDBStorage(url=optuna_storage_url)
+            # Test connection
+            _ = storage.get_all_studies()
+            logging.info(f"Rank {rank}: Successfully connected to PostgreSQL DB.")
+
 
         except Exception as e:
             logging.error(f"Rank {rank}: Failed during PostgreSQL sync/config generation: {e}", exc_info=True)
             raise
-            
-    return storage
+
+    if storage is None:
+        # This should only happen if rank != 0 and setup failed, or rank == 0 and setup failed.
+        raise RuntimeError(f"Rank {rank}: Optuna storage object was not successfully created for PostgreSQL.")
+
+    # Return storage and pg_config (pg_config might be None for rank != 0 if only URL was needed)
+    # However, pg_config is generated for workers too to find sync file, so it should exist.
+    return storage, pg_config
 
 @rank_zero_only
 def restart_journal_rank_zero(journal_abs_path):
@@ -241,69 +279,184 @@ def restart_sqlite_rank_zero(sqlite_abs_path):
 def setup_sqlite(db_setup_params, restart_tuning, rank):
     """
     Sets up SQLite storage for Optuna, prioritizing explicit path if provided.
+    Handles restart logic on rank 0.
+
+    Returns:
+        tuple: (optuna.storages.RDBStorage, None)
     """
     # Prioritize explicit sqlite_path from config if available
     if "sqlite_path" in db_setup_params and db_setup_params["sqlite_path"]:
         db_path = db_setup_params["sqlite_path"]
-        # Ensure the directory exists if the path is relative
-        db_dir = os.path.dirname(db_path)
-        if db_dir and not os.path.exists(db_dir):
+        # Ensure the directory exists if the path is relative or absolute
+        db_dir = os.path.dirname(os.path.abspath(db_path))
+        if db_dir: # Check if dirname is not empty (e.g., for root files)
              os.makedirs(db_dir, exist_ok=True)
-        logging.info(f"Using explicit SQLite path from config: {db_path}")
+        logging.info(f"Using explicit SQLite path from config: {os.path.abspath(db_path)}")
     else:
         # Fallback: Construct the SQLite URL based on storage_dir and study_name
         sqlite_storage_dir = db_setup_params.get("storage_dir", ".") # Default to current dir if not set
         study_name = db_setup_params.get("study_name", "optuna_study")
+        # Ensure storage dir exists
+        os.makedirs(sqlite_storage_dir, exist_ok=True)
         db_path = os.path.join(sqlite_storage_dir, f'{study_name}.db')
-        logging.info(f"Constructed SQLite path: {db_path}")
+        logging.info(f"Constructed SQLite path: {os.path.abspath(db_path)}")
+
+    abs_db_path = os.path.abspath(db_path)
 
     # Handle restart logic (rank 0 only)
     if rank == 0 and restart_tuning:
-       if os.path.exists(db_path):
-           # restart_sqlite_rank_zero(db_path) # Keep commented for now, but indent correctly
-           pass # Add pass to avoid empty block if restart is commented
-       # else: # Keep commented for now, but indent correctly
-           # logging.warning(f"Could not find existing SQLite storage to delete at {db_path}.")
-           # pass # Add pass if needed
+       if os.path.exists(abs_db_path):
+           restart_sqlite_rank_zero(abs_db_path) # Use the dedicated restart function
+       else:
+           logging.warning(f"Rank 0: --restart_tuning set, but SQLite DB not found at {abs_db_path} to delete.")
+
+    # SQLite with WAL is generally recommended, but can cause issues with NFS.
+    # Provide an option to disable WAL if needed via config.
+    use_wal = db_setup_params.get("sqlite_wal", True)
+    timeout = db_setup_params.get("sqlite_timeout", 60) # Default 60s timeout
     
-    optuna_storage_url = f"sqlite:///{db_path}"
-    logging.info(f"Using SQLite storage URL: {optuna_storage_url}")
+    # SQLite connection parameters
+    # Instead of passing connect_args directly to RDBStorage (which doesn't accept it),
+    # we'll include these parameters in the URL if possible
+    url_params = []
     
-    if rank == 0:
-        storage = RDBStorage(url=optuna_storage_url)
+    # Add timeout parameter to URL
+    url_params.append(f"timeout={timeout}")
+    
+    # Handle WAL mode
+    if not use_wal:
+        url_params.append("journal_mode=DELETE")
+        logging.info("SQLite WAL mode disabled via URL parameter")
     else:
-        logging.error(f"Cannot access SQLite with multiple workers.")
-        raise Exception
+        url_params.append("journal_mode=WAL")
+        
+    # Construct URL with parameters
+    params_string = "&".join(url_params)
+    optuna_storage_url = f"sqlite:///{abs_db_path}?{params_string}"
     
-    return storage
+    logging.info(f"Using SQLite storage URL: {optuna_storage_url} (WAL enabled: {use_wal}, Timeout: {timeout}s)")
+
+    # All ranks need to connect to the SQLite DB if used (e.g., for reading study).
+    # Concurrent reads are generally safe. Concurrent writes during tuning
+    # would require a filesystem supporting proper locking (not NFS).
+    # Since this setup is primarily for reading tuned params, we allow all ranks to connect.
+    try:
+        # Only pass the URL to RDBStorage, with connection parameters included in the URL
+        storage = RDBStorage(
+            url=optuna_storage_url
+        )
+        # Test connection
+        _ = storage.get_all_studies()
+        logging.info(f"Rank {rank}: Successfully connected to SQLite DB: {optuna_storage_url}")
+    except Exception as e:
+        logging.error(f"Rank {rank}: Failed to create or connect to RDBStorage for SQLite path {optuna_storage_url}: {e}", exc_info=True)
+        raise RuntimeError(f"Failed to initialize storage for {optuna_storage_url}") from e
+
+    return storage, None # Return None for connection_info
 
 def setup_journal(storage_dir, study_name, restart_tuning, rank):
-    if rank == 0:
-        logging.info(f"Connecting to Journal database {study_name}")
-        
-        optuna_storage_url = os.path.join(storage_dir, f"{study_name}.db")
-        
-    storage = JournalStorage(JournalFileBackend(optuna_storage_url))
-    return storage
+    """
+    Sets up JournalFile storage for Optuna.
+
+    Returns:
+        tuple: (optuna.storages.JournalStorage, None)
+    """
+    # Ensure storage directory exists
+    os.makedirs(storage_dir, exist_ok=True)
+    journal_file_path = os.path.join(storage_dir, f"{study_name}.log") # Use .log extension
+    abs_journal_path = os.path.abspath(journal_file_path)
+
+    logging.info(f"Rank {rank}: Setting up Journal storage at: {abs_journal_path}")
+
+    # Handle restart logic (rank 0 only)
+    if rank == 0 and restart_tuning:
+        restart_journal_rank_zero(abs_journal_path) # Use the dedicated restart function
+
+    try:
+        # All ranks connect to the same journal file
+        storage = JournalStorage(JournalFileBackend(file_path=abs_journal_path))
+        logging.info(f"Rank {rank}: Successfully set up Journal storage.")
+    except Exception as e:
+        logging.error(f"Rank {rank}: Failed to set up Journal storage at {abs_journal_path}: {e}", exc_info=True)
+        raise RuntimeError(f"Failed to initialize Journal storage for {abs_journal_path}") from e
+
+    return storage, None # Return None for connection_info
     
 def setup_mysql(db_setup_params, restart_tuning, rank):
-    logging.info(f"Connecting to RDB database {db_setup_params['study_name']}")
-    try:
-        # '127.0.0.1'
-        db = sql_connect(host=db_setup_params["db_host"], user=db_setup_params["db_user"],
-                        database=db_setup_params["study_name"])       
-    except Exception as e:
+    """
+    Sets up MySQL storage for Optuna.
+
+    Returns:
+        tuple: (optuna.storages.RDBStorage, dict or None) - Returns connection info if needed.
+    """
+    db_name = db_setup_params['study_name']
+    db_host = db_setup_params["db_host"]
+    db_user = db_setup_params["db_user"]
+    db_password = db_setup_params.get("db_password") # Get password if provided
+    db_port = db_setup_params.get("db_port", 3306) # Default MySQL port
+
+    logging.info(f"Rank {rank}: Setting up MySQL connection to host={db_host}, user={db_user}, db={db_name}")
+
+    # Construct the Optuna storage URL
+    # Format: mysql://[user[:password]@]host[:port]/database
+    url_user_part = db_user
+    if db_password:
+        url_user_part += f":{db_password}"
+    optuna_storage_url = f"mysql+mysqlconnector://{url_user_part}@{db_host}:{db_port}/{db_name}"
+
+    # Rank 0 handles database/study creation and restart
+    if rank == 0:
+        connection = None
         try:
-            db = sql_connect(host=db_setup_params["db_host"], user=db_setup_params["db_user"])
-            cursor = db.cursor()
-            if rank == 0:
-                cursor.execute(f"CREATE DATABASE {db_setup_params['study_name']}")
-        except Exception as ee:
-            raise(f"Failed to connect to MySQL database: {ee}")
-    finally:
-        # Handle restart for MySQL on rank 0
-        optuna_storage_url = f"mysql://{db.user}@{db.server_host}:{db.server_port}/{db_setup_params['study_name']}"
-        # restart_mysql_rank_zero(optuna_storage_url)
+            # Try connecting without specifying the database first to check server access and create DB if needed
+            connection = sql_connect(host=db_host, user=db_user, password=db_password, port=db_port)
+            cursor = connection.cursor()
+            cursor.execute("SHOW DATABASES")
+            databases = [item[0] for item in cursor.fetchall()]
+
+            if db_name not in databases:
+                logging.info(f"Rank 0: Database '{db_name}' not found. Creating database.")
+                cursor.execute(f"CREATE DATABASE {db_name}")
+                logging.info(f"Rank 0: Database '{db_name}' created successfully.")
+            else:
+                logging.info(f"Rank 0: Database '{db_name}' already exists.")
+                if restart_tuning:
+                    logging.warning(f"Rank 0: --restart_tuning set. Dropping and recreating Optuna tables in database '{db_name}'.")
+                    # Optuna's RDBStorage handles table creation/migration.
+                    # To truly restart, we might need to drop tables, but let's rely on Optuna's behavior first.
+                    # A simpler approach for restart might be to use a new study_name.
+                    # For now, we'll just let RDBStorage connect. If load_if_exists=False is used later,
+                    # Optuna might handle the study deletion/creation.
+                    # Let's log a warning that restart might require manual intervention or new study name.
+                    logging.warning("Rank 0: Actual table dropping for restart is not implemented here. Use a new study name or manage tables manually if a full reset is needed.")
+                    # Example (requires permissions):
+                    # storage_temp = RDBStorage(url=optuna_storage_url)
+                    # studies = storage_temp.get_all_studies()
+                    # for s in studies:
+                    #     if s.study_name == db_setup_params['study_name']: # Check if study name matches DB name contextually
+                    #         storage_temp.delete_study(s.study_id)
+
+            cursor.close()
+            connection.close()
+
+        except Exception as e:
+            logging.error(f"Rank 0: Failed to connect to MySQL server or manage database '{db_name}': {e}", exc_info=True)
+            if connection:
+                connection.close()
+            raise RuntimeError(f"Rank 0 failed MySQL setup for {db_name}") from e
+
+    # All ranks create the RDBStorage instance
+    try:
+        # Add connect_args for timeout, etc. if needed
         storage = RDBStorage(url=optuna_storage_url)
-        
-    return storage
+        # Test connection
+        _ = storage.get_all_studies()
+        logging.info(f"Rank {rank}: Successfully connected to MySQL DB using URL: mysql+mysqlconnector://{db_user}@***:{db_port}/{db_name}")
+    except Exception as e:
+        logging.error(f"Rank {rank}: Failed to create RDBStorage for MySQL URL {optuna_storage_url}: {e}", exc_info=True)
+        raise RuntimeError(f"Failed MySQL RDBStorage initialization for rank {rank}") from e
+
+    # Return storage and potentially connection details if needed elsewhere
+    # For now, return None for connection_info similar to SQLite/Journal
+    connection_info = {"db_host": db_host, "db_port": db_port, "db_name": db_name, "db_user": db_user} # Example
+    return storage, None # Return None for now

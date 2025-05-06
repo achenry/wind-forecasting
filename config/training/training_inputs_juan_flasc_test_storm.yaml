@@ -1,11 +1,11 @@
 experiment:
   username: jmb0507
   project_name: wind_forecasting_flasc
-  run_name: test_flasc_inference
+  run_name: tune_hb_4_3_farm_128BS_400trials
   project_root: /user/taed7566/Forecasting/wind-forecasting
   log_dir: /user/taed7566/Forecasting/wind-forecasting/logs/
   notes: ""
-  extra_tags: ["inference"] # By default already has GPU id and model name.
+  extra_tags: ["train"] # By default already has GPU id and model name.
 
 logging:
   entity: jmb0507-cu-boulder # Wandb entity (group name)
@@ -21,7 +21,7 @@ optuna:
   n_trials_per_worker: 400     # Test a total of 4*25=100 trials 
   # ~3 min/epoch = 2.5 hours per trial = ~10 days for 100 trials / 4 workers = 2.5 days (with 100 batches no pruning)
   max_epochs: 36              # epochs per trial - 36 good
-  limit_train_batches: 250    # batches per epoch (large number to use all data) - 250 good
+  limit_train_batches: #250    # batches per epoch (large number to use all data) - 250 good
   metric: "val_loss"          # The metric to optimize (NLL)
   direction: "minimize"       # Whether to minimize or maximize the metric
 
@@ -50,29 +50,26 @@ optuna:
 
   # Storage backend configuration
   storage:
-    backend: "postgresql"  # Options: "postgresql", "sqlite"
-    # --- PostgreSQL Specific Settings ---
-    # Path relative to project root (e.g., ~/wind-forecasting)
-    pgdata_path: "/user/taed7566/Forecasting/wind-forecasting/optuna/pgdata" # Directory for PostgreSQL data files
-    pgdata_instance_name: "flasc_tactis" # INFO: CREATE NEW INSTANCE (DIRECTORY) FOR STUDIES #flasc_tactis, flasc_default , keep same for resuming!!
-    db_name: "optuna_study_db"  # Name of the PostgreSQL database
-    db_user: "optuna_user"
-    use_socket: true      # Use Unix domain socket for local connection (recommended on single node)
-    socket_dir_base: "/user/taed7566/Forecasting/wind-forecasting/optuna/sockets" # Base directory for socket files
-    sync_dir: "/user/taed7566/Forecasting/wind-forecasting/optuna/sync"           # Directory for synchronization files
+    backend: "sqlite"  # Options: "postgresql", "sqlite"
 
-    # --- Optional TCP/IP Settings (if use_socket is false) ---
+    # --- SQLite Specific Settings ---
+    # Absolute path is recommended for SQLite when used across different contexts
+    sqlite_path: "/user/taed7566/Forecasting/wind-forecasting/optuna/SQL/flasc_tactis_2.db"
+    sqlite_wal: true  # Enable WAL mode for SQLite
+    sqlite_timeout: 600  # Timeout in seconds for SQLite locks
+
+    # --- PostgreSQL Specific Settings (Commented out as backend is sqlite) ---
+    # pgdata_path: "/user/taed7566/Forecasting/wind-forecasting/optuna/pgdata" # Directory for PostgreSQL data files
+    # pgdata_instance_name: "flasc_tactis" # INFO: CREATE NEW INSTANCE (DIRECTORY) FOR STUDIES #flasc_tactis, flasc_default , keep same for resuming!!
+    # db_name: "optuna_study_db"  # Name of the PostgreSQL database
+    # db_user: "optuna_user"
+    # use_socket: true      # Use Unix domain socket for local connection (recommended on single node)
+    # socket_dir_base: "/user/taed7566/Forecasting/wind-forecasting/optuna/sockets" # Base directory for socket files
+    # sync_dir: "/user/taed7566/Forecasting/wind-forecasting/optuna/sync"           # Directory for synchronization files
     # use_tcp: false
     # db_host: "localhost"
     # db_port: 5432
-
-    # --- Optional Command Execution Settings ---
     # run_cmd_shell: false # Set to true if specific commands require shell=True
-
-    # --- SQLite Specific Settings (not used if backend is postgresql) ---
-    # sqlite_path: "logging/optuna/study.db" Relative path for SQLite file if backend="sqlite"
-    # sqlite_wal: true  Enable WAL mode for SQLite
-    # sqlite_timeout: 600  Timeout in seconds for SQLite locks
 
   # Optuna Dashboard auto-launch configuration
   dashboard:
@@ -84,12 +81,12 @@ dataset:
     data_path: /user/taed7566/Forecasting/wind-forecasting/examples/data/preprocessed_flasc_data/SMARTEOLE_WakeSteering_SCADA_1minData_normalized.parquet
     normalization_consts_path:  /user/taed7566/Forecasting/wind-forecasting/examples/data/preprocessed_flasc_data/SMARTEOLE_WakeSteering_SCADA_1minData_normalization_consts.csv
     context_length: 600 # in seconds
-    prediction_length: 120 # in seconds
+    prediction_length: 300 # in seconds
     target_turbine_ids: # or leave blank to capture all
     normalize: false # TODO: Should I do this or Tactis-2 normalization?
-    batch_size: 128 # INFO: In tactis only affects gradient precision NOT SPEED! - for tuning: <= 128, for training: max_memory ~1024
+    batch_size: 1024 # INFO: In tactis only affects gradient precision NOT SPEED! - for tuning: <= 128, for training: max_memory ~1024
     workers: 32 # Consider adjusting based on CPU cores per task
-    overfit: false
+    overfit: False
     test_split: 0.20
     val_split: 0.1
     resample_freq: 60s
@@ -108,16 +105,19 @@ model:
   # [ TACTiS-2 ]
   tactis:
     # General TACTiS settings
-    initial_stage: 1 # INFO: FIXED
-    stage2_start_epoch: 10 # Epoch to start stage 2 (copula training) INFO: Now tuning
-    ac_mlp_layers: 2 # MLP layers for attention copula INFO: Now tuning
-    ac_activation_function: "relu" # Attention copula activation func. [relu, leaky-relu, gelu, swish, mish] INFO: Now tuning
-    input_encoding_normalization: true # INFO: FIXED
-    scaling: null # Options: "mean", "std", null # INFO: FIXED
+    initial_stage: 1
+    stage2_start_epoch: 30 # Epoch to start stage 2 (copula training) # DEBUG
+    ac_mlp_num_layers: 2 # Number of layers in AC's internal MLP. INFO: Now tuning
+    ac_mlp_dim: 128      # Dimension of AC's internal MLP layers. INFO: Now tuning
+    stage1_activation_function: "relu" # Activation for Stage 1 encoders (e.g., "relu", "gelu", "leaky_relu")
+    stage2_activation_function: "relu" # Activation for Stage 2 encoders (e.g., "relu", "gelu", "leaky_relu")
+    input_encoding_normalization: true # DEBUG
+    scaling: "std" # Options: "mean", "std", null # Enable internal standardization # INFO NEEDED std!
     loss_normalization: "series" # Options: "series", "timesteps", "both", "none" INFO: Now tuning
     encoder_type: "standard" # Options: "standard", "temporal"
-    bagging_size: null # Optional, defaults to None in estimator # INFO: Now tuning
-    num_parallel_samples: 100 # INFO: FIXED - Inference only setting
+    bagging_size: null # Optional, defaults to None in estimator
+    num_parallel_samples: 100 # INFO: Inference only setting
+    inference_num_samples: 100 # INFO: Inference only setting
     # Marginal CDF Encoder
     marginal_embedding_dim_per_head: 8
     marginal_num_heads: 5
@@ -140,15 +140,14 @@ model:
     decoder_transformer_num_heads: 6
     decoder_num_bins: 50
     # Optimizer Params
-    lr_stage1: 0.0018
-    lr_stage2: 0.0007
-    weight_decay_stage1: 0.0
-    weight_decay_stage2: 0.0
+    lr_stage1: 5e-5
+    lr_stage2: 1e-6
+    weight_decay_stage1: 1e-5
+    weight_decay_stage2: 1e-5
     # Dropout & Clipping
     dropout_rate: 0.1
-    gradient_clip_val_stage1: 1000.0
-    gradient_clip_val_stage2: 1000.0
-
+    warmup_steps: 2000
+  
   # [ Informer ]
   informer:
     # embedding_dimension: 32 # Determines dimension of the embedding space
@@ -198,8 +197,8 @@ callbacks:
     progress_bar:
       class_path: lightning.pytorch.callbacks.TQDMProgressBar
       init_args:
-        refresh_rate: 25  # every n steps, set to 0 to disable - 25 good
-        leave: false
+        refresh_rate: 1  # every n steps, set to 0 to disable - 25 good
+        leave: true
     # early_stopping:
     #   class_path: lightning.pytorch.callbacks.EarlyStopping
     #   init_args:
@@ -220,24 +219,25 @@ callbacks:
     lr_monitor: # Log learning rate
       class_path: lightning.pytorch.callbacks.LearningRateMonitor
       init_args:
-        logging_interval: epoch # Log every step/epoch
+        logging_interval: step # Log every training step to see warmup
         log_momentum: false
+        log_weight_decay : false
     dead_neuron_monitor: # INFO @boujuan [custom callback] Currently only works for tactis-2 (check utils/callbacks.py)
-      enabled: true
+      enabled: false # DEBUG
 
 trainer:
-    gradient_clip_val: 0.0 # Prevents gradient explosion if > 0. Renamed from grad_clip_norm.
+    gradient_clip_val: 0.0 # Global clipping # DEBUG make sure it works
     # limit_val_batches: 1.0
     # val_check_interval: 1.0
-    accelerator: cpu # 'cpu' or 'gpu'
+    accelerator: gpu # 'cpu' or 'gpu'
     devices: auto
     num_nodes: 1
-    strategy: "ddp" # 'ddp' , 'ddp_find_unused_params', etc.
+    strategy: "ddp" # Removed for single-GPU inference
     # n_workers: auto
     # debug: false
     # accumulate: 1.0
-    max_epochs: 50 # Maximum number of epochs to train 100
-    limit_train_batches: 50000 # INFO: Training-only setting (not tuning) Set to integer number of steps to train on (context+prediction length)
+    max_epochs: 1000 # Maximum number of epochs to train 100
+    limit_train_batches: #5000 # INFO: Training-only setting (not tuning) Set to null to use all data
     # default_root_dir: ${logging.checkpoint_dir}  # Changed from direct path to use log_dir
     # precision: 16-mixed # 16-mixed enables mixed precision training 32-true is full precision
     # batch_size: 32 # larger = more stable gradients
@@ -248,4 +248,3 @@ trainer:
     log_every_n_steps: 1 # For wandb logging
     deterministic: false
     benchmark: true
-    monitor_metric: "val_loss" # Metric to monitor for checkpointing and Optuna
