@@ -86,8 +86,8 @@ dataset:
     context_length: 600 # in seconds
     prediction_length: 300 # in seconds
     target_turbine_ids: # or leave blank to capture all
-    normalize: false # Using denormalized data with TACTiS-2's internal scaling
-    batch_size: 2048 
+    normalize: false # Using denormalized data with TACTiS-2's internal scaling 
+    batch_size: 512 
     workers: 32 # Consider adjusting based on CPU cores per task
     overfit: false
     test_split: 0.20
@@ -115,7 +115,7 @@ model:
     stage1_activation_function: "relu" # Activation for Stage 1 encoders (e.g., "relu", "gelu", "leaky_relu")
     stage2_activation_function: "relu" # Activation for Stage 2 encoders (e.g., "relu", "gelu", "leaky_relu")
     input_encoding_normalization: true # INFO: FIXED
-    scaling: "std" # Options: "mean", "std", null # INFO: FIXED
+    scaling: "std" # Options: "mean", "std", null # INFO: FIXED TODO: Check for denormalised params from tactis
     loss_normalization: "series" # Options: "series", "timesteps", "both", "none" INFO: Now tuning
     encoder_type: "standard" # Options: "standard", "temporal"
     bagging_size: null
