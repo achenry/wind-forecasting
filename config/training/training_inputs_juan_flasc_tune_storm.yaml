@@ -145,14 +145,14 @@ model:
     decoder_transformer_num_heads: 6
     decoder_num_bins: 50
     # Optimizer Params
-    lr_stage1: 5e-5
-    lr_stage2: 1e-6
+    lr_stage1: 5e-6
+    lr_stage2: 2e-6
     weight_decay_stage1: 1e-5
     weight_decay_stage2: 1e-5
     # Learning Rate Scheduler    
-    warmup_steps_s1: 2415 # Warmup steps for Stage 1
-    warmup_steps_s2: 1000 # Warmup steps for Stage 2
-    eta_min_fraction_s1: 0.5  # Fraction of initial LR for eta_min in Stage 1 cosine decay
+    warmup_steps_s1: 1128 # Warmup steps for Stage 1
+    warmup_steps_s2: 2256 # Warmup steps for Stage 2
+    eta_min_fraction_s1: 0.25  # Fraction of initial LR for eta_min in Stage 1 cosine decay
     eta_min_fraction_s2: 0.01  # Fraction of initial LR for eta_min in Stage 2 cosine decay
     # Dropout & Clipping
     dropout_rate: 0.1
