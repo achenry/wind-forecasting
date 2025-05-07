@@ -595,7 +595,7 @@ class DataInspector:
             _type_: _description_
         """
         if wind_directions is None:
-            wind_directions = [180.0]
+            wind_directions = [140.0]
             
         if wind_speeds is None:
             wind_speeds = [10.0]
@@ -650,6 +650,7 @@ class DataInspector:
         
         ax.set_xlim((horizontal_plane.df.x1.min(), horizontal_plane.df.x1.max()))
         ax.set_ylim((horizontal_plane.df.x2.min(), horizontal_plane.df.x2.max()))
+        ax.set_ylim((-100, 10000))
         # ax.set_aspect("equal")
         # Set plot title and labels
         # ax.set_title('Wind Farm Layout', fontsize=16)

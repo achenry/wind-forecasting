@@ -218,7 +218,7 @@ def main():
     log_dir = config["experiment"]["log_dir"]
     # Set up wandb, optuna, checkpoint directories - use absolute paths
 
-    wandb_dir = config["logging"]["wandb_dir"] = config["logging"].get("wandb_dir", os.path.join(log_dir, "wandb"))
+    wandb_dir = config["logging"]["wandb_dir"] = config["logging"].get("wandb_dir", log_dir)
     optuna_dir = config["logging"]["optuna_dir"] = config["logging"].get("optuna_dir", os.path.join(log_dir, "optuna"))
     # TODO: do we need this, checkpoints are saved by Model Checkpoint callback in loggers save_dir (wandb_dir)
     # config["trainer"]["default_root_dir"] = checkpoint_dir = config["logging"]["checkpoint_dir"] = config["logging"].get("checkpoint_dir", os.path.join(log_dir, "checkpoints"))
@@ -241,7 +241,7 @@ def main():
 
     # Set an explicit run directory to avoid nesting issues
     unique_id = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{worker_id}_{gpu_id}"
-    run_dir = os.path.join(wandb_dir, f"run_{unique_id}")
+    run_dir = os.path.join(wandb_dir, "wandb", f"run_{unique_id}")
 
     # Configure WandB to use the correct checkpoint location
     # This ensures artifacts are saved in the correct checkpoint directory
@@ -698,8 +698,8 @@ def main():
             # if d_model is not contained in the trial but is a paramter, get the default
             model_hparams["dim_feedforward"] = estimator_sig.parameters["d_model"].default * 4
 
-        # Add model-specific arguments
-        estimator_kwargs.update({k: v for k, v in model_hparams.items() if k in estimator_params})
+        # Add model-specific arguments. Note that some params, such as num_feat_dynamic_real, are changed within Model, and so can't be used for estimator class
+        estimator_kwargs.update({k: v for k, v in model_hparams.items() if k in estimator_params and not hasattr(self.data_module, k) })
         
         # Add distr_output only if the model is NOT tactis
         if args.model != 'tactis' and "distr_output" not in estimator_kwargs:
