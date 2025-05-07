@@ -1,7 +1,7 @@
 experiment:
   username: jmb0507
   project_name: tune_tactis_flasc_2
-  run_name: tune_2 # [p = patience, d = min_delta, b = limit_train_batches, n = n_startup_trials] / hb = hyperband min_resource, reduction_factor
+  run_name: tune_8 # [p = patience, d = min_delta, b = limit_train_batches, n = n_startup_trials] / hb = hyperband min_resource, reduction_factor
   project_root: /user/taed7566/Forecasting/wind-forecasting
   log_dir: /user/taed7566/Forecasting/wind-forecasting/logs/
   notes: ""
@@ -33,7 +33,7 @@ optuna:
     enabled: true             # Whether to enable pruning
     type: "hyperband"         # Options: "hyperband", "median"
     max_resource: 200          # Maximum number of epochs to train a trial [hyperband only] ~36
-    min_resource: 7           # Minimum number of epochs to train a trial [hyperband only] ~4
+    min_resource: 12           # Minimum number of epochs to train a trial [hyperband only] ~4
     reduction_factor: 3       # Reduction factor for hyperband pruning ~3
     # set up so log_n(max_resource/min_resource)+1 = between 4-6 brackets ideally [hyperband only]  
     bootstrap_count: 0        # Number of bootstrap samples to use 
@@ -89,7 +89,7 @@ dataset:
     prediction_length: 300 # in seconds
     target_turbine_ids: # or leave blank to capture all
     normalize: false # Using denormalized data with TACTiS-2's internal scaling 
-    batch_size: 512 
+    batch_size: 2048 
     workers: 32 # Consider adjusting based on CPU cores per task
     overfit: false
     test_split: 0.20
@@ -151,7 +151,7 @@ model:
     weight_decay_stage2: 1e-5
     # Dropout & Clipping
     dropout_rate: 0.1
-    warmup_steps: 50
+    warmup_steps: 50 # TODO: Change this to fraction of total steps / epochs
 
   # [ Informer ]
   informer:
