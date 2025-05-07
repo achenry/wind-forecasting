@@ -274,8 +274,10 @@ def main():
         
         logging.info("🔄 Generating plots.")
         # x = pl.concat([df.slice(0, ROW_LIMIT) for df in df_query.collect().partition_by("file_set_idx")], how="vertical").lazy()
-        if False:
+        # NOTE: GENERATE FIG 3 IN PAPER HERE
+        if True:
             data_inspector.plot_wind_farm(
+                wind_directions=[140],
                 turbine_groups=[np.concatenate(config["nacelle_calibration_turbine_pairs"]), [74, 73], [4]],
                 turbine_group_colors=["darkorange", "royalblue", "lime"])
         
@@ -719,7 +721,7 @@ def main():
                                                         mask_input_features=sorted(data_loader.turbine_ids),
                                                         output_features=ws_cols,
                                                         filter_type="power-wind speed bin")
-            
+            # NOT USE THIS CODE TO GENERATE FIG 8 IN PAPER
             if args.plot:
                 data_inspector.plot_nulled_vs_remaining(df_query.slice(0, ROW_LIMIT), mask, 
                                                         mask_input_features=sorted(data_loader.turbine_ids),
@@ -744,7 +746,7 @@ def main():
                     df_query.select(f"wind_speed_{target_turbine_id}").filter(~out_of_window[:, target_turbine_idx]).slice(0, ROW_LIMIT).collect().to_numpy(),
                     df_query.select(f"power_output_{target_turbine_id}").filter(~out_of_window[:, target_turbine_idx]).slice(0, ROW_LIMIT).collect().to_numpy(),
                     flag=bin_outliers[~out_of_window[:, target_turbine_idx], target_turbine_idx][:ROW_LIMIT],
-                    flag_labels=("Anomylous Measurements", "Normal Measurements"),
+                    flag_labels=("Bad Measurements", "Normal Measurements"),
                     xlim=(-1, 30),
                     ylim=(-100, 3000),
                     legend=True,

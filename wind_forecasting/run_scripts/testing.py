@@ -179,7 +179,7 @@ def test_model(*, data_module, checkpoint, lightning_module_class, normalization
     print("here")
 
 def get_checkpoint(checkpoint, metric, mode, log_dir):
-    
+    # TODO look for 'last.ckpt' for latest
     if checkpoint is None:
         return None
     elif checkpoint in ["best", "latest"]:
@@ -191,7 +191,6 @@ def get_checkpoint(checkpoint, metric, mode, log_dir):
     elif not os.path.exists(checkpoint):
         raise FileNotFoundError(f"There is no checkpoint file at {checkpoint}, returning None.")
     
-    # TODO high is the latest checkpoint always the best
     if checkpoint == "best":
         best_metric_value = float('inf') if mode == "min" else float('-inf')
         best_checkpoint_path = None
@@ -206,6 +205,8 @@ def get_checkpoint(checkpoint, metric, mode, log_dir):
             checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
             
             mc_callback = [cb_vals for cb_key, cb_vals in checkpoint["callbacks"].items() if "ModelCheckpoint" in cb_key][0]
+            if mc_callback["best_model_score"] is None:
+                continue
             if (mode == "min" and mc_callback["best_model_score"] < best_metric_value) or (mode == "max" and mc_callback["best_model_score"] > best_metric_value):
                 best_metric_value = mc_callback["best_model_score"]
                 best_checkpoint_path = checkpoint_path # mc_callback["best_model_path"]
@@ -303,11 +304,11 @@ def load_estimator_from_checkpoint(checkpoint_path, lightning_module_class, defa
                             critical_missing = True
 
         if critical_missing:
-                logging.error(f"Critical hyperparameters missing from checkpoint hparams and no fallback found: {[item for item in missing_from_hparams if 'MISSING!' in item]}")
-                logging.error(f"Available hparams keys: {list(hparams.keys())}")
-                raise ValueError(f"Cannot instantiate model due to missing hyperparameters: {[item for item in missing_from_hparams if 'MISSING!' in item]}")
+            logging.error(f"Critical hyperparameters missing from checkpoint hparams and no fallback found: {[item for item in missing_from_hparams if 'MISSING!' in item]}")
+            logging.error(f"Available hparams keys: {list(hparams.keys())}")
+            raise ValueError(f"Cannot instantiate model due to missing hyperparameters: {[item for item in missing_from_hparams if 'MISSING!' in item]}")
         elif missing_from_hparams:
-                logging.warning(f"Used fallback values for some hyperparameters not found in checkpoint: {missing_from_hparams}")
+            logging.warning(f"Used fallback values for some hyperparameters not found in checkpoint: {missing_from_hparams}")
 
 
         # Ensure model_config is the one from the checkpoint's hparams
