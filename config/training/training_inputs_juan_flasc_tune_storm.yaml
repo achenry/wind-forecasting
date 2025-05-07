@@ -1,7 +1,7 @@
 experiment:
   username: jmb0507
   project_name: tune_tactis_flasc_2
-  run_name: tune_4 # [p = patience, d = min_delta, b = limit_train_batches, n = n_startup_trials] / hb = hyperband min_resource, reduction_factor
+  run_name: tune_2 # [p = patience, d = min_delta, b = limit_train_batches, n = n_startup_trials] / hb = hyperband min_resource, reduction_factor
   project_root: /user/taed7566/Forecasting/wind-forecasting
   log_dir: /user/taed7566/Forecasting/wind-forecasting/logs/
   notes: ""
@@ -18,10 +18,11 @@ logging:
 
 optuna:
   save_trial_code: false      # Default false
-  n_trials_per_worker: 400     # Test a total of 4*25=100 trials 
+  n_trials_per_worker: 400     # Test a total of 4*25=100 trials
   # ~3 min/epoch = 2.5 hours per trial = ~10 days for 100 trials / 4 workers = 2.5 days (with 100 batches no pruning)
   max_epochs: 200              # epochs per trial - 36 good
-  limit_train_batches:   # batches per epoch
+  sampler: "sequential"           # Options: "random" (ExpectedNumInstanceSampler), "sequential" (SequentialSampler)
+  limit_train_batches:    # batches per epoch - INFO: For "random" sampler, use explicit integer value
   metric: "val_loss"          # The metric to optimize (NLL)
   direction: "minimize"       # Whether to minimize or maximize the metric
 
@@ -81,6 +82,7 @@ optuna:
     log_file: "${logging.optuna_dir}/optuna_dashboard.log" # Log file for the dashboard process
 
 dataset:
+    sampler: "sequential"    # Options: "random" (ExpectedNumInstanceSampler), "sequential" (SequentialSampler) INFO: This is used for training
     data_path: /user/taed7566/Forecasting/wind-forecasting/examples/data/preprocessed_flasc_data/SMARTEOLE_WakeSteering_SCADA_1minData_normalized.parquet
     normalization_consts_path:  /user/taed7566/Forecasting/wind-forecasting/examples/data/preprocessed_flasc_data/SMARTEOLE_WakeSteering_SCADA_1minData_normalization_consts.csv
     context_length: 600 # in seconds
@@ -201,7 +203,7 @@ callbacks:
       class_path: lightning.pytorch.callbacks.TQDMProgressBar
       init_args:
         refresh_rate: 1  # every n steps, set to 0 to disable - 25 good
-        leave: true
+        leave: false
     # early_stopping:
     #   class_path: lightning.pytorch.callbacks.EarlyStopping
     #   init_args:

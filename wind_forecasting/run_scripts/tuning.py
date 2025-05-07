@@ -3,7 +3,7 @@ from lightning.pytorch.utilities.model_summary import summarize
 from gluonts.evaluation import MultivariateEvaluator, make_evaluation_predictions
 from gluonts.model.forecast_generator import DistributionForecastGenerator, SampleForecastGenerator
 from gluonts.time_feature._base import second_of_minute, minute_of_hour, hour_of_day, day_of_year
-from gluonts.transform import ExpectedNumInstanceSampler, ValidationSplitSampler
+from gluonts.transform import ExpectedNumInstanceSampler, SequentialSampler, ValidationSplitSampler
 import logging
 import torch
 import importlib # Added for dynamic callback instantiation
@@ -521,7 +521,9 @@ class MLTuningObjective:
             "use_lazyframe": False,
             "batch_size": self.config["dataset"].get("batch_size", 128),
             "num_batches_per_epoch": trial_trainer_kwargs["limit_train_batches"], # Use value from trial_trainer_kwargs
-            "train_sampler": ExpectedNumInstanceSampler(num_instances=1.0, min_past=self.config["dataset"]["context_length"], min_future=self.data_module.prediction_length),
+            "train_sampler": SequentialSampler(min_past=self.config["dataset"]["context_length"], min_future=self.data_module.prediction_length)
+                if self.config["optuna"].get("sampler", "random") == "sequential"
+                else ExpectedNumInstanceSampler(num_instances=1.0, min_past=self.config["dataset"]["context_length"], min_future=self.data_module.prediction_length),
             "validation_sampler": ValidationSplitSampler(min_past=self.config["dataset"]["context_length"], min_future=self.data_module.prediction_length),
             "time_features": [second_of_minute, minute_of_hour, hour_of_day, day_of_year],
             # Include distr_output initially, will be removed conditionally
