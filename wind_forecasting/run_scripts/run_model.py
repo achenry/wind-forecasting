@@ -688,7 +688,8 @@ def main():
             n_training_samples += (b - a + 1)
         
         n_training_steps = np.ceil(n_training_samples / data_module.batch_size).astype(int)
-        if estimator_kwargs["num_batches_per_epoch"]:
+        assert estimator_kwargs["num_batches_per_epoch"] is None or isinstance(estimator_kwargs["num_batches_per_epoch"], int)
+        if estimator_kwargs["num_batches_per_epoch"] is not None:
             n_training_steps = min(n_training_steps, estimator_kwargs["num_batches_per_epoch"])
         
         if "dim_feedforward" not in model_hparams and "d_model" in model_hparams:
@@ -699,7 +700,7 @@ def main():
             model_hparams["dim_feedforward"] = estimator_sig.parameters["d_model"].default * 4
 
         # Add model-specific arguments. Note that some params, such as num_feat_dynamic_real, are changed within Model, and so can't be used for estimator class
-        estimator_kwargs.update({k: v for k, v in model_hparams.items() if k in estimator_params and not hasattr(self.data_module, k) })
+        estimator_kwargs.update({k: v for k, v in model_hparams.items() if k in estimator_params and not hasattr(data_module, k) })
         
         # Add distr_output only if the model is NOT tactis
         if args.model != 'tactis' and "distr_output" not in estimator_kwargs:
