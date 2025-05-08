@@ -835,7 +835,7 @@ def main():
         logging.info("Starting model training...")
         # %% TRAIN MODEL
         # Callbacks are now instantiated and added to estimator_kwargs above
-        if False:
+        if True:
             logging.info(f"Training model with a total of {n_training_steps} training steps.")
             estimator.train(
                 training_data=data_module.train_dataset,
