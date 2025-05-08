@@ -835,14 +835,15 @@ def main():
         logging.info("Starting model training...")
         # %% TRAIN MODEL
         # Callbacks are now instantiated and added to estimator_kwargs above
-        logging.info(f"Training model with a total of {n_training_steps} training steps.")
-        estimator.train(
-            training_data=data_module.train_dataset,
-            validation_data=data_module.val_dataset,
-            forecast_generator=forecast_generator,
-            ckpt_path=checkpoint_path,
-            shuffle_buffer_length=1024
-        )
+        if False:
+            logging.info(f"Training model with a total of {n_training_steps} training steps.")
+            estimator.train(
+                training_data=data_module.train_dataset,
+                validation_data=data_module.val_dataset,
+                forecast_generator=forecast_generator,
+                ckpt_path=checkpoint_path,
+                shuffle_buffer_length=1024
+            )
         # train_output.trainer.checkpoint_callback.best_model_path
         logging.info("Model training completed.")
     elif args.mode == "test":
