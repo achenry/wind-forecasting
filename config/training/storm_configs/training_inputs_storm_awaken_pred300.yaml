@@ -4,8 +4,8 @@ experiment:
   username: aoife-henry
   project_name: wind_forecasting_awaken_pred300
   run_name: aoifemac_awaken_pred300
-  log_dir: /projects/ssc/ahenry/wind_forecasting/logging/
-  project_root: /projects/ssc/ahenry/wind_forecasting/
+  log_dir: /user/taed7566/Forecasting/wind-forecasting/logs/
+  project_root: /user/taed7566/Forecasting/wind-forecasting/
   notes: "Tuning AWAKEN with Informer+"
   extra_tags: ["awaken", "pred300"] # By default already has GPU id, model and mode.
 
@@ -13,10 +13,10 @@ logging:
   entity: jmb0507-cu-boulder # Wandb entity (group name)
   wandb_mode: online
   save_code: true # Save code to wandb
-  wandb_dir: /projects/ssc/ahenry/wind_forecasting/logging/ # WandB will create a 'wandb' subdirectory here automatically
-  optuna_dir: /projects/ssc/ahenry/wind_forecasting/logging/optuna/
-  checkpoint_dir: /projects/ssc/ahenry/wind_forecasting/logging/checkpoints/
-  slurm_output_dir: /projects/ssc/ahenry/wind_forecasting/logging/slurm_logs/
+  wandb_dir: /user/taed7566/Forecasting/wind-forecasting/logs # WandB will create a 'wandb' subdirectory here automatically
+  optuna_dir: /user/taed7566/Forecasting/wind-forecasting/optuna/
+  checkpoint_dir: /user/taed7566/Forecasting/wind-forecasting/logs/checkpoints/
+  slurm_output_dir: /user/taed7566/Forecasting/wind-forecasting/logs/slurm_logs/
 
 optuna:
   save_trial_code: false      # Default false
@@ -75,8 +75,8 @@ optuna:
 
 
 dataset: 
-    data_path: /projects/ssc/ahenry/wind_forecasting/awaken_data/awaken_processed_normalized.parquet
-    normalization_consts_path: /projects/ssc/ahenry/wind_forecasting/awaken_data/awaken_processed_normalization_consts.csv
+    data_path: /user/taed7566/Forecasting/wind-forecasting/examples/data/preprocessed_awaken_data/filled_data_normalized_train_ready.parquet
+    normalization_consts_path: /user/taed7566/Forecasting/wind-forecasting/examples/data/preprocessed_awaken_data/awaken_processed_normalization_consts.csv
     context_length: 600 # in seconds
     prediction_length: 300 # in seconds
     target_turbine_ids: # or leave blank to capture all
@@ -143,28 +143,34 @@ model:
 
   informer:
     # embedding_dimension: 32 # Determines dimension of the embedding space
+    context_length_factor: 2
+    batch_size: 128
     num_encoder_layers: 2 # Number of transformer blocks stacked
-    num_decoder_layers: 1 # Number of transformer blocks stacked
+    num_decoder_layers: 2 # Number of transformer blocks stacked
+    d_model: 128
     n_heads: 8 # Number of heads for spatio-temporal attention
-    d_model: 512
     dim_feedforward: 2048
     activation: relu
   autoformer:
     # embedding_dimension: 32 # Determines dimension of the embedding space
+    context_length_factor: 3
+    batch_size: 128
     num_encoder_layers: 2 # Number of transformer blocks stacked
     num_decoder_layers: 1 # Number of transformer blocks stacked
-    n_heads: 8 # Number of heads for spatio-temporal attention
-    dim_feedforward: 2048
+    n_heads: 6 # Number of heads for spatio-temporal attention
+    dim_feedforward: 512
     activation: gelu
   spacetimeformer:
     # embedding_dimension: 32 # Determines dimension of the embedding space
-    num_encoder_layers: 3 # Number of transformer blocks stacked
+    context_length_factor: 2
+    batch_size: 128
+    num_encoder_layers: 6 # Number of transformer blocks stacked
     num_decoder_layers: 3 # Number of transformer blocks stacked
-    n_heads: 3 # Number of heads for spatio-temporal attention
-    d_model: 200
+    n_heads: 4 # Number of heads for spatio-temporal attention
+    d_model: 150
     dim_feedforward: 800
-    d_queries_keys: 30
-    d_values: 30
+    d_queries_keys: 20
+    d_values: 20
     dropout_emb: 0.2
     dropout_attn_matrix: 0.0
     dropout_attn_out: 0.0

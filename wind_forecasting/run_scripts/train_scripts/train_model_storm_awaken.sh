@@ -5,11 +5,11 @@
 #SBATCH --ntasks-per-node=1         # Match number of GPUs requested below (for DDP training)
 #SBATCH --cpus-per-task=32           # CPUs per task (adjust if needed for data loading)
 #SBATCH --mem-per-cpu=4096          # Memory per CPU
-#SBATCH --gres=gpu:H100:1           # Request 4 H100 GPUs
+#SBATCH --gres=gpu:1           # Request 4 H100 GPUs
 #SBATCH --time=1-00:00              # Time limit (adjust as needed for training)
-#SBATCH --job-name=flasc_train      # Updated job name
-#SBATCH --output=/user/taed7566/Forecasting/wind-forecasting/logs/slurm_logs/flasc_train_%j.out # Updated output log path
-#SBATCH --error=/user/taed7566/Forecasting/wind-forecasting/logs/slurm_logs/flasc_train_%j.err  # Updated error log path
+#SBATCH --job-name=awaken_train      # Updated job name
+#SBATCH --output=/user/taed7566/Forecasting/wind-forecasting/logs/slurm_logs/awaken_train_%j.out # Updated output log path
+#SBATCH --error=/user/taed7566/Forecasting/wind-forecasting/logs/slurm_logs/awaken_train_%j.err  # Updated error log path
 #SBATCH --hint=nomultithread        # Disable hyperthreading
 #SBATCH --distribution=block:block  # Improve GPU-CPU affinity
 #SBATCH --gres-flags=enforce-binding # Enforce binding of GPUs to tasks
@@ -18,8 +18,20 @@
 BASE_DIR="/user/taed7566/Forecasting/wind-forecasting" # Absolute path to the base directory
 export WORK_DIR="${BASE_DIR}/wind_forecasting"
 export LOG_DIR="${BASE_DIR}/logs"
-export CONFIG_FILE="${BASE_DIR}/config/training/training_inputs_juan_flasc_test_storm.yaml"
-export MODEL_NAME="tactis" # Or pass as argument if needed: "$1"
+# export CONFIG_FILE="${BASE_DIR}/config/training/training_inputs_juan_flasc_test_storm.yaml" # Commented out, will be set from arg
+# export MODEL_NAME="tactis" # Commented out, will be set from arg
+
+# --- Command-line Argument Handling ---
+if [ -z "$1" ] || [ -z "$2" ]; then
+  echo "Error: Missing required arguments." >&2
+  echo "Usage: $0 <MODEL_NAME> <CONFIG_FILE_PATH>" >&2
+  exit 1
+fi
+
+export MODEL_NAME="$1"
+export CONFIG_FILE="$2"
+# --- End Command-line Argument Handling ---
+
 export NUMEXPR_MAX_THREADS=128
 
 # --- Create Logging Directories ---
@@ -93,9 +105,7 @@ srun python ${WORK_DIR}/run_scripts/run_model.py \
   --config ${CONFIG_FILE} \
   --model ${MODEL_NAME} \
   --mode train \
-  --seed 666 \
-  --use_tuned_parameters \
-  --override model.tactis.lr_stage1 model.tactis.lr_stage2 model.tactis.dropout_rate trainer.gradient_clip_val
+  --seed 666
 
 TRAIN_EXIT_CODE=$?
 
