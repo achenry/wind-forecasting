@@ -1,7 +1,7 @@
 experiment:
   username: jmb0507
   project_name: tune_tactis_flasc_2
-  run_name: tune_2 # [p = patience, d = min_delta, b = limit_train_batches, n = n_startup_trials] / hb = hyperband min_resource, reduction_factor
+  run_name: tune_6 # [p = patience, d = min_delta, b = limit_train_batches, n = n_startup_trials] / hb = hyperband min_resource, reduction_factor
   project_root: /user/taed7566/Forecasting/wind-forecasting
   log_dir: /user/taed7566/Forecasting/wind-forecasting/logs/
   notes: ""
@@ -18,9 +18,8 @@ logging:
 
 optuna:
   save_trial_code: false      # Default false
-  n_trials_per_worker: 400     # Test a total of 4*25=100 trials
-  # ~3 min/epoch = 2.5 hours per trial = ~10 days for 100 trials / 4 workers = 2.5 days (with 100 batches no pruning)
-  max_epochs: 200              # epochs per trial - 36 good
+  n_trials_per_worker: 200     # Test a total of 4*200=800 trials
+  max_epochs: 100              # epochs per trial
   sampler: "sequential"           # Options: "random" (ExpectedNumInstanceSampler), "sequential" (SequentialSampler)
   limit_train_batches:    # batches per epoch - INFO: For "random" sampler, use explicit integer value
   metric: "val_loss"          # The metric to optimize (NLL)
@@ -30,15 +29,15 @@ optuna:
   
   # Pruning configuration
   pruning:
-    enabled: true             # Whether to enable pruning
-    type: "hyperband"         # Options: "hyperband", "median"
-    max_resource: 200          # Maximum number of epochs to train a trial [hyperband only] ~36
-    min_resource: 12           # Minimum number of epochs to train a trial [hyperband only] ~4
-    reduction_factor: 3       # Reduction factor for hyperband pruning ~3
-    # set up so log_n(max_resource/min_resource)+1 = between 4-6 brackets ideally [hyperband only]  
-    bootstrap_count: 0        # Number of bootstrap samples to use 
-    # n_startup_trials: 4       # Number of trials to wait until building the median for pruning - 6 good [median only]
-    # n_warmup_steps: 12        # Number of epochs to wait before starting pruning [median only]
+    enabled: true
+    type: "patient"
+    patience: 3               # Configure PatientPruner: number of steps to wait
+    min_delta: 0.0            # Configure PatientPruner: tolerance for improvement (default 0.0)
+    wrapped_pruner:
+      type: "percentile"      # Set the wrapped pruner type
+      percentile: 50.0        # Configure PercentilePruner: prune trials below this percentile
+      n_startup_trials: 4     # Configure PercentilePruner: wait for this many trials before pruning
+      n_warmup_steps: 12      # Configure PercentilePruner: wait for this many steps (epochs) before pruning
 
   # Optuna visualization configuration (additional to wandb)
   visualization:
@@ -110,18 +109,18 @@ model:
   # [ TACTiS-2 ]
   tactis:
     # General TACTiS settings
-    initial_stage: 1 # INFO: FIXED
-    stage2_start_epoch: 30 # Epoch to start stage 2 (copula training) INFO: Now tuning
-    ac_mlp_layers: 2 # MLP layers for attention copula INFO: Now tuning
-    ac_mlp_dim: 128      # Dimension of AC's internal MLP layers. INFO: Now tuning
+    initial_stage: 1
+    stage2_start_epoch: 30 # Epoch to start stage 2 (copula training)
+    ac_mlp_layers: 2 # MLP layers for attention copula
+    ac_mlp_dim: 128      # Dimension of AC's internal MLP layers
     stage1_activation_function: "relu" # Activation for Stage 1 encoders (e.g., "relu", "gelu", "leaky_relu")
     stage2_activation_function: "relu" # Activation for Stage 2 encoders (e.g., "relu", "gelu", "leaky_relu")
-    input_encoding_normalization: true # INFO: FIXED
-    scaling: "std" # Options: "mean", "std", null # INFO: FIXED TODO: Check for denormalised params from tactis
-    loss_normalization: "both" # Options: "series", "timesteps", "both", "none" INFO: Now tuning
+    input_encoding_normalization: true
+    scaling: "std" # Options: "mean", "std", null
+    loss_normalization: "both" # Options: "series", "timesteps", "both", "none"
     encoder_type: "standard" # Options: "standard", "temporal"
     bagging_size: null
-    num_parallel_samples: 100 # INFO: FIXED - Inference only setting
+    num_parallel_samples: 100 # Inference only setting
     inference_num_samples: 100
     # Marginal CDF Encoder
     marginal_embedding_dim_per_head: 8
@@ -149,13 +148,14 @@ model:
     lr_stage2: 2e-6
     weight_decay_stage1: 1e-5
     weight_decay_stage2: 1e-5
-    # Learning Rate Scheduler    
-    warmup_steps_s1: 1128 # Warmup steps for Stage 1
+    # Learning Rate Scheduler for Stage 1
+    warmup_steps_s1: 1410 # Warmup steps for Stage 1
+    steps_to_decay_s1: 7050 # T_max = (steps_per_epoch [282] * epochs_in_stage [30]) - warmup_steps
+    eta_min_fraction_s1: 0.01  # Fraction of initial LR for eta_min in Stage 1 cosine decay
+    # Learning Rate Scheduler for Stage 2
     warmup_steps_s2: 2256 # Warmup steps for Stage 2
-    eta_min_fraction_s1: 0.25  # Fraction of initial LR for eta_min in Stage 1 cosine decay
-    eta_min_fraction_s2: 0.01  # Fraction of initial LR for eta_min in Stage 2 cosine decay
-    steps_to_decay_s1: 7332 # INFO T_max = (steps_per_epoch [282] * epochs_in_stage [30]) - warmup_steps
-    steps_to_decay_s2: 45684 # T_max = (steps_per_epoch [282] * epochs_in_stage [200-30]) - warmup_steps ~ 47940 - warmup_steps
+    steps_to_decay_s2: 17484 # T_max = (steps_per_epoch [282] * epochs_in_stage [100-30]) - warmup_steps ~ 47940 - warmup_steps    
+    eta_min_fraction_s2: 0.01  # Fraction of initial LR for eta_min in Stage 2 cosine decay    
     # Dropout & Clipping
     dropout_rate: 0.1
 
@@ -208,7 +208,7 @@ callbacks:
     progress_bar:
       class_path: lightning.pytorch.callbacks.TQDMProgressBar
       init_args:
-        refresh_rate: 47  # every n steps, set to 0 to disable - 47*6 = 282(steps for 2048 batch size) ~ 1 epoch
+        refresh_rate: 94  # every n steps, set to 0 to disable - 47*6 = 282(steps for 2048 batch size) ~ 1 epoch
         leave: false
     # early_stopping:
     #   class_path: lightning.pytorch.callbacks.EarlyStopping
@@ -232,12 +232,12 @@ callbacks:
       init_args:
         logging_interval: step # Log every training step to see warmup
         log_momentum: false
-        log_weight_decay : false
-    dead_neuron_monitor: # INFO @boujuan [custom callback] Currently only works for tactis-2 (check utils/callbacks.py)
+        log_weight_decay : true
+    dead_neuron_monitor: # INFO @boujuan [custom callback] Currently doesnt work ~OOM (check utils/callbacks.py)
       enabled: false
 
 trainer:
-    gradient_clip_val: 0.0 # Global clipping # DEBUG make sure it works
+    gradient_clip_val: 0.0 # Global clipping
     # limit_val_batches: 1.0
     # val_check_interval: 1.0
     accelerator: gpu # 'cpu' or 'gpu'

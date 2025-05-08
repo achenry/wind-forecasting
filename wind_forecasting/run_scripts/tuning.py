@@ -19,7 +19,7 @@ import re # Added for epoch parsing
 import optuna
 from optuna import create_study, load_study
 from optuna.samplers import TPESampler
-from optuna.pruners import HyperbandPruner, MedianPruner, PercentilePruner, NopPruner
+from optuna.pruners import HyperbandPruner, PercentilePruner, PatientPruner, NopPruner
 from optuna_integration import PyTorchLightningPruningCallback
 
 import lightning.pytorch as pl # Import pl alias
@@ -691,8 +691,12 @@ class MLTuningObjective:
                 del module_params[module_params.index("self")]
                 init_args = {
                     'model_config': model_config,
-                    **{k: hparams.get(k, self.config["model"][self.model].get(k)) for k in module_params if k != 'model_config'}
+                    **{k: hparams.get(k, self.config["model"][self.model].get(k))
+                       for k in module_params if k not in ['model_config', 'num_batches_per_epoch']}
                 }
+
+                init_args['num_batches_per_epoch'] = estimator_kwargs.get('num_batches_per_epoch')
+                logging.info(f"Setting 'num_batches_per_epoch' for re-instantiation from original trial config: {init_args['num_batches_per_epoch']}")
 
                 instantiation_stage_info = "N/A (Not TACTiS)"
                 if self.model == 'tactis':
@@ -705,7 +709,8 @@ class MLTuningObjective:
                      if (key not in ['model_config', 'initial_stage']) and (key not in hparams) and (key in module_params):
                         logging.warning(f"Hyperparameter '{key}' not found in checkpoint, using default value from config: {val}")
 
-                missing_args = [k for k, v in init_args.items() if v is None and k not in ['model_config', 'initial_stage']]
+                missing_args = [k for k, v in init_args.items()
+                              if v is None and k not in ['model_config', 'initial_stage', 'num_batches_per_epoch']]
 
                 if missing_args:
                     error_msg = f"Missing required hyperparameters in checkpoint {checkpoint_path} even after checking defaults: {missing_args}"
@@ -898,11 +903,52 @@ def tune_model(model, config, study_name, optuna_storage, lightning_module_class
     pruner = None
     if "pruning" in config["optuna"] and config["optuna"]["pruning"].get("enabled", False):
         pruning_type = config["optuna"]["pruning"].get("type", "hyperband").lower()
-        min_resource = config["optuna"]["pruning"].get("min_resource", 2)
-        max_resource = config["optuna"]["pruning"].get("max_resource", max_epochs)
-        logging.info(f"Configuring pruner: type={pruning_type}, min_resource={min_resource}, max_resource={max_resource}")
+        logging.info(f"Configuring pruner: type={pruning_type}")
 
-        if pruning_type == "hyperband":
+        if pruning_type == "patient":
+            patience = config["optuna"]["pruning"].get("patience", 0)
+            min_delta = config["optuna"]["pruning"].get("min_delta", 0.0)
+
+            # Configure wrapped pruner if specified
+            wrapped_config = config["optuna"]["pruning"].get("wrapped_pruner")
+            wrapped_pruner_instance = None
+
+            if wrapped_config and isinstance(wrapped_config, dict):
+                wrapped_type = wrapped_config.get("type", "").lower()
+                logging.info(f"Configuring wrapped pruner of type: {wrapped_type}")
+
+                if wrapped_type == "percentile":
+                    percentile = wrapped_config.get("percentile", 50.0)
+                    n_startup_trials = wrapped_config.get("n_startup_trials", 4)
+                    n_warmup_steps = wrapped_config.get("n_warmup_steps", 12)
+                    interval_steps = wrapped_config.get("interval_steps", 1)
+                    n_min_trials = wrapped_config.get("n_min_trials", 1)
+
+                    wrapped_pruner_instance = PercentilePruner(
+                        percentile=percentile,
+                        n_startup_trials=n_startup_trials,
+                        n_warmup_steps=n_warmup_steps,
+                        interval_steps=interval_steps,
+                        n_min_trials=n_min_trials
+                    )
+                    logging.info(f"Created wrapped PercentilePruner with percentile={percentile}, n_startup_trials={n_startup_trials}, n_warmup_steps={n_warmup_steps}")
+            
+            # If no valid wrapped pruner is configured, use NopPruner
+            if wrapped_pruner_instance is None:
+                logging.warning("No valid wrapped pruner configuration found. PatientPruner will wrap NopPruner.")
+                wrapped_pruner_instance = NopPruner()
+
+            # Create PatientPruner wrapping the configured pruner
+            pruner = PatientPruner(
+                wrapped_pruner=wrapped_pruner_instance,
+                patience=patience,
+                min_delta=min_delta
+            )
+            logging.info(f"Created PatientPruner with patience={patience}, min_delta={min_delta} wrapping {type(wrapped_pruner_instance).__name__}")
+
+        elif pruning_type == "hyperband":
+            min_resource = config["optuna"]["pruning"].get("min_resource", 2)
+            max_resource = config["optuna"]["pruning"].get("max_resource", max_epochs)
             reduction_factor = config["optuna"]["pruning"].get("reduction_factor", 2)
             
             pruner = HyperbandPruner(
@@ -911,24 +957,23 @@ def tune_model(model, config, study_name, optuna_storage, lightning_module_class
                 reduction_factor=reduction_factor
             )
             logging.info(f"Created HyperbandPruner with min_resource={min_resource}, max_resource={max_resource}, reduction_factor={reduction_factor}")
-        elif pruning_type == "median":
-            n_warmup_steps = config["optuna"]["pruning"].get("n_warmup_steps", 2)
-            if "n_warmup_steps" not in config["optuna"]["pruning"]:
-                logging.warning(f"YAML config missing 'optuna.pruning.n_warmup_steps', defaulting to {n_warmup_steps}")
 
-            n_startup_trials = config["optuna"]["pruning"].get("n_startup_trials", 5)  # Default to 5 if missing
-            if "n_startup_trials" not in config["optuna"]["pruning"]:
-                logging.warning(f"YAML config missing 'optuna.pruning.n_startup_trials', defaulting to {n_startup_trials}")
-
-            pruner = MedianPruner(
-                n_startup_trials=n_startup_trials,
-                n_warmup_steps=n_warmup_steps
-            )
-            logging.info(f"Created MedianPruner with n_startup_trials={n_startup_trials}, n_warmup_steps={n_warmup_steps}")
         elif pruning_type == "percentile":
             percentile = config["optuna"]["pruning"].get("percentile", 25)
-            pruner = PercentilePruner(percentile=percentile, n_startup_trials=5, n_warmup_steps=min_resource)
-            logging.info(f"Created PercentilePruner with percentile={percentile}, n_startup_trials=5, n_warmup_steps={min_resource}")
+            n_startup_trials = config["optuna"]["pruning"].get("n_startup_trials", 5)
+            n_warmup_steps = config["optuna"]["pruning"].get("n_warmup_steps", 2)
+            interval_steps = config["optuna"]["pruning"].get("interval_steps", 1)
+            n_min_trials = config["optuna"]["pruning"].get("n_min_trials", 1)
+
+            pruner = PercentilePruner(
+                percentile=percentile,
+                n_startup_trials=n_startup_trials,
+                n_warmup_steps=n_warmup_steps,
+                interval_steps=interval_steps,
+                n_min_trials=n_min_trials
+            )
+            logging.info(f"Created PercentilePruner with percentile={percentile}, n_startup_trials={n_startup_trials}, n_warmup_steps={n_warmup_steps}")
+
         else:
             logging.warning(f"Unknown pruner type: {pruning_type}, using no pruning")
             pruner = NopPruner()
