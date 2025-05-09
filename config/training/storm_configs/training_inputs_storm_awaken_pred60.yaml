@@ -174,7 +174,7 @@ model:
     dropout_attn_matrix: 0.0
     dropout_attn_out: 0.0
     dropout_ff: 0.3
-    dropout_qkv: 0.0
+    dropout_qkv: 40.0
     start_token_len: 0
     performer_redraw_interval: 100
     use_shifted_time_windows: False
