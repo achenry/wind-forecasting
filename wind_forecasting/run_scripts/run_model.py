@@ -359,7 +359,7 @@ def main():
         per_turbine_target=config["dataset"]["per_turbine_target"],
         as_lazyframe=False,
         dtype=pl.Float32,
-        normalized=False,#False if args.model == "tactis" else True, # Feed raw-scale data to use with internal scaling="std"
+        normalized=True, #TODO False if args.model == "tactis" else True, # Feed raw-scale data to use with internal scaling="std"
         normalization_consts_path=config["dataset"]["normalization_consts_path"], # Needed for denormalization
         batch_size=config["dataset"].get("batch_size", 128),
         workers=num_workers,
