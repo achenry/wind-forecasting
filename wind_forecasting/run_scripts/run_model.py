@@ -663,7 +663,7 @@ def main():
         logging.info(f"Assigned {len(instantiated_callbacks)} callbacks to config['trainer']['callbacks'].")
 
         # Prepare all arguments in a dictionary for the Estimator
-
+        
         estimator_kwargs = {
             "freq": data_module.freq,
             "prediction_length": data_module.prediction_length,
@@ -672,7 +672,7 @@ def main():
             "cardinality": data_module.cardinality,
             "num_feat_static_real": data_module.num_feat_static_real,
             "input_size": data_module.num_target_vars,
-            "scaling": "std", #if model_hparams.get("scaling", "True") == "True" else False, # TODO ALLOW US TO SPECIFY SCALING, ALSO WHY STRING NOT B00L Scaling handled externally or internally by TACTiS
+            "scaling": "False", #if model_hparams.get("scaling", "True") == "True" else False, # TODO back to std, ALLOW US TO SPECIFY SCALING, ALSO WHY STRING NOT B00L Scaling handled externally or internally by TACTiS
             "lags_seq": [0], #model_hparams.get("lags_seq", [0]), #TODOconfig["model"][args.model]["lags_seq"], # TACTiS doesn't typically use lags
             "time_features": [second_of_minute, minute_of_hour, hour_of_day, day_of_year],
             "batch_size": data_module.batch_size,
@@ -697,9 +697,11 @@ def main():
         if "dim_feedforward" not in model_hparams and "d_model" in model_hparams:
             # set dim_feedforward to 4x the d_model found in this trial
             model_hparams["dim_feedforward"] = model_hparams["d_model"] * 4
+            logging.info(f"Updating estimator {args.model.capitalize()} dim_feedforward with 4x d_model = {model_hparams['dim_feedforward']}")
         elif "d_model" in estimator_params and estimator_sig.parameters["d_model"].default is not inspect.Parameter.empty:
             # if d_model is not contained in the trial but is a paramter, get the default
             model_hparams["dim_feedforward"] = estimator_sig.parameters["d_model"].default * 4
+            logging.info(f"Updating estimator {args.model.capitalize()} dim_feedforward with 4x estimator default d_model = {model_hparams['dim_feedforward']}")
 
         # Add model-specific arguments. Note that some params, such as num_feat_dynamic_real, are changed within Model, and so can't be used for estimator class
         estimator_kwargs.update({k: v for k, v in model_hparams.items() if k in estimator_params and not hasattr(data_module, k) })
