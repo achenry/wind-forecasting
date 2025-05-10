@@ -159,23 +159,6 @@ def main():
                             except ValueError:
                                 logging.warning(f"Could not parse GPU index from CUDA_VISIBLE_DEVICES: {visible_gpus[0]}")
 
-                        # Check if strategy needs special handling for TACTiS DDP
-                        # Use .get() with default to avoid KeyError if 'strategy' not in config['trainer']
-                        current_strategy_setting = config.get("trainer", {}).get("strategy", "auto")
-
-                        if isinstance(current_strategy_setting, str) and current_strategy_setting.lower() == "ddp" and args.model == "tactis":
-                             logging.warning("Instantiating DDPStrategy with find_unused_parameters=True for TACTiS-2.")
-                             # Instantiate the strategy object with the flag
-                             strategy_object = DDPStrategy(find_unused_parameters=True)
-                             # Store the object back into the config dictionary
-                             # Ensure config['trainer'] exists
-                             if "trainer" not in config: config["trainer"] = {}
-                             config["trainer"]["strategy"] = strategy_object
-                        # else:
-                             # Keep the original strategy setting (e.g., 'auto', 'ddp_spawn', or maybe already an object)
-                             # No change needed to config["trainer"]["strategy"]
-                             # logging.info(f"Using strategy setting from config: {current_strategy_setting}")
-
                     else:
                         logging.warning("CUDA_VISIBLE_DEVICES is set but no valid GPU indices found")
                 except Exception as e:
@@ -183,6 +166,25 @@ def main():
             else:
                 logging.warning("CUDA_VISIBLE_DEVICES is not set, using default GPU assignment")
 
+        if num_gpus > 1:
+            # Check if strategy needs special handling for TACTiS DDP
+            # Use .get() with default to avoid KeyError if 'strategy' not in config['trainer']
+            current_strategy_setting = config.get("trainer", {}).get("strategy", "auto")
+
+            if isinstance(current_strategy_setting, str) and current_strategy_setting.lower() == "ddp" and args.model in ["tactis", "spacetimeformer"]:
+                logging.warning("Instantiating DDPStrategy with find_unused_parameters=True for TACTiS-2.")
+                # Instantiate the strategy object with the flag
+                strategy_object = DDPStrategy(find_unused_parameters=True)
+                # Store the object back into the config dictionary
+                # Ensure config['trainer'] exists
+                if "trainer" not in config: config["trainer"] = {}
+                config["trainer"]["strategy"] = strategy_object
+            # else:
+                    # Keep the original strategy setting (e.g., 'auto', 'ddp_spawn', or maybe already an object)
+                    # No change needed to config["trainer"]["strategy"]
+                    # logging.info(f"Using strategy setting from config: {current_strategy_setting}")
+
+            
             # Log memory information
             logging.info(f"GPU Memory: {torch.cuda.memory_allocated(device)/1e9:.2f}GB / {torch.cuda.get_device_properties(device).total_memory/1e9:.2f}GB")
 
