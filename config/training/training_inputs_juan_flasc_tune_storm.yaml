@@ -1,11 +1,11 @@
 experiment:
   username: jmb0507
   project_name: tune_tactis_flasc_2
-  run_name: tune_9 # [p = patience, d = min_delta, b = limit_train_batches, n = n_startup_trials] / hb = hyperband min_resource, reduction_factor
+  run_name: tune_2 # [p = patience, d = min_delta, b = limit_train_batches, n = n_startup_trials] / hb = hyperband min_resource, reduction_factor
   project_root: /user/taed7566/Forecasting/wind-forecasting
   log_dir: /user/taed7566/Forecasting/wind-forecasting/logs/
   notes: ""
-  extra_tags: ["flasc", "tune"] # By default already has GPU id and model name.
+  extra_tags: ["flasc", "tune", "tcp"] # By default already has GPU id and model name.
 
 logging:
   entity: jmb0507-cu-boulder # Wandb entity (group name)
@@ -51,20 +51,26 @@ optuna:
   # Storage backend configuration
   storage:
     backend: "postgresql"  # Options: "postgresql", "sqlite"
-    # --- PostgreSQL Specific Settings ---
-    # Path relative to project root (e.g., ~/wind-forecasting)
-    pgdata_path: "/user/taed7566/Forecasting/wind-forecasting/optuna/pgdata" # Directory for PostgreSQL data files
-    pgdata_instance_name: "flasc_tactis_2" # INFO: CREATE NEW INSTANCE (DIRECTORY) FOR STUDIES #flasc_tactis, flasc_default , keep same for resuming!!
-    db_name: "optuna_study_db"  # Name of the PostgreSQL database
-    db_user: "optuna_user"
-    use_socket: true      # Use Unix domain socket for local connection (recommended on single node)
-    socket_dir_base: "/user/taed7566/Forecasting/wind-forecasting/optuna/sockets" # Base directory for socket files
-    sync_dir: "/user/taed7566/Forecasting/wind-forecasting/optuna/sync"           # Directory for synchronization files
+    # --- TCP/IP PostgreSQL Settings ---
+    use_tcp: true
+    use_socket: false
+    db_host: "pg-windforecasting-aiven-wind-forecasting.e.aivencloud.com"
+    db_port: 12472
+    db_name: "defaultdb"
+    db_user: "avnadmin"
+    db_password_env_var: "AIVEN_PG_PASSWORD"
+    sslmode: "require"
+    sslrootcert_path: "config/certs/aiven_pg_ca.pem"
 
-    # --- Optional TCP/IP Settings (if use_socket is false) ---
-    # use_tcp: false
-    # db_host: "localhost"
-    # db_port: 5432
+    # --- Local PostgreSQL Specific Settings ---
+    # Path relative to project root (e.g., ~/wind-forecasting)
+    # pgdata_path: "/user/taed7566/Forecasting/wind-forecasting/optuna/pgdata" # Directory for PostgreSQL data files
+    # pgdata_instance_name: "flasc_tactis_2" # INFO: CREATE NEW INSTANCE (DIRECTORY) FOR STUDIES #flasc_tactis, flasc_default , keep same for resuming!!
+    # db_name: "optuna_study_db"  # Name of the PostgreSQL database
+    # db_user: "optuna_user"
+    # use_socket: true      # Use Unix domain socket for local connection (recommended on single node)
+    # socket_dir_base: "/user/taed7566/Forecasting/wind-forecasting/optuna/sockets" # Base directory for socket files
+    # sync_dir: "/user/taed7566/Forecasting/wind-forecasting/optuna/sync"           # Directory for synchronization files
 
     # --- Optional Command Execution Settings ---
     # run_cmd_shell: false # Set to true if specific commands require shell=True

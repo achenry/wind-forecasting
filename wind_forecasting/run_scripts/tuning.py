@@ -111,6 +111,20 @@ def generate_df_setup_params(model, model_config):
         "sqlite_timeout": storage_cfg.get("sqlite_timeout", 600), # For sqlite
         "pgdata_instance_name": pgdata_instance_name, # Store instance name for reference
     }
+    
+    # Add SSL parameters if they exist in the configuration (for external PostgreSQL connections)
+    if backend == "postgresql" and storage_cfg.get("use_tcp", False):
+        # If SSL mode is specified, add it to the parameters
+        if "sslmode" in storage_cfg:
+            db_setup_params["sslmode"] = storage_cfg["sslmode"]
+            
+        # If SSL root certificate path is specified, resolve it to an absolute path
+        if "sslrootcert_path" in storage_cfg:
+            db_setup_params["sslrootcert_path"] = resolve_path(project_root, storage_cfg["sslrootcert_path"])
+            
+        # If password environment variable is specified, add it to the parameters
+        if "db_password_env_var" in storage_cfg:
+            db_setup_params["db_password_env_var"] = storage_cfg["db_password_env_var"]
     return db_setup_params
 
 
