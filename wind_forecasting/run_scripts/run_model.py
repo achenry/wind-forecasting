@@ -447,7 +447,9 @@ def main():
             try:
                 logging.info(f"Getting tuned parameters.")
                 tuned_params = get_tuned_params(optuna_storage, db_setup_params["study_name"])
+                
                 # tuned_params = {'context_length_factor': 2, 'batch_size': 128, 'num_encoder_layers': 2, 'num_decoder_layers': 3, 'd_model': 128, 'n_heads': 6}
+                
                 config["model"]["distr_output"]["kwargs"].update({k: v for k, v in tuned_params.items() if k in config["model"]["distr_output"]["kwargs"]})
                 config["dataset"].update({k: v for k, v in tuned_params.items() if k in config["dataset"]})
                 # config["model"][args.model].update({k: v for k, v in tuned_params.items() if k in config["model"][args.model]})
@@ -835,15 +837,14 @@ def main():
         logging.info("Starting model training...")
         # %% TRAIN MODEL
         # Callbacks are now instantiated and added to estimator_kwargs above
-        if True:
-            logging.info(f"Training model with a total of {n_training_steps} training steps.")
-            estimator.train(
-                training_data=data_module.train_dataset,
-                validation_data=data_module.val_dataset,
-                forecast_generator=forecast_generator,
-                ckpt_path=checkpoint_path,
-                shuffle_buffer_length=1024
-            )
+        logging.info(f"Training model with a total of {n_training_steps} training steps.")
+        estimator.train(
+            training_data=data_module.train_dataset,
+            validation_data=data_module.val_dataset,
+            forecast_generator=forecast_generator,
+            ckpt_path=checkpoint_path
+            # shuffle_buffer_length=1024
+        )
         # train_output.trainer.checkpoint_callback.best_model_path
         logging.info("Model training completed.")
     elif args.mode == "test":

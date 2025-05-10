@@ -279,7 +279,8 @@ def main():
             data_inspector.plot_wind_farm(
                 wind_directions=[140],
                 turbine_groups=[np.concatenate(config["nacelle_calibration_turbine_pairs"]), [74, 73], [4]],
-                turbine_group_colors=["darkorange", "royalblue", "lime"])
+                turbine_group_colors=["darkorange", "royalblue", "lime"],
+                turbine_labels=[None, "LUT us", "LUT ds", "G"])
         
         # from datetime import datetime
         # # plotting_interval = pl.datetime_range(start=datetime(2024, 2, 20), end=datetime(2024, 12, 19)).alias("time")
