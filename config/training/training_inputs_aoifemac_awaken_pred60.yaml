@@ -178,8 +178,8 @@ model:
     n_heads: 4 # Number of heads for spatio-temporal attention
     d_model: 200
     dim_feedforward: 800
-    d_queries_keys: 30
-    d_values: 30
+    d_queries_keys: 40
+    d_values: 40
     dropout_emb: 0.2
     dropout_attn_matrix: 0.0
     dropout_attn_out: 0.0
