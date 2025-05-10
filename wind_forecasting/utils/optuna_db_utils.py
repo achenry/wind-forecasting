@@ -222,9 +222,8 @@ def setup_postgresql(db_setup_params, rank, restart_tuning):
                 storage = RDBStorage(
                     url=optuna_storage_url,
                     engine_kwargs={     # INFO: Added settings to limit connection pool size
-                        'pool_size': 1,
-                        'max_overflow': 0,
-                        'pool_timeout': 60,
+                        'pool_size': 2,
+                        'max_overflow': 1,
                         'pool_recycle': 3600,
                     })
                 # Test connection
