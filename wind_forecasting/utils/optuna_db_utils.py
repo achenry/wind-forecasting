@@ -9,6 +9,8 @@ from mysql.connector import connect as sql_connect
 from optuna.storages import JournalStorage, RDBStorage
 from optuna.storages.journal import JournalFileBackend
 
+# from gluonts.src.gluonts.nursery.daf import engine
+
 
 def setup_optuna_storage(db_setup_params, restart_tuning, rank):
     """
@@ -217,7 +219,14 @@ def setup_postgresql(db_setup_params, rank, restart_tuning):
                 # For external databases, bypass sync file and directly connect
                 logging.info(f"Rank {rank}: Using external PostgreSQL connection")
                 optuna_storage_url = db_utils.get_optuna_storage_url(pg_params)
-                storage = RDBStorage(url=optuna_storage_url)
+                storage = RDBStorage(
+                    url=optuna_storage_url,
+                    engine_kwargs={     # INFO: Added settings to limit connection pool size
+                        'pool_size': 1,
+                        'max_overflow': 0,
+                        'pool_timeout': 60,
+                        'pool_recycle': 3600,
+                    })
                 # Test connection
                 _ = storage.get_all_studies()
                 logging.info(f"Rank {rank}: Successfully connected to external PostgreSQL DB")

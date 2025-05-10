@@ -82,7 +82,7 @@ optuna:
 
   # Optuna Dashboard auto-launch configuration
   dashboard:
-    enabled: true             # Set to true to automatically launch the dashboard on rank 0
+    enabled: false             # Set to true to automatically launch the dashboard on rank 0
     port: 8088                # Port for the dashboard web server
     log_file: "${logging.optuna_dir}/optuna_dashboard.log" # Log file for the dashboard process
 

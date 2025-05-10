@@ -5,7 +5,7 @@
 #SBATCH --ntasks-per-node=1         # Match number of GPUs requested below
 #SBATCH --cpus-per-task=2           # CPUs per task (4 tasks * 32 = 128 CPUs total) [1 CPU/GPU more than enough]
 #SBATCH --mem-per-cpu=4096          # Memory per CPU (Total Mem = ntasks * cpus-per-task * mem-per-cpu) [flasc uses only ~4-5 GiB max]
-#SBATCH --gres=gpu:H100:1          # Request 4 H100 GPUs
+#SBATCH --gres=gpu:H100:1          # Request 2 H100 GPUs
 #SBATCH --time=1-00:00              # Time limit (up to 7 days)
 #SBATCH --job-name=flasc_tune
 #SBATCH --output=/user/taed7566/Forecasting/wind-forecasting/logs/slurm_logs/flasc_tune_%j.out
