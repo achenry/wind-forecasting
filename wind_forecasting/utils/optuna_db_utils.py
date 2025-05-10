@@ -6,6 +6,7 @@ from shutil import rmtree
 from wind_forecasting.utils import db_utils
 from lightning.pytorch.utilities import rank_zero_only
 from mysql.connector import connect as sql_connect
+import optuna
 from optuna.storages import JournalStorage, RDBStorage
 from optuna.storages.journal import JournalFileBackend
 
@@ -124,7 +125,32 @@ def setup_postgresql_rank_zero(db_setup_params, restart_tuning=False, register_c
 
         # Rank 0 creates the storage instance, triggering schema creation
         logging.info(f"Rank 0: Creating RDBStorage instance to initialize schema...")
-        storage = RDBStorage(url=optuna_storage_url)
+        
+        if is_external:
+            # Define engine_kwargs with optimized connection pool settings for external DB
+            engine_kwargs = {
+                "pool_size": 4,
+                "max_overflow": 4,
+                "pool_timeout": 30,
+                "pool_recycle": 1800,
+                "pool_pre_ping": True,
+                "connect_args": {"application_name": f"optuna_worker_0_main"}
+            }
+            
+            # Log the engine_kwargs
+            logging.info(f"Rank 0: Using SQLAlchemy engine_kwargs for external DB: {engine_kwargs}")
+            
+            # Create RDBStorage with optimized settings for external DB
+            storage = RDBStorage(
+                url=optuna_storage_url,
+                engine_kwargs=engine_kwargs,
+                heartbeat_interval=60,
+                failed_trial_callback=optuna.storages.RetryFailedTrialCallback(max_retry=3)
+            )
+        else:
+            # For local PostgreSQL (unix socket), use the original simple connection
+            storage = RDBStorage(url=optuna_storage_url)
+            
         logging.info(f"Rank 0: RDBStorage instance created.")
 
         if not is_external:
@@ -219,13 +245,28 @@ def setup_postgresql(db_setup_params, rank, restart_tuning):
                 # For external databases, bypass sync file and directly connect
                 logging.info(f"Rank {rank}: Using external PostgreSQL connection")
                 optuna_storage_url = db_utils.get_optuna_storage_url(pg_params)
+                
+                # Define engine_kwargs with optimized connection pool settings and dynamic application_name
+                engine_kwargs = {
+                    "pool_size": 4,
+                    "max_overflow": 4,
+                    "pool_timeout": 30,
+                    "pool_recycle": 1800,
+                    "pool_pre_ping": True,
+                    "connect_args": {"application_name": f"optuna_worker_{rank}"}
+                }
+                
+                # Log the engine_kwargs and rank
+                logging.info(f"Rank {rank}: Using SQLAlchemy engine_kwargs: {engine_kwargs}")
+                
+                # Create RDBStorage with optimized settings
                 storage = RDBStorage(
                     url=optuna_storage_url,
-                    engine_kwargs={     # INFO: Added settings to limit connection pool size
-                        'pool_size': 2,
-                        'max_overflow': 1,
-                        'pool_recycle': 3600,
-                    })
+                    engine_kwargs=engine_kwargs,
+                    heartbeat_interval=60,
+                    failed_trial_callback=optuna.storages.RetryFailedTrialCallback(max_retry=3)
+                )
+                
                 # Test connection
                 _ = storage.get_all_studies()
                 logging.info(f"Rank {rank}: Successfully connected to external PostgreSQL DB")
