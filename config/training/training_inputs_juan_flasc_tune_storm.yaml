@@ -117,7 +117,7 @@ model:
     # General TACTiS settings
     initial_stage: 1
     stage2_start_epoch: 30 # Epoch to start stage 2 (copula training)
-    ac_mlp_layers: 2 # MLP layers for attention copula
+    ac_mlp_num_layers: 2 # MLP layers for attention copula
     ac_mlp_dim: 128      # Dimension of AC's internal MLP layers
     stage1_activation_function: "relu" # Activation for Stage 1 encoders (e.g., "relu", "gelu", "leaky_relu")
     stage2_activation_function: "relu" # Activation for Stage 2 encoders (e.g., "relu", "gelu", "leaky_relu")
@@ -127,7 +127,6 @@ model:
     encoder_type: "standard" # Options: "standard", "temporal"
     bagging_size: null
     num_parallel_samples: 100 # Inference only setting
-    inference_num_samples: 100
     # Marginal CDF Encoder
     marginal_embedding_dim_per_head: 8
     marginal_num_heads: 5
