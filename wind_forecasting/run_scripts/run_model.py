@@ -322,8 +322,13 @@ def main():
 
     # Add global gradient clipping for automatic optimization
     config.setdefault("trainer", {})
-    config["trainer"]["gradient_clip_val"] = 1.0
-    logging.info(f"Set global gradient_clip_val = {config['trainer']['gradient_clip_val']} for automatic optimization.")
+    original_gcv = config["trainer"].get("gradient_clip_val")
+    effective_gcv = config["trainer"].setdefault("gradient_clip_val", 1.0)
+    
+    if original_gcv is None:
+        logging.info(f"Gradient_clip_val not specified in config, defaulting to {effective_gcv} for automatic optimization.")
+    else:
+        logging.info(f"Using gradient_clip_val: {original_gcv} from configuration for automatic optimization.")
 
     # %% CREATE DATASET
     # Dynamically set DataLoader workers based on SLURM_CPUS_PER_TASK
