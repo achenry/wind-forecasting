@@ -694,7 +694,7 @@ def main():
         if estimator_kwargs["num_batches_per_epoch"] is not None:
             n_training_steps = min(n_training_steps, estimator_kwargs["num_batches_per_epoch"])
         
-        if "dim_feedforward" not in model_hparams and "d_model" in model_hparams:
+        if  "d_model" in model_hparams: # and "dim_feedforward" not in model_hparams
             # set dim_feedforward to 4x the d_model found in this trial
             model_hparams["dim_feedforward"] = model_hparams["d_model"] * 4
             logging.info(f"Updating estimator {args.model.capitalize()} dim_feedforward with 4x d_model = {model_hparams['dim_feedforward']}")
