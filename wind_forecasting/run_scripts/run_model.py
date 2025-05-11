@@ -166,7 +166,6 @@ def main():
             else:
                 logging.warning("CUDA_VISIBLE_DEVICES is not set, using default GPU assignment")
 
-        if num_gpus > 1:
             # Check if strategy needs special handling for TACTiS DDP
             # Use .get() with default to avoid KeyError if 'strategy' not in config['trainer']
             current_strategy_setting = config.get("trainer", {}).get("strategy", "auto")
