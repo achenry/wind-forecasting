@@ -1,11 +1,11 @@
 experiment:
   username: jmb0507
   project_name: tune_tactis_flasc_3
-  run_name: tune_v2 # [p = patience, d = min_delta, b = limit_train_batches, n = n_startup_trials] / hb = hyperband min_resource, reduction_factor
+  run_name: tune_v2_farm # [p = patience, d = min_delta, b = limit_train_batches, n = n_startup_trials] / hb = hyperband min_resource, reduction_factor
   project_root: /user/taed7566/Forecasting/wind-forecasting
   log_dir: /user/taed7566/Forecasting/wind-forecasting/logs/
   notes: ""
-  extra_tags: ["flasc", "tune", "tcp"] # By default already has GPU id and model name.
+  extra_tags: ["flasc", "tune", "tcp", "farm"] # By default already has GPU id and model name.
 
 logging:
   entity: jmb0507-cu-boulder # Wandb entity (group name)
@@ -101,7 +101,7 @@ dataset:
     val_split: 0.1
     resample_freq: 60s
     n_splits: 1 # how many divisions of each continuity group to make which is further subdivided into training test and validation data
-    per_turbine_target: true # TODO: Test this option. Tune??
+    per_turbine_target: false # TODO: Test this option.
     context_length_factor: 2  # INFO: Takes precedence over context_length when use_tuned_parameters is true
 
 model:
