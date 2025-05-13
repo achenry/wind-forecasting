@@ -56,7 +56,7 @@ optuna:
     use_socket: false
     db_host: "pg-windforecasting-aiven-wind-forecasting.e.aivencloud.com"
     db_port: 12472
-    db_name: "defaultdb"
+    db_name: "optuna"
     db_user: "avnadmin"
     db_password_env_var: "AIVEN_PG_PASSWORD"
     sslmode: "require"

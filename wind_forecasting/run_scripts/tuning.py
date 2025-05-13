@@ -31,7 +31,7 @@ from wind_forecasting.utils.callbacks import DeadNeuronMonitor
 
 from wind_forecasting.utils.optuna_visualization import launch_optuna_dashboard, log_optuna_visualizations_to_wandb
 from wind_forecasting.utils.optuna_table import log_detailed_trials_table_to_wandb
-# from wind_forecasting.utils.trial_utils import handle_trial_with_oom_protection
+from wind_forecasting.utils.trial_utils import handle_trial_with_oom_protection
 
 import random
 import numpy as np
@@ -607,6 +607,20 @@ class MLTuningObjective:
                 raise e
             except Exception as e:
                 logging.error(f"Trial {trial.number} - Error during model training: {str(e)}", exc_info=True)
+                
+                # Handle MisconfigurationException specifically
+                if "MisconfigurationException" in str(type(e)):
+                    logging.error(f"Trial {trial.number} - MisconfigurationException detected: {str(e)}")
+                    
+                    # Mark the wandb run as failed if it exists
+                    if wandb.run is not None:
+                        logging.info(f"Marking WandB run as failed for trial {trial.number}")
+                        wandb.finish(exit_code=1)
+                    
+                    # Re-raise the error to mark trial as FAILED
+                    raise
+                
+                # Re-raise other exceptions
                 raise e
 
             # Log GPU stats after training

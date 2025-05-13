@@ -1,6 +1,8 @@
 import logging
 import torch
 import gc
+import sys
+import wandb
 
 def handle_trial_with_oom_protection(tuning_objective, trial):
     """
@@ -30,8 +32,14 @@ def handle_trial_with_oom_protection(tuning_objective, trial):
             # Force garbage collection
             torch.cuda.empty_cache()
             gc.collect()
-            # Return a very poor score
-            return float('inf')  # Assuming minimization; for maximization tasks this should be float('-inf')
+            
+            # Mark the wandb run as failed if it exists
+            if 'wandb' in sys.modules and wandb.run is not None:
+                logging.info(f"Marking WandB run as failed for trial {trial.number} due to OOM")
+                wandb.finish(exit_code=1)
+            
+            # Re-raise the error to mark trial as FAILED
+            raise
         raise e
     except Exception as e:
         # Catch GPU configuration errors and other exceptions
@@ -40,11 +48,24 @@ def handle_trial_with_oom_protection(tuning_objective, trial):
             logging.error("This is likely due to a mismatch between requested GPUs and available GPUs.")
             logging.error("Please check the --single_gpu flag and CUDA_VISIBLE_DEVICES setting.")
             
-            # Return a poor score to allow the study to continue
-            return float('inf')  # Assuming minimization
+            # Mark the wandb run as failed if it exists
+            if 'wandb' in sys.modules and wandb.run is not None:
+                logging.info(f"Marking WandB run as failed for trial {trial.number}")
+                wandb.finish(exit_code=1)
+            
+            # Re-raise the error to mark trial as FAILED
+            raise
+            
         elif "MisconfigurationException" in str(type(e)):
             logging.error(f"Trial {trial.number} failed with configuration error: {str(e)}")
-            return float('inf')  # Assuming minimization
+            
+            # Mark the wandb run as failed if it exists
+            if 'wandb' in sys.modules and wandb.run is not None:
+                logging.info(f"Marking WandB run as failed for trial {trial.number}")
+                wandb.finish(exit_code=1)
+            
+            # Re-raise the error to mark trial as FAILED
+            raise
         
         # For any other unexpected errors, log details and re-raise
         logging.error(f"Trial {trial.number} failed with unexpected error: {type(e).__name__}: {str(e)}")
