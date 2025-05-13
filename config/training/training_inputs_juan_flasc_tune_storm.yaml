@@ -175,7 +175,6 @@ model:
     warmup_steps_s2: 322 # Warmup steps for Stage 2
     steps_to_decay_s2: 2497 # T_max = (steps_per_epoch [282] * epochs_in_stage [100-30]) - warmup_steps ~ 47940 - warmup_steps    
     eta_min_fraction_s2: 0.01  # Fraction of initial LR for eta_min in Stage 2 cosine decay 
-
     # Dropout & Clipping
     dropout_rate: 0.1
 
