@@ -570,16 +570,24 @@ class MLTuningObjective:
         agg_metrics = None
 
         try:
+            # Create estimator
             try:
                 estimator = self.estimator_class(**estimator_kwargs)
+            except RuntimeError as e:
+                if "CUDA out of memory" in str(e):
+                    logging.error(f"Trial {trial.number} - CUDA OOM during estimator creation: {str(e)}")
+                    if wandb.run is not None:
+                        wandb.finish(exit_code=1)
+                    raise optuna.exceptions.TrialPruned(f"Trial pruned due to CUDA OOM during estimator creation: {e}")
+                raise
             except Exception as e:
                 logging.error(f"Trial {trial.number} - Error creating estimator: {str(e)}", exc_info=True)
-                raise e
+                raise
 
             # Log GPU stats before training
             self.log_gpu_stats(stage=f"Trial {trial.number} Before Training")
 
-            # Conditionally Create Forecast Generator
+            # Create Forecast Generator
             try:
                 if self.model == 'tactis':
                     logging.info(f"Trial {trial.number}: Using SampleForecastGenerator for TACTiS model.")
@@ -587,41 +595,42 @@ class MLTuningObjective:
                 else:
                     logging.info(f"Trial {trial.number}: Using DistributionForecastGenerator for {self.model} model.")
                     if not hasattr(estimator, 'distr_output'):
-                         raise AttributeError(f"Estimator for model '{self.model}' is missing 'distr_output' attribute needed for DistributionForecastGenerator.")
+                        raise AttributeError(f"Estimator for model '{self.model}' is missing 'distr_output' attribute needed for DistributionForecastGenerator.")
                     forecast_generator = DistributionForecastGenerator(estimator.distr_output)
+            except RuntimeError as e:
+                if "CUDA out of memory" in str(e):
+                    logging.error(f"Trial {trial.number} - CUDA OOM during forecast generator creation: {str(e)}")
+                    if wandb.run is not None:
+                        wandb.finish(exit_code=1)
+                    raise optuna.exceptions.TrialPruned(f"Trial pruned due to CUDA OOM during forecast generator creation: {e}")
+                raise
             except Exception as e:
                 logging.error(f"Trial {trial.number} - Error creating forecast generator: {str(e)}", exc_info=True)
-                raise e
+                raise
 
-            # Model Training
+            # Train Model
             try:
-                # Call estimator.train without the ckpt_path argument, as ModelCheckpoint is handled via callbacks
                 train_output = estimator.train(
                     training_data=self.data_module.train_dataset,
                     validation_data=self.data_module.val_dataset,
                     forecast_generator=forecast_generator
                 )
             except optuna.exceptions.TrialPruned as e:
-                # Correctly handle actual pruning triggered by the callback during training
                 logging.info(f"Trial {trial.number} pruned by Optuna callback during training: {str(e)}")
-                raise e
+                raise
+            except RuntimeError as e:
+                if "CUDA out of memory" in str(e):
+                    logging.error(f"Trial {trial.number} - CUDA OOM during training: {str(e)}")
+                    if wandb.run is not None:
+                        wandb.finish(exit_code=1)
+                    raise optuna.exceptions.TrialPruned(f"Trial pruned due to CUDA OOM during training: {e}")
+                raise
             except Exception as e:
-                logging.error(f"Trial {trial.number} - Error during model training: {str(e)}", exc_info=True)
-                
-                # Handle MisconfigurationException specifically
                 if "MisconfigurationException" in str(type(e)):
                     logging.error(f"Trial {trial.number} - MisconfigurationException detected: {str(e)}")
-                    
-                    # Mark the wandb run as failed if it exists
                     if wandb.run is not None:
-                        logging.info(f"Marking WandB run as failed for trial {trial.number}")
                         wandb.finish(exit_code=1)
-                    
-                    # Re-raise the error to mark trial as FAILED
-                    raise
-                
-                # Re-raise other exceptions
-                raise e
+                raise
 
             # Log GPU stats after training
             self.log_gpu_stats(stage=f"Trial {trial.number} After Training")
@@ -1043,7 +1052,13 @@ def tune_model(model, config, study_name, optuna_storage, lightning_module_class
                 storage=optuna_storage,
                 direction=direction,
                 load_if_exists=not restart_tuning, # Only load if not restarting
-                sampler=TPESampler(seed=seed),
+                sampler=TPESampler(
+                    seed=seed,
+                    n_startup_trials=16,    #TODO: make configurable
+                    multivariate=True,      #TODO: make configurable
+                    constant_liar=True,     #TODO: make configurable                  
+                    group=False
+                ),
                 pruner=pruner
             )
             logging.info(f"Rank 0: Study '{final_study_name}' created or loaded successfully.")

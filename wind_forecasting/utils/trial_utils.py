@@ -29,12 +29,8 @@ def handle_trial_with_oom_protection(tuning_objective, trial):
             logging.warning(f"Trial {trial.number} failed with CUDA OOM error (caught in trial_utils)")
             if torch.cuda.is_available():
                 logging.warning(f"OOM at memory usage (trial_utils): {torch.cuda.memory_allocated()/1e9:.2f}GB")
-            # Mark the wandb run as failed if it exists and is active
-            if 'wandb' in sys.modules and wandb.run is not None and wandb.run.id is not None:
-                logging.info(f"Marking WandB run as failed for trial {trial.number} due to OOM (trial_utils)")
-                wandb.finish(exit_code=1)
-            # No explicit cleanup here, finally block will handle it.
-            raise # Re-raise to mark trial as FAILED in Optuna
+            # Let MLTuningObjective handle the WandB finish and TrialPruned raising
+            raise
         logging.error(f"Trial {trial.number} failed with other RuntimeError (trial_utils): {str(e)}", exc_info=True)
         if 'wandb' in sys.modules and wandb.run is not None and wandb.run.id is not None:
              wandb.finish(exit_code=1)
@@ -53,9 +49,7 @@ def handle_trial_with_oom_protection(tuning_objective, trial):
         else:
             logging.error(f"Trial {trial.number} failed with unexpected error (trial_utils): {type(e).__name__}: {str(e)}", exc_info=True)
         
-        if 'wandb' in sys.modules and wandb.run is not None and wandb.run.id is not None:
-            logging.info(f"Marking WandB run as failed for trial {trial.number} due to {type(e).__name__} (trial_utils)")
-            wandb.finish(exit_code=1)
+        logging.error(f"Trial {trial.number} - Unexpected error: {str(e)}", exc_info=True)
         raise
     finally:
         logging.info(f"Trial {trial.number} - Executing cleanup in trial_utils.py finally block.")
