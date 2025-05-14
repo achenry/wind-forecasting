@@ -8,6 +8,7 @@ from typing import Callable, Optional
 from pathlib import Path
 import pandas as pd
 import re
+import numpy as np
 
 from itertools import cycle
 
@@ -588,7 +589,8 @@ class DataInspector:
                        wind_speeds:list[float]|None=None, 
                        turbulence_intensities:list[float]|None=None,
                        turbine_groups:list[int]|None=None,
-                       turbine_group_colors:list[str|int]|None=None) -> None:
+                       turbine_group_colors:list[str|int]|None=None,
+                       turbine_labels:list[str|int]|None=None) -> None:
         """_summary_
 
         Returns:
@@ -617,7 +619,7 @@ class DataInspector:
                    wind_directions=wind_directions, wind_speeds=wind_speeds, turbulence_intensities=turbulence_intensities)
         
         # Create the plot
-        fig, ax = plt.subplots(figsize=(10, 10))
+        fig, ax = plt.subplots(figsize=(10, 5.2))
         
         # Plot the turbine layout
         layoutviz.plot_turbine_points(
@@ -625,6 +627,26 @@ class DataInspector:
             highlight_turbine_groups=turbine_groups,
             highlight_colors=turbine_group_colors)
         
+        if turbine_labels:
+            # turbine_labels = list(turbine_labels)
+            turbine_indices = np.concatenate([tg for g, tg in enumerate(turbine_groups) if turbine_labels[g] is not None])
+            sort_idx = np.argsort(turbine_indices)
+            turbine_indices = list(turbine_indices[sort_idx])
+            turbine_labels = list(np.array([l for l in turbine_labels if l is not None])[sort_idx])
+            turbine_names = [turbine_labels[turbine_indices.index(t)] if (t in turbine_indices and turbine_labels[turbine_indices.index(t)] is not None) else None for t in range(self.fmodel.n_turbines)]
+
+            rotor_diameters = self.fmodel.core.farm.rotor_diameters.flatten()
+            r = rotor_diameters[0] / 2.0
+            label_offset = r / 8.0
+            
+            layoutviz.plot_turbine_labels(
+                self.fmodel, 
+                turbine_indices=turbine_indices,
+                ax=ax, 
+                turbine_names=turbine_names, 
+                show_bbox=False, bbox_dict={"facecolor": "white", "alpha": 0.5},
+                label_offset=[(label_offset, label_offset), (label_offset, label_offset), (label_offset, -20*label_offset)]
+            )
         # Add turbine labels
         # turbine_names = [f"T{i+1}" for i in range(self.fmodel.n_turbines)]
         # layoutviz.plot_turbine_labels(

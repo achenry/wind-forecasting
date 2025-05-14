@@ -170,9 +170,6 @@ class DataModule():
             self.target_cols = dataset.select(*[cs.starts_with(pfx) for pfx in self.target_prefixes]).collect_schema().names()
             self.target_suffixes = sorted(list(set(col.split("_")[-1] for col in self.target_cols)), key=lambda col: int(re.search("\\d+", col).group()))
         else:
-            # float64_cols = list(dataset.select_dtypes(include="float64"))
-            # dataset[float64_cols] = dataset[float64_cols].astype("float32")
-            # dataset.filter(pl.col("continuity_group") == 0).to_pandas().to_csv("/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/sample_data.csv", index=False) 
             self.target_cols = [col for col in dataset.collect_schema().names() if any(prefix in col for prefix in self.target_prefixes)]
         self.feat_dynamic_real_cols = [col for col in dataset.collect_schema().names() if any(prefix in col for prefix in self.feat_dynamic_real_prefixes)]
         

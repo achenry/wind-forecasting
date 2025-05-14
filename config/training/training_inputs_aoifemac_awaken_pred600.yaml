@@ -2,8 +2,8 @@
 
 experiment:
   username: aoife-henry
-  project_name: wind_forecasting_awaken_pred60
-  run_name: aoifemac_awaken_pred60
+  project_name: wind_forecasting_awaken_pred600
+  run_name: aoifemac_awaken_pred600
   log_dir: /Users/ahenry/Documents/toolboxes/wind_forecasting/logging/
   project_root: /Users/ahenry/Documents/toolboxes/wind_forecasting
   notes: "Tuning AWAKEN with Informer+"
@@ -83,7 +83,7 @@ dataset:
     data_path: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/awaken_data/awaken_processed_normalized.parquet
     normalization_consts_path: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/awaken_data/awaken_processed_normalization_consts.csv
     context_length: 600 # in seconds
-    prediction_length: 120 # in seconds
+    prediction_length: 600 # in seconds
     target_turbine_ids:  # or leave blank to capture all
     normalize: False 
     batch_size: 64
