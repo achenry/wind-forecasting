@@ -6,8 +6,11 @@ from shutil import rmtree
 from wind_forecasting.utils import db_utils
 from lightning.pytorch.utilities import rank_zero_only
 from mysql.connector import connect as sql_connect
+import optuna
 from optuna.storages import JournalStorage, RDBStorage
 from optuna.storages.journal import JournalFileBackend
+
+# from gluonts.src.gluonts.nursery.daf import engine
 
 
 def setup_optuna_storage(db_setup_params, restart_tuning, rank):
@@ -96,6 +99,18 @@ def setup_postgresql_rank_zero(db_setup_params, restart_tuning=False, register_c
                 "db_user", "run_cmd_shell", "socket_dir_base", "sync_dir"
             ]
         }
+        
+        # Conditionally add SSL parameters and password environment variable if they exist
+        for param in ["sslmode", "sslrootcert_path", "db_password_env_var"]:
+            if param in db_setup_params:
+                pg_params[param] = db_setup_params[param]
+
+        # Check if this is an external PostgreSQL connection
+        is_external = (pg_params.get("use_tcp", False) and (
+            pg_params.get("db_password_env_var") or
+            pg_params.get("sslmode") or
+            pg_params.get("sslrootcert_path")
+        ))
 
         # Manage instance (init, start, setup user/db)
         # Pass restart flag from args.
@@ -110,42 +125,66 @@ def setup_postgresql_rank_zero(db_setup_params, restart_tuning=False, register_c
 
         # Rank 0 creates the storage instance, triggering schema creation
         logging.info(f"Rank 0: Creating RDBStorage instance to initialize schema...")
-        storage = RDBStorage(url=optuna_storage_url)
-        logging.info(f"Rank 0: RDBStorage instance created.")
-        # Ensure sync file doesn't exist from a previous failed run
-        # pg_config should be populated by manage_postgres_instance if successful
-        if not pg_config or "sync_file" not in pg_config:
-             raise ValueError("Sync file path not generated in pg_config.")
-        else:
-            sync_file_path = pg_config["sync_file"]
-            
-        # Check if the sync file already exists
-        sync_file_ready = False
-        if os.path.exists(sync_file_path) and not restart_tuning:
-            try:
-                with open(sync_file_path, 'r') as f:
-                    content = f.read().strip()
-                    if content == 'ready':
-                        sync_file_ready = True
-                        logging.info(f"Rank 0: Existing sync file found with 'ready' status: {sync_file_path}")
-                    else:
-                        logging.warning(f"Rank 0: Sync file exists but has invalid content: '{content}'. Will recreate.")
-                        os.remove(sync_file_path)
-            except Exception as e:
-                logging.warning(f"Rank 0: Error reading existing sync file: {e}. Will recreate.")
-                if os.path.exists(sync_file_path):
-                    os.remove(sync_file_path)
-        elif os.path.exists(sync_file_path) and restart_tuning:
-            logging.info(f"Rank 0: Removing existing sync file due to restart_tuning=True: {sync_file_path}")
-            os.remove(sync_file_path)
         
-        # Only create the sync file if it doesn't already exist with valid content
-        if not sync_file_ready:
-            with open(sync_file_path, 'w') as f:
-                f.write('ready')
-            logging.info(f"Rank 0: PostgreSQL ready. Created sync file: {sync_file_path}")
+        if is_external:
+            # Define engine_kwargs with optimized connection pool settings for external DB
+            engine_kwargs = {
+                "pool_size": 4,
+                "max_overflow": 4,
+                "pool_timeout": 30,
+                "pool_recycle": 1800,
+                "pool_pre_ping": True,
+                "connect_args": {"application_name": f"optuna_worker_0_main"}
+            }
+            
+            # Log the engine_kwargs
+            logging.info(f"Rank 0: Using SQLAlchemy engine_kwargs for external DB: {engine_kwargs}")
+            
+            # Create RDBStorage with optimized settings for external DB
+            storage = RDBStorage(
+                url=optuna_storage_url,
+                engine_kwargs=engine_kwargs,
+                heartbeat_interval=60,
+                failed_trial_callback=optuna.storages.RetryFailedTrialCallback(max_retry=3)
+            )
         else:
-            logging.info(f"Rank 0: Using existing sync file: {sync_file_path}")
+            # For local PostgreSQL (unix socket), use the original simple connection
+            storage = RDBStorage(url=optuna_storage_url)
+            
+        logging.info(f"Rank 0: RDBStorage instance created.")
+
+        if not is_external:
+            # Only handle sync file for local PostgreSQL
+            if not pg_config or "sync_file" not in pg_config:
+                 raise ValueError("Sync file path not generated in pg_config.")
+            
+            sync_file_path = pg_config["sync_file"]
+            sync_file_ready = False
+            
+            if os.path.exists(sync_file_path) and not restart_tuning:
+                try:
+                    with open(sync_file_path, 'r') as f:
+                        content = f.read().strip()
+                        if content == 'ready':
+                            sync_file_ready = True
+                            logging.info(f"Rank 0: Existing sync file found with 'ready' status: {sync_file_path}")
+                        else:
+                            logging.warning(f"Rank 0: Sync file exists but has invalid content: '{content}'. Will recreate.")
+                            os.remove(sync_file_path)
+                except Exception as e:
+                    logging.warning(f"Rank 0: Error reading existing sync file: {e}. Will recreate.")
+                    if os.path.exists(sync_file_path):
+                        os.remove(sync_file_path)
+            elif os.path.exists(sync_file_path) and restart_tuning:
+                logging.info(f"Rank 0: Removing existing sync file due to restart_tuning=True: {sync_file_path}")
+                os.remove(sync_file_path)
+            
+            if not sync_file_ready:
+                with open(sync_file_path, 'w') as f:
+                    f.write('ready')
+                logging.info(f"Rank 0: PostgreSQL ready. Created sync file: {sync_file_path}")
+            else:
+                logging.info(f"Rank 0: Using existing sync file: {sync_file_path}")
         
         return storage, pg_config # Return the created storage object
 
@@ -179,11 +218,9 @@ def setup_postgresql(db_setup_params, rank, restart_tuning):
              raise RuntimeError("Rank 0 failed to setup PostgreSQL and return valid storage/config.")
 
     else:
-        # Worker ranks: Generate config *only* to find sync file and wait
+        # Worker ranks
         try:
-            # Generate config but DO NOT manage the instance or register cleanup
-            # This call primarily resolves paths and gets the sync_file location
-            # Filter db_setup_params to only include keys relevant for PostgreSQL setup
+            # Filter db_setup_params to only include relevant keys
             pg_params = {
                 k: v for k, v in db_setup_params.items() if k in [
                     "backend", "project_root", "pgdata_path", "study_name",
@@ -191,48 +228,92 @@ def setup_postgresql(db_setup_params, rank, restart_tuning):
                     "db_user", "run_cmd_shell", "socket_dir_base", "sync_dir"
                 ]
             }
-            # Pass the filtered explicit params dict
-            pg_config = db_utils._generate_pg_config(**pg_params) # Unpack the filtered explicit params here
-            sync_file_path = pg_config.get("sync_file")
-            if not sync_file_path:
-                 raise ValueError("Sync file path not generated in pg_config for worker.")
+            
+            # Add SSL parameters and password environment variable if they exist
+            for param in ["sslmode", "sslrootcert_path", "db_password_env_var"]:
+                if param in db_setup_params:
+                    pg_params[param] = db_setup_params[param]
+            
+            # Check if this is an external PostgreSQL connection
+            is_external = (pg_params.get("use_tcp", False) and (
+                pg_params.get("db_password_env_var") or
+                pg_params.get("sslmode") or
+                pg_params.get("sslrootcert_path")
+            ))
+            
+            if is_external:
+                # For external databases, bypass sync file and directly connect
+                logging.info(f"Rank {rank}: Using external PostgreSQL connection")
+                optuna_storage_url = db_utils.get_optuna_storage_url(pg_params)
+                
+                # Define engine_kwargs with optimized connection pool settings and dynamic application_name
+                engine_kwargs = {
+                    "pool_size": 4,
+                    "max_overflow": 4,
+                    "pool_timeout": 30,
+                    "pool_recycle": 1800,
+                    "pool_pre_ping": True,
+                    "connect_args": {"application_name": f"optuna_worker_{rank}"}
+                }
+                
+                # Log the engine_kwargs and rank
+                logging.info(f"Rank {rank}: Using SQLAlchemy engine_kwargs: {engine_kwargs}")
+                
+                # Create RDBStorage with optimized settings
+                storage = RDBStorage(
+                    url=optuna_storage_url,
+                    engine_kwargs=engine_kwargs,
+                    heartbeat_interval=60,
+                    failed_trial_callback=optuna.storages.RetryFailedTrialCallback(max_retry=3)
+                )
+                
+                # Test connection
+                _ = storage.get_all_studies()
+                logging.info(f"Rank {rank}: Successfully connected to external PostgreSQL DB")
+                pg_config = pg_params  # Store connection params
+            else:
+                # For local PostgreSQL, use sync file mechanism
+                pg_config = db_utils._generate_pg_config(**pg_params)
+                sync_file_path = pg_config.get("sync_file")
+                if not sync_file_path:
+                    raise ValueError("Sync file path not generated in pg_config for worker.")
 
-            logging.info(f"Rank {rank}: Waiting for PostgreSQL sync file: {sync_file_path}")
-            max_wait_time = 300  # seconds (5 minutes)
-            wait_interval = 5    # seconds
-            waited_time = 0
-            sync_status = None
-            while waited_time < max_wait_time:
-                if os.path.exists(sync_file_path):
-                    try:
-                        with open(sync_file_path, 'r') as f:
-                            sync_status = f.read().strip()
-                        if sync_status == 'ready':
-                            logging.info(f"Rank {rank}: Sync file found and indicates 'ready'. Proceeding.")
-                            break
-                        elif sync_status == 'error':
-                             logging.error(f"Rank {rank}: Sync file indicates 'error' from Rank 0. Aborting.")
-                             raise RuntimeError("Rank 0 failed PostgreSQL setup.")
-                        else:
-                             # File exists but content is unexpected, wait briefly and re-check
-                             logging.warning(f"Rank {rank}: Sync file found but content is '{sync_status}'. Waiting...")
+                logging.info(f"Rank {rank}: Waiting for PostgreSQL sync file: {sync_file_path}")
+                max_wait_time = 300  # seconds (5 minutes)
+                wait_interval = 5    # seconds
+                waited_time = 0
+                sync_status = None
+                while waited_time < max_wait_time:
+                    if os.path.exists(sync_file_path):
+                        try:
+                            with open(sync_file_path, 'r') as f:
+                                sync_status = f.read().strip()
+                            if sync_status == 'ready':
+                                logging.info(f"Rank {rank}: Sync file found and indicates 'ready'. Proceeding.")
+                                break
+                            elif sync_status == 'error':
+                                logging.error(f"Rank {rank}: Sync file indicates 'error' from Rank 0. Aborting.")
+                                raise RuntimeError("Rank 0 failed PostgreSQL setup.")
+                            else:
+                                # File exists but content is unexpected, wait briefly and re-check
+                                logging.warning(f"Rank {rank}: Sync file found but content is '{sync_status}'. Waiting...")
 
-                    except Exception as e_read:
-                        logging.warning(f"Rank {rank}: Error reading sync file '{sync_file_path}': {e_read}. Retrying...")
+                        except Exception as e_read:
+                            logging.warning(f"Rank {rank}: Error reading sync file '{sync_file_path}': {e_read}. Retrying...")
 
-                time.sleep(wait_interval)
-                waited_time += wait_interval
+                    time.sleep(wait_interval)
+                    waited_time += wait_interval
 
-            if sync_status != 'ready':
-                 logging.error(f"Rank {rank}: Timed out waiting for sync file '{sync_file_path}' or file did not indicate 'ready'.")
-                 raise TimeoutError("Timed out waiting for Rank 0 PostgreSQL setup.")
+                if sync_status != 'ready':
+                    logging.error(f"Rank {rank}: Timed out waiting for sync file '{sync_file_path}' or file did not indicate 'ready'.")
+                    raise TimeoutError("Timed out waiting for Rank 0 PostgreSQL setup.")
 
-            # Generate the storage URL using the generated config
-            optuna_storage_url = db_utils.get_optuna_storage_url(pg_config)
-            storage = RDBStorage(url=optuna_storage_url)
-            # Test connection
-            _ = storage.get_all_studies()
-            logging.info(f"Rank {rank}: Successfully connected to PostgreSQL DB.")
+                # Generate the storage URL using the generated config
+                optuna_storage_url = db_utils.get_optuna_storage_url(pg_config)
+                storage = RDBStorage(url=optuna_storage_url)
+                # Test connection
+                _ = storage.get_all_studies()
+                logging.info(f"Rank {rank}: Successfully connected to PostgreSQL DB.")
 
 
         except Exception as e:

@@ -322,8 +322,13 @@ def main():
 
     # Add global gradient clipping for automatic optimization
     config.setdefault("trainer", {})
-    config["trainer"]["gradient_clip_val"] = 1.0
-    logging.info(f"Set global gradient_clip_val = {config['trainer']['gradient_clip_val']} for automatic optimization.")
+    original_gcv = config["trainer"].get("gradient_clip_val")
+    effective_gcv = config["trainer"].setdefault("gradient_clip_val", 1.0)
+    
+    if original_gcv is None:
+        logging.info(f"Gradient_clip_val not specified in config, defaulting to {effective_gcv} for automatic optimization.")
+    else:
+        logging.info(f"Using gradient_clip_val: {original_gcv} from configuration for automatic optimization.")
 
     # %% CREATE DATASET
     # Dynamically set DataLoader workers based on SLURM_CPUS_PER_TASK
@@ -343,6 +348,8 @@ def main():
     logging.info(f"Determined SLURM_CPUS_PER_TASK={cpus_per_task}. Setting num_workers = {num_workers}.")
 
     logging.info("Creating datasets")
+    use_normalization = False if args.model == "tactis" else config["dataset"].get("normalize", True)
+    logging.info(f"Instantiating DataModule with normalized={use_normalization} (Forced False for TACTiS-2 which requires denormalized input)")
     data_module = DataModule(
         data_path=config["dataset"]["data_path"],
         n_splits=config["dataset"]["n_splits"],
@@ -359,7 +366,7 @@ def main():
         per_turbine_target=config["dataset"]["per_turbine_target"],
         as_lazyframe=False,
         dtype=pl.Float32,
-        normalized=False,#False if args.model == "tactis" else True, # Feed raw-scale data to use with internal scaling="std"
+        normalized=use_normalization,  # TACTiS-2 requires denormalized input for internal scaling
         normalization_consts_path=config["dataset"]["normalization_consts_path"], # Needed for denormalization
         batch_size=config["dataset"].get("batch_size", 128),
         workers=num_workers,
@@ -676,8 +683,9 @@ def main():
             "batch_size": data_module.batch_size,
             "num_batches_per_epoch": config["trainer"].get("limit_train_batches", 1000),
             "context_length": data_module.context_length,
-            # "train_sampler": ExpectedNumInstanceSampler(num_instances=1.0, min_past=context_length, min_future=data_module.prediction_length),
-            "train_sampler": SequentialSampler(min_past=data_module.context_length, min_future=data_module.prediction_length), # TODO TEST, w/ num_batches_per_epoch=None or float
+            "train_sampler": SequentialSampler(min_past=data_module.context_length, min_future=data_module.prediction_length)
+                if config["dataset"].get("sampler", "sequential") == "sequential"
+                else ExpectedNumInstanceSampler(num_instances=1.0, min_past=data_module.context_length, min_future=data_module.prediction_length),
             "validation_sampler": ValidationSplitSampler(min_past=data_module.context_length, min_future=data_module.prediction_length),
             "trainer_kwargs": config["trainer"],
         }
@@ -691,6 +699,12 @@ def main():
         assert estimator_kwargs["num_batches_per_epoch"] is None or isinstance(estimator_kwargs["num_batches_per_epoch"], int)
         if estimator_kwargs["num_batches_per_epoch"] is not None:
             n_training_steps = min(n_training_steps, estimator_kwargs["num_batches_per_epoch"])
+            
+        # Log warning if using random sampler with null limit_train_batches
+        if (config["dataset"].get("sampler", "sequential") == "random" and
+            estimator_kwargs["num_batches_per_epoch"] is None):
+            logging.warning("Using random sampler (ExpectedNumInstanceSampler) with limit_train_batches=null. "
+                          "Consider setting an explicit integer value for limit_train_batches to avoid potential issues.")
         
         if "dim_feedforward" not in model_hparams and "d_model" in model_hparams:
             # set dim_feedforward to 4x the d_model found in this trial
@@ -768,46 +782,7 @@ def main():
         except Exception as e:
             logging.error(f"Error during checkpoint path resolution: {e}", exc_info=True)
 
-        # Instantiate callbacks from configuration
-        import importlib
-
-        logging.info("Instantiating callbacks from configuration...")
-        instantiated_callbacks = []
-        if 'callbacks' in config and isinstance(config['callbacks'], dict):
-            for cb_name, cb_config in config['callbacks'].items():
-                if isinstance(cb_config, dict) and 'class_path' in cb_config:
-                    try:
-                        module_path, class_name = cb_config['class_path'].rsplit('.', 1)
-                        CallbackClass = getattr(importlib.import_module(module_path), class_name)
-                        init_args = cb_config.get('init_args', {})
-
-                        # Special handling for ModelCheckpoint dirpath
-                        if class_name == "ModelCheckpoint" and 'dirpath' in init_args and init_args['dirpath'] is not None:
-                            if isinstance(init_args['dirpath'], str) and '${logging.checkpoint_dir}' in init_args['dirpath']:
-                                init_args['dirpath'] = init_args['dirpath'].replace('${logging.checkpoint_dir}', checkpoint_dir)
-                            elif not os.path.isabs(init_args['dirpath']):
-                                project_root = config.get('experiment', {}).get('project_root', '.')
-                                init_args['dirpath'] = os.path.abspath(os.path.join(project_root, init_args['dirpath']))
-                        os.makedirs(init_args['dirpath'], exist_ok=True)
-                        callback_instance = CallbackClass(**init_args)
-                        instantiated_callbacks.append(callback_instance)
-                        logging.info(f"Instantiated callback: {class_name}")
-
-                    except Exception as e:
-                        logging.error(f"Error instantiating callback {cb_name}: {e}")
-                elif isinstance(cb_config, bool) and cb_config is True:
-                    # Handle simple boolean flag callbacks
-                    if cb_name == "progress_bar":
-                        from lightning.pytorch.callbacks import RichProgressBar
-                        instantiated_callbacks.append(RichProgressBar())
-                    elif cb_name == "lr_monitor":
-                        from lightning.pytorch.callbacks import LearningRateMonitor
-                        lr_config = config['callbacks'].get('lr_monitor_config', {})
-                        instantiated_callbacks.append(LearningRateMonitor(**lr_config))
-
-            # Replace the dictionary in the config with the list of instances
-            config['callbacks'] = instantiated_callbacks
-            logging.info(f"Replaced config['callbacks'] with {len(instantiated_callbacks)} instantiated callback objects.")
+        # Callbacks from config will be handled by MLTuningObjective.
 
         # Normal execution - pass the OOM protection wrapper and constructed storage URL
         tune_model(model=args.model, config=config, # Pass full config here for model/trainer params
