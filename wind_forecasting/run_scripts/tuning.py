@@ -3,9 +3,11 @@ from lightning.pytorch.utilities.model_summary import summarize
 from gluonts.evaluation import MultivariateEvaluator, make_evaluation_predictions
 from gluonts.model.forecast_generator import DistributionForecastGenerator, SampleForecastGenerator
 from gluonts.time_feature._base import second_of_minute, minute_of_hour, hour_of_day, day_of_year
-from gluonts.transform import ExpectedNumInstanceSampler, ValidationSplitSampler
+from gluonts.transform import ExpectedNumInstanceSampler, SequentialSampler, ValidationSplitSampler
 import logging
 import torch
+import importlib # Added for dynamic callback instantiation
+import collections.abc # Added for flatten_dict
 import gc
 import time # Added for load_study retry delay
 import inspect
@@ -16,8 +18,9 @@ import re # Added for epoch parsing
 # Imports for Optuna
 import optuna
 from optuna import create_study, load_study
+from optuna.study import MaxTrialsCallback
 from optuna.samplers import TPESampler
-from optuna.pruners import HyperbandPruner, MedianPruner, PercentilePruner, NopPruner
+from optuna.pruners import HyperbandPruner, PercentilePruner, PatientPruner, NopPruner
 from optuna_integration import PyTorchLightningPruningCallback
 
 import lightning.pytorch as pl # Import pl alias
@@ -29,7 +32,7 @@ from wind_forecasting.utils.callbacks import DeadNeuronMonitor
 
 from wind_forecasting.utils.optuna_visualization import launch_optuna_dashboard, log_optuna_visualizations_to_wandb
 from wind_forecasting.utils.optuna_table import log_detailed_trials_table_to_wandb
-# from wind_forecasting.utils.trial_utils import handle_trial_with_oom_protection
+from wind_forecasting.utils.trial_utils import handle_trial_with_oom_protection
 
 import random
 import numpy as np
@@ -109,6 +112,20 @@ def generate_df_setup_params(model, model_config):
         "sqlite_timeout": storage_cfg.get("sqlite_timeout", 600), # For sqlite
         "pgdata_instance_name": pgdata_instance_name, # Store instance name for reference
     }
+    
+    # Add SSL parameters if they exist in the configuration (for external PostgreSQL connections)
+    if backend == "postgresql" and storage_cfg.get("use_tcp", False):
+        # If SSL mode is specified, add it to the parameters
+        if "sslmode" in storage_cfg:
+            db_setup_params["sslmode"] = storage_cfg["sslmode"]
+            
+        # If SSL root certificate path is specified, resolve it to an absolute path
+        if "sslrootcert_path" in storage_cfg:
+            db_setup_params["sslrootcert_path"] = resolve_path(project_root, storage_cfg["sslrootcert_path"])
+            
+        # If password environment variable is specified, add it to the parameters
+        if "db_password_env_var" in storage_cfg:
+            db_setup_params["db_password_env_var"] = storage_cfg["db_password_env_var"]
     return db_setup_params
 
 
@@ -307,67 +324,119 @@ class MLTuningObjective:
 
         trial_trainer_kwargs = {k: v for k, v in self.config["trainer"].items() if k != 'callbacks'}
 
-        # Get other callbacks from config but filter out any existing ModelCheckpoint instances
-        # @boujuan EARLY STOPPING SHOULD BE HERE TOOOOO AHHHHHHHHHHHHHHHHHHHHHH
-        instantiated_callbacks_from_config = self.config.get("callbacks", [])
-        early_stopping_config_args = None # AHHHHHHHHHHHHHHHHHH
+        # Instantiate general callbacks from the original YAML configuration.
+        # Trial-specific callbacks (Pruning, ModelCheckpoint, EarlyStopping) are already in 'current_callbacks'.
+        
+        callback_configurations_dict = self.config.get('callbacks', {})
+        general_instantiated_callbacks = []
+        early_stopping_config_args = None # For trial-specific EarlyStopping
 
-        if not isinstance(instantiated_callbacks_from_config, list) or not all(isinstance(cb, pl.Callback) for cb in instantiated_callbacks_from_config):
-             logging.warning("Callbacks in config are not a list of instantiated pl.Callback objects. Reverting to empty list.")
-             instantiated_callbacks_from_config = []
+        if isinstance(callback_configurations_dict, dict):
+            logging.info(f"Trial {trial.number}: Processing callback configurations from YAML: {list(callback_configurations_dict.keys())}")
+            for cb_name, cb_setting in callback_configurations_dict.items():
+                # Skip if callback is explicitly disabled
+                if isinstance(cb_setting, dict) and cb_setting.get('enabled', True) is False:
+                    logging.info(f"Trial {trial.number}: Skipping disabled callback from config: {cb_name}")
+                    continue
+
+                # Trial-specific callbacks are handled elsewhere or have dedicated logic
+                if cb_name == 'model_checkpoint': # Handled by trial_checkpoint_callback
+                    logging.debug(f"Trial {trial.number}: Skipping '{cb_name}' config, handled by trial-specific ModelCheckpoint.")
+                    continue
+                
+                if cb_name == 'early_stopping': # Args captured for trial-specific EarlyStopping
+                    if isinstance(cb_setting, dict) and early_stopping_config_args is None: # Capture first one found
+                        early_stopping_config_args = cb_setting.get('init_args', {}).copy() # Use .copy()
+                        # Ensure monitor and mode are present, add defaults if not
+                        early_stopping_config_args.setdefault('monitor', self.config.get("trainer", {}).get("monitor_metric", "val_loss"))
+                        early_stopping_config_args.setdefault('mode', "min" if self.config.get("optuna", {}).get("direction", "minimize") == "minimize" else "max")
+                        logging.info(f"Trial {trial.number}: Captured EarlyStopping args from '{cb_name}' config: {early_stopping_config_args}")
+                    else:
+                        logging.debug(f"Trial {trial.number}: Skipping '{cb_name}' config, EarlyStopping args already captured or not a dict.")
+                    continue
+
+                if cb_name == 'dead_neuron_monitor': # Handled separately later, added to current_callbacks
+                    logging.debug(f"Trial {trial.number}: Skipping '{cb_name}' config here, will be handled separately.")
+                    continue
+
+                # Instantiate other general callbacks defined by class_path
+                if isinstance(cb_setting, dict) and 'class_path' in cb_setting:
+                    try:
+                        module_path, class_name = cb_setting['class_path'].rsplit('.', 1)
+                        CallbackClass = getattr(importlib.import_module(module_path), class_name)
+                        init_args = cb_setting.get('init_args', {})
+                        
+                        # Example: Resolve dirpath if a general callback needs it (like a custom checkpoint logger)
+                        # This is a placeholder; specific path resolution might be needed per callback type.
+                        if 'dirpath' in init_args and isinstance(init_args['dirpath'], str):
+                            if '${logging.checkpoint_dir}' in init_args['dirpath']:
+                                base_chkpt_dir = self.config.get("logging", {}).get("checkpoint_dir", "checkpoints")
+                                init_args['dirpath'] = init_args['dirpath'].replace('${logging.checkpoint_dir}', base_chkpt_dir)
+                            if not os.path.isabs(init_args['dirpath']):
+                                project_root = self.config.get('experiment', {}).get('project_root', '.')
+                                init_args['dirpath'] = os.path.abspath(os.path.join(project_root, init_args['dirpath']))
+                            os.makedirs(init_args['dirpath'], exist_ok=True)
+
+                        callback_instance = CallbackClass(**init_args)
+                        general_instantiated_callbacks.append(callback_instance)
+                        logging.info(f"Trial {trial.number}: Instantiated general callback '{class_name}' from config (name: {cb_name}).")
+                    except Exception as e:
+                        logging.error(f"Trial {trial.number}: Error instantiating general callback '{cb_name}' from config: {e}", exc_info=True)
+                
+                # Handle simple boolean flags for common callbacks
+                elif isinstance(cb_setting, bool) and cb_setting is True:
+                    if cb_name == "progress_bar":
+                        from lightning.pytorch.callbacks import RichProgressBar
+                        general_instantiated_callbacks.append(RichProgressBar())
+                        logging.info(f"Trial {trial.number}: Instantiated RichProgressBar from config (name: {cb_name}).")
+                    # lr_monitor often has init_args, so prefer class_path or specific dict config for it.
+                    # If lr_monitor: true is the only way it's set, this can be a fallback.
+                    elif cb_name == "lr_monitor":
+                        from lightning.pytorch.callbacks import LearningRateMonitor
+                        # Check if a more detailed config exists elsewhere (e.g., lr_monitor_config)
+                        # This is a simple instantiation if only "lr_monitor: true" is present.
+                        lr_mon_init_args = callback_configurations_dict.get(f"{cb_name}_config", {}).get('init_args',{})
+                        general_instantiated_callbacks.append(LearningRateMonitor(**lr_mon_init_args))
+                        logging.info(f"Trial {trial.number}: Instantiated LearningRateMonitor from config (name: {cb_name}).")
         else:
-             original_count = len(instantiated_callbacks_from_config)
-             filtered_callbacks = []
-             for cb in instantiated_callbacks_from_config:
-                 if isinstance(cb, ModelCheckpoint):
-                     logging.debug(f"Trial {trial.number}: Filtering out config-defined ModelCheckpoint: {type(cb).__name__}")
-                     continue
-                 elif isinstance(cb, pl.callbacks.EarlyStopping):
-                     logging.debug(f"Trial {trial.number}: Found config-defined EarlyStopping: {type(cb).__name__}. Capturing args and filtering out.")
-                     if early_stopping_config_args is None and hasattr(cb, 'state_key'):
-                         early_stopping_config_args = {
-                             'monitor': getattr(cb, 'monitor', 'val_loss'),
-                             'min_delta': getattr(cb, 'min_delta', 0.0),
-                             'patience': getattr(cb, 'patience', 5),
-                             'verbose': getattr(cb, 'verbose', False),
-                             'mode': getattr(cb, 'mode', 'min'),
-                             'strict': getattr(cb, 'strict', True),
-                             'check_finite': getattr(cb, 'check_finite', True),
-                             'stopping_threshold': getattr(cb, 'stopping_threshold', None),
-                             'divergence_threshold': getattr(cb, 'divergence_threshold', None),
-                             'check_on_train_epoch_end': getattr(cb, 'check_on_train_epoch_end', None),
-                             'log_rank_zero_only': getattr(cb, 'log_rank_zero_only', False)
-                         }
-                         early_stopping_config_args = {k: v for k, v in early_stopping_config_args.items() if v is not None}
-                         logging.info(f"Trial {trial.number}: Captured EarlyStopping args: {early_stopping_config_args}")
-                     continue # Skip adding EarlyStopping
-                 filtered_callbacks.append(cb) # Keep other callbacks
+            logging.warning(f"Trial {trial.number}: 'callbacks' in config is not a dictionary or not found. No general callbacks instantiated from config. Type: {type(callback_configurations_dict)}")
 
-             instantiated_callbacks_from_config = filtered_callbacks
-             filtered_count = original_count - len(instantiated_callbacks_from_config)
-             if filtered_count > 0:
-                 logging.info(f"Trial {trial.number}: Filtered out {filtered_count} existing ModelCheckpoint/EarlyStopping instances from config")
-
-        # NEW EARLY STOPPING INSTANCEEEEEEE
+        # Instantiate trial-specific EarlyStopping if args were captured
         if early_stopping_config_args:
+            # Ensure monitor and mode have defaults if not fully specified in YAML
+            early_stopping_config_args.setdefault('monitor', self.config.get("trainer", {}).get("monitor_metric", "val_loss"))
+            early_stopping_config_args.setdefault('mode', "min" if self.config.get("optuna", {}).get("direction", "minimize") == "minimize" else "max")
+            
             trial_early_stopping_callback = pl.callbacks.EarlyStopping(**early_stopping_config_args)
             current_callbacks.append(trial_early_stopping_callback)
-            logging.info(f"Trial {trial.number}: Created trial-specific EarlyStopping callback monitoring '{early_stopping_config_args.get('monitor')}' (mode: {early_stopping_config_args.get('mode')})")
+            logging.info(f"Trial {trial.number}: Created trial-specific EarlyStopping from captured config. Monitoring '{early_stopping_config_args['monitor']}' (mode: {early_stopping_config_args['mode']}).")
         else:
-            logging.warning(f"Trial {trial.number}: Could not find or extract args from a config-defined EarlyStopping callback.")
+            # Check if early_stopping was explicitly enabled in YAML but args were not captured (e.g. bad format)
+            es_yaml_setting = callback_configurations_dict.get('early_stopping')
+            if isinstance(es_yaml_setting, dict) and es_yaml_setting.get('enabled', True) is True and not early_stopping_config_args:
+                 logging.warning(f"Trial {trial.number}: EarlyStopping seems enabled in YAML but init_args could not be captured. No trial-specific EarlyStopping added.")
+            elif es_yaml_setting is True and not early_stopping_config_args: # Handles early_stopping: true
+                 logging.warning(f"Trial {trial.number}: EarlyStopping set to 'true' in YAML but no 'init_args' found. No trial-specific EarlyStopping added.")
+            else:
+                 logging.info(f"Trial {trial.number}: No EarlyStopping configuration found or it's disabled. No trial-specific EarlyStopping added.")
 
 
-        # Add DeadNeuronMonitor callback if enabled in config
-        callbacks_config = self.config.get('callbacks', {})
-        monitor_config = callbacks_config.get('dead_neuron_monitor', {})
-        monitor_enabled = monitor_config.get('enabled', False)
-        
-        if monitor_enabled:
-            dead_neuron_callback = DeadNeuronMonitor()
+        # Add DeadNeuronMonitor callback if enabled in the original config dictionary
+        # This uses callback_configurations_dict which is self.config.get('callbacks', {})
+        dead_neuron_monitor_setting = callback_configurations_dict.get('dead_neuron_monitor', {})
+        if isinstance(dead_neuron_monitor_setting, dict) and dead_neuron_monitor_setting.get('enabled', False):
+            # Pass init_args from the 'dead_neuron_monitor' config entry if they exist
+            dnm_init_args = dead_neuron_monitor_setting.get('init_args', {})
+            dead_neuron_callback = DeadNeuronMonitor(**dnm_init_args)
             current_callbacks.append(dead_neuron_callback)
-            logging.info(f"Added DeadNeuronMonitor callback for trial {trial.number}")
+            logging.info(f"Trial {trial.number}: Added DeadNeuronMonitor callback from config.")
+        elif isinstance(dead_neuron_monitor_setting, bool) and dead_neuron_monitor_setting is True: # Handles dead_neuron_monitor: true
+            dead_neuron_callback = DeadNeuronMonitor() # Default instantiation
+            current_callbacks.append(dead_neuron_callback)
+            logging.info(f"Trial {trial.number}: Added DeadNeuronMonitor callback (enabled by boolean flag).")
 
-        final_callbacks = instantiated_callbacks_from_config + current_callbacks
+
+        final_callbacks = general_instantiated_callbacks + current_callbacks
 
         trial_trainer_kwargs["callbacks"] = final_callbacks
         logging.debug(f"Final callbacks passed to estimator: {[type(cb).__name__ for cb in trial_trainer_kwargs['callbacks']]}")
@@ -467,7 +536,9 @@ class MLTuningObjective:
             "use_lazyframe": False,
             "batch_size": self.config["dataset"].get("batch_size", 128),
             "num_batches_per_epoch": trial_trainer_kwargs["limit_train_batches"], # Use value from trial_trainer_kwargs
-            "train_sampler": ExpectedNumInstanceSampler(num_instances=1.0, min_past=self.config["dataset"]["context_length"], min_future=self.data_module.prediction_length),
+            "train_sampler": SequentialSampler(min_past=self.config["dataset"]["context_length"], min_future=self.data_module.prediction_length)
+                if self.config["optuna"].get("sampler", "random") == "sequential"
+                else ExpectedNumInstanceSampler(num_instances=1.0, min_past=self.config["dataset"]["context_length"], min_future=self.data_module.prediction_length),
             "validation_sampler": ValidationSplitSampler(min_past=self.config["dataset"]["context_length"], min_future=self.data_module.prediction_length),
             "time_features": [second_of_minute, minute_of_hour, hour_of_day, day_of_year],
             # Include distr_output initially, will be removed conditionally
@@ -500,16 +571,24 @@ class MLTuningObjective:
         agg_metrics = None
 
         try:
+            # Create estimator
             try:
                 estimator = self.estimator_class(**estimator_kwargs)
+            except RuntimeError as e:
+                if "CUDA out of memory" in str(e):
+                    logging.error(f"Trial {trial.number} - CUDA OOM during estimator creation: {str(e)}")
+                    if wandb.run is not None:
+                        wandb.finish(exit_code=1)
+                    raise optuna.exceptions.TrialPruned(f"Trial pruned due to CUDA OOM during estimator creation: {e}")
+                raise
             except Exception as e:
                 logging.error(f"Trial {trial.number} - Error creating estimator: {str(e)}", exc_info=True)
-                raise e
+                raise
 
             # Log GPU stats before training
             self.log_gpu_stats(stage=f"Trial {trial.number} Before Training")
 
-            # Conditionally Create Forecast Generator
+            # Create Forecast Generator
             try:
                 if self.model == 'tactis':
                     logging.info(f"Trial {trial.number}: Using SampleForecastGenerator for TACTiS model.")
@@ -517,27 +596,42 @@ class MLTuningObjective:
                 else:
                     logging.info(f"Trial {trial.number}: Using DistributionForecastGenerator for {self.model} model.")
                     if not hasattr(estimator, 'distr_output'):
-                         raise AttributeError(f"Estimator for model '{self.model}' is missing 'distr_output' attribute needed for DistributionForecastGenerator.")
+                        raise AttributeError(f"Estimator for model '{self.model}' is missing 'distr_output' attribute needed for DistributionForecastGenerator.")
                     forecast_generator = DistributionForecastGenerator(estimator.distr_output)
+            except RuntimeError as e:
+                if "CUDA out of memory" in str(e):
+                    logging.error(f"Trial {trial.number} - CUDA OOM during forecast generator creation: {str(e)}")
+                    if wandb.run is not None:
+                        wandb.finish(exit_code=1)
+                    raise optuna.exceptions.TrialPruned(f"Trial pruned due to CUDA OOM during forecast generator creation: {e}")
+                raise
             except Exception as e:
                 logging.error(f"Trial {trial.number} - Error creating forecast generator: {str(e)}", exc_info=True)
-                raise e
+                raise
 
-            # Model Training
+            # Train Model
             try:
-                # Call estimator.train without the ckpt_path argument, as ModelCheckpoint is handled via callbacks
                 train_output = estimator.train(
                     training_data=self.data_module.train_dataset,
                     validation_data=self.data_module.val_dataset,
                     forecast_generator=forecast_generator
                 )
             except optuna.exceptions.TrialPruned as e:
-                # Correctly handle actual pruning triggered by the callback during training
                 logging.info(f"Trial {trial.number} pruned by Optuna callback during training: {str(e)}")
-                raise e
+                raise
+            except RuntimeError as e:
+                if "CUDA out of memory" in str(e):
+                    logging.error(f"Trial {trial.number} - CUDA OOM during training: {str(e)}")
+                    if wandb.run is not None:
+                        wandb.finish(exit_code=1)
+                    raise optuna.exceptions.TrialPruned(f"Trial pruned due to CUDA OOM during training: {e}")
+                raise
             except Exception as e:
-                logging.error(f"Trial {trial.number} - Error during model training: {str(e)}", exc_info=True)
-                raise e
+                if "MisconfigurationException" in str(type(e)):
+                    logging.error(f"Trial {trial.number} - MisconfigurationException detected: {str(e)}")
+                    if wandb.run is not None:
+                        wandb.finish(exit_code=1)
+                raise
 
             # Log GPU stats after training
             self.log_gpu_stats(stage=f"Trial {trial.number} After Training")
@@ -635,8 +729,12 @@ class MLTuningObjective:
                 del module_params[module_params.index("self")]
                 init_args = {
                     'model_config': model_config,
-                    **{k: hparams.get(k, self.config["model"][self.model].get(k)) for k in module_params if k != 'model_config'}
+                    **{k: hparams.get(k, self.config["model"][self.model].get(k))
+                       for k in module_params if k not in ['model_config', 'num_batches_per_epoch']}
                 }
+
+                init_args['num_batches_per_epoch'] = estimator_kwargs.get('num_batches_per_epoch')
+                logging.info(f"Setting 'num_batches_per_epoch' for re-instantiation from original trial config: {init_args['num_batches_per_epoch']}")
 
                 instantiation_stage_info = "N/A (Not TACTiS)"
                 if self.model == 'tactis':
@@ -649,7 +747,8 @@ class MLTuningObjective:
                      if (key not in ['model_config', 'initial_stage']) and (key not in hparams) and (key in module_params):
                         logging.warning(f"Hyperparameter '{key}' not found in checkpoint, using default value from config: {val}")
 
-                missing_args = [k for k, v in init_args.items() if v is None and k not in ['model_config', 'initial_stage']]
+                missing_args = [k for k, v in init_args.items()
+                              if v is None and k not in ['model_config', 'initial_stage', 'num_batches_per_epoch']]
 
                 if missing_args:
                     error_msg = f"Missing required hyperparameters in checkpoint {checkpoint_path} even after checking defaults: {missing_args}"
@@ -827,8 +926,8 @@ def get_tuned_params(storage, study_name):
 def tune_model(model, config, study_name, optuna_storage, lightning_module_class, estimator_class,
                max_epochs, limit_train_batches,
                distr_output_class, data_module,
-               metric="val_loss", direction="minimize", n_trials_per_worker=10,
-               trial_protection_callback=None, seed=42, tuning_phase=0, restart_tuning=False): # Added restart_tuning parameter
+               metric="val_loss", direction="minimize", n_trials_per_worker=10, total_study_trials=100,
+               trial_protection_callback=None, seed=42, tuning_phase=0, restart_tuning=False, optimize_callbacks=None,):
     import os
 
     # Log safely without credentials if they were included (they aren't for socket trust)
@@ -842,11 +941,52 @@ def tune_model(model, config, study_name, optuna_storage, lightning_module_class
     pruner = None
     if "pruning" in config["optuna"] and config["optuna"]["pruning"].get("enabled", False):
         pruning_type = config["optuna"]["pruning"].get("type", "hyperband").lower()
-        min_resource = config["optuna"]["pruning"].get("min_resource", 2)
-        max_resource = config["optuna"]["pruning"].get("max_resource", max_epochs)
-        logging.info(f"Configuring pruner: type={pruning_type}, min_resource={min_resource}, max_resource={max_resource}")
+        logging.info(f"Configuring pruner: type={pruning_type}")
 
-        if pruning_type == "hyperband":
+        if pruning_type == "patient":
+            patience = config["optuna"]["pruning"].get("patience", 0)
+            min_delta = config["optuna"]["pruning"].get("min_delta", 0.0)
+
+            # Configure wrapped pruner if specified
+            wrapped_config = config["optuna"]["pruning"].get("wrapped_pruner")
+            wrapped_pruner_instance = None
+
+            if wrapped_config and isinstance(wrapped_config, dict):
+                wrapped_type = wrapped_config.get("type", "").lower()
+                logging.info(f"Configuring wrapped pruner of type: {wrapped_type}")
+
+                if wrapped_type == "percentile":
+                    percentile = wrapped_config.get("percentile", 50.0)
+                    n_startup_trials = wrapped_config.get("n_startup_trials", 4)
+                    n_warmup_steps = wrapped_config.get("n_warmup_steps", 12)
+                    interval_steps = wrapped_config.get("interval_steps", 1)
+                    n_min_trials = wrapped_config.get("n_min_trials", 1)
+
+                    wrapped_pruner_instance = PercentilePruner(
+                        percentile=percentile,
+                        n_startup_trials=n_startup_trials,
+                        n_warmup_steps=n_warmup_steps,
+                        interval_steps=interval_steps,
+                        n_min_trials=n_min_trials
+                    )
+                    logging.info(f"Created wrapped PercentilePruner with percentile={percentile}, n_startup_trials={n_startup_trials}, n_warmup_steps={n_warmup_steps}")
+            
+            # If no valid wrapped pruner is configured, use NopPruner
+            if wrapped_pruner_instance is None:
+                logging.warning("No valid wrapped pruner configuration found. PatientPruner will wrap NopPruner.")
+                wrapped_pruner_instance = NopPruner()
+
+            # Create PatientPruner wrapping the configured pruner
+            pruner = PatientPruner(
+                wrapped_pruner=wrapped_pruner_instance,
+                patience=patience,
+                min_delta=min_delta
+            )
+            logging.info(f"Created PatientPruner with patience={patience}, min_delta={min_delta} wrapping {type(wrapped_pruner_instance).__name__}")
+
+        elif pruning_type == "hyperband":
+            min_resource = config["optuna"]["pruning"].get("min_resource", 2)
+            max_resource = config["optuna"]["pruning"].get("max_resource", max_epochs)
             reduction_factor = config["optuna"]["pruning"].get("reduction_factor", 2)
             
             pruner = HyperbandPruner(
@@ -855,24 +995,23 @@ def tune_model(model, config, study_name, optuna_storage, lightning_module_class
                 reduction_factor=reduction_factor
             )
             logging.info(f"Created HyperbandPruner with min_resource={min_resource}, max_resource={max_resource}, reduction_factor={reduction_factor}")
-        elif pruning_type == "median":
-            n_warmup_steps = config["optuna"]["pruning"].get("n_warmup_steps", 2)
-            if "n_warmup_steps" not in config["optuna"]["pruning"]:
-                logging.warning(f"YAML config missing 'optuna.pruning.n_warmup_steps', defaulting to {n_warmup_steps}")
 
-            n_startup_trials = config["optuna"]["pruning"].get("n_startup_trials", 5)  # Default to 5 if missing
-            if "n_startup_trials" not in config["optuna"]["pruning"]:
-                logging.warning(f"YAML config missing 'optuna.pruning.n_startup_trials', defaulting to {n_startup_trials}")
-
-            pruner = MedianPruner(
-                n_startup_trials=n_startup_trials,
-                n_warmup_steps=n_warmup_steps
-            )
-            logging.info(f"Created MedianPruner with n_startup_trials={n_startup_trials}, n_warmup_steps={n_warmup_steps}")
         elif pruning_type == "percentile":
             percentile = config["optuna"]["pruning"].get("percentile", 25)
-            pruner = PercentilePruner(percentile=percentile, n_startup_trials=5, n_warmup_steps=min_resource)
-            logging.info(f"Created PercentilePruner with percentile={percentile}, n_startup_trials=5, n_warmup_steps={min_resource}")
+            n_startup_trials = config["optuna"]["pruning"].get("n_startup_trials", 5)
+            n_warmup_steps = config["optuna"]["pruning"].get("n_warmup_steps", 2)
+            interval_steps = config["optuna"]["pruning"].get("interval_steps", 1)
+            n_min_trials = config["optuna"]["pruning"].get("n_min_trials", 1)
+
+            pruner = PercentilePruner(
+                percentile=percentile,
+                n_startup_trials=n_startup_trials,
+                n_warmup_steps=n_warmup_steps,
+                interval_steps=interval_steps,
+                n_min_trials=n_min_trials
+            )
+            logging.info(f"Created PercentilePruner with percentile={percentile}, n_startup_trials={n_startup_trials}, n_warmup_steps={n_warmup_steps}")
+
         else:
             logging.warning(f"Unknown pruner type: {pruning_type}, using no pruning")
             pruner = NopPruner()
@@ -914,7 +1053,13 @@ def tune_model(model, config, study_name, optuna_storage, lightning_module_class
                 storage=optuna_storage,
                 direction=direction,
                 load_if_exists=not restart_tuning, # Only load if not restarting
-                sampler=TPESampler(seed=seed),
+                sampler=TPESampler(
+                    seed=seed,
+                    n_startup_trials=16,    #TODO: make configurable
+                    multivariate=True,      #TODO: make configurable
+                    constant_liar=True,     #TODO: make configurable                  
+                    group=False
+                ),
                 pruner=pruner
             )
             logging.info(f"Rank 0: Study '{final_study_name}' created or loaded successfully.")
@@ -1015,17 +1160,46 @@ def tune_model(model, config, study_name, optuna_storage, lightning_module_class
     objective_fn = (lambda trial: trial_protection_callback(tuning_objective, trial)) if trial_protection_callback else tuning_objective
 
     # WandB integration deprecated
-    optimize_callbacks = [] # Ensure optimize_callbacks is an empty list
+    if optimize_callbacks is None:
+        optimize_callbacks = []
+    elif not isinstance(optimize_callbacks, list):
+        optimize_callbacks = [optimize_callbacks]
 
     try:
+        n_trials_per_worker = config["optuna"].get("n_trials_per_worker", 10)
+        total_study_trials_config = config["optuna"].get("total_study_trials")
+        
+        n_trials_setting_for_optimize = None
+        
+        # Determine number of trials to run
+        if isinstance(total_study_trials_config, int) and total_study_trials_config > 0:
+            total_study_trials = total_study_trials_config
+            study.set_user_attr("total_study_trials", total_study_trials)
+            logging.info(f"Set global trial limit to {total_study_trials} trials.")
+            n_trials_setting_for_optimize = None
+            
+            max_trials_cb = MaxTrialsCallback(
+                n_trials=total_study_trials,
+                states=(TrialState.COMPLETE, TrialState.PRUNED) # INFO: Do not count failed trials
+            )
+            optimize_callbacks.append(max_trials_cb)
+            logging.info(f"MaxTrialsCallback added for {total_study_trials} trials.")
+        else:
+            # Fall back to per-worker limit if no global limit is set
+            n_trials_setting_for_optimize = n_trials_per_worker
+            logging.info(f"No valid global trial limit found (value: {total_study_trials_config}). Using per-worker limit of {n_trials_per_worker}.")
+            n_trials_setting_for_optimize = n_trials_per_worker
+        
         # Let Optuna handle trial distribution - each worker will ask the storage for a trial
         # Show progress bar only on rank 0 to avoid cluttered logs
         study.optimize(
             objective_fn,
-            n_trials=n_trials_per_worker,
+            n_trials=n_trials_setting_for_optimize,
             callbacks=optimize_callbacks,
             show_progress_bar=(worker_id=='0')
         )
+    except KeyError as e:
+        logging.error(f"Configuration key missing: {e}")
     except Exception as e:
         logging.error(f"Worker {worker_id}: Failed during study optimization: {str(e)}", exc_info=True)
         raise
@@ -1035,8 +1209,13 @@ def tune_model(model, config, study_name, optuna_storage, lightning_module_class
 
         # Wait for all expected trials to complete
         num_workers = int(os.environ.get('WORLD_SIZE', 1))
-        expected_total_trials = num_workers * n_trials_per_worker
-        logging.info(f"Rank 0: Expecting a total of {expected_total_trials} trials ({num_workers} workers * {n_trials_per_worker} trials/worker).")
+        
+        if total_study_trials:
+            expected_total_trials = total_study_trials
+            logging.info(f"Rank 0: Expecting a maximum of {expected_total_trials} trials (global limit).")
+        else:
+            expected_total_trials = num_workers * n_trials_per_worker
+            logging.info(f"Rank 0: Expecting a total of {expected_total_trials} trials ({num_workers} workers * {n_trials_per_worker} trials/worker).")
 
         logging.info("Rank 0: Waiting for all expected Optuna trials to reach a terminal state...")
         wait_interval_seconds = 30
