@@ -18,7 +18,7 @@ logging:
 
 optuna:
   save_trial_code: false      # Default false
-  # n_trials_per_worker: 100   # Replaced by total_study_trials for global trial limit
+  n_trials_per_worker: 20   # Replaced by total_study_trials for global trial limit
   total_study_trials: 200     # Global maximum number of trials across all workers, takes precedence over n_trials_per_worker
   max_epochs: 100              # epochs per trial
   sampler: "sequential"           # Options: "random" (ExpectedNumInstanceSampler), "sequential" (SequentialSampler)

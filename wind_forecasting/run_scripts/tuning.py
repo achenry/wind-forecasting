@@ -927,7 +927,7 @@ def tune_model(model, config, study_name, optuna_storage, lightning_module_class
                max_epochs, limit_train_batches,
                distr_output_class, data_module,
                metric="val_loss", direction="minimize", n_trials_per_worker=10, total_study_trials=100,
-               trial_protection_callback=None, seed=42, tuning_phase=0, restart_tuning=False):
+               trial_protection_callback=None, seed=42, tuning_phase=0, restart_tuning=False, optimize_callbacks=None,):
     import os
 
     # Log safely without credentials if they were included (they aren't for socket trust)
