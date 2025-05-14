@@ -18,6 +18,7 @@ import re # Added for epoch parsing
 # Imports for Optuna
 import optuna
 from optuna import create_study, load_study
+from optuna.study import MaxTrialsCallback
 from optuna.samplers import TPESampler
 from optuna.pruners import HyperbandPruner, PercentilePruner, PatientPruner, NopPruner
 from optuna_integration import PyTorchLightningPruningCallback
@@ -925,8 +926,8 @@ def get_tuned_params(storage, study_name):
 def tune_model(model, config, study_name, optuna_storage, lightning_module_class, estimator_class,
                max_epochs, limit_train_batches,
                distr_output_class, data_module,
-               metric="val_loss", direction="minimize", n_trials_per_worker=10,
-               trial_protection_callback=None, seed=42, tuning_phase=0, restart_tuning=False): # Added restart_tuning parameter
+               metric="val_loss", direction="minimize", n_trials_per_worker=10, total_study_trials=100,
+               trial_protection_callback=None, seed=42, tuning_phase=0, restart_tuning=False):
     import os
 
     # Log safely without credentials if they were included (they aren't for socket trust)
@@ -1159,17 +1160,46 @@ def tune_model(model, config, study_name, optuna_storage, lightning_module_class
     objective_fn = (lambda trial: trial_protection_callback(tuning_objective, trial)) if trial_protection_callback else tuning_objective
 
     # WandB integration deprecated
-    optimize_callbacks = [] # Ensure optimize_callbacks is an empty list
+    if optimize_callbacks is None:
+        optimize_callbacks = []
+    elif not isinstance(optimize_callbacks, list):
+        optimize_callbacks = [optimize_callbacks]
 
     try:
+        n_trials_per_worker = config["optuna"].get("n_trials_per_worker", 10)
+        total_study_trials_config = config["optuna"].get("total_study_trials")
+        
+        n_trials_setting_for_optimize = None
+        
+        # Determine number of trials to run
+        if isinstance(total_study_trials_config, int) and total_study_trials_config > 0:
+            total_study_trials = total_study_trials_config
+            study.set_user_attr("total_study_trials", total_study_trials)
+            logging.info(f"Set global trial limit to {total_study_trials} trials.")
+            n_trials_setting_for_optimize = None
+            
+            max_trials_cb = MaxTrialsCallback(
+                n_trials=total_study_trials,
+                states=(TrialState.COMPLETE, TrialState.PRUNED) # INFO: Do not count failed trials
+            )
+            optimize_callbacks.append(max_trials_cb)
+            logging.info(f"MaxTrialsCallback added for {total_study_trials} trials.")
+        else:
+            # Fall back to per-worker limit if no global limit is set
+            n_trials_setting_for_optimize = n_trials_per_worker
+            logging.info(f"No valid global trial limit found (value: {total_study_trials_config}). Using per-worker limit of {n_trials_per_worker}.")
+            n_trials_setting_for_optimize = n_trials_per_worker
+        
         # Let Optuna handle trial distribution - each worker will ask the storage for a trial
         # Show progress bar only on rank 0 to avoid cluttered logs
         study.optimize(
             objective_fn,
-            n_trials=n_trials_per_worker,
+            n_trials=n_trials_setting_for_optimize,
             callbacks=optimize_callbacks,
             show_progress_bar=(worker_id=='0')
         )
+    except KeyError as e:
+        logging.error(f"Configuration key missing: {e}")
     except Exception as e:
         logging.error(f"Worker {worker_id}: Failed during study optimization: {str(e)}", exc_info=True)
         raise
@@ -1179,8 +1209,13 @@ def tune_model(model, config, study_name, optuna_storage, lightning_module_class
 
         # Wait for all expected trials to complete
         num_workers = int(os.environ.get('WORLD_SIZE', 1))
-        expected_total_trials = num_workers * n_trials_per_worker
-        logging.info(f"Rank 0: Expecting a total of {expected_total_trials} trials ({num_workers} workers * {n_trials_per_worker} trials/worker).")
+        
+        if total_study_trials:
+            expected_total_trials = total_study_trials
+            logging.info(f"Rank 0: Expecting a maximum of {expected_total_trials} trials (global limit).")
+        else:
+            expected_total_trials = num_workers * n_trials_per_worker
+            logging.info(f"Rank 0: Expecting a total of {expected_total_trials} trials ({num_workers} workers * {n_trials_per_worker} trials/worker).")
 
         logging.info("Rank 0: Waiting for all expected Optuna trials to reach a terminal state...")
         wait_interval_seconds = 30

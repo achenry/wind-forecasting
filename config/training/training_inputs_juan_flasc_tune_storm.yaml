@@ -18,7 +18,8 @@ logging:
 
 optuna:
   save_trial_code: false      # Default false
-  n_trials_per_worker: 100     # Test a total of 4*200=800 trials TODO: change this
+  # n_trials_per_worker: 100   # Replaced by total_study_trials for global trial limit
+  total_study_trials: 200     # Global maximum number of trials across all workers, takes precedence over n_trials_per_worker
   max_epochs: 100              # epochs per trial
   sampler: "sequential"           # Options: "random" (ExpectedNumInstanceSampler), "sequential" (SequentialSampler)
   limit_train_batches:    # batches per epoch - INFO: For "random" sampler, use explicit integer value
@@ -36,7 +37,7 @@ optuna:
     # wrapped_pruner:
     #   type: "percentile"      # Set the wrapped pruner type
     #   percentile: 50.0        # Configure PercentilePruner: prune trials below this percentile
-    #   n_startup_trials: 4     # Configure PercentilePruner: wait for this many trials before pruning to initialise the mean
+    #   n_startup_trials: 4     # Configure PercentilePruner: wait for this many trials before pruning
     #   n_warmup_steps: 12      # Configure PercentilePruner: wait for this many steps (epochs) before pruning
     type: "hyperband"
     min_resource: 8
