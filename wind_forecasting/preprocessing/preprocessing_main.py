@@ -260,7 +260,7 @@ def main():
             save_dir=os.path.dirname(config["processed_data_path"])
         )
         
-        waked_distances = np.array([((data_inspector.fmodel.layout_x[pair[0]] - data_inspector.fmodel.layout_x[pair[1]])**2 + (data_inspector.fmodel.layout_y[pair[0]] - data_inspector.fmodel.layout_y[pair[1]])**2)**0.5 for pair in config["nacelle_calibration_turbine_pairs"]])
+       
     
     if args.debug:
         # .group_by("time", "file_set_idx")\
@@ -274,7 +274,8 @@ def main():
     if args.plot:
         # from datetime import datetime
         # df_query = df_query.with_columns(file_set_idx=pl.when(pl.col("time") < pl.lit(datetime(2024,2,20))).then(0).otherwise(1))
-        
+        waked_distances = np.array([((data_inspector.fmodel.layout_x[pair[0]] - data_inspector.fmodel.layout_x[pair[1]])**2 + (data_inspector.fmodel.layout_y[pair[0]] - data_inspector.fmodel.layout_y[pair[1]])**2)**0.5 for pair in config["nacelle_calibration_turbine_pairs"] + [[74, 73]]])
+        waked_distances / data_inspector.fmodel.core.farm.rotor_diameters[0]
         logging.info("🔄 Generating plots.")
         # x = pl.concat([df.slice(0, ROW_LIMIT) for df in df_query.collect().partition_by("file_set_idx")], how="vertical").lazy()
         # NOTE: GENERATE FIG 3 IN PAPER HERE
