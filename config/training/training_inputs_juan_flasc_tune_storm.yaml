@@ -1,11 +1,11 @@
 experiment:
   username: jmb0507
   project_name: tune_tactis_flasc_3
-  run_name: tune_v2_farm # [p = patience, d = min_delta, b = limit_train_batches, n = n_startup_trials] / hb = hyperband min_resource, reduction_factor
+  run_name: tune_v2_per_turbine_case # [p = patience, d = min_delta, b = limit_train_batches, n = n_startup_trials] / hb = hyperband min_resource, reduction_factor
   project_root: /user/taed7566/Forecasting/wind-forecasting
   log_dir: /user/taed7566/Forecasting/wind-forecasting/logs/
   notes: ""
-  extra_tags: ["flasc", "tune", "tcp", "farm"] # By default already has GPU id and model name.
+  extra_tags: ["flasc", "tune", "tcp", "per_turbine_case"] # By default already has GPU id and model name.
 
 logging:
   entity: jmb0507-cu-boulder # Wandb entity (group name)
@@ -22,6 +22,12 @@ optuna:
   total_study_trials: 200     # Global maximum number of trials across all workers, takes precedence over n_trials_per_worker
   max_epochs: 100              # epochs per trial
   sampler: "sequential"           # Options: "random" (ExpectedNumInstanceSampler), "sequential" (SequentialSampler)
+  sampler_params:
+    tpe:
+      n_startup_trials: 16
+      multivariate: true
+      constant_liar: true
+      group: false
   limit_train_batches:    # batches per epoch - INFO: For "random" sampler, use explicit integer value
   metric: "val_loss"          # The metric to optimize (NLL)
   direction: "minimize"       # Whether to minimize or maximize the metric
@@ -31,18 +37,20 @@ optuna:
   # Pruning configuration
   pruning:
     enabled: true
-    # type: "patient"
-    # patience: 3               # Configure PatientPruner: number of steps to wait (epochs) before pruning
-    # min_delta: 0.0            # Configure PatientPruner: tolerance for improvement (default 0.0)
-    # wrapped_pruner:
+    type: "patient"
+    patience: 1               # Configure PatientPruner: number of steps to wait (epochs) before pruning
+    min_delta: 0.1            # Configure PatientPruner: tolerance for improvement (default 0.0)
+    wrapped_pruner:
     #   type: "percentile"      # Set the wrapped pruner type
     #   percentile: 50.0        # Configure PercentilePruner: prune trials below this percentile
     #   n_startup_trials: 4     # Configure PercentilePruner: wait for this many trials before pruning
     #   n_warmup_steps: 12      # Configure PercentilePruner: wait for this many steps (epochs) before pruning
-    type: "hyperband"
-    min_resource: 8
-    max_resource: 100
-    reduction_factor: 2
+    # type: "hyperband"
+      type: "successivehalving"
+      min_resource: 8             # Applies to SuccessiveHalving and Hyperband
+      max_resource: 100           # Applies to Hyperband only
+      reduction_factor: 2         # Applies to SuccessiveHalving and Hyperband
+      bootstrap_count: 0          # Number of trials to complete before pruning
 
   # Optuna visualization configuration (additional to wandb)
   visualization:
@@ -106,7 +114,7 @@ dataset:
     val_split: 0.1
     resample_freq: 60s
     n_splits: 1 # how many divisions of each continuity group to make which is further subdivided into training test and validation data
-    per_turbine_target: false # TODO: Test this option.
+    per_turbine_target: true # TODO: Test this option.
     context_length_factor: 2  # INFO: Takes precedence over context_length when use_tuned_parameters is true
 
 model:
@@ -158,26 +166,26 @@ model:
     lr_stage2: 2e-6
     weight_decay_stage1: 1e-5
     weight_decay_stage2: 1e-5
-    ### VALUES FOR per_turbine_target = true ###
-    # Learning Rate Scheduler for Stage 1
-    # warmup_steps_s1: 1410 # Warmup steps for Stage 1
-    # steps_to_decay_s1: 7050 # T_max = (steps_per_epoch [282] * epochs_in_stage [30]) - warmup_steps
-    # eta_min_fraction_s1: 0.01  # Fraction of initial LR for eta_min in Stage 1 cosine decay
-    # Learning Rate Scheduler for Stage 2
-    # warmup_steps_s2: 2256 # Warmup steps for Stage 2
-    # steps_to_decay_s2: 17484 # T_max = (steps_per_epoch [282] * epochs_in_stage [100-30]) - warmup_steps ~ 47940 - warmup_steps    
-    # eta_min_fraction_s2: 0.01  # Fraction of initial LR for eta_min in Stage 2 cosine decay    
-    ### VALUES FOR per_turbine_target = false ###
-    # Learning Rate Scheduler for Stage 1
-    warmup_steps_s1: 201 # Warmup steps for Stage 1
-    steps_to_decay_s1: 1007 # T_max = (steps_per_epoch [282] * epochs_in_stage [30]) - warmup_steps
-    eta_min_fraction_s1: 0.01  # Fraction of initial LR for eta_min in Stage 1 cosine decay
-    # Learning Rate Scheduler for Stage 2
-    warmup_steps_s2: 322 # Warmup steps for Stage 2
-    steps_to_decay_s2: 2497 # T_max = (steps_per_epoch [282] * epochs_in_stage [100-30]) - warmup_steps ~ 47940 - warmup_steps    
-    eta_min_fraction_s2: 0.01  # Fraction of initial LR for eta_min in Stage 2 cosine decay 
     # Dropout & Clipping
     dropout_rate: 0.1
+    ### VALUES FOR per_turbine_target = true ###
+    # Learning Rate Scheduler for Stage 1
+    warmup_steps_s1: 1410 # Warmup steps for Stage 1
+    steps_to_decay_s1: 7050 # T_max = (steps_per_epoch [282] * epochs_in_stage [30]) - warmup_steps
+    eta_min_fraction_s1: 0.01  # Fraction of initial LR for eta_min in Stage 1 cosine decay
+    # Learning Rate Scheduler for Stage 2
+    warmup_steps_s2: 2256 # Warmup steps for Stage 2
+    steps_to_decay_s2: 17484 # T_max = (steps_per_epoch [282] * epochs_in_stage [100-30]) - warmup_steps ~ 47940 - warmup_steps    
+    eta_min_fraction_s2: 0.01  # Fraction of initial LR for eta_min in Stage 2 cosine decay    
+    ### VALUES FOR per_turbine_target = false ###
+    # # Learning Rate Scheduler for Stage 1
+    # warmup_steps_s1: 201 # Warmup steps for Stage 1
+    # steps_to_decay_s1: 1007 # T_max = (steps_per_epoch [282] * epochs_in_stage [30]) - warmup_steps
+    # eta_min_fraction_s1: 0.01  # Fraction of initial LR for eta_min in Stage 1 cosine decay
+    # # Learning Rate Scheduler for Stage 2
+    # warmup_steps_s2: 322 # Warmup steps for Stage 2
+    # steps_to_decay_s2: 2497 # T_max = (steps_per_epoch [282] * epochs_in_stage [100-30]) - warmup_steps ~ 47940 - warmup_steps    
+    # eta_min_fraction_s2: 0.01  # Fraction of initial LR for eta_min in Stage 2 cosine decay    
 
   # [ Informer ]
   informer:
@@ -228,7 +236,7 @@ callbacks:
     progress_bar:
       class_path: lightning.pytorch.callbacks.TQDMProgressBar
       init_args:
-        refresh_rate: 94  # every n steps, set to 0 to disable - 47*6 = 282(steps for 2048 batch size) ~ 1 epoch
+        refresh_rate: 50  # every n steps, set to 0 to disable - 47*6 = 282(steps for 2048 batch size) ~ 1 epoch
         leave: false
     # early_stopping:
     #   class_path: lightning.pytorch.callbacks.EarlyStopping

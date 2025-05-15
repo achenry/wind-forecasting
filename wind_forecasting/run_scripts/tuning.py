@@ -20,7 +20,7 @@ import optuna
 from optuna import create_study, load_study
 from optuna.study import MaxTrialsCallback
 from optuna.samplers import TPESampler
-from optuna.pruners import HyperbandPruner, PercentilePruner, PatientPruner, NopPruner
+from optuna.pruners import HyperbandPruner, PercentilePruner, PatientPruner, SuccessiveHalvingPruner, NopPruner
 from optuna_integration import PyTorchLightningPruningCallback
 
 import lightning.pytorch as pl # Import pl alias
@@ -178,9 +178,9 @@ class SafePruningCallback(pl.Callback):
             raise
 
 class MLTuningObjective:
-    def __init__(self, *, model, config, lightning_module_class, estimator_class, 
-                 distr_output_class, max_epochs, limit_train_batches, data_module, 
-                 metric, seed=42, tuning_phase=0, dynamic_params=None):
+    def __init__(self, *, model, config, lightning_module_class, estimator_class,
+                 distr_output_class, max_epochs, limit_train_batches, data_module,
+                 metric, seed=42, tuning_phase=0, dynamic_params=None, study_config_params=None):
         self.model = model
         self.config = config
         self.lightning_module_class = lightning_module_class
@@ -193,6 +193,7 @@ class MLTuningObjective:
         self.seed = seed
         self.tuning_phase = tuning_phase
         self.dynamic_params = dynamic_params
+        self.study_config_params = study_config_params or {}
 
         self.config["trainer"]["max_epochs"] = max_epochs
         self.config["trainer"]["limit_train_batches"] = limit_train_batches
@@ -450,23 +451,39 @@ class MLTuningObjective:
             # Construct unique run name and tags
             run_name = f"{self.config['experiment']['run_name']}_rank_{os.environ.get('WORKER_RANK', '0')}_trial_{trial.number}"
 
-            # Clean and flatten the parameters for logging
+            # Clean and flatten the parameters for logging without duplicates
             cleaned_params = {}
             model_prefix = f"{self.model}."
             config_prefix = "model_config."
 
+            # First pass: collect all non-prefixed keys and model-prefixed keys
+            non_prefixed_params = {}
+            model_prefixed_params = {}
+            
             for k, v in trial.params.items():
-                cleanedKeyCandidate = k
-                if cleanedKeyCandidate.startswith(model_prefix):
-                    cleanedKeyCandidate = cleanedKeyCandidate[len(model_prefix):]
-
-                if cleanedKeyCandidate.startswith(config_prefix):
-                    cleaned_key = cleanedKeyCandidate[len(config_prefix):]
+                # Remove model prefix if present
+                if k.startswith(model_prefix):
+                    stripped_key = k[len(model_prefix):]
+                    model_prefixed_params[stripped_key] = v
                 else:
-                    cleaned_key = cleanedKeyCandidate
+                    non_prefixed_params[k] = v
 
-                # Store the cleaned key and value
-                cleaned_params[cleaned_key] = v
+            # Second pass: merge with priority to non-prefixed params
+            for k, v in non_prefixed_params.items():
+                cleaned_params[k] = v
+                
+            # Add model-prefixed params only if not already in cleaned_params
+            for k, v in model_prefixed_params.items():
+                if k.startswith(config_prefix):
+                    base_key = k[len(config_prefix):]
+                    if base_key not in cleaned_params:
+                        cleaned_params[base_key] = v
+                else:
+                    if k not in cleaned_params:
+                        cleaned_params[k] = v
+
+            # Add study config params to WandB config
+            cleaned_params.update(self.study_config_params)
 
             cleaned_params["optuna_trial_number"] = trial.number
 
@@ -970,6 +987,27 @@ def tune_model(model, config, study_name, optuna_storage, lightning_module_class
                         n_min_trials=n_min_trials
                     )
                     logging.info(f"Created wrapped PercentilePruner with percentile={percentile}, n_startup_trials={n_startup_trials}, n_warmup_steps={n_warmup_steps}")
+                    
+                if wrapped_type == "successivehalving":
+                    min_resource = wrapped_config.get("min_resource", 2)
+                    reduction_factor = wrapped_config.get("reduction_factor", 2)
+                    min_early_stopping_rate = wrapped_config.get("min_early_stopping_rate", 0)
+                    bootstrap_count = wrapped_config.get("bootstrap_count", 0)
+
+                    wrapped_pruner_instance = SuccessiveHalvingPruner(
+                        min_resource=min_resource,
+                        reduction_factor=reduction_factor,
+                        min_early_stopping_rate=min_early_stopping_rate,
+                        bootstrap_count=bootstrap_count
+                    )
+                    logging.info(f"Created wrapped SuccessiveHalvingPruner with min_resource={min_resource}, reduction_factor={reduction_factor}, min_early_stopping_rate={min_early_stopping_rate}, bootstrap_count={bootstrap_count}, bootstrap_count={bootstrap_count}")
+                
+                else:
+                    logging.warning(f"Unknown wrapped pruner type: {wrapped_type}. Defaulting to NopPruner.")
+                    wrapped_pruner_instance = NopPruner()
+            else:
+                logging.warning("No wrapped pruner configuration found. Defaulting to NopPruner.")
+                wrapped_pruner_instance = NopPruner()
             
             # If no valid wrapped pruner is configured, use NopPruner
             if wrapped_pruner_instance is None:
@@ -988,13 +1026,29 @@ def tune_model(model, config, study_name, optuna_storage, lightning_module_class
             min_resource = config["optuna"]["pruning"].get("min_resource", 2)
             max_resource = config["optuna"]["pruning"].get("max_resource", max_epochs)
             reduction_factor = config["optuna"]["pruning"].get("reduction_factor", 2)
+            bootstrap_count = config["optuna"]["pruning"].get("bootstrap_count", 0)
             
             pruner = HyperbandPruner(
                 min_resource=min_resource,
                 max_resource=max_resource,
-                reduction_factor=reduction_factor
+                reduction_factor=reduction_factor,
+                bootstrap_count=bootstrap_count
             )
-            logging.info(f"Created HyperbandPruner with min_resource={min_resource}, max_resource={max_resource}, reduction_factor={reduction_factor}")
+            logging.info(f"Created HyperbandPruner with min_resource={min_resource}, max_resource={max_resource}, reduction_factor={reduction_factor}, bootstrap_count={bootstrap_count}")
+
+        elif pruning_type == "successivehalving":
+            min_resource = config["optuna"]["pruning"].get("min_resource", 2)
+            reduction_factor = config["optuna"]["pruning"].get("reduction_factor", 2)
+            min_early_stopping_rate = config["optuna"]["pruning"].get("min_early_stopping_rate", 0)
+            bootstrap_count = config["optuna"]["pruning"].get("bootstrap_count", 0)
+
+            pruner = SuccessiveHalvingPruner(
+                min_resource=min_resource,
+                reduction_factor=reduction_factor,
+                min_early_stopping_rate=min_early_stopping_rate,
+                bootstrap_count=bootstrap_count
+            )
+            logging.info(f"Created SuccessiveHalvingPruner with min_resource={min_resource}, reduction_factor={reduction_factor}, min_early_stopping_rate={min_early_stopping_rate}, bootstrap_count={bootstrap_count}, bootstrap_count={bootstrap_count}")
 
         elif pruning_type == "percentile":
             percentile = config["optuna"]["pruning"].get("percentile", 25)
@@ -1055,19 +1109,14 @@ def tune_model(model, config, study_name, optuna_storage, lightning_module_class
                 load_if_exists=not restart_tuning, # Only load if not restarting
                 sampler=TPESampler(
                     seed=seed,
-                    n_startup_trials=16,    #TODO: make configurable
-                    multivariate=True,      #TODO: make configurable
-                    constant_liar=True,     #TODO: make configurable                  
-                    group=False
+                    n_startup_trials=config["optuna"]["sampler_params"]["tpe"].get("n_startup_trials", 16),
+                    multivariate=config["optuna"]["sampler_params"]["tpe"].get("multivariate", True),
+                    constant_liar=config["optuna"]["sampler_params"]["tpe"].get("constant_liar", True),
+                    group=config["optuna"]["sampler_params"]["tpe"].get("group", False)
                 ),
                 pruner=pruner
             )
             logging.info(f"Rank 0: Study '{final_study_name}' created or loaded successfully.")
-
-            # --- Launch Dashboard (Rank 0 only) ---
-            if hasattr(optuna_storage, "url"):
-                launch_optuna_dashboard(config, optuna_storage.url) # Call imported function
-            # --------------------------------------
         else:
             # Non-rank-0 workers MUST load the study created by rank 0
             logging.info(f"Rank {worker_id}: Attempting to load existing Optuna study '{final_study_name}'")
@@ -1117,9 +1166,47 @@ def tune_model(model, config, study_name, optuna_storage, lightning_module_class
             logging.error(f"Error details - Type: {type(e).__name__}, Storage: Journal")
         raise
 
+    # Define study_config_params for all workers
+    study_config_params = {
+        "dataset_per_turbine_target": config["dataset"].get("per_turbine_target"),
+        "optuna_sampler": config["optuna"].get("sampler"),
+        "optuna_pruner_type": config["optuna"]["pruning"].get("type") if "pruning" in config["optuna"] else None,
+        "optuna_max_epochs": config["optuna"].get("max_epochs"),
+        "optuna_limit_train_batches": config["optuna"].get("limit_train_batches"),
+        "optuna_metric": config["optuna"].get("metric"),
+        "dataset_data_path": config["dataset"].get("data_path"),
+        "dataset_resample_freq": config["dataset"].get("resample_freq"),
+        "dataset_test_split": config["dataset"].get("test_split"),
+        "dataset_val_split": config["dataset"].get("val_split")
+    }
+
+    # Add TACTiS-specific parameters if model is TACTiS
+    if model == 'tactis':
+        tactis_params = {
+            "model_tactis_stage2_start_epoch": config["model"][model].get("stage2_start_epoch"),
+            "model_tactis_warmup_steps_s1": config["model"][model].get("warmup_steps_s1"),
+            "model_tactis_warmup_steps_s2": config["model"][model].get("warmup_steps_s2"),
+            "model_tactis_steps_to_decay_s1": config["model"][model].get("steps_to_decay_s1"),
+            "model_tactis_steps_to_decay_s2": config["model"][model].get("steps_to_decay_s2")
+        }
+        study_config_params.update(tactis_params)
+
+    # Set study user attributes from config (only on rank 0)
+    if worker_id == '0':
+        for key, value in study_config_params.items():
+            if value is not None:
+                study.set_user_attr(key, value)
+
+        logging.info(f"Set study user attributes: {list(study_config_params.keys())}")
+
+        # --- Launch Dashboard (Rank 0 only) ---
+        # if hasattr(optuna_storage, "url"):
+        #     launch_optuna_dashboard(config, optuna_storage.url) # Call imported function
+        # --------------------------------------
+
     # Worker ID already fetched above for study creation/loading
     dynamic_params = None
-    
+
     if tuning_phase == 0 and worker_id == "0":
         resample_freq_choices = config["optuna"]["resample_freq_choices"]
         per_turbine_choices = [True, False]
@@ -1154,7 +1241,8 @@ def tune_model(model, config, study_name, optuna_storage, lightning_module_class
                                         metric=metric,
                                         seed=seed,
                                         tuning_phase=tuning_phase,
-                                        dynamic_params=dynamic_params)
+                                        dynamic_params=dynamic_params,
+                                        study_config_params=study_config_params)
 
     # Use the trial protection callback if provided
     objective_fn = (lambda trial: trial_protection_callback(tuning_objective, trial)) if trial_protection_callback else tuning_objective
