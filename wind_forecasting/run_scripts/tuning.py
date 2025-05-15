@@ -1182,14 +1182,50 @@ def tune_model(model, config, study_name, optuna_storage, lightning_module_class
 
     # Add TACTiS-specific parameters if model is TACTiS
     if model == 'tactis':
-        tactis_params = {
-            "model_tactis_stage2_start_epoch": config["model"][model].get("stage2_start_epoch"),
+        # Adjust TACTiS scheduler parameters based on dataset and training settings
+        per_turbine_target = config["dataset"].get("per_turbine_target", False)
+        limit_train_batches = config["optuna"].get("limit_train_batches")
+        num_turbines = 7  # As specified, for now
+
+        base_warmup_s1 = config["model"]["tactis"].get("warmup_steps_s1")
+        base_decay_s1 = config["model"]["tactis"].get("steps_to_decay_s1")
+        base_warmup_s2 = config["model"]["tactis"].get("warmup_steps_s2")
+        base_decay_s2 = config["model"]["tactis"].get("steps_to_decay_s2")
+
+        adj_warmup_s1 = base_warmup_s1
+        adj_decay_s1 = base_decay_s1
+        adj_warmup_s2 = base_warmup_s2
+        adj_decay_s2 = base_decay_s2
+
+        if not per_turbine_target and limit_train_batches is None:
+            logging.info(f"Adjusting TACTiS scheduler params: per_turbine_target={per_turbine_target}, limit_train_batches={limit_train_batches}. Dividing by num_turbines={num_turbines}.")
+            if base_warmup_s1 is not None:
+                adj_warmup_s1 = round(base_warmup_s1 / num_turbines)
+            if base_decay_s1 is not None:
+                adj_decay_s1 = round(base_decay_s1 / num_turbines)
+            if base_warmup_s2 is not None:
+                adj_warmup_s2 = round(base_warmup_s2 / num_turbines)
+            if base_decay_s2 is not None:
+                adj_decay_s2 = round(base_decay_s2 / num_turbines)
+            
+            # Update the config itself so MLTuningObjective uses these adjusted values
+            config["model"]["tactis"]["warmup_steps_s1"] = adj_warmup_s1
+            config["model"]["tactis"]["steps_to_decay_s1"] = adj_decay_s1
+            config["model"]["tactis"]["warmup_steps_s2"] = adj_warmup_s2
+            config["model"]["tactis"]["steps_to_decay_s2"] = adj_decay_s2
+            logging.info(f"Adjusted TACTiS scheduler params: warmup_s1={adj_warmup_s1}, decay_s1={adj_decay_s1}, warmup_s2={adj_warmup_s2}, decay_s2={adj_decay_s2}")
+        else:
+            logging.info(f"Using base TACTiS scheduler params: per_turbine_target={per_turbine_target}, limit_train_batches={limit_train_batches}.")
+
+        # These will now pick up the potentially adjusted values from the config
+        tactis_params_for_logging = {
+            "model_tactis_stage2_start_epoch": config["model"][model].get("stage2_start_epoch"), # Unchanged by this logic
             "model_tactis_warmup_steps_s1": config["model"][model].get("warmup_steps_s1"),
             "model_tactis_warmup_steps_s2": config["model"][model].get("warmup_steps_s2"),
             "model_tactis_steps_to_decay_s1": config["model"][model].get("steps_to_decay_s1"),
             "model_tactis_steps_to_decay_s2": config["model"][model].get("steps_to_decay_s2")
         }
-        study_config_params.update(tactis_params)
+        study_config_params.update(tactis_params_for_logging)
 
     # Set study user attributes from config (only on rank 0)
     if worker_id == '0':
