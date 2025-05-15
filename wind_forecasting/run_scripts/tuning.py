@@ -1185,7 +1185,25 @@ def tune_model(model, config, study_name, optuna_storage, lightning_module_class
         # Adjust TACTiS scheduler parameters based on dataset and training settings
         per_turbine_target = config["dataset"].get("per_turbine_target", False)
         limit_train_batches = config["optuna"].get("limit_train_batches")
-        num_turbines = 7  # As specified, for now
+        num_turbines = 1 # Default to 1 in case target_suffixes is not available or per_turbine_target is True
+        if not data_module.per_turbine_target and data_module.target_suffixes is not None:
+            try:
+                num_turbines = len(data_module.target_suffixes)
+                if num_turbines == 0:
+                     logging.warning("data_module.target_suffixes is empty, defaulting num_turbines to 1 for adjustment.")
+                     num_turbines = 1
+            except TypeError:
+                 logging.warning("data_module.target_suffixes is not a sequence, defaulting num_turbines to 1 for adjustment.")
+                 num_turbines = 1
+        elif data_module.per_turbine_target:
+             num_turbines = 1
+        else:
+             logging.warning("data_module.target_suffixes is None, defaulting num_turbines to 1 for adjustment.")
+             num_turbines = 1
+
+        if num_turbines <= 0:
+             logging.error(f"Calculated num_turbines is invalid ({num_turbines}). Defaulting to 1 for adjustment.")
+             num_turbines = 1
 
         base_warmup_s1 = config["model"]["tactis"].get("warmup_steps_s1")
         base_decay_s1 = config["model"]["tactis"].get("steps_to_decay_s1")
