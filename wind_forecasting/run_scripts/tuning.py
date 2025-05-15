@@ -20,7 +20,7 @@ import optuna
 from optuna import create_study, load_study
 from optuna.study import MaxTrialsCallback
 from optuna.samplers import TPESampler
-from optuna.pruners import HyperbandPruner, PercentilePruner, PatientPruner, NopPruner
+from optuna.pruners import HyperbandPruner, PercentilePruner, PatientPruner, SuccessiveHalvingPruner, NopPruner
 from optuna_integration import PyTorchLightningPruningCallback
 
 import lightning.pytorch as pl # Import pl alias
@@ -988,13 +988,29 @@ def tune_model(model, config, study_name, optuna_storage, lightning_module_class
             min_resource = config["optuna"]["pruning"].get("min_resource", 2)
             max_resource = config["optuna"]["pruning"].get("max_resource", max_epochs)
             reduction_factor = config["optuna"]["pruning"].get("reduction_factor", 2)
+            bootstrap_count = config["optuna"]["pruning"].get("bootstrap_count", 0)
             
             pruner = HyperbandPruner(
                 min_resource=min_resource,
                 max_resource=max_resource,
-                reduction_factor=reduction_factor
+                reduction_factor=reduction_factor,
+                bootstrap_count=bootstrap_count
             )
-            logging.info(f"Created HyperbandPruner with min_resource={min_resource}, max_resource={max_resource}, reduction_factor={reduction_factor}")
+            logging.info(f"Created HyperbandPruner with min_resource={min_resource}, max_resource={max_resource}, reduction_factor={reduction_factor}, bootstrap_count={bootstrap_count}")
+
+        elif pruning_type == "successivehalving":
+            min_resource = config["optuna"]["pruning"].get("min_resource", 2)
+            reduction_factor = config["optuna"]["pruning"].get("reduction_factor", 2)
+            min_early_stopping_rate = config["optuna"]["pruning"].get("min_early_stopping_rate", 0)
+            bootstrap_count = config["optuna"]["pruning"].get("bootstrap_count", 0)
+
+            pruner = SuccessiveHalvingPruner(
+                min_resource=min_resource,
+                reduction_factor=reduction_factor,
+                min_early_stopping_rate=min_early_stopping_rate,
+                bootstrap_count=bootstrap_count
+            )
+            logging.info(f"Created SuccessiveHalvingPruner with min_resource={min_resource}, reduction_factor={reduction_factor}, min_early_stopping_rate={min_early_stopping_rate}, bootstrap_count={bootstrap_count}, bootstrap_count={bootstrap_count}")
 
         elif pruning_type == "percentile":
             percentile = config["optuna"]["pruning"].get("percentile", 25)

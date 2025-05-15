@@ -39,10 +39,11 @@ optuna:
     #   percentile: 50.0        # Configure PercentilePruner: prune trials below this percentile
     #   n_startup_trials: 4     # Configure PercentilePruner: wait for this many trials before pruning
     #   n_warmup_steps: 12      # Configure PercentilePruner: wait for this many steps (epochs) before pruning
-    type: "hyperband"
-    min_resource: 8
-    max_resource: 100
-    reduction_factor: 2
+    # type: "hyperband"
+    type: "SuccessiveHalvingPruner"
+    min_resource: 8             # Applies to SuccessiveHalving and Hyperband
+    max_resource: 100           # Applies to Hyperband only
+    reduction_factor: 2         # Applies to SuccessiveHalving and Hyperband
 
   # Optuna visualization configuration (additional to wandb)
   visualization:
@@ -228,7 +229,7 @@ callbacks:
     progress_bar:
       class_path: lightning.pytorch.callbacks.TQDMProgressBar
       init_args:
-        refresh_rate: 94  # every n steps, set to 0 to disable - 47*6 = 282(steps for 2048 batch size) ~ 1 epoch
+        refresh_rate: 50  # every n steps, set to 0 to disable - 47*6 = 282(steps for 2048 batch size) ~ 1 epoch
         leave: false
     # early_stopping:
     #   class_path: lightning.pytorch.callbacks.EarlyStopping
