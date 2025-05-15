@@ -970,6 +970,20 @@ def tune_model(model, config, study_name, optuna_storage, lightning_module_class
                         n_min_trials=n_min_trials
                     )
                     logging.info(f"Created wrapped PercentilePruner with percentile={percentile}, n_startup_trials={n_startup_trials}, n_warmup_steps={n_warmup_steps}")
+                    
+                if wrapped_type == "successivehalving":
+                    min_resource = wrapped_config.get("min_resource", 2)
+                    reduction_factor = wrapped_config.get("reduction_factor", 2)
+                    min_early_stopping_rate = wrapped_config.get("min_early_stopping_rate", 0)
+                    bootstrap_count = wrapped_config.get("bootstrap_count", 0)
+
+                    wrapped_pruner_instance = SuccessiveHalvingPruner(
+                        min_resource=min_resource,
+                        reduction_factor=reduction_factor,
+                        min_early_stopping_rate=min_early_stopping_rate,
+                        bootstrap_count=bootstrap_count
+                    )
+                    logging.info(f"Created wrapped SuccessiveHalvingPruner with min_resource={min_resource}, reduction_factor={reduction_factor}, min_early_stopping_rate={min_early_stopping_rate}, bootstrap_count={bootstrap_count}")
                 
                 else:
                     logging.warning(f"Unknown wrapped pruner type: {wrapped_type}. Defaulting to NopPruner.")

@@ -1,11 +1,11 @@
 experiment:
   username: jmb0507
   project_name: tune_tactis_flasc_3
-  run_name: tune_v2_farm # [p = patience, d = min_delta, b = limit_train_batches, n = n_startup_trials] / hb = hyperband min_resource, reduction_factor
+  run_name: tune_v2_turb # [p = patience, d = min_delta, b = limit_train_batches, n = n_startup_trials] / hb = hyperband min_resource, reduction_factor
   project_root: /user/taed7566/Forecasting/wind-forecasting
   log_dir: /user/taed7566/Forecasting/wind-forecasting/logs/
   notes: ""
-  extra_tags: ["flasc", "tune", "tcp", "farm"] # By default already has GPU id and model name.
+  extra_tags: ["flasc", "tune", "tcp", "turb"] # By default already has GPU id and model name.
 
 logging:
   entity: jmb0507-cu-boulder # Wandb entity (group name)
@@ -31,19 +31,20 @@ optuna:
   # Pruning configuration
   pruning:
     enabled: true
-    # type: "patient"
-    # patience: 3               # Configure PatientPruner: number of steps to wait (epochs) before pruning
-    # min_delta: 0.0            # Configure PatientPruner: tolerance for improvement (default 0.0)
-    # wrapped_pruner:
+    type: "patient"
+    patience: 3               # Configure PatientPruner: number of steps to wait (epochs) before pruning
+    min_delta: 0.3            # Configure PatientPruner: tolerance for improvement (default 0.0)
+    wrapped_pruner:
     #   type: "percentile"      # Set the wrapped pruner type
     #   percentile: 50.0        # Configure PercentilePruner: prune trials below this percentile
     #   n_startup_trials: 4     # Configure PercentilePruner: wait for this many trials before pruning
     #   n_warmup_steps: 12      # Configure PercentilePruner: wait for this many steps (epochs) before pruning
     # type: "hyperband"
-    type: "successivehalving"
-    min_resource: 8             # Applies to SuccessiveHalving and Hyperband
-    max_resource: 100           # Applies to Hyperband only
-    reduction_factor: 2         # Applies to SuccessiveHalving and Hyperband
+      type: "successivehalving"
+      min_resource: 8             # Applies to SuccessiveHalving and Hyperband
+      max_resource: 100           # Applies to Hyperband only
+      reduction_factor: 2         # Applies to SuccessiveHalving and Hyperband
+      bootstrap_count: 0          # Number of trials to complete before pruning
 
   # Optuna visualization configuration (additional to wandb)
   visualization:
