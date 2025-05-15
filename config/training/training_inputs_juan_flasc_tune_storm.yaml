@@ -40,7 +40,7 @@ optuna:
     #   n_startup_trials: 4     # Configure PercentilePruner: wait for this many trials before pruning
     #   n_warmup_steps: 12      # Configure PercentilePruner: wait for this many steps (epochs) before pruning
     # type: "hyperband"
-    type: "SuccessiveHalvingPruner"
+    type: "successivehalving"
     min_resource: 8             # Applies to SuccessiveHalving and Hyperband
     max_resource: 100           # Applies to Hyperband only
     reduction_factor: 2         # Applies to SuccessiveHalving and Hyperband
