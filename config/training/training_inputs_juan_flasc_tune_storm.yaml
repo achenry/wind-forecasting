@@ -39,7 +39,7 @@ optuna:
     enabled: true
     type: "patient"
     patience: 1               # Configure PatientPruner: number of steps to wait (epochs) before pruning
-    min_delta: 0.05            # Configure PatientPruner: tolerance for improvement (default 0.0)
+    min_delta: 0.1            # Configure PatientPruner: tolerance for improvement (default 0.0)
     wrapped_pruner:
     #   type: "percentile"      # Set the wrapped pruner type
     #   percentile: 50.0        # Configure PercentilePruner: prune trials below this percentile
@@ -166,26 +166,26 @@ model:
     lr_stage2: 2e-6
     weight_decay_stage1: 1e-5
     weight_decay_stage2: 1e-5
-    ### VALUES FOR per_turbine_target = true ###
-    # Learning Rate Scheduler for Stage 1
-    # warmup_steps_s1: 1410 # Warmup steps for Stage 1
-    # steps_to_decay_s1: 7050 # T_max = (steps_per_epoch [282] * epochs_in_stage [30]) - warmup_steps
-    # eta_min_fraction_s1: 0.01  # Fraction of initial LR for eta_min in Stage 1 cosine decay
-    # Learning Rate Scheduler for Stage 2
-    # warmup_steps_s2: 2256 # Warmup steps for Stage 2
-    # steps_to_decay_s2: 17484 # T_max = (steps_per_epoch [282] * epochs_in_stage [100-30]) - warmup_steps ~ 47940 - warmup_steps    
-    # eta_min_fraction_s2: 0.01  # Fraction of initial LR for eta_min in Stage 2 cosine decay    
-    ### VALUES FOR per_turbine_target = false ###
-    # Learning Rate Scheduler for Stage 1
-    warmup_steps_s1: 201 # Warmup steps for Stage 1
-    steps_to_decay_s1: 1007 # T_max = (steps_per_epoch [282] * epochs_in_stage [30]) - warmup_steps
-    eta_min_fraction_s1: 0.01  # Fraction of initial LR for eta_min in Stage 1 cosine decay
-    # Learning Rate Scheduler for Stage 2
-    warmup_steps_s2: 322 # Warmup steps for Stage 2
-    steps_to_decay_s2: 2497 # T_max = (steps_per_epoch [282] * epochs_in_stage [100-30]) - warmup_steps ~ 47940 - warmup_steps    
-    eta_min_fraction_s2: 0.01  # Fraction of initial LR for eta_min in Stage 2 cosine decay 
     # Dropout & Clipping
     dropout_rate: 0.1
+    ### VALUES FOR per_turbine_target = true ###
+    # Learning Rate Scheduler for Stage 1
+    warmup_steps_s1: 1410 # Warmup steps for Stage 1
+    steps_to_decay_s1: 7050 # T_max = (steps_per_epoch [282] * epochs_in_stage [30]) - warmup_steps
+    eta_min_fraction_s1: 0.01  # Fraction of initial LR for eta_min in Stage 1 cosine decay
+    # Learning Rate Scheduler for Stage 2
+    warmup_steps_s2: 2256 # Warmup steps for Stage 2
+    steps_to_decay_s2: 17484 # T_max = (steps_per_epoch [282] * epochs_in_stage [100-30]) - warmup_steps ~ 47940 - warmup_steps    
+    eta_min_fraction_s2: 0.01  # Fraction of initial LR for eta_min in Stage 2 cosine decay    
+    ### VALUES FOR per_turbine_target = false ###
+    # # Learning Rate Scheduler for Stage 1
+    # warmup_steps_s1: 201 # Warmup steps for Stage 1
+    # steps_to_decay_s1: 1007 # T_max = (steps_per_epoch [282] * epochs_in_stage [30]) - warmup_steps
+    # eta_min_fraction_s1: 0.01  # Fraction of initial LR for eta_min in Stage 1 cosine decay
+    # # Learning Rate Scheduler for Stage 2
+    # warmup_steps_s2: 322 # Warmup steps for Stage 2
+    # steps_to_decay_s2: 2497 # T_max = (steps_per_epoch [282] * epochs_in_stage [100-30]) - warmup_steps ~ 47940 - warmup_steps    
+    # eta_min_fraction_s2: 0.01  # Fraction of initial LR for eta_min in Stage 2 cosine decay    
 
   # [ Informer ]
   informer:
