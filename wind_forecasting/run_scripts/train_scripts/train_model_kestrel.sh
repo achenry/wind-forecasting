@@ -15,6 +15,7 @@
 module purge
 module load PrgEnv-intel
 ml mamba
+eval "$(mamba shell hook --shell bash)"
 mamba activate wind_forecasting_env
 
 export NUMEXPR_MAX_THREADS=128
