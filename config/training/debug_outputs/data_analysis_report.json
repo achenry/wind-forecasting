@@ -1,0 +1,3586 @@
+{
+  "context_length_analysis": {
+    "explicit_context_length_seconds": 600,
+    "explicit_prediction_length_seconds": 300,
+    "context_length_factor": 2,
+    "frequency": "60s",
+    "context_steps_from_explicit": 10,
+    "prediction_steps": 5,
+    "context_steps_from_factor": 10,
+    "precedence": "context_length_factor",
+    "expected_context_steps": 10,
+    "actual_context_steps": 10,
+    "actual_prediction_steps": 5,
+    "mismatch": false
+  },
+  "dataset_structure": {
+    "continuity_groups": [
+      {
+        "continuity_group": "0.0",
+        "total_size": 2659,
+        "avg_dataset_size": 2659,
+        "num_datasets": 7
+      },
+      {
+        "continuity_group": "1.0",
+        "total_size": 6511,
+        "avg_dataset_size": 6511,
+        "num_datasets": 77
+      },
+      {
+        "continuity_group": "2.0",
+        "total_size": 2341,
+        "avg_dataset_size": 2341,
+        "num_datasets": 42
+      },
+      {
+        "continuity_group": "3.0",
+        "total_size": 98,
+        "avg_dataset_size": 98,
+        "num_datasets": 7
+      },
+      {
+        "continuity_group": "4.0",
+        "total_size": 1312,
+        "avg_dataset_size": 1312,
+        "num_datasets": 7
+      },
+      {
+        "continuity_group": "5.0",
+        "total_size": 1074,
+        "avg_dataset_size": 1074,
+        "num_datasets": 7
+      },
+      {
+        "continuity_group": "6.0",
+        "total_size": 38,
+        "avg_dataset_size": 38,
+        "num_datasets": 7
+      },
+      {
+        "continuity_group": "7.0",
+        "total_size": 29,
+        "avg_dataset_size": 29,
+        "num_datasets": 7
+      },
+      {
+        "continuity_group": "8.0",
+        "total_size": 37,
+        "avg_dataset_size": 37,
+        "num_datasets": 7
+      },
+      {
+        "continuity_group": "9.0",
+        "total_size": 27,
+        "avg_dataset_size": 27,
+        "num_datasets": 7
+      },
+      {
+        "continuity_group": "10.0",
+        "total_size": 24,
+        "avg_dataset_size": 24,
+        "num_datasets": 7
+      },
+      {
+        "continuity_group": "11.0",
+        "total_size": 22,
+        "avg_dataset_size": 22,
+        "num_datasets": 7
+      },
+      {
+        "continuity_group": "12.0",
+        "total_size": 25,
+        "avg_dataset_size": 25,
+        "num_datasets": 7
+      },
+      {
+        "continuity_group": "13.0",
+        "total_size": 400,
+        "avg_dataset_size": 400,
+        "num_datasets": 7
+      },
+      {
+        "continuity_group": "14.0",
+        "total_size": 450,
+        "avg_dataset_size": 450,
+        "num_datasets": 7
+      },
+      {
+        "continuity_group": "15.0",
+        "total_size": 31,
+        "avg_dataset_size": 31,
+        "num_datasets": 7
+      },
+      {
+        "continuity_group": "16.0",
+        "total_size": 979,
+        "avg_dataset_size": 979,
+        "num_datasets": 7
+      },
+      {
+        "continuity_group": "17.0",
+        "total_size": 15618,
+        "avg_dataset_size": 15618,
+        "num_datasets": 7
+      },
+      {
+        "continuity_group": "18.0",
+        "total_size": 20743,
+        "avg_dataset_size": 20743,
+        "num_datasets": 7
+      },
+      {
+        "continuity_group": "19.0",
+        "total_size": 33299,
+        "avg_dataset_size": 33299,
+        "num_datasets": 7
+      },
+      {
+        "continuity_group": "20.0",
+        "total_size": 2631,
+        "avg_dataset_size": 2631,
+        "num_datasets": 7
+      },
+      {
+        "continuity_group": "21.0",
+        "total_size": 1414,
+        "avg_dataset_size": 1414,
+        "num_datasets": 7
+      },
+      {
+        "continuity_group": "22.0",
+        "total_size": 5146,
+        "avg_dataset_size": 5146,
+        "num_datasets": 7
+      },
+      {
+        "continuity_group": "23.0",
+        "total_size": 3249,
+        "avg_dataset_size": 3249,
+        "num_datasets": 7
+      },
+      {
+        "continuity_group": "24.0",
+        "total_size": 1544,
+        "avg_dataset_size": 1544,
+        "num_datasets": 7
+      }
+    ],
+    "total_samples": 371,
+    "train_samples": 175,
+    "val_samples": 98,
+    "test_samples": 98,
+    "target_variables": [
+      "ws_horz_1",
+      "ws_horz_2",
+      "ws_horz_3",
+      "ws_horz_4",
+      "ws_horz_5",
+      "ws_horz_6",
+      "ws_horz_7",
+      "ws_vert_1",
+      "ws_vert_2",
+      "ws_vert_3",
+      "ws_vert_4",
+      "ws_vert_5",
+      "ws_vert_6",
+      "ws_vert_7"
+    ],
+    "feature_variables": [
+      "nd_cos_1",
+      "nd_cos_2",
+      "nd_cos_3",
+      "nd_cos_4",
+      "nd_cos_5",
+      "nd_cos_6",
+      "nd_cos_7",
+      "nd_sin_1",
+      "nd_sin_2",
+      "nd_sin_3",
+      "nd_sin_4",
+      "nd_sin_5",
+      "nd_sin_6",
+      "nd_sin_7"
+    ],
+    "per_turbine_target": true,
+    "turbine_ids": [
+      "1",
+      "2",
+      "3",
+      "4",
+      "5",
+      "6",
+      "7"
+    ]
+  },
+  "valid_windows": {
+    "window_counts": {
+      "train": [
+        {
+          "dataset_idx": 0,
+          "item_id": "TURBINE1_SPLIT0",
+          "target_shape": [
+            2,
+            2659
+          ],
+          "valid_windows": 2645,
+          "start_idx": 10,
+          "end_idx": 2654
+        },
+        {
+          "dataset_idx": 1,
+          "item_id": "TURBINE1_SPLIT1",
+          "target_shape": [
+            2,
+            35
+          ],
+          "valid_windows": 21,
+          "start_idx": 10,
+          "end_idx": 30
+        },
+        {
+          "dataset_idx": 2,
+          "item_id": "TURBINE1_SPLIT2",
+          "target_shape": [
+            2,
+            63
+          ],
+          "valid_windows": 49,
+          "start_idx": 10,
+          "end_idx": 58
+        },
+        {
+          "dataset_idx": 3,
+          "item_id": "TURBINE1_SPLIT3",
+          "target_shape": [
+            2,
+            98
+          ],
+          "valid_windows": 84,
+          "start_idx": 10,
+          "end_idx": 93
+        },
+        {
+          "dataset_idx": 4,
+          "item_id": "TURBINE1_SPLIT4",
+          "target_shape": [
+            2,
+            1312
+          ],
+          "valid_windows": 1298,
+          "start_idx": 10,
+          "end_idx": 1307
+        },
+        {
+          "dataset_idx": 5,
+          "item_id": "TURBINE1_SPLIT5",
+          "target_shape": [
+            2,
+            1074
+          ],
+          "valid_windows": 1060,
+          "start_idx": 10,
+          "end_idx": 1069
+        },
+        {
+          "dataset_idx": 6,
+          "item_id": "TURBINE1_SPLIT6",
+          "target_shape": [
+            2,
+            38
+          ],
+          "valid_windows": 24,
+          "start_idx": 10,
+          "end_idx": 33
+        },
+        {
+          "dataset_idx": 7,
+          "item_id": "TURBINE1_SPLIT7",
+          "target_shape": [
+            2,
+            29
+          ],
+          "valid_windows": 15,
+          "start_idx": 10,
+          "end_idx": 24
+        },
+        {
+          "dataset_idx": 8,
+          "item_id": "TURBINE1_SPLIT8",
+          "target_shape": [
+            2,
+            37
+          ],
+          "valid_windows": 23,
+          "start_idx": 10,
+          "end_idx": 32
+        },
+        {
+          "dataset_idx": 9,
+          "item_id": "TURBINE1_SPLIT9",
+          "target_shape": [
+            2,
+            27
+          ],
+          "valid_windows": 13,
+          "start_idx": 10,
+          "end_idx": 22
+        },
+        {
+          "dataset_idx": 10,
+          "item_id": "TURBINE1_SPLIT10",
+          "target_shape": [
+            2,
+            24
+          ],
+          "valid_windows": 10,
+          "start_idx": 10,
+          "end_idx": 19
+        },
+        {
+          "dataset_idx": 11,
+          "item_id": "TURBINE1_SPLIT11",
+          "target_shape": [
+            2,
+            22
+          ],
+          "valid_windows": 8,
+          "start_idx": 10,
+          "end_idx": 17
+        },
+        {
+          "dataset_idx": 12,
+          "item_id": "TURBINE1_SPLIT12",
+          "target_shape": [
+            2,
+            25
+          ],
+          "valid_windows": 11,
+          "start_idx": 10,
+          "end_idx": 20
+        },
+        {
+          "dataset_idx": 13,
+          "item_id": "TURBINE1_SPLIT13",
+          "target_shape": [
+            2,
+            400
+          ],
+          "valid_windows": 386,
+          "start_idx": 10,
+          "end_idx": 395
+        },
+        {
+          "dataset_idx": 14,
+          "item_id": "TURBINE1_SPLIT14",
+          "target_shape": [
+            2,
+            450
+          ],
+          "valid_windows": 436,
+          "start_idx": 10,
+          "end_idx": 445
+        },
+        {
+          "dataset_idx": 15,
+          "item_id": "TURBINE1_SPLIT15",
+          "target_shape": [
+            2,
+            31
+          ],
+          "valid_windows": 17,
+          "start_idx": 10,
+          "end_idx": 26
+        },
+        {
+          "dataset_idx": 16,
+          "item_id": "TURBINE1_SPLIT16",
+          "target_shape": [
+            2,
+            979
+          ],
+          "valid_windows": 965,
+          "start_idx": 10,
+          "end_idx": 974
+        },
+        {
+          "dataset_idx": 17,
+          "item_id": "TURBINE1_SPLIT17",
+          "target_shape": [
+            2,
+            15618
+          ],
+          "valid_windows": 15604,
+          "start_idx": 10,
+          "end_idx": 15613
+        },
+        {
+          "dataset_idx": 18,
+          "item_id": "TURBINE1_SPLIT18",
+          "target_shape": [
+            2,
+            20743
+          ],
+          "valid_windows": 20729,
+          "start_idx": 10,
+          "end_idx": 20738
+        },
+        {
+          "dataset_idx": 19,
+          "item_id": "TURBINE1_SPLIT19",
+          "target_shape": [
+            2,
+            33299
+          ],
+          "valid_windows": 33285,
+          "start_idx": 10,
+          "end_idx": 33294
+        },
+        {
+          "dataset_idx": 20,
+          "item_id": "TURBINE1_SPLIT20",
+          "target_shape": [
+            2,
+            2631
+          ],
+          "valid_windows": 2617,
+          "start_idx": 10,
+          "end_idx": 2626
+        },
+        {
+          "dataset_idx": 21,
+          "item_id": "TURBINE1_SPLIT21",
+          "target_shape": [
+            2,
+            1414
+          ],
+          "valid_windows": 1400,
+          "start_idx": 10,
+          "end_idx": 1409
+        },
+        {
+          "dataset_idx": 22,
+          "item_id": "TURBINE1_SPLIT22",
+          "target_shape": [
+            2,
+            5146
+          ],
+          "valid_windows": 5132,
+          "start_idx": 10,
+          "end_idx": 5141
+        },
+        {
+          "dataset_idx": 23,
+          "item_id": "TURBINE1_SPLIT23",
+          "target_shape": [
+            2,
+            3249
+          ],
+          "valid_windows": 3235,
+          "start_idx": 10,
+          "end_idx": 3244
+        },
+        {
+          "dataset_idx": 24,
+          "item_id": "TURBINE1_SPLIT24",
+          "target_shape": [
+            2,
+            1544
+          ],
+          "valid_windows": 1530,
+          "start_idx": 10,
+          "end_idx": 1539
+        },
+        {
+          "dataset_idx": 25,
+          "item_id": "TURBINE2_SPLIT0",
+          "target_shape": [
+            2,
+            2659
+          ],
+          "valid_windows": 2645,
+          "start_idx": 10,
+          "end_idx": 2654
+        },
+        {
+          "dataset_idx": 26,
+          "item_id": "TURBINE2_SPLIT1",
+          "target_shape": [
+            2,
+            35
+          ],
+          "valid_windows": 21,
+          "start_idx": 10,
+          "end_idx": 30
+        },
+        {
+          "dataset_idx": 27,
+          "item_id": "TURBINE2_SPLIT2",
+          "target_shape": [
+            2,
+            63
+          ],
+          "valid_windows": 49,
+          "start_idx": 10,
+          "end_idx": 58
+        },
+        {
+          "dataset_idx": 28,
+          "item_id": "TURBINE2_SPLIT3",
+          "target_shape": [
+            2,
+            98
+          ],
+          "valid_windows": 84,
+          "start_idx": 10,
+          "end_idx": 93
+        },
+        {
+          "dataset_idx": 29,
+          "item_id": "TURBINE2_SPLIT4",
+          "target_shape": [
+            2,
+            1312
+          ],
+          "valid_windows": 1298,
+          "start_idx": 10,
+          "end_idx": 1307
+        },
+        {
+          "dataset_idx": 30,
+          "item_id": "TURBINE2_SPLIT5",
+          "target_shape": [
+            2,
+            1074
+          ],
+          "valid_windows": 1060,
+          "start_idx": 10,
+          "end_idx": 1069
+        },
+        {
+          "dataset_idx": 31,
+          "item_id": "TURBINE2_SPLIT6",
+          "target_shape": [
+            2,
+            38
+          ],
+          "valid_windows": 24,
+          "start_idx": 10,
+          "end_idx": 33
+        },
+        {
+          "dataset_idx": 32,
+          "item_id": "TURBINE2_SPLIT7",
+          "target_shape": [
+            2,
+            29
+          ],
+          "valid_windows": 15,
+          "start_idx": 10,
+          "end_idx": 24
+        },
+        {
+          "dataset_idx": 33,
+          "item_id": "TURBINE2_SPLIT8",
+          "target_shape": [
+            2,
+            37
+          ],
+          "valid_windows": 23,
+          "start_idx": 10,
+          "end_idx": 32
+        },
+        {
+          "dataset_idx": 34,
+          "item_id": "TURBINE2_SPLIT9",
+          "target_shape": [
+            2,
+            27
+          ],
+          "valid_windows": 13,
+          "start_idx": 10,
+          "end_idx": 22
+        },
+        {
+          "dataset_idx": 35,
+          "item_id": "TURBINE2_SPLIT10",
+          "target_shape": [
+            2,
+            24
+          ],
+          "valid_windows": 10,
+          "start_idx": 10,
+          "end_idx": 19
+        },
+        {
+          "dataset_idx": 36,
+          "item_id": "TURBINE2_SPLIT11",
+          "target_shape": [
+            2,
+            22
+          ],
+          "valid_windows": 8,
+          "start_idx": 10,
+          "end_idx": 17
+        },
+        {
+          "dataset_idx": 37,
+          "item_id": "TURBINE2_SPLIT12",
+          "target_shape": [
+            2,
+            25
+          ],
+          "valid_windows": 11,
+          "start_idx": 10,
+          "end_idx": 20
+        },
+        {
+          "dataset_idx": 38,
+          "item_id": "TURBINE2_SPLIT13",
+          "target_shape": [
+            2,
+            400
+          ],
+          "valid_windows": 386,
+          "start_idx": 10,
+          "end_idx": 395
+        },
+        {
+          "dataset_idx": 39,
+          "item_id": "TURBINE2_SPLIT14",
+          "target_shape": [
+            2,
+            450
+          ],
+          "valid_windows": 436,
+          "start_idx": 10,
+          "end_idx": 445
+        },
+        {
+          "dataset_idx": 40,
+          "item_id": "TURBINE2_SPLIT15",
+          "target_shape": [
+            2,
+            31
+          ],
+          "valid_windows": 17,
+          "start_idx": 10,
+          "end_idx": 26
+        },
+        {
+          "dataset_idx": 41,
+          "item_id": "TURBINE2_SPLIT16",
+          "target_shape": [
+            2,
+            979
+          ],
+          "valid_windows": 965,
+          "start_idx": 10,
+          "end_idx": 974
+        },
+        {
+          "dataset_idx": 42,
+          "item_id": "TURBINE2_SPLIT17",
+          "target_shape": [
+            2,
+            15618
+          ],
+          "valid_windows": 15604,
+          "start_idx": 10,
+          "end_idx": 15613
+        },
+        {
+          "dataset_idx": 43,
+          "item_id": "TURBINE2_SPLIT18",
+          "target_shape": [
+            2,
+            20743
+          ],
+          "valid_windows": 20729,
+          "start_idx": 10,
+          "end_idx": 20738
+        },
+        {
+          "dataset_idx": 44,
+          "item_id": "TURBINE2_SPLIT19",
+          "target_shape": [
+            2,
+            33299
+          ],
+          "valid_windows": 33285,
+          "start_idx": 10,
+          "end_idx": 33294
+        },
+        {
+          "dataset_idx": 45,
+          "item_id": "TURBINE2_SPLIT20",
+          "target_shape": [
+            2,
+            2631
+          ],
+          "valid_windows": 2617,
+          "start_idx": 10,
+          "end_idx": 2626
+        },
+        {
+          "dataset_idx": 46,
+          "item_id": "TURBINE2_SPLIT21",
+          "target_shape": [
+            2,
+            1414
+          ],
+          "valid_windows": 1400,
+          "start_idx": 10,
+          "end_idx": 1409
+        },
+        {
+          "dataset_idx": 47,
+          "item_id": "TURBINE2_SPLIT22",
+          "target_shape": [
+            2,
+            5146
+          ],
+          "valid_windows": 5132,
+          "start_idx": 10,
+          "end_idx": 5141
+        },
+        {
+          "dataset_idx": 48,
+          "item_id": "TURBINE2_SPLIT23",
+          "target_shape": [
+            2,
+            3249
+          ],
+          "valid_windows": 3235,
+          "start_idx": 10,
+          "end_idx": 3244
+        },
+        {
+          "dataset_idx": 49,
+          "item_id": "TURBINE2_SPLIT24",
+          "target_shape": [
+            2,
+            1544
+          ],
+          "valid_windows": 1530,
+          "start_idx": 10,
+          "end_idx": 1539
+        },
+        {
+          "dataset_idx": 50,
+          "item_id": "TURBINE3_SPLIT0",
+          "target_shape": [
+            2,
+            2659
+          ],
+          "valid_windows": 2645,
+          "start_idx": 10,
+          "end_idx": 2654
+        },
+        {
+          "dataset_idx": 51,
+          "item_id": "TURBINE3_SPLIT1",
+          "target_shape": [
+            2,
+            35
+          ],
+          "valid_windows": 21,
+          "start_idx": 10,
+          "end_idx": 30
+        },
+        {
+          "dataset_idx": 52,
+          "item_id": "TURBINE3_SPLIT2",
+          "target_shape": [
+            2,
+            63
+          ],
+          "valid_windows": 49,
+          "start_idx": 10,
+          "end_idx": 58
+        },
+        {
+          "dataset_idx": 53,
+          "item_id": "TURBINE3_SPLIT3",
+          "target_shape": [
+            2,
+            98
+          ],
+          "valid_windows": 84,
+          "start_idx": 10,
+          "end_idx": 93
+        },
+        {
+          "dataset_idx": 54,
+          "item_id": "TURBINE3_SPLIT4",
+          "target_shape": [
+            2,
+            1312
+          ],
+          "valid_windows": 1298,
+          "start_idx": 10,
+          "end_idx": 1307
+        },
+        {
+          "dataset_idx": 55,
+          "item_id": "TURBINE3_SPLIT5",
+          "target_shape": [
+            2,
+            1074
+          ],
+          "valid_windows": 1060,
+          "start_idx": 10,
+          "end_idx": 1069
+        },
+        {
+          "dataset_idx": 56,
+          "item_id": "TURBINE3_SPLIT6",
+          "target_shape": [
+            2,
+            38
+          ],
+          "valid_windows": 24,
+          "start_idx": 10,
+          "end_idx": 33
+        },
+        {
+          "dataset_idx": 57,
+          "item_id": "TURBINE3_SPLIT7",
+          "target_shape": [
+            2,
+            29
+          ],
+          "valid_windows": 15,
+          "start_idx": 10,
+          "end_idx": 24
+        },
+        {
+          "dataset_idx": 58,
+          "item_id": "TURBINE3_SPLIT8",
+          "target_shape": [
+            2,
+            37
+          ],
+          "valid_windows": 23,
+          "start_idx": 10,
+          "end_idx": 32
+        },
+        {
+          "dataset_idx": 59,
+          "item_id": "TURBINE3_SPLIT9",
+          "target_shape": [
+            2,
+            27
+          ],
+          "valid_windows": 13,
+          "start_idx": 10,
+          "end_idx": 22
+        },
+        {
+          "dataset_idx": 60,
+          "item_id": "TURBINE3_SPLIT10",
+          "target_shape": [
+            2,
+            24
+          ],
+          "valid_windows": 10,
+          "start_idx": 10,
+          "end_idx": 19
+        },
+        {
+          "dataset_idx": 61,
+          "item_id": "TURBINE3_SPLIT11",
+          "target_shape": [
+            2,
+            22
+          ],
+          "valid_windows": 8,
+          "start_idx": 10,
+          "end_idx": 17
+        },
+        {
+          "dataset_idx": 62,
+          "item_id": "TURBINE3_SPLIT12",
+          "target_shape": [
+            2,
+            25
+          ],
+          "valid_windows": 11,
+          "start_idx": 10,
+          "end_idx": 20
+        },
+        {
+          "dataset_idx": 63,
+          "item_id": "TURBINE3_SPLIT13",
+          "target_shape": [
+            2,
+            400
+          ],
+          "valid_windows": 386,
+          "start_idx": 10,
+          "end_idx": 395
+        },
+        {
+          "dataset_idx": 64,
+          "item_id": "TURBINE3_SPLIT14",
+          "target_shape": [
+            2,
+            450
+          ],
+          "valid_windows": 436,
+          "start_idx": 10,
+          "end_idx": 445
+        },
+        {
+          "dataset_idx": 65,
+          "item_id": "TURBINE3_SPLIT15",
+          "target_shape": [
+            2,
+            31
+          ],
+          "valid_windows": 17,
+          "start_idx": 10,
+          "end_idx": 26
+        },
+        {
+          "dataset_idx": 66,
+          "item_id": "TURBINE3_SPLIT16",
+          "target_shape": [
+            2,
+            979
+          ],
+          "valid_windows": 965,
+          "start_idx": 10,
+          "end_idx": 974
+        },
+        {
+          "dataset_idx": 67,
+          "item_id": "TURBINE3_SPLIT17",
+          "target_shape": [
+            2,
+            15618
+          ],
+          "valid_windows": 15604,
+          "start_idx": 10,
+          "end_idx": 15613
+        },
+        {
+          "dataset_idx": 68,
+          "item_id": "TURBINE3_SPLIT18",
+          "target_shape": [
+            2,
+            20743
+          ],
+          "valid_windows": 20729,
+          "start_idx": 10,
+          "end_idx": 20738
+        },
+        {
+          "dataset_idx": 69,
+          "item_id": "TURBINE3_SPLIT19",
+          "target_shape": [
+            2,
+            33299
+          ],
+          "valid_windows": 33285,
+          "start_idx": 10,
+          "end_idx": 33294
+        },
+        {
+          "dataset_idx": 70,
+          "item_id": "TURBINE3_SPLIT20",
+          "target_shape": [
+            2,
+            2631
+          ],
+          "valid_windows": 2617,
+          "start_idx": 10,
+          "end_idx": 2626
+        },
+        {
+          "dataset_idx": 71,
+          "item_id": "TURBINE3_SPLIT21",
+          "target_shape": [
+            2,
+            1414
+          ],
+          "valid_windows": 1400,
+          "start_idx": 10,
+          "end_idx": 1409
+        },
+        {
+          "dataset_idx": 72,
+          "item_id": "TURBINE3_SPLIT22",
+          "target_shape": [
+            2,
+            5146
+          ],
+          "valid_windows": 5132,
+          "start_idx": 10,
+          "end_idx": 5141
+        },
+        {
+          "dataset_idx": 73,
+          "item_id": "TURBINE3_SPLIT23",
+          "target_shape": [
+            2,
+            3249
+          ],
+          "valid_windows": 3235,
+          "start_idx": 10,
+          "end_idx": 3244
+        },
+        {
+          "dataset_idx": 74,
+          "item_id": "TURBINE3_SPLIT24",
+          "target_shape": [
+            2,
+            1544
+          ],
+          "valid_windows": 1530,
+          "start_idx": 10,
+          "end_idx": 1539
+        },
+        {
+          "dataset_idx": 75,
+          "item_id": "TURBINE4_SPLIT0",
+          "target_shape": [
+            2,
+            2659
+          ],
+          "valid_windows": 2645,
+          "start_idx": 10,
+          "end_idx": 2654
+        },
+        {
+          "dataset_idx": 76,
+          "item_id": "TURBINE4_SPLIT1",
+          "target_shape": [
+            2,
+            35
+          ],
+          "valid_windows": 21,
+          "start_idx": 10,
+          "end_idx": 30
+        },
+        {
+          "dataset_idx": 77,
+          "item_id": "TURBINE4_SPLIT2",
+          "target_shape": [
+            2,
+            63
+          ],
+          "valid_windows": 49,
+          "start_idx": 10,
+          "end_idx": 58
+        },
+        {
+          "dataset_idx": 78,
+          "item_id": "TURBINE4_SPLIT3",
+          "target_shape": [
+            2,
+            98
+          ],
+          "valid_windows": 84,
+          "start_idx": 10,
+          "end_idx": 93
+        },
+        {
+          "dataset_idx": 79,
+          "item_id": "TURBINE4_SPLIT4",
+          "target_shape": [
+            2,
+            1312
+          ],
+          "valid_windows": 1298,
+          "start_idx": 10,
+          "end_idx": 1307
+        },
+        {
+          "dataset_idx": 80,
+          "item_id": "TURBINE4_SPLIT5",
+          "target_shape": [
+            2,
+            1074
+          ],
+          "valid_windows": 1060,
+          "start_idx": 10,
+          "end_idx": 1069
+        },
+        {
+          "dataset_idx": 81,
+          "item_id": "TURBINE4_SPLIT6",
+          "target_shape": [
+            2,
+            38
+          ],
+          "valid_windows": 24,
+          "start_idx": 10,
+          "end_idx": 33
+        },
+        {
+          "dataset_idx": 82,
+          "item_id": "TURBINE4_SPLIT7",
+          "target_shape": [
+            2,
+            29
+          ],
+          "valid_windows": 15,
+          "start_idx": 10,
+          "end_idx": 24
+        },
+        {
+          "dataset_idx": 83,
+          "item_id": "TURBINE4_SPLIT8",
+          "target_shape": [
+            2,
+            37
+          ],
+          "valid_windows": 23,
+          "start_idx": 10,
+          "end_idx": 32
+        },
+        {
+          "dataset_idx": 84,
+          "item_id": "TURBINE4_SPLIT9",
+          "target_shape": [
+            2,
+            27
+          ],
+          "valid_windows": 13,
+          "start_idx": 10,
+          "end_idx": 22
+        },
+        {
+          "dataset_idx": 85,
+          "item_id": "TURBINE4_SPLIT10",
+          "target_shape": [
+            2,
+            24
+          ],
+          "valid_windows": 10,
+          "start_idx": 10,
+          "end_idx": 19
+        },
+        {
+          "dataset_idx": 86,
+          "item_id": "TURBINE4_SPLIT11",
+          "target_shape": [
+            2,
+            22
+          ],
+          "valid_windows": 8,
+          "start_idx": 10,
+          "end_idx": 17
+        },
+        {
+          "dataset_idx": 87,
+          "item_id": "TURBINE4_SPLIT12",
+          "target_shape": [
+            2,
+            25
+          ],
+          "valid_windows": 11,
+          "start_idx": 10,
+          "end_idx": 20
+        },
+        {
+          "dataset_idx": 88,
+          "item_id": "TURBINE4_SPLIT13",
+          "target_shape": [
+            2,
+            400
+          ],
+          "valid_windows": 386,
+          "start_idx": 10,
+          "end_idx": 395
+        },
+        {
+          "dataset_idx": 89,
+          "item_id": "TURBINE4_SPLIT14",
+          "target_shape": [
+            2,
+            450
+          ],
+          "valid_windows": 436,
+          "start_idx": 10,
+          "end_idx": 445
+        },
+        {
+          "dataset_idx": 90,
+          "item_id": "TURBINE4_SPLIT15",
+          "target_shape": [
+            2,
+            31
+          ],
+          "valid_windows": 17,
+          "start_idx": 10,
+          "end_idx": 26
+        },
+        {
+          "dataset_idx": 91,
+          "item_id": "TURBINE4_SPLIT16",
+          "target_shape": [
+            2,
+            979
+          ],
+          "valid_windows": 965,
+          "start_idx": 10,
+          "end_idx": 974
+        },
+        {
+          "dataset_idx": 92,
+          "item_id": "TURBINE4_SPLIT17",
+          "target_shape": [
+            2,
+            15618
+          ],
+          "valid_windows": 15604,
+          "start_idx": 10,
+          "end_idx": 15613
+        },
+        {
+          "dataset_idx": 93,
+          "item_id": "TURBINE4_SPLIT18",
+          "target_shape": [
+            2,
+            20743
+          ],
+          "valid_windows": 20729,
+          "start_idx": 10,
+          "end_idx": 20738
+        },
+        {
+          "dataset_idx": 94,
+          "item_id": "TURBINE4_SPLIT19",
+          "target_shape": [
+            2,
+            33299
+          ],
+          "valid_windows": 33285,
+          "start_idx": 10,
+          "end_idx": 33294
+        },
+        {
+          "dataset_idx": 95,
+          "item_id": "TURBINE4_SPLIT20",
+          "target_shape": [
+            2,
+            2631
+          ],
+          "valid_windows": 2617,
+          "start_idx": 10,
+          "end_idx": 2626
+        },
+        {
+          "dataset_idx": 96,
+          "item_id": "TURBINE4_SPLIT21",
+          "target_shape": [
+            2,
+            1414
+          ],
+          "valid_windows": 1400,
+          "start_idx": 10,
+          "end_idx": 1409
+        },
+        {
+          "dataset_idx": 97,
+          "item_id": "TURBINE4_SPLIT22",
+          "target_shape": [
+            2,
+            5146
+          ],
+          "valid_windows": 5132,
+          "start_idx": 10,
+          "end_idx": 5141
+        },
+        {
+          "dataset_idx": 98,
+          "item_id": "TURBINE4_SPLIT23",
+          "target_shape": [
+            2,
+            3249
+          ],
+          "valid_windows": 3235,
+          "start_idx": 10,
+          "end_idx": 3244
+        },
+        {
+          "dataset_idx": 99,
+          "item_id": "TURBINE4_SPLIT24",
+          "target_shape": [
+            2,
+            1544
+          ],
+          "valid_windows": 1530,
+          "start_idx": 10,
+          "end_idx": 1539
+        },
+        {
+          "dataset_idx": 100,
+          "item_id": "TURBINE5_SPLIT0",
+          "target_shape": [
+            2,
+            2659
+          ],
+          "valid_windows": 2645,
+          "start_idx": 10,
+          "end_idx": 2654
+        },
+        {
+          "dataset_idx": 101,
+          "item_id": "TURBINE5_SPLIT1",
+          "target_shape": [
+            2,
+            35
+          ],
+          "valid_windows": 21,
+          "start_idx": 10,
+          "end_idx": 30
+        },
+        {
+          "dataset_idx": 102,
+          "item_id": "TURBINE5_SPLIT2",
+          "target_shape": [
+            2,
+            63
+          ],
+          "valid_windows": 49,
+          "start_idx": 10,
+          "end_idx": 58
+        },
+        {
+          "dataset_idx": 103,
+          "item_id": "TURBINE5_SPLIT3",
+          "target_shape": [
+            2,
+            98
+          ],
+          "valid_windows": 84,
+          "start_idx": 10,
+          "end_idx": 93
+        },
+        {
+          "dataset_idx": 104,
+          "item_id": "TURBINE5_SPLIT4",
+          "target_shape": [
+            2,
+            1312
+          ],
+          "valid_windows": 1298,
+          "start_idx": 10,
+          "end_idx": 1307
+        },
+        {
+          "dataset_idx": 105,
+          "item_id": "TURBINE5_SPLIT5",
+          "target_shape": [
+            2,
+            1074
+          ],
+          "valid_windows": 1060,
+          "start_idx": 10,
+          "end_idx": 1069
+        },
+        {
+          "dataset_idx": 106,
+          "item_id": "TURBINE5_SPLIT6",
+          "target_shape": [
+            2,
+            38
+          ],
+          "valid_windows": 24,
+          "start_idx": 10,
+          "end_idx": 33
+        },
+        {
+          "dataset_idx": 107,
+          "item_id": "TURBINE5_SPLIT7",
+          "target_shape": [
+            2,
+            29
+          ],
+          "valid_windows": 15,
+          "start_idx": 10,
+          "end_idx": 24
+        },
+        {
+          "dataset_idx": 108,
+          "item_id": "TURBINE5_SPLIT8",
+          "target_shape": [
+            2,
+            37
+          ],
+          "valid_windows": 23,
+          "start_idx": 10,
+          "end_idx": 32
+        },
+        {
+          "dataset_idx": 109,
+          "item_id": "TURBINE5_SPLIT9",
+          "target_shape": [
+            2,
+            27
+          ],
+          "valid_windows": 13,
+          "start_idx": 10,
+          "end_idx": 22
+        },
+        {
+          "dataset_idx": 110,
+          "item_id": "TURBINE5_SPLIT10",
+          "target_shape": [
+            2,
+            24
+          ],
+          "valid_windows": 10,
+          "start_idx": 10,
+          "end_idx": 19
+        },
+        {
+          "dataset_idx": 111,
+          "item_id": "TURBINE5_SPLIT11",
+          "target_shape": [
+            2,
+            22
+          ],
+          "valid_windows": 8,
+          "start_idx": 10,
+          "end_idx": 17
+        },
+        {
+          "dataset_idx": 112,
+          "item_id": "TURBINE5_SPLIT12",
+          "target_shape": [
+            2,
+            25
+          ],
+          "valid_windows": 11,
+          "start_idx": 10,
+          "end_idx": 20
+        },
+        {
+          "dataset_idx": 113,
+          "item_id": "TURBINE5_SPLIT13",
+          "target_shape": [
+            2,
+            400
+          ],
+          "valid_windows": 386,
+          "start_idx": 10,
+          "end_idx": 395
+        },
+        {
+          "dataset_idx": 114,
+          "item_id": "TURBINE5_SPLIT14",
+          "target_shape": [
+            2,
+            450
+          ],
+          "valid_windows": 436,
+          "start_idx": 10,
+          "end_idx": 445
+        },
+        {
+          "dataset_idx": 115,
+          "item_id": "TURBINE5_SPLIT15",
+          "target_shape": [
+            2,
+            31
+          ],
+          "valid_windows": 17,
+          "start_idx": 10,
+          "end_idx": 26
+        },
+        {
+          "dataset_idx": 116,
+          "item_id": "TURBINE5_SPLIT16",
+          "target_shape": [
+            2,
+            979
+          ],
+          "valid_windows": 965,
+          "start_idx": 10,
+          "end_idx": 974
+        },
+        {
+          "dataset_idx": 117,
+          "item_id": "TURBINE5_SPLIT17",
+          "target_shape": [
+            2,
+            15618
+          ],
+          "valid_windows": 15604,
+          "start_idx": 10,
+          "end_idx": 15613
+        },
+        {
+          "dataset_idx": 118,
+          "item_id": "TURBINE5_SPLIT18",
+          "target_shape": [
+            2,
+            20743
+          ],
+          "valid_windows": 20729,
+          "start_idx": 10,
+          "end_idx": 20738
+        },
+        {
+          "dataset_idx": 119,
+          "item_id": "TURBINE5_SPLIT19",
+          "target_shape": [
+            2,
+            33299
+          ],
+          "valid_windows": 33285,
+          "start_idx": 10,
+          "end_idx": 33294
+        },
+        {
+          "dataset_idx": 120,
+          "item_id": "TURBINE5_SPLIT20",
+          "target_shape": [
+            2,
+            2631
+          ],
+          "valid_windows": 2617,
+          "start_idx": 10,
+          "end_idx": 2626
+        },
+        {
+          "dataset_idx": 121,
+          "item_id": "TURBINE5_SPLIT21",
+          "target_shape": [
+            2,
+            1414
+          ],
+          "valid_windows": 1400,
+          "start_idx": 10,
+          "end_idx": 1409
+        },
+        {
+          "dataset_idx": 122,
+          "item_id": "TURBINE5_SPLIT22",
+          "target_shape": [
+            2,
+            5146
+          ],
+          "valid_windows": 5132,
+          "start_idx": 10,
+          "end_idx": 5141
+        },
+        {
+          "dataset_idx": 123,
+          "item_id": "TURBINE5_SPLIT23",
+          "target_shape": [
+            2,
+            3249
+          ],
+          "valid_windows": 3235,
+          "start_idx": 10,
+          "end_idx": 3244
+        },
+        {
+          "dataset_idx": 124,
+          "item_id": "TURBINE5_SPLIT24",
+          "target_shape": [
+            2,
+            1544
+          ],
+          "valid_windows": 1530,
+          "start_idx": 10,
+          "end_idx": 1539
+        },
+        {
+          "dataset_idx": 125,
+          "item_id": "TURBINE6_SPLIT0",
+          "target_shape": [
+            2,
+            2659
+          ],
+          "valid_windows": 2645,
+          "start_idx": 10,
+          "end_idx": 2654
+        },
+        {
+          "dataset_idx": 126,
+          "item_id": "TURBINE6_SPLIT1",
+          "target_shape": [
+            2,
+            35
+          ],
+          "valid_windows": 21,
+          "start_idx": 10,
+          "end_idx": 30
+        },
+        {
+          "dataset_idx": 127,
+          "item_id": "TURBINE6_SPLIT2",
+          "target_shape": [
+            2,
+            63
+          ],
+          "valid_windows": 49,
+          "start_idx": 10,
+          "end_idx": 58
+        },
+        {
+          "dataset_idx": 128,
+          "item_id": "TURBINE6_SPLIT3",
+          "target_shape": [
+            2,
+            98
+          ],
+          "valid_windows": 84,
+          "start_idx": 10,
+          "end_idx": 93
+        },
+        {
+          "dataset_idx": 129,
+          "item_id": "TURBINE6_SPLIT4",
+          "target_shape": [
+            2,
+            1312
+          ],
+          "valid_windows": 1298,
+          "start_idx": 10,
+          "end_idx": 1307
+        },
+        {
+          "dataset_idx": 130,
+          "item_id": "TURBINE6_SPLIT5",
+          "target_shape": [
+            2,
+            1074
+          ],
+          "valid_windows": 1060,
+          "start_idx": 10,
+          "end_idx": 1069
+        },
+        {
+          "dataset_idx": 131,
+          "item_id": "TURBINE6_SPLIT6",
+          "target_shape": [
+            2,
+            38
+          ],
+          "valid_windows": 24,
+          "start_idx": 10,
+          "end_idx": 33
+        },
+        {
+          "dataset_idx": 132,
+          "item_id": "TURBINE6_SPLIT7",
+          "target_shape": [
+            2,
+            29
+          ],
+          "valid_windows": 15,
+          "start_idx": 10,
+          "end_idx": 24
+        },
+        {
+          "dataset_idx": 133,
+          "item_id": "TURBINE6_SPLIT8",
+          "target_shape": [
+            2,
+            37
+          ],
+          "valid_windows": 23,
+          "start_idx": 10,
+          "end_idx": 32
+        },
+        {
+          "dataset_idx": 134,
+          "item_id": "TURBINE6_SPLIT9",
+          "target_shape": [
+            2,
+            27
+          ],
+          "valid_windows": 13,
+          "start_idx": 10,
+          "end_idx": 22
+        },
+        {
+          "dataset_idx": 135,
+          "item_id": "TURBINE6_SPLIT10",
+          "target_shape": [
+            2,
+            24
+          ],
+          "valid_windows": 10,
+          "start_idx": 10,
+          "end_idx": 19
+        },
+        {
+          "dataset_idx": 136,
+          "item_id": "TURBINE6_SPLIT11",
+          "target_shape": [
+            2,
+            22
+          ],
+          "valid_windows": 8,
+          "start_idx": 10,
+          "end_idx": 17
+        },
+        {
+          "dataset_idx": 137,
+          "item_id": "TURBINE6_SPLIT12",
+          "target_shape": [
+            2,
+            25
+          ],
+          "valid_windows": 11,
+          "start_idx": 10,
+          "end_idx": 20
+        },
+        {
+          "dataset_idx": 138,
+          "item_id": "TURBINE6_SPLIT13",
+          "target_shape": [
+            2,
+            400
+          ],
+          "valid_windows": 386,
+          "start_idx": 10,
+          "end_idx": 395
+        },
+        {
+          "dataset_idx": 139,
+          "item_id": "TURBINE6_SPLIT14",
+          "target_shape": [
+            2,
+            450
+          ],
+          "valid_windows": 436,
+          "start_idx": 10,
+          "end_idx": 445
+        },
+        {
+          "dataset_idx": 140,
+          "item_id": "TURBINE6_SPLIT15",
+          "target_shape": [
+            2,
+            31
+          ],
+          "valid_windows": 17,
+          "start_idx": 10,
+          "end_idx": 26
+        },
+        {
+          "dataset_idx": 141,
+          "item_id": "TURBINE6_SPLIT16",
+          "target_shape": [
+            2,
+            979
+          ],
+          "valid_windows": 965,
+          "start_idx": 10,
+          "end_idx": 974
+        },
+        {
+          "dataset_idx": 142,
+          "item_id": "TURBINE6_SPLIT17",
+          "target_shape": [
+            2,
+            15618
+          ],
+          "valid_windows": 15604,
+          "start_idx": 10,
+          "end_idx": 15613
+        },
+        {
+          "dataset_idx": 143,
+          "item_id": "TURBINE6_SPLIT18",
+          "target_shape": [
+            2,
+            20743
+          ],
+          "valid_windows": 20729,
+          "start_idx": 10,
+          "end_idx": 20738
+        },
+        {
+          "dataset_idx": 144,
+          "item_id": "TURBINE6_SPLIT19",
+          "target_shape": [
+            2,
+            33299
+          ],
+          "valid_windows": 33285,
+          "start_idx": 10,
+          "end_idx": 33294
+        },
+        {
+          "dataset_idx": 145,
+          "item_id": "TURBINE6_SPLIT20",
+          "target_shape": [
+            2,
+            2631
+          ],
+          "valid_windows": 2617,
+          "start_idx": 10,
+          "end_idx": 2626
+        },
+        {
+          "dataset_idx": 146,
+          "item_id": "TURBINE6_SPLIT21",
+          "target_shape": [
+            2,
+            1414
+          ],
+          "valid_windows": 1400,
+          "start_idx": 10,
+          "end_idx": 1409
+        },
+        {
+          "dataset_idx": 147,
+          "item_id": "TURBINE6_SPLIT22",
+          "target_shape": [
+            2,
+            5146
+          ],
+          "valid_windows": 5132,
+          "start_idx": 10,
+          "end_idx": 5141
+        },
+        {
+          "dataset_idx": 148,
+          "item_id": "TURBINE6_SPLIT23",
+          "target_shape": [
+            2,
+            3249
+          ],
+          "valid_windows": 3235,
+          "start_idx": 10,
+          "end_idx": 3244
+        },
+        {
+          "dataset_idx": 149,
+          "item_id": "TURBINE6_SPLIT24",
+          "target_shape": [
+            2,
+            1544
+          ],
+          "valid_windows": 1530,
+          "start_idx": 10,
+          "end_idx": 1539
+        },
+        {
+          "dataset_idx": 150,
+          "item_id": "TURBINE7_SPLIT0",
+          "target_shape": [
+            2,
+            2659
+          ],
+          "valid_windows": 2645,
+          "start_idx": 10,
+          "end_idx": 2654
+        },
+        {
+          "dataset_idx": 151,
+          "item_id": "TURBINE7_SPLIT1",
+          "target_shape": [
+            2,
+            35
+          ],
+          "valid_windows": 21,
+          "start_idx": 10,
+          "end_idx": 30
+        },
+        {
+          "dataset_idx": 152,
+          "item_id": "TURBINE7_SPLIT2",
+          "target_shape": [
+            2,
+            63
+          ],
+          "valid_windows": 49,
+          "start_idx": 10,
+          "end_idx": 58
+        },
+        {
+          "dataset_idx": 153,
+          "item_id": "TURBINE7_SPLIT3",
+          "target_shape": [
+            2,
+            98
+          ],
+          "valid_windows": 84,
+          "start_idx": 10,
+          "end_idx": 93
+        },
+        {
+          "dataset_idx": 154,
+          "item_id": "TURBINE7_SPLIT4",
+          "target_shape": [
+            2,
+            1312
+          ],
+          "valid_windows": 1298,
+          "start_idx": 10,
+          "end_idx": 1307
+        },
+        {
+          "dataset_idx": 155,
+          "item_id": "TURBINE7_SPLIT5",
+          "target_shape": [
+            2,
+            1074
+          ],
+          "valid_windows": 1060,
+          "start_idx": 10,
+          "end_idx": 1069
+        },
+        {
+          "dataset_idx": 156,
+          "item_id": "TURBINE7_SPLIT6",
+          "target_shape": [
+            2,
+            38
+          ],
+          "valid_windows": 24,
+          "start_idx": 10,
+          "end_idx": 33
+        },
+        {
+          "dataset_idx": 157,
+          "item_id": "TURBINE7_SPLIT7",
+          "target_shape": [
+            2,
+            29
+          ],
+          "valid_windows": 15,
+          "start_idx": 10,
+          "end_idx": 24
+        },
+        {
+          "dataset_idx": 158,
+          "item_id": "TURBINE7_SPLIT8",
+          "target_shape": [
+            2,
+            37
+          ],
+          "valid_windows": 23,
+          "start_idx": 10,
+          "end_idx": 32
+        },
+        {
+          "dataset_idx": 159,
+          "item_id": "TURBINE7_SPLIT9",
+          "target_shape": [
+            2,
+            27
+          ],
+          "valid_windows": 13,
+          "start_idx": 10,
+          "end_idx": 22
+        },
+        {
+          "dataset_idx": 160,
+          "item_id": "TURBINE7_SPLIT10",
+          "target_shape": [
+            2,
+            24
+          ],
+          "valid_windows": 10,
+          "start_idx": 10,
+          "end_idx": 19
+        },
+        {
+          "dataset_idx": 161,
+          "item_id": "TURBINE7_SPLIT11",
+          "target_shape": [
+            2,
+            22
+          ],
+          "valid_windows": 8,
+          "start_idx": 10,
+          "end_idx": 17
+        },
+        {
+          "dataset_idx": 162,
+          "item_id": "TURBINE7_SPLIT12",
+          "target_shape": [
+            2,
+            25
+          ],
+          "valid_windows": 11,
+          "start_idx": 10,
+          "end_idx": 20
+        },
+        {
+          "dataset_idx": 163,
+          "item_id": "TURBINE7_SPLIT13",
+          "target_shape": [
+            2,
+            400
+          ],
+          "valid_windows": 386,
+          "start_idx": 10,
+          "end_idx": 395
+        },
+        {
+          "dataset_idx": 164,
+          "item_id": "TURBINE7_SPLIT14",
+          "target_shape": [
+            2,
+            450
+          ],
+          "valid_windows": 436,
+          "start_idx": 10,
+          "end_idx": 445
+        },
+        {
+          "dataset_idx": 165,
+          "item_id": "TURBINE7_SPLIT15",
+          "target_shape": [
+            2,
+            31
+          ],
+          "valid_windows": 17,
+          "start_idx": 10,
+          "end_idx": 26
+        },
+        {
+          "dataset_idx": 166,
+          "item_id": "TURBINE7_SPLIT16",
+          "target_shape": [
+            2,
+            979
+          ],
+          "valid_windows": 965,
+          "start_idx": 10,
+          "end_idx": 974
+        },
+        {
+          "dataset_idx": 167,
+          "item_id": "TURBINE7_SPLIT17",
+          "target_shape": [
+            2,
+            15618
+          ],
+          "valid_windows": 15604,
+          "start_idx": 10,
+          "end_idx": 15613
+        },
+        {
+          "dataset_idx": 168,
+          "item_id": "TURBINE7_SPLIT18",
+          "target_shape": [
+            2,
+            20743
+          ],
+          "valid_windows": 20729,
+          "start_idx": 10,
+          "end_idx": 20738
+        },
+        {
+          "dataset_idx": 169,
+          "item_id": "TURBINE7_SPLIT19",
+          "target_shape": [
+            2,
+            33299
+          ],
+          "valid_windows": 33285,
+          "start_idx": 10,
+          "end_idx": 33294
+        },
+        {
+          "dataset_idx": 170,
+          "item_id": "TURBINE7_SPLIT20",
+          "target_shape": [
+            2,
+            2631
+          ],
+          "valid_windows": 2617,
+          "start_idx": 10,
+          "end_idx": 2626
+        },
+        {
+          "dataset_idx": 171,
+          "item_id": "TURBINE7_SPLIT21",
+          "target_shape": [
+            2,
+            1414
+          ],
+          "valid_windows": 1400,
+          "start_idx": 10,
+          "end_idx": 1409
+        },
+        {
+          "dataset_idx": 172,
+          "item_id": "TURBINE7_SPLIT22",
+          "target_shape": [
+            2,
+            5146
+          ],
+          "valid_windows": 5132,
+          "start_idx": 10,
+          "end_idx": 5141
+        },
+        {
+          "dataset_idx": 173,
+          "item_id": "TURBINE7_SPLIT23",
+          "target_shape": [
+            2,
+            3249
+          ],
+          "valid_windows": 3235,
+          "start_idx": 10,
+          "end_idx": 3244
+        },
+        {
+          "dataset_idx": 174,
+          "item_id": "TURBINE7_SPLIT24",
+          "target_shape": [
+            2,
+            1544
+          ],
+          "valid_windows": 1530,
+          "start_idx": 10,
+          "end_idx": 1539
+        }
+      ],
+      "val": [
+        {
+          "dataset_idx": 0,
+          "item_id": "TURBINE1_SPLIT0",
+          "target_shape": [
+            2,
+            380
+          ],
+          "valid_windows": 366,
+          "start_idx": 10,
+          "end_idx": 375
+        },
+        {
+          "dataset_idx": 1,
+          "item_id": "TURBINE1_SPLIT1",
+          "target_shape": [
+            2,
+            188
+          ],
+          "valid_windows": 174,
+          "start_idx": 10,
+          "end_idx": 183
+        },
+        {
+          "dataset_idx": 2,
+          "item_id": "TURBINE1_SPLIT2",
+          "target_shape": [
+            2,
+            154
+          ],
+          "valid_windows": 140,
+          "start_idx": 10,
+          "end_idx": 149
+        },
+        {
+          "dataset_idx": 3,
+          "item_id": "TURBINE1_SPLIT3",
+          "target_shape": [
+            2,
+            57
+          ],
+          "valid_windows": 43,
+          "start_idx": 10,
+          "end_idx": 52
+        },
+        {
+          "dataset_idx": 4,
+          "item_id": "TURBINE1_SPLIT4",
+          "target_shape": [
+            2,
+            64
+          ],
+          "valid_windows": 50,
+          "start_idx": 10,
+          "end_idx": 59
+        },
+        {
+          "dataset_idx": 5,
+          "item_id": "TURBINE1_SPLIT5",
+          "target_shape": [
+            2,
+            140
+          ],
+          "valid_windows": 126,
+          "start_idx": 10,
+          "end_idx": 135
+        },
+        {
+          "dataset_idx": 6,
+          "item_id": "TURBINE1_SPLIT6",
+          "target_shape": [
+            2,
+            2231
+          ],
+          "valid_windows": 2217,
+          "start_idx": 10,
+          "end_idx": 2226
+        },
+        {
+          "dataset_idx": 7,
+          "item_id": "TURBINE1_SPLIT7",
+          "target_shape": [
+            2,
+            2963
+          ],
+          "valid_windows": 2949,
+          "start_idx": 10,
+          "end_idx": 2958
+        },
+        {
+          "dataset_idx": 8,
+          "item_id": "TURBINE1_SPLIT8",
+          "target_shape": [
+            2,
+            4757
+          ],
+          "valid_windows": 4743,
+          "start_idx": 10,
+          "end_idx": 4752
+        },
+        {
+          "dataset_idx": 9,
+          "item_id": "TURBINE1_SPLIT9",
+          "target_shape": [
+            2,
+            376
+          ],
+          "valid_windows": 362,
+          "start_idx": 10,
+          "end_idx": 371
+        },
+        {
+          "dataset_idx": 10,
+          "item_id": "TURBINE1_SPLIT10",
+          "target_shape": [
+            2,
+            202
+          ],
+          "valid_windows": 188,
+          "start_idx": 10,
+          "end_idx": 197
+        },
+        {
+          "dataset_idx": 11,
+          "item_id": "TURBINE1_SPLIT11",
+          "target_shape": [
+            2,
+            735
+          ],
+          "valid_windows": 721,
+          "start_idx": 10,
+          "end_idx": 730
+        },
+        {
+          "dataset_idx": 12,
+          "item_id": "TURBINE1_SPLIT12",
+          "target_shape": [
+            2,
+            464
+          ],
+          "valid_windows": 450,
+          "start_idx": 10,
+          "end_idx": 459
+        },
+        {
+          "dataset_idx": 13,
+          "item_id": "TURBINE1_SPLIT13",
+          "target_shape": [
+            2,
+            220
+          ],
+          "valid_windows": 206,
+          "start_idx": 10,
+          "end_idx": 215
+        },
+        {
+          "dataset_idx": 14,
+          "item_id": "TURBINE2_SPLIT0",
+          "target_shape": [
+            2,
+            380
+          ],
+          "valid_windows": 366,
+          "start_idx": 10,
+          "end_idx": 375
+        },
+        {
+          "dataset_idx": 15,
+          "item_id": "TURBINE2_SPLIT1",
+          "target_shape": [
+            2,
+            188
+          ],
+          "valid_windows": 174,
+          "start_idx": 10,
+          "end_idx": 183
+        },
+        {
+          "dataset_idx": 16,
+          "item_id": "TURBINE2_SPLIT2",
+          "target_shape": [
+            2,
+            154
+          ],
+          "valid_windows": 140,
+          "start_idx": 10,
+          "end_idx": 149
+        },
+        {
+          "dataset_idx": 17,
+          "item_id": "TURBINE2_SPLIT3",
+          "target_shape": [
+            2,
+            57
+          ],
+          "valid_windows": 43,
+          "start_idx": 10,
+          "end_idx": 52
+        },
+        {
+          "dataset_idx": 18,
+          "item_id": "TURBINE2_SPLIT4",
+          "target_shape": [
+            2,
+            64
+          ],
+          "valid_windows": 50,
+          "start_idx": 10,
+          "end_idx": 59
+        },
+        {
+          "dataset_idx": 19,
+          "item_id": "TURBINE2_SPLIT5",
+          "target_shape": [
+            2,
+            140
+          ],
+          "valid_windows": 126,
+          "start_idx": 10,
+          "end_idx": 135
+        },
+        {
+          "dataset_idx": 20,
+          "item_id": "TURBINE2_SPLIT6",
+          "target_shape": [
+            2,
+            2231
+          ],
+          "valid_windows": 2217,
+          "start_idx": 10,
+          "end_idx": 2226
+        },
+        {
+          "dataset_idx": 21,
+          "item_id": "TURBINE2_SPLIT7",
+          "target_shape": [
+            2,
+            2963
+          ],
+          "valid_windows": 2949,
+          "start_idx": 10,
+          "end_idx": 2958
+        },
+        {
+          "dataset_idx": 22,
+          "item_id": "TURBINE2_SPLIT8",
+          "target_shape": [
+            2,
+            4757
+          ],
+          "valid_windows": 4743,
+          "start_idx": 10,
+          "end_idx": 4752
+        },
+        {
+          "dataset_idx": 23,
+          "item_id": "TURBINE2_SPLIT9",
+          "target_shape": [
+            2,
+            376
+          ],
+          "valid_windows": 362,
+          "start_idx": 10,
+          "end_idx": 371
+        },
+        {
+          "dataset_idx": 24,
+          "item_id": "TURBINE2_SPLIT10",
+          "target_shape": [
+            2,
+            202
+          ],
+          "valid_windows": 188,
+          "start_idx": 10,
+          "end_idx": 197
+        },
+        {
+          "dataset_idx": 25,
+          "item_id": "TURBINE2_SPLIT11",
+          "target_shape": [
+            2,
+            735
+          ],
+          "valid_windows": 721,
+          "start_idx": 10,
+          "end_idx": 730
+        },
+        {
+          "dataset_idx": 26,
+          "item_id": "TURBINE2_SPLIT12",
+          "target_shape": [
+            2,
+            464
+          ],
+          "valid_windows": 450,
+          "start_idx": 10,
+          "end_idx": 459
+        },
+        {
+          "dataset_idx": 27,
+          "item_id": "TURBINE2_SPLIT13",
+          "target_shape": [
+            2,
+            220
+          ],
+          "valid_windows": 206,
+          "start_idx": 10,
+          "end_idx": 215
+        },
+        {
+          "dataset_idx": 28,
+          "item_id": "TURBINE3_SPLIT0",
+          "target_shape": [
+            2,
+            380
+          ],
+          "valid_windows": 366,
+          "start_idx": 10,
+          "end_idx": 375
+        },
+        {
+          "dataset_idx": 29,
+          "item_id": "TURBINE3_SPLIT1",
+          "target_shape": [
+            2,
+            188
+          ],
+          "valid_windows": 174,
+          "start_idx": 10,
+          "end_idx": 183
+        },
+        {
+          "dataset_idx": 30,
+          "item_id": "TURBINE3_SPLIT2",
+          "target_shape": [
+            2,
+            154
+          ],
+          "valid_windows": 140,
+          "start_idx": 10,
+          "end_idx": 149
+        },
+        {
+          "dataset_idx": 31,
+          "item_id": "TURBINE3_SPLIT3",
+          "target_shape": [
+            2,
+            57
+          ],
+          "valid_windows": 43,
+          "start_idx": 10,
+          "end_idx": 52
+        },
+        {
+          "dataset_idx": 32,
+          "item_id": "TURBINE3_SPLIT4",
+          "target_shape": [
+            2,
+            64
+          ],
+          "valid_windows": 50,
+          "start_idx": 10,
+          "end_idx": 59
+        },
+        {
+          "dataset_idx": 33,
+          "item_id": "TURBINE3_SPLIT5",
+          "target_shape": [
+            2,
+            140
+          ],
+          "valid_windows": 126,
+          "start_idx": 10,
+          "end_idx": 135
+        },
+        {
+          "dataset_idx": 34,
+          "item_id": "TURBINE3_SPLIT6",
+          "target_shape": [
+            2,
+            2231
+          ],
+          "valid_windows": 2217,
+          "start_idx": 10,
+          "end_idx": 2226
+        },
+        {
+          "dataset_idx": 35,
+          "item_id": "TURBINE3_SPLIT7",
+          "target_shape": [
+            2,
+            2963
+          ],
+          "valid_windows": 2949,
+          "start_idx": 10,
+          "end_idx": 2958
+        },
+        {
+          "dataset_idx": 36,
+          "item_id": "TURBINE3_SPLIT8",
+          "target_shape": [
+            2,
+            4757
+          ],
+          "valid_windows": 4743,
+          "start_idx": 10,
+          "end_idx": 4752
+        },
+        {
+          "dataset_idx": 37,
+          "item_id": "TURBINE3_SPLIT9",
+          "target_shape": [
+            2,
+            376
+          ],
+          "valid_windows": 362,
+          "start_idx": 10,
+          "end_idx": 371
+        },
+        {
+          "dataset_idx": 38,
+          "item_id": "TURBINE3_SPLIT10",
+          "target_shape": [
+            2,
+            202
+          ],
+          "valid_windows": 188,
+          "start_idx": 10,
+          "end_idx": 197
+        },
+        {
+          "dataset_idx": 39,
+          "item_id": "TURBINE3_SPLIT11",
+          "target_shape": [
+            2,
+            735
+          ],
+          "valid_windows": 721,
+          "start_idx": 10,
+          "end_idx": 730
+        },
+        {
+          "dataset_idx": 40,
+          "item_id": "TURBINE3_SPLIT12",
+          "target_shape": [
+            2,
+            464
+          ],
+          "valid_windows": 450,
+          "start_idx": 10,
+          "end_idx": 459
+        },
+        {
+          "dataset_idx": 41,
+          "item_id": "TURBINE3_SPLIT13",
+          "target_shape": [
+            2,
+            220
+          ],
+          "valid_windows": 206,
+          "start_idx": 10,
+          "end_idx": 215
+        },
+        {
+          "dataset_idx": 42,
+          "item_id": "TURBINE4_SPLIT0",
+          "target_shape": [
+            2,
+            380
+          ],
+          "valid_windows": 366,
+          "start_idx": 10,
+          "end_idx": 375
+        },
+        {
+          "dataset_idx": 43,
+          "item_id": "TURBINE4_SPLIT1",
+          "target_shape": [
+            2,
+            188
+          ],
+          "valid_windows": 174,
+          "start_idx": 10,
+          "end_idx": 183
+        },
+        {
+          "dataset_idx": 44,
+          "item_id": "TURBINE4_SPLIT2",
+          "target_shape": [
+            2,
+            154
+          ],
+          "valid_windows": 140,
+          "start_idx": 10,
+          "end_idx": 149
+        },
+        {
+          "dataset_idx": 45,
+          "item_id": "TURBINE4_SPLIT3",
+          "target_shape": [
+            2,
+            57
+          ],
+          "valid_windows": 43,
+          "start_idx": 10,
+          "end_idx": 52
+        },
+        {
+          "dataset_idx": 46,
+          "item_id": "TURBINE4_SPLIT4",
+          "target_shape": [
+            2,
+            64
+          ],
+          "valid_windows": 50,
+          "start_idx": 10,
+          "end_idx": 59
+        },
+        {
+          "dataset_idx": 47,
+          "item_id": "TURBINE4_SPLIT5",
+          "target_shape": [
+            2,
+            140
+          ],
+          "valid_windows": 126,
+          "start_idx": 10,
+          "end_idx": 135
+        },
+        {
+          "dataset_idx": 48,
+          "item_id": "TURBINE4_SPLIT6",
+          "target_shape": [
+            2,
+            2231
+          ],
+          "valid_windows": 2217,
+          "start_idx": 10,
+          "end_idx": 2226
+        },
+        {
+          "dataset_idx": 49,
+          "item_id": "TURBINE4_SPLIT7",
+          "target_shape": [
+            2,
+            2963
+          ],
+          "valid_windows": 2949,
+          "start_idx": 10,
+          "end_idx": 2958
+        },
+        {
+          "dataset_idx": 50,
+          "item_id": "TURBINE4_SPLIT8",
+          "target_shape": [
+            2,
+            4757
+          ],
+          "valid_windows": 4743,
+          "start_idx": 10,
+          "end_idx": 4752
+        },
+        {
+          "dataset_idx": 51,
+          "item_id": "TURBINE4_SPLIT9",
+          "target_shape": [
+            2,
+            376
+          ],
+          "valid_windows": 362,
+          "start_idx": 10,
+          "end_idx": 371
+        },
+        {
+          "dataset_idx": 52,
+          "item_id": "TURBINE4_SPLIT10",
+          "target_shape": [
+            2,
+            202
+          ],
+          "valid_windows": 188,
+          "start_idx": 10,
+          "end_idx": 197
+        },
+        {
+          "dataset_idx": 53,
+          "item_id": "TURBINE4_SPLIT11",
+          "target_shape": [
+            2,
+            735
+          ],
+          "valid_windows": 721,
+          "start_idx": 10,
+          "end_idx": 730
+        },
+        {
+          "dataset_idx": 54,
+          "item_id": "TURBINE4_SPLIT12",
+          "target_shape": [
+            2,
+            464
+          ],
+          "valid_windows": 450,
+          "start_idx": 10,
+          "end_idx": 459
+        },
+        {
+          "dataset_idx": 55,
+          "item_id": "TURBINE4_SPLIT13",
+          "target_shape": [
+            2,
+            220
+          ],
+          "valid_windows": 206,
+          "start_idx": 10,
+          "end_idx": 215
+        },
+        {
+          "dataset_idx": 56,
+          "item_id": "TURBINE5_SPLIT0",
+          "target_shape": [
+            2,
+            380
+          ],
+          "valid_windows": 366,
+          "start_idx": 10,
+          "end_idx": 375
+        },
+        {
+          "dataset_idx": 57,
+          "item_id": "TURBINE5_SPLIT1",
+          "target_shape": [
+            2,
+            188
+          ],
+          "valid_windows": 174,
+          "start_idx": 10,
+          "end_idx": 183
+        },
+        {
+          "dataset_idx": 58,
+          "item_id": "TURBINE5_SPLIT2",
+          "target_shape": [
+            2,
+            154
+          ],
+          "valid_windows": 140,
+          "start_idx": 10,
+          "end_idx": 149
+        },
+        {
+          "dataset_idx": 59,
+          "item_id": "TURBINE5_SPLIT3",
+          "target_shape": [
+            2,
+            57
+          ],
+          "valid_windows": 43,
+          "start_idx": 10,
+          "end_idx": 52
+        },
+        {
+          "dataset_idx": 60,
+          "item_id": "TURBINE5_SPLIT4",
+          "target_shape": [
+            2,
+            64
+          ],
+          "valid_windows": 50,
+          "start_idx": 10,
+          "end_idx": 59
+        },
+        {
+          "dataset_idx": 61,
+          "item_id": "TURBINE5_SPLIT5",
+          "target_shape": [
+            2,
+            140
+          ],
+          "valid_windows": 126,
+          "start_idx": 10,
+          "end_idx": 135
+        },
+        {
+          "dataset_idx": 62,
+          "item_id": "TURBINE5_SPLIT6",
+          "target_shape": [
+            2,
+            2231
+          ],
+          "valid_windows": 2217,
+          "start_idx": 10,
+          "end_idx": 2226
+        },
+        {
+          "dataset_idx": 63,
+          "item_id": "TURBINE5_SPLIT7",
+          "target_shape": [
+            2,
+            2963
+          ],
+          "valid_windows": 2949,
+          "start_idx": 10,
+          "end_idx": 2958
+        },
+        {
+          "dataset_idx": 64,
+          "item_id": "TURBINE5_SPLIT8",
+          "target_shape": [
+            2,
+            4757
+          ],
+          "valid_windows": 4743,
+          "start_idx": 10,
+          "end_idx": 4752
+        },
+        {
+          "dataset_idx": 65,
+          "item_id": "TURBINE5_SPLIT9",
+          "target_shape": [
+            2,
+            376
+          ],
+          "valid_windows": 362,
+          "start_idx": 10,
+          "end_idx": 371
+        },
+        {
+          "dataset_idx": 66,
+          "item_id": "TURBINE5_SPLIT10",
+          "target_shape": [
+            2,
+            202
+          ],
+          "valid_windows": 188,
+          "start_idx": 10,
+          "end_idx": 197
+        },
+        {
+          "dataset_idx": 67,
+          "item_id": "TURBINE5_SPLIT11",
+          "target_shape": [
+            2,
+            735
+          ],
+          "valid_windows": 721,
+          "start_idx": 10,
+          "end_idx": 730
+        },
+        {
+          "dataset_idx": 68,
+          "item_id": "TURBINE5_SPLIT12",
+          "target_shape": [
+            2,
+            464
+          ],
+          "valid_windows": 450,
+          "start_idx": 10,
+          "end_idx": 459
+        },
+        {
+          "dataset_idx": 69,
+          "item_id": "TURBINE5_SPLIT13",
+          "target_shape": [
+            2,
+            220
+          ],
+          "valid_windows": 206,
+          "start_idx": 10,
+          "end_idx": 215
+        },
+        {
+          "dataset_idx": 70,
+          "item_id": "TURBINE6_SPLIT0",
+          "target_shape": [
+            2,
+            380
+          ],
+          "valid_windows": 366,
+          "start_idx": 10,
+          "end_idx": 375
+        },
+        {
+          "dataset_idx": 71,
+          "item_id": "TURBINE6_SPLIT1",
+          "target_shape": [
+            2,
+            188
+          ],
+          "valid_windows": 174,
+          "start_idx": 10,
+          "end_idx": 183
+        },
+        {
+          "dataset_idx": 72,
+          "item_id": "TURBINE6_SPLIT2",
+          "target_shape": [
+            2,
+            154
+          ],
+          "valid_windows": 140,
+          "start_idx": 10,
+          "end_idx": 149
+        },
+        {
+          "dataset_idx": 73,
+          "item_id": "TURBINE6_SPLIT3",
+          "target_shape": [
+            2,
+            57
+          ],
+          "valid_windows": 43,
+          "start_idx": 10,
+          "end_idx": 52
+        },
+        {
+          "dataset_idx": 74,
+          "item_id": "TURBINE6_SPLIT4",
+          "target_shape": [
+            2,
+            64
+          ],
+          "valid_windows": 50,
+          "start_idx": 10,
+          "end_idx": 59
+        },
+        {
+          "dataset_idx": 75,
+          "item_id": "TURBINE6_SPLIT5",
+          "target_shape": [
+            2,
+            140
+          ],
+          "valid_windows": 126,
+          "start_idx": 10,
+          "end_idx": 135
+        },
+        {
+          "dataset_idx": 76,
+          "item_id": "TURBINE6_SPLIT6",
+          "target_shape": [
+            2,
+            2231
+          ],
+          "valid_windows": 2217,
+          "start_idx": 10,
+          "end_idx": 2226
+        },
+        {
+          "dataset_idx": 77,
+          "item_id": "TURBINE6_SPLIT7",
+          "target_shape": [
+            2,
+            2963
+          ],
+          "valid_windows": 2949,
+          "start_idx": 10,
+          "end_idx": 2958
+        },
+        {
+          "dataset_idx": 78,
+          "item_id": "TURBINE6_SPLIT8",
+          "target_shape": [
+            2,
+            4757
+          ],
+          "valid_windows": 4743,
+          "start_idx": 10,
+          "end_idx": 4752
+        },
+        {
+          "dataset_idx": 79,
+          "item_id": "TURBINE6_SPLIT9",
+          "target_shape": [
+            2,
+            376
+          ],
+          "valid_windows": 362,
+          "start_idx": 10,
+          "end_idx": 371
+        },
+        {
+          "dataset_idx": 80,
+          "item_id": "TURBINE6_SPLIT10",
+          "target_shape": [
+            2,
+            202
+          ],
+          "valid_windows": 188,
+          "start_idx": 10,
+          "end_idx": 197
+        },
+        {
+          "dataset_idx": 81,
+          "item_id": "TURBINE6_SPLIT11",
+          "target_shape": [
+            2,
+            735
+          ],
+          "valid_windows": 721,
+          "start_idx": 10,
+          "end_idx": 730
+        },
+        {
+          "dataset_idx": 82,
+          "item_id": "TURBINE6_SPLIT12",
+          "target_shape": [
+            2,
+            464
+          ],
+          "valid_windows": 450,
+          "start_idx": 10,
+          "end_idx": 459
+        },
+        {
+          "dataset_idx": 83,
+          "item_id": "TURBINE6_SPLIT13",
+          "target_shape": [
+            2,
+            220
+          ],
+          "valid_windows": 206,
+          "start_idx": 10,
+          "end_idx": 215
+        },
+        {
+          "dataset_idx": 84,
+          "item_id": "TURBINE7_SPLIT0",
+          "target_shape": [
+            2,
+            380
+          ],
+          "valid_windows": 366,
+          "start_idx": 10,
+          "end_idx": 375
+        },
+        {
+          "dataset_idx": 85,
+          "item_id": "TURBINE7_SPLIT1",
+          "target_shape": [
+            2,
+            188
+          ],
+          "valid_windows": 174,
+          "start_idx": 10,
+          "end_idx": 183
+        },
+        {
+          "dataset_idx": 86,
+          "item_id": "TURBINE7_SPLIT2",
+          "target_shape": [
+            2,
+            154
+          ],
+          "valid_windows": 140,
+          "start_idx": 10,
+          "end_idx": 149
+        },
+        {
+          "dataset_idx": 87,
+          "item_id": "TURBINE7_SPLIT3",
+          "target_shape": [
+            2,
+            57
+          ],
+          "valid_windows": 43,
+          "start_idx": 10,
+          "end_idx": 52
+        },
+        {
+          "dataset_idx": 88,
+          "item_id": "TURBINE7_SPLIT4",
+          "target_shape": [
+            2,
+            64
+          ],
+          "valid_windows": 50,
+          "start_idx": 10,
+          "end_idx": 59
+        },
+        {
+          "dataset_idx": 89,
+          "item_id": "TURBINE7_SPLIT5",
+          "target_shape": [
+            2,
+            140
+          ],
+          "valid_windows": 126,
+          "start_idx": 10,
+          "end_idx": 135
+        },
+        {
+          "dataset_idx": 90,
+          "item_id": "TURBINE7_SPLIT6",
+          "target_shape": [
+            2,
+            2231
+          ],
+          "valid_windows": 2217,
+          "start_idx": 10,
+          "end_idx": 2226
+        },
+        {
+          "dataset_idx": 91,
+          "item_id": "TURBINE7_SPLIT7",
+          "target_shape": [
+            2,
+            2963
+          ],
+          "valid_windows": 2949,
+          "start_idx": 10,
+          "end_idx": 2958
+        },
+        {
+          "dataset_idx": 92,
+          "item_id": "TURBINE7_SPLIT8",
+          "target_shape": [
+            2,
+            4757
+          ],
+          "valid_windows": 4743,
+          "start_idx": 10,
+          "end_idx": 4752
+        },
+        {
+          "dataset_idx": 93,
+          "item_id": "TURBINE7_SPLIT9",
+          "target_shape": [
+            2,
+            376
+          ],
+          "valid_windows": 362,
+          "start_idx": 10,
+          "end_idx": 371
+        },
+        {
+          "dataset_idx": 94,
+          "item_id": "TURBINE7_SPLIT10",
+          "target_shape": [
+            2,
+            202
+          ],
+          "valid_windows": 188,
+          "start_idx": 10,
+          "end_idx": 197
+        },
+        {
+          "dataset_idx": 95,
+          "item_id": "TURBINE7_SPLIT11",
+          "target_shape": [
+            2,
+            735
+          ],
+          "valid_windows": 721,
+          "start_idx": 10,
+          "end_idx": 730
+        },
+        {
+          "dataset_idx": 96,
+          "item_id": "TURBINE7_SPLIT12",
+          "target_shape": [
+            2,
+            464
+          ],
+          "valid_windows": 450,
+          "start_idx": 10,
+          "end_idx": 459
+        },
+        {
+          "dataset_idx": 97,
+          "item_id": "TURBINE7_SPLIT13",
+          "target_shape": [
+            2,
+            220
+          ],
+          "valid_windows": 206,
+          "start_idx": 10,
+          "end_idx": 215
+        }
+      ]
+    },
+    "total_train_windows": 634179,
+    "total_val_windows": 89145,
+    "batch_size": 512,
+    "train_steps": "1239",
+    "val_steps": "175",
+    "limit_train_batches": null
+  },
+  "continuity_groups": {
+    "continuity_group_info": {
+      "0.0": {
+        "total_size": 3798,
+        "rows_per_split": 3798,
+        "train_size": 2658,
+        "val_size": 379,
+        "test_size": 759,
+        "min_required_size": 15,
+        "train_sufficient": true,
+        "val_sufficient": true,
+        "test_sufficient": true
+      },
+      "1.0": {
+        "total_size": 9302,
+        "rows_per_split": 9302,
+        "train_size": 6511,
+        "val_size": 930,
+        "test_size": 1860,
+        "min_required_size": 15,
+        "train_sufficient": true,
+        "val_sufficient": true,
+        "test_sufficient": true
+      },
+      "2.0": {
+        "total_size": 3344,
+        "rows_per_split": 3344,
+        "train_size": 2340,
+        "val_size": 334,
+        "test_size": 668,
+        "min_required_size": 15,
+        "train_sufficient": true,
+        "val_sufficient": true,
+        "test_sufficient": true
+      },
+      "3.0": {
+        "total_size": 140,
+        "rows_per_split": 140,
+        "train_size": 98,
+        "val_size": 14,
+        "test_size": 28,
+        "min_required_size": 15,
+        "train_sufficient": true,
+        "val_sufficient": false,
+        "test_sufficient": true
+      },
+      "4.0": {
+        "total_size": 1874,
+        "rows_per_split": 1874,
+        "train_size": 1311,
+        "val_size": 187,
+        "test_size": 374,
+        "min_required_size": 15,
+        "train_sufficient": true,
+        "val_sufficient": true,
+        "test_sufficient": true
+      },
+      "5.0": {
+        "total_size": 1534,
+        "rows_per_split": 1534,
+        "train_size": 1073,
+        "val_size": 153,
+        "test_size": 306,
+        "min_required_size": 15,
+        "train_sufficient": true,
+        "val_sufficient": true,
+        "test_sufficient": true
+      },
+      "6.0": {
+        "total_size": 54,
+        "rows_per_split": 54,
+        "train_size": 37,
+        "val_size": 5,
+        "test_size": 10,
+        "min_required_size": 15,
+        "train_sufficient": true,
+        "val_sufficient": false,
+        "test_sufficient": false
+      },
+      "7.0": {
+        "total_size": 41,
+        "rows_per_split": 41,
+        "train_size": 28,
+        "val_size": 4,
+        "test_size": 8,
+        "min_required_size": 15,
+        "train_sufficient": true,
+        "val_sufficient": false,
+        "test_sufficient": false
+      },
+      "8.0": {
+        "total_size": 52,
+        "rows_per_split": 52,
+        "train_size": 36,
+        "val_size": 5,
+        "test_size": 10,
+        "min_required_size": 15,
+        "train_sufficient": true,
+        "val_sufficient": false,
+        "test_sufficient": false
+      },
+      "9.0": {
+        "total_size": 38,
+        "rows_per_split": 38,
+        "train_size": 26,
+        "val_size": 3,
+        "test_size": 7,
+        "min_required_size": 15,
+        "train_sufficient": true,
+        "val_sufficient": false,
+        "test_sufficient": false
+      },
+      "10.0": {
+        "total_size": 34,
+        "rows_per_split": 34,
+        "train_size": 23,
+        "val_size": 3,
+        "test_size": 6,
+        "min_required_size": 15,
+        "train_sufficient": true,
+        "val_sufficient": false,
+        "test_sufficient": false
+      },
+      "11.0": {
+        "total_size": 31,
+        "rows_per_split": 31,
+        "train_size": 21,
+        "val_size": 3,
+        "test_size": 6,
+        "min_required_size": 15,
+        "train_sufficient": true,
+        "val_sufficient": false,
+        "test_sufficient": false
+      },
+      "12.0": {
+        "total_size": 35,
+        "rows_per_split": 35,
+        "train_size": 24,
+        "val_size": 3,
+        "test_size": 7,
+        "min_required_size": 15,
+        "train_sufficient": true,
+        "val_sufficient": false,
+        "test_sufficient": false
+      },
+      "13.0": {
+        "total_size": 571,
+        "rows_per_split": 571,
+        "train_size": 399,
+        "val_size": 57,
+        "test_size": 114,
+        "min_required_size": 15,
+        "train_sufficient": true,
+        "val_sufficient": true,
+        "test_sufficient": true
+      },
+      "14.0": {
+        "total_size": 642,
+        "rows_per_split": 642,
+        "train_size": 449,
+        "val_size": 64,
+        "test_size": 128,
+        "min_required_size": 15,
+        "train_sufficient": true,
+        "val_sufficient": true,
+        "test_sufficient": true
+      },
+      "15.0": {
+        "total_size": 44,
+        "rows_per_split": 44,
+        "train_size": 30,
+        "val_size": 4,
+        "test_size": 8,
+        "min_required_size": 15,
+        "train_sufficient": true,
+        "val_sufficient": false,
+        "test_sufficient": false
+      },
+      "16.0": {
+        "total_size": 1398,
+        "rows_per_split": 1398,
+        "train_size": 978,
+        "val_size": 139,
+        "test_size": 279,
+        "min_required_size": 15,
+        "train_sufficient": true,
+        "val_sufficient": true,
+        "test_sufficient": true
+      },
+      "17.0": {
+        "total_size": 22311,
+        "rows_per_split": 22311,
+        "train_size": 15617,
+        "val_size": 2231,
+        "test_size": 4462,
+        "min_required_size": 15,
+        "train_sufficient": true,
+        "val_sufficient": true,
+        "test_sufficient": true
+      },
+      "18.0": {
+        "total_size": 29632,
+        "rows_per_split": 29632,
+        "train_size": 20742,
+        "val_size": 2963,
+        "test_size": 5926,
+        "min_required_size": 15,
+        "train_sufficient": true,
+        "val_sufficient": true,
+        "test_sufficient": true
+      },
+      "19.0": {
+        "total_size": 47570,
+        "rows_per_split": 47570,
+        "train_size": 33299,
+        "val_size": 4757,
+        "test_size": 9514,
+        "min_required_size": 15,
+        "train_sufficient": true,
+        "val_sufficient": true,
+        "test_sufficient": true
+      },
+      "20.0": {
+        "total_size": 3758,
+        "rows_per_split": 3758,
+        "train_size": 2630,
+        "val_size": 375,
+        "test_size": 751,
+        "min_required_size": 15,
+        "train_sufficient": true,
+        "val_sufficient": true,
+        "test_sufficient": true
+      },
+      "21.0": {
+        "total_size": 2020,
+        "rows_per_split": 2020,
+        "train_size": 1414,
+        "val_size": 202,
+        "test_size": 404,
+        "min_required_size": 15,
+        "train_sufficient": true,
+        "val_sufficient": true,
+        "test_sufficient": true
+      },
+      "22.0": {
+        "total_size": 7351,
+        "rows_per_split": 7351,
+        "train_size": 5145,
+        "val_size": 735,
+        "test_size": 1470,
+        "min_required_size": 15,
+        "train_sufficient": true,
+        "val_sufficient": true,
+        "test_sufficient": true
+      },
+      "23.0": {
+        "total_size": 4641,
+        "rows_per_split": 4641,
+        "train_size": 3248,
+        "val_size": 464,
+        "test_size": 928,
+        "min_required_size": 15,
+        "train_sufficient": true,
+        "val_sufficient": true,
+        "test_sufficient": true
+      },
+      "24.0": {
+        "total_size": 2205,
+        "rows_per_split": 2205,
+        "train_size": 1543,
+        "val_size": 220,
+        "test_size": 441,
+        "min_required_size": 15,
+        "train_sufficient": true,
+        "val_sufficient": true,
+        "test_sufficient": true
+      }
+    }
+  },
+  "split_patterns": {
+    "unique_split_numbers": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      16,
+      17,
+      18,
+      19,
+      20,
+      21,
+      22,
+      23,
+      24
+    ],
+    "unique_turbine_numbers": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+    ],
+    "continuity_groups_as_ints": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      16,
+      17,
+      18,
+      19,
+      20,
+      21,
+      22,
+      23,
+      24,
+      25
+    ],
+    "continuity_groups_match_splits": false,
+    "sample_item_ids": [
+      "TURBINE1_SPLIT0",
+      "TURBINE1_SPLIT1",
+      "TURBINE1_SPLIT2",
+      "TURBINE1_SPLIT3",
+      "TURBINE1_SPLIT4"
+    ]
+  }
+}

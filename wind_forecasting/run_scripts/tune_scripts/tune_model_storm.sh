@@ -3,9 +3,9 @@
 #SBATCH --partition=all_gpu.p          # Partition for H100/A100 GPUs cfdg.p / all_gpu.p / mpcg.p(not allowed)
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=4         # Match number of GPUs requested below
-#SBATCH --cpus-per-task=32           # CPUs per task (4 tasks * 32 = 128 CPUs total) [1 CPU/GPU more than enough]
+#SBATCH --cpus-per-task=2           # CPUs per task (4 tasks * 32 = 128 CPUs total) [1 CPU/GPU more than enough]
 #SBATCH --mem-per-cpu=4096          # Memory per CPU (Total Mem = ntasks * cpus-per-task * mem-per-cpu) [flasc uses only ~4-5 GiB max]
-#SBATCH --gres=gpu:4           # Request 4 H100 GPUs
+#SBATCH --gres=gpu:H100:4          # Request 2 H100 GPUs
 #SBATCH --time=1-00:00              # Time limit (up to 7 days)
 #SBATCH --job-name=flasc_tune
 #SBATCH --output=/user/taed7566/Forecasting/wind-forecasting/logs/slurm_logs/flasc_tune_%j.out
@@ -22,7 +22,7 @@
 BASE_DIR="/user/taed7566/Forecasting/wind-forecasting" # Absolute path to the base directory
 export WORK_DIR="${BASE_DIR}/wind_forecasting"
 export LOG_DIR="${BASE_DIR}/logs"
-export CONFIG_FILE="${BASE_DIR}/config/training/training_inputs_juan_flasc.yaml"
+export CONFIG_FILE="${BASE_DIR}/config/training/training_inputs_juan_flasc_tune_storm.yaml"
 export MODEL_NAME="tactis"
 export RESTART_TUNING_FLAG="" # "" Or "--restart_tuning"
 export AUTO_EXIT_WHEN_DONE="true"  # Set to "true" to exit script when all workers finish, "false" to keep running until timeout
@@ -82,6 +82,10 @@ module load CUDA/12.4.0
 module load git
 echo "Modules loaded."
 
+eval "$(conda shell.bash hook)"
+conda activate wf_env_storm
+echo "Conda environment 'wf_env_storm' activated."
+export CAPTURED_LD_LIBRARY_PATH=$LD_LIBRARY_PATH
 
 # Find PostgreSQL binary directory after loading the module
 PG_INITDB_PATH=$(which initdb)
@@ -92,11 +96,8 @@ fi
 # Extract the directory path (e.g., /path/to/postgres/bin)
 export POSTGRES_BIN_DIR=$(dirname "$PG_INITDB_PATH")
 echo "Found PostgreSQL bin directory: ${POSTGRES_BIN_DIR}"
-
-eval "$(conda shell.bash hook)"
-conda activate wf_env_storm
-echo "Conda environment 'wf_env_storm' activated."
-export CAPTURED_LD_LIBRARY_PATH=$LD_LIBRARY_PATH
+echo "Setting PostgreSQL environment variables..."
+export PGPASSWORD="${AIVEN_PG_PASSWORD}"
 
 # --- End Main Environment Setup ---
 

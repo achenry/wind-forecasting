@@ -69,8 +69,8 @@ def _run_cmd(command, cwd=None, shell=False, check=True, env_override=None):
 
 def get_optuna_storage_url(pg_config):
     """Constructs the Optuna storage URL based on the pre-computed pg_config."""
-    db_user = pg_config["dbuser"]
-    db_name = pg_config["dbname"]
+    db_user = pg_config["db_user"]
+    db_name = pg_config["db_name"]
 
     if pg_config["use_socket"]:
         socket_dir = pg_config["socket_dir"]
@@ -84,9 +84,43 @@ def get_optuna_storage_url(pg_config):
         # Construct URL using TCP/IP
         db_host = pg_config.get("db_host", "localhost")
         db_port = pg_config.get("db_port", 5432)
-        # Assuming no password needed due to trust auth or other methods handled by pg_hba.conf
-        url = f"postgresql://{db_user}@{db_host}:{db_port}/{db_name}"
-        logging.info(f"Constructed PostgreSQL Optuna URL (TCP/IP): {url.split('@')[0]}@...") # Log safely
+        
+        # Check for password from environment variable
+        password_part = ""
+        if "db_password_env_var" in pg_config and pg_config["db_password_env_var"]:
+            env_var = pg_config["db_password_env_var"]
+            password = os.environ.get(env_var)
+            if password:
+                password_part = f":{password}"
+                logging.info(f"Using password from environment variable: {env_var}")
+            else:
+                logging.warning(f"Environment variable {env_var} not found or empty")
+        
+        # Construct base URL with optional password
+        url = f"postgresql://{db_user}{password_part}@{db_host}:{db_port}/{db_name}"
+        
+        # Add SSL parameters if provided
+        query_params = []
+        
+        if "sslmode" in pg_config:
+            query_params.append(f"sslmode={pg_config['sslmode']}")
+        
+        if "sslrootcert_path" in pg_config and pg_config["sslrootcert_path"]:
+            cert_path = pg_config["sslrootcert_path"]
+            if os.path.exists(cert_path):
+                query_params.append(f"sslrootcert={cert_path}")
+                logging.info(f"Using SSL root certificate: {cert_path}")
+            else:
+                logging.warning(f"SSL root certificate not found at: {cert_path}")
+        
+        # Add query parameters to URL if any
+        if query_params:
+            url += "?" + "&".join(query_params)
+        
+        # Log URL safely (hide password)
+        safe_url = url.split('@')[0].split(':')[0] + '@' + url.split('@')[1]
+        logging.info(f"Constructed PostgreSQL Optuna URL (TCP/IP): {safe_url}")
+        
         return url
     else:
         raise ValueError("PostgreSQL connection type (socket or TCP) not specified or supported.")
@@ -114,8 +148,8 @@ def delete_postgres_data(pg_config, raise_on_error=True):
 def init_postgres(pg_config):
     """Initializes a new PostgreSQL database cluster."""
     pgdata = pg_config["pgdata"]
-    db_name = pg_config["dbname"]
-    db_user = pg_config["dbuser"]
+    db_name = pg_config["db_name"]
+    db_user = pg_config["db_user"]
     job_owner = pg_config["job_owner"]
     needs_db_setup = False
 
@@ -171,8 +205,8 @@ def setup_db_user(pg_config):
     """Creates the Optuna database and user if they don't exist."""
     socket_dir = pg_config["socket_dir"]
     job_owner = pg_config["job_owner"]
-    db_user = pg_config["dbuser"]
-    db_name = pg_config["dbname"]
+    db_user = pg_config["db_user"]
+    db_name = pg_config["db_name"]
 
     if not socket_dir:
         raise ValueError("Socket directory required for database/user setup.")
@@ -304,7 +338,11 @@ def _generate_pg_config(*,
                         db_user: str = "optuna_user",
                         run_cmd_shell: bool = False,
                         socket_dir_base: str, # Expects absolute path
-                        sync_dir: str # Expects absolute path
+                        sync_dir: str, # Expects absolute path
+                        # SSL parameters for external PostgreSQL connections
+                        sslmode: str = None,
+                        sslrootcert_path: str = None,
+                        db_password_env_var: str = None
                        ):
     """
     Generates the pg_config dictionary from the main config, resolving paths
@@ -377,8 +415,8 @@ def _generate_pg_config(*,
 
     pg_config = {
         "pgdata": str(pgdata_path_abs), # Use the resolved absolute path
-        "dbname": db_name,
-        "dbuser": db_user,
+        "db_name": db_name,
+        "db_user": db_user,
         "use_socket": use_socket,
         "socket_dir": socket_dir, # Will be None if use_tcp is True
         "use_tcp": use_tcp,
@@ -391,6 +429,16 @@ def _generate_pg_config(*,
         "run_cmd_shell": run_cmd_shell,
         "sync_file": sync_file,
     }
+    
+    # Add SSL parameters and password environment variable if provided
+    if sslmode:
+        pg_config["sslmode"] = sslmode
+    
+    if sslrootcert_path:
+        pg_config["sslrootcert_path"] = sslrootcert_path
+    
+    if db_password_env_var:
+        pg_config["db_password_env_var"] = db_password_env_var
 
     # Verify executables exist
     for key, path in pg_config.items():
@@ -398,26 +446,29 @@ def _generate_pg_config(*,
              logging.error(f"PostgreSQL executable not found at expected path: {path} (derived from POSTGRES_BIN_DIR={pg_bin_dir})")
              raise FileNotFoundError(f"PostgreSQL executable '{os.path.basename(path)}' not found at expected path: {path}")
 
-# *** Force the short socket path override ***
-    # This block unconditionally sets the socket path after initial config creation.
-    username = getpass.getuser()
-    # pgdata_path is expected to be an absolute path string here
-    pgdata_instance_name = Path(pgdata_path).name 
-    
-    forced_socket_dir = f"/tmp/pg_{username}_{pgdata_instance_name}" 
-    try:
-        os.makedirs(forced_socket_dir, exist_ok=True)
-        logging.info(f"ALERT: Forcing short socket directory override: {forced_socket_dir}")
+# *** Handle socket path override ***
+    # Only apply socket path override if use_tcp is not explicitly set to True
+    if not pg_config.get("use_tcp", False):
+        username = getpass.getuser()
+        # pgdata_path is expected to be an absolute path string here
+        pgdata_instance_name = Path(pgdata_path).name
         
-        # Overwrite values in the pg_config dictionary
-        # pg_config is guaranteed to exist at this point (created around line 378)
-        pg_config['socket_dir'] = forced_socket_dir 
-        pg_config['use_socket'] = True # Ensure socket use is enabled
-        pg_config['use_tcp'] = False # Ensure TCP is disabled (socket takes precedence)
-    except OSError as e:
-        logging.error(f"CRITICAL: Failed to create forced socket directory {forced_socket_dir}: {e}")
-        # Re-raise the error to prevent proceeding with an unusable configuration
-        raise 
+        forced_socket_dir = f"/tmp/pg_{username}_{pgdata_instance_name}"
+        try:
+            os.makedirs(forced_socket_dir, exist_ok=True)
+            logging.info(f"ALERT: Forcing short socket directory override: {forced_socket_dir}")
+            
+            # Overwrite values in the pg_config dictionary
+            # pg_config is guaranteed to exist at this point (created around line 378)
+            pg_config['socket_dir'] = forced_socket_dir
+            pg_config['use_socket'] = True # Ensure socket use is enabled
+            pg_config['use_tcp'] = False # Ensure TCP is disabled (socket takes precedence)
+        except OSError as e:
+            logging.error(f"CRITICAL: Failed to create forced socket directory {forced_socket_dir}: {e}")
+            # Re-raise the error to prevent proceeding with an unusable configuration
+            raise
+    else:
+        logging.info(f"Using TCP/IP connection as specified in configuration: host={pg_config.get('db_host', 'localhost')}, port={pg_config.get('db_port', 5432)}")
 
     # Subsequent code (like get_optuna_storage_url and start_postgres called later)
     # will now use the forced socket_dir from the modified pg_config.
@@ -447,25 +498,36 @@ def manage_postgres_instance(db_setup_params, restart=False, register_cleanup=Tr
     # Unpack the dictionary containing the required keyword arguments
     pg_config = _generate_pg_config(**db_setup_params) # This also sets _managed_pg_config
 
+    # Check if we're using TCP/IP for an external PostgreSQL server
+    if pg_config.get("use_tcp", False) and (
+        "sslmode" in pg_config or
+        "sslrootcert_path" in pg_config or
+        "db_password_env_var" in pg_config
+    ):
+        logging.info("Using external PostgreSQL server via TCP/IP connection.")
+        
+        storage_url = get_optuna_storage_url(pg_config)
+        logging.info("External PostgreSQL connection URL constructed.")
+        
+        return storage_url, pg_config
+    else:
+        logging.info("Managing local PostgreSQL instance...")
 
-    # Redundant socket directory setup removed.
-    # _generate_pg_config now handles setting the correct short socket path.
-
-    # Pass the consistent pg_config
-    needs_setup = init_postgres(pg_config)
-    start_postgres(pg_config)
-
-    if needs_setup:
         # Pass the consistent pg_config
-        setup_db_user(pg_config)
+        needs_setup = init_postgres(pg_config)
+        start_postgres(pg_config)
 
-    # Pass the consistent pg_config
-    storage_url = get_optuna_storage_url(pg_config)
-    logging.info("PostgreSQL instance is ready.")
+        if needs_setup:
+            # Pass the consistent pg_config
+            setup_db_user(pg_config)
 
-    # Register cleanup function if requested (usually only for rank 0)
-    if register_cleanup:
-        logging.info("Registering atexit cleanup hook for PostgreSQL.")
-        atexit.register(_cleanup_postgres)
+        # Pass the consistent pg_config
+        storage_url = get_optuna_storage_url(pg_config)
+        logging.info("PostgreSQL instance is ready.")
 
-    return storage_url, pg_config # Return URL and the generated config
+        # Register cleanup function if requested (usually only for rank 0)
+        if register_cleanup:
+            logging.info("Registering atexit cleanup hook for PostgreSQL.")
+            atexit.register(_cleanup_postgres)
+
+        return storage_url, pg_config # Return URL and the generated config
