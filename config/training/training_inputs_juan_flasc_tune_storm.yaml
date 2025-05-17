@@ -139,7 +139,7 @@ model:
     loss_normalization: "both" # Options: "series", "timesteps", "both", "none"
     encoder_type: "standard" # Options: "standard", "temporal"
     bagging_size: null
-    num_parallel_samples: 100 # Inference only setting
+    num_parallel_samples: 1000 # Inference only setting
     # Marginal CDF Encoder
     marginal_embedding_dim_per_head: 8
     marginal_num_heads: 5
