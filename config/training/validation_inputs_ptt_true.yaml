@@ -1,6 +1,6 @@
 experiment:
   username: jmb0507
-  project_name: tune_tactis_flasc_3
+  project_name: validate_tactis_flasc_3
   run_name: validation_ptt_true_best_trial_198
   project_root: /user/taed7566/Forecasting/wind-forecasting
   log_dir: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/
@@ -24,8 +24,8 @@ dataset:
     prediction_length: 300
     target_turbine_ids:
     normalize: false
-    batch_size: 2048
-    workers: 32
+    batch_size: 1024
+    workers: 8
     overfit: false
     test_split: 0.20
     val_split: 0.1
@@ -56,7 +56,7 @@ model:
     loss_normalization: "both"
     encoder_type: "standard"
     bagging_size: null
-    num_parallel_samples: 100 # Inference only setting for CRPS
+    num_parallel_samples: 1000
     # Marginal CDF Encoder
     marginal_embedding_dim_per_head: 8
     marginal_num_heads: 5
@@ -147,8 +147,16 @@ callbacks:
     progress_bar:
       class_path: lightning.pytorch.callbacks.TQDMProgressBar
       init_args:
-        refresh_rate: 50
-        leave: false
+        refresh_rate: 1
+        leave: true
+    # early_stopping:
+    #   class_path: lightning.pytorch.callbacks.EarlyStopping
+    #   init_args:
+    #     monitor: 'val_loss'
+    #     patience: 5 # Number of epochs to wait before stopping (val>epochs to disable) - 8 good
+    #     min_delta: 25.0 # Minimum change to be considered an improvement (>5.0 after observing visual fluctuations of 2-4 per epoch on an almost-perfectly visual plateau) - 5.0 good
+    #     mode: 'min'
+    #     check_finite: true
     model_checkpoint:
       class_path: lightning.pytorch.callbacks.ModelCheckpoint
       init_args:
@@ -163,7 +171,7 @@ callbacks:
       init_args:
         logging_interval: step
         log_momentum: false
-        log_weight_decay : true
+        log_weight_decay : false
     dead_neuron_monitor:
       enabled: false
 
@@ -173,7 +181,7 @@ trainer:
     devices: auto
     num_nodes: 1
     strategy: "ddp"
-    max_epochs: 1
+    max_epochs: 1000
     limit_train_batches:
     log_every_n_steps: 1
     deterministic: false
