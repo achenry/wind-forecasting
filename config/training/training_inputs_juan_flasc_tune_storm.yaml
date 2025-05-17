@@ -3,7 +3,7 @@ experiment:
   project_name: tune_tactis_flasc_3
   run_name: tune_v2_per_turbine_case # [p = patience, d = min_delta, b = limit_train_batches, n = n_startup_trials] / hb = hyperband min_resource, reduction_factor
   project_root: /user/taed7566/Forecasting/wind-forecasting
-  log_dir: /user/taed7566/Forecasting/wind-forecasting/logs/
+  log_dir: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/
   notes: ""
   extra_tags: ["flasc", "tune", "tcp", "per_turbine_case"] # By default already has GPU id and model name.
 
@@ -11,10 +11,10 @@ logging:
   entity: jmb0507-cu-boulder # Wandb entity (group name)
   wandb_mode: online
   save_code: false # Do not save code to W&B
-  wandb_dir: /user/taed7566/Forecasting/wind-forecasting/logs # Let WandB create the 'wandb' subdir here
-  optuna_dir: /user/taed7566/Forecasting/wind-forecasting/optuna
-  checkpoint_dir: /user/taed7566/Forecasting/wind-forecasting/logs/checkpoints
-  slurm_output_dir: /user/taed7566/Forecasting/wind-forecasting/logs/slurm_logs
+  wandb_dir: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs # Let WandB create the 'wandb' subdir here
+  optuna_dir: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/optuna
+  checkpoint_dir: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/checkpoints
+  slurm_output_dir: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/slurm_logs
 
 optuna:
   save_trial_code: false      # Default false
