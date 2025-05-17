@@ -25,7 +25,7 @@ dataset:
     target_turbine_ids:
     normalize: false
     batch_size: 1024
-    workers: 8
+    workers: 32
     overfit: false
     test_split: 0.20
     val_split: 0.1
