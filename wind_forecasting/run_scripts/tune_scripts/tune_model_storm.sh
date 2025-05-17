@@ -8,8 +8,8 @@
 #SBATCH --gres=gpu:H100:4          # Request 2 H100 GPUs
 #SBATCH --time=1-00:00              # Time limit (up to 7 days)
 #SBATCH --job-name=flasc_tune
-#SBATCH --output=/user/taed7566/Forecasting/wind-forecasting/logs/slurm_logs/flasc_tune_%j.out
-#SBATCH --error=/user/taed7566/Forecasting/wind-forecasting/logs/slurm_logs/flasc_tune_%j.err
+#SBATCH --output=/dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/slurm_logs/flasc_tune_%j.out
+#SBATCH --error=/dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/slurm_logs/flasc_tune_%j.err
 #SBATCH --hint=nomultithread        # Disable hyperthreading
 #SBATCH --distribution=block:block  # Improve GPU-CPU affinity
 #SBATCH --gres-flags=enforce-binding # Enforce binding of GPUs to tasks
