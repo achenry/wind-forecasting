@@ -21,8 +21,10 @@ logging:
 optuna:
   save_trial_code: false      # Default false
   n_trials_per_worker: 100     # Test a total of 4*12=48 trials
+  total_study_trials:
   max_epochs: 10              # epochs per trial
-  limit_train_batches: 1000    # batches per epoch
+  limit_train_batches: 5000    # batches per epoch
+  sampler: "random" # Options: "random" (ExpectedNumInstanceSampler), "sequential" (SequentialSampler)
   metric: "val_loss" # The metric to optimize
   direction: "minimize"       # Whether to minimize or maximize the metric
 
@@ -30,12 +32,27 @@ optuna:
   
   # Pruning configuration
   pruning:
-    enabled: true             # Whether to enable pruning
-    type: "hyperband"         # Options: "hyperband", "median", "percentile", "none"
-    min_resource: 1           # Minimum epochs before pruning can occur (default: 2)
-    reduction_factor: 3       # Hyperband reduction factor (default: 3)
-    max_resource: 10
-    percentile": 25
+    enabled: true
+    type: "patient"
+    patience: 1               # Configure PatientPruner: number of steps to wait (epochs) before pruning
+    min_delta: 1.0            # Configure PatientPruner: tolerance for improvement (default 0.0)
+    wrapped_pruner:
+    #   type: "percentile"      # Set the wrapped pruner type
+    #   percentile: 50.0        # Configure PercentilePruner: prune trials below this percentile
+    #   n_startup_trials: 4     # Configure PercentilePruner: wait for this many trials before pruning
+    #   n_warmup_steps: 12      # Configure PercentilePruner: wait for this many steps (epochs) before pruning
+    # type: "hyperband"
+      type: "successivehalving"
+      min_resource: 8             # Applies to SuccessiveHalving and Hyperband
+      max_resource: 100           # Applies to Hyperband only
+      reduction_factor: 2         # Applies to SuccessiveHalving and Hyperband
+      bootstrap_count: 0          # Number of trials to complete before pruning
+
+    # type: "hyperband"         # Options: "hyperband", "median", "percentile", "none"
+    # min_resource: 1           # Minimum epochs before pruning can occur (default: 2)
+    # reduction_factor: 3       # Hyperband reduction factor (default: 3)
+    # max_resource: 10
+    # percentile": 25
 
   # Optuna visualization configuration (additional to wandb)
   visualization:
@@ -80,7 +97,7 @@ dataset:
     context_length: 600 # in seconds
     prediction_length: 300 # in seconds
     target_turbine_ids: # or leave blank to capture all
-    normalize: False 
+    normalize: True 
     batch_size: 128
     workers: 12
     overfit: False
@@ -187,14 +204,14 @@ callbacks:
       init_args:
         refresh_rate: 1  # every n steps
         leave: true
-    early_stopping:
-      class_path: lightning.pytorch.callbacks.EarlyStopping
-      init_args:
-        monitor: 'val_loss'
-        patience: 100 # Number of epochs to wait before stopping (val>epochs to disable)
-        min_delta: 0.01 # Minimum change to be considered an improvement
-        mode: 'min'
-        check_finite: true
+    # early_stopping:
+    #   class_path: lightning.pytorch.callbacks.EarlyStopping
+    #   init_args:
+    #     monitor: 'val_loss'
+    #     patience: 100 # Number of epochs to wait before stopping (val>epochs to disable)
+    #     min_delta: 0.01 # Minimum change to be considered an improvement
+    #     mode: 'min'
+    #     check_finite: true
     model_checkpoint:
       class_path: lightning.pytorch.callbacks.ModelCheckpoint
       init_args:
@@ -224,3 +241,6 @@ trainer:
     strategy: ddp
     max_epochs: 100 # Maximum number of epochs to train 100
     limit_train_batches: #5000
+    log_every_n_steps: 1 # For wandb logging
+    deterministic: false
+    benchmark: true
