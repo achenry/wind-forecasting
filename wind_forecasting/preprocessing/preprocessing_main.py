@@ -119,6 +119,9 @@ def main():
     # config["filters"] = ["nacelle_calibration", "unresponsive_sensor", "range_flag", "bin_filter", "std_range_flag", "impute_missing_data", "split", "normalize"]
     # config["filters"] = ["split", "impute_missing_data", "normalize"]
             #    ["unresponsive_sensor", "inoperational", "range_flag", "window_range_flag", "bin_filter", "std_range_flag", "split", "impute_missing_data", "normalize"]
+    if config["filters"] is None:
+            config["filters"] = []
+            
     if RUN_ONCE:
         assert all(filt in 
                    ["nacelle_calibration", "unresponsive_sensor", "inoperational", "range_flag", "window_range_flag", "bin_filter", "std_range_flag", "split", "impute_missing_data", "normalize"] 
@@ -257,7 +260,7 @@ def main():
             save_dir=os.path.dirname(config["processed_data_path"])
         )
         
-        waked_distances = np.array([((data_inspector.fmodel.layout_x[pair[0]] - data_inspector.fmodel.layout_x[pair[1]])**2 + (data_inspector.fmodel.layout_y[pair[0]] - data_inspector.fmodel.layout_y[pair[1]])**2)**0.5 for pair in config["nacelle_calibration_turbine_pairs"]])
+       
     
     if args.debug:
         # .group_by("time", "file_set_idx")\
@@ -271,13 +274,17 @@ def main():
     if args.plot:
         # from datetime import datetime
         # df_query = df_query.with_columns(file_set_idx=pl.when(pl.col("time") < pl.lit(datetime(2024,2,20))).then(0).otherwise(1))
-        
+        waked_distances = np.array([((data_inspector.fmodel.layout_x[pair[0]] - data_inspector.fmodel.layout_x[pair[1]])**2 + (data_inspector.fmodel.layout_y[pair[0]] - data_inspector.fmodel.layout_y[pair[1]])**2)**0.5 for pair in config["nacelle_calibration_turbine_pairs"] + [[74, 73]]])
+        waked_distances / data_inspector.fmodel.core.farm.rotor_diameters[0]
         logging.info("🔄 Generating plots.")
         # x = pl.concat([df.slice(0, ROW_LIMIT) for df in df_query.collect().partition_by("file_set_idx")], how="vertical").lazy()
-        if False:
+        # NOTE: GENERATE FIG 3 IN PAPER HERE
+        if True:
             data_inspector.plot_wind_farm(
+                wind_directions=[140],
                 turbine_groups=[np.concatenate(config["nacelle_calibration_turbine_pairs"]), [74, 73], [4]],
-                turbine_group_colors=["darkorange", "royalblue", "lime"])
+                turbine_group_colors=["darkorange", "royalblue", "lime"],
+                turbine_labels=[None, "LUT us", "LUT ds", "G"])
         
         # from datetime import datetime
         # # plotting_interval = pl.datetime_range(start=datetime(2024, 2, 20), end=datetime(2024, 12, 19)).alias("time")
@@ -719,7 +726,7 @@ def main():
                                                         mask_input_features=sorted(data_loader.turbine_ids),
                                                         output_features=ws_cols,
                                                         filter_type="power-wind speed bin")
-            
+            # NOT USE THIS CODE TO GENERATE FIG 8 IN PAPER
             if args.plot:
                 data_inspector.plot_nulled_vs_remaining(df_query.slice(0, ROW_LIMIT), mask, 
                                                         mask_input_features=sorted(data_loader.turbine_ids),
@@ -744,7 +751,7 @@ def main():
                     df_query.select(f"wind_speed_{target_turbine_id}").filter(~out_of_window[:, target_turbine_idx]).slice(0, ROW_LIMIT).collect().to_numpy(),
                     df_query.select(f"power_output_{target_turbine_id}").filter(~out_of_window[:, target_turbine_idx]).slice(0, ROW_LIMIT).collect().to_numpy(),
                     flag=bin_outliers[~out_of_window[:, target_turbine_idx], target_turbine_idx][:ROW_LIMIT],
-                    flag_labels=("Anomylous Measurements", "Normal Measurements"),
+                    flag_labels=("Bad Measurements", "Normal Measurements"),
                     xlim=(-1, 30),
                     ylim=(-100, 3000),
                     legend=True,
@@ -1293,11 +1300,18 @@ def main():
         
     if args.plot:
         continuity_groups = df_query.select("continuity_group").unique().collect().to_numpy().flatten()
-        data_inspector.plot_time_series(pl.concat([df.slice(0, ROW_LIMIT) for df in df_query.collect().partition_by("continuity_group")], how="vertical").lazy(), 
-                                        feature_types=["ws_horz", "ws_vert"], 
-                                        turbine_ids=data_loader.turbine_ids, 
-                                        continuity_groups=continuity_groups, 
-                                        label="after_split")
+        plot_df = df_query.filter((pl.col("continuity_group") == 0))\
+                          .select(["time", "continuity_group"] + [f"wind_speed_{tid}" for tid in ["5", "74", "75"]] + [f"wind_direction_{tid}" for tid in ["5", "74", "75"]])\
+                          .slice(0, int(3600*24))
+        data_inspector.plot_time_series(
+            # pl.concat([df.slice(0, ROW_LIMIT) for df in df_query.collect().partition_by("continuity_group")], how="vertical").lazy(), 
+            plot_df,
+            feature_types=["wind_speed", "wind_direction"], 
+            turbine_ids=["5", "74", "75"],#data_loader.turbine_ids, 
+            continuity_groups=[0], #continuity_groups, 
+            label="after_split")
+        # fig = plt.gcf()
+        # fig.axes[0].legend(ncols=1, bbox_to_anchor=(1.0, 1.0), loc="upper left")
     
     # %%
     # df_query.filter(pl.col("continuity_group") == 5).select("time", "ws_vert_1").filter((pl.col("time") > datetime(2020, 5, 23, 20, 45)) & (pl.col("time") < datetime(2020, 5, 23, 21, 45))).collect().to_numpy()[:, 1].flatten() 

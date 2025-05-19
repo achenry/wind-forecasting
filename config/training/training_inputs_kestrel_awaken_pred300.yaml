@@ -218,7 +218,7 @@ trainer:
     val_check_interval: 5000
     accelerator: gpu
     devices: auto
-    num_nodes: 1
+    # num_nodes: 1
     strategy: ddp
     max_epochs: 100 # Maximum number of epochs to train 100
     limit_train_batches: #5000
