@@ -197,7 +197,8 @@ class MLTuningObjective:
 
         self.config["trainer"]["max_epochs"] = max_epochs
         self.config["trainer"]["limit_train_batches"] = limit_train_batches
-
+        self.config["trainer"]["val_check_interval"] = limit_train_batches
+        
         # Store pruning configuration
         self.pruning_enabled = "pruning" in config["optuna"] and config["optuna"]["pruning"].get("enabled", False)
         if self.pruning_enabled:

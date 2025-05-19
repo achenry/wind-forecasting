@@ -1,7 +1,6 @@
-config_label: aoifemac_awaken_new
+config_label: kestrel_awaken_new
 
 filters:
-  nacelle_calibration:
   unresponsive_sensor:
     frozen_sensor_limit: 1200 # maximum duration for which a value can be constant before it is flagged as frozen, seconds
   range_flag:
@@ -19,6 +18,7 @@ filters:
     bin_min: 0.01 # factor multiplied by rated power
     bin_max: 0.95 # factor multiplied by rated power
     threshold_type: scalar
+  nacelle_calibration:
   std_range_flag:
     threshold: 1
     over: asset 
@@ -30,26 +30,30 @@ filters:
     minimum_not_missing_duration: 1200 # minimum duration that any retained continuous subset of data must be to be useful, seconds, i.e. should contain at least the intended context length and prediction length
   impute_missing_data:
     r2_threshold: 0.7
-  # normalize:
+  normalize:
 
 feature_mapping:
-- time: date
-  turbine_id: turbine_id
-  turbine_status: WTUR.TurSt
-  yaw_offset_cw: WMET.HorWdDir # wind_direction: WMET.HorWdDir
-  wind_speed: WMET.HorWdSpd
-  power_output: WTUR.W
-  nacelle_direction: WNAC.Dir
-- time: '__index_level_0__'
-  turbine_status: '[a-zA-Z0-9\_]+\.Turbine_State'
-  yaw_offset_cw: '[a-zA-Z0-9\_]+\.[a-zA-Z0-9\_]+\.wind_dev_1sec'
-  wind_speed: '[a-zA-Z0-9\_]+\.[a-zA-Z0-9\_]+\.WindSpeed'
-  power_output: '[a-zA-Z0-9\_]+\.[a-zA-Z0-9\_]+\.ActivePower'
-  nacelle_direction: '[a-zA-Z0-9\_]+\.[a-zA-Z0-9\_]+\.Nacelle_Position'
+  - time: date
+    turbine_id: turbine_id
+    turbine_status: WTUR.TurSt
+    wind_direction: WMET.HorWdDir
+    wind_speed: WMET.HorWdSpd
+    power_output: WTUR.W
+    nacelle_direction: WNAC.Dir
+  - time: '__index_level_0__'
+    turbine_status: '[a-zA-Z0-9\_]+\.Turbine_State'
+    yaw_offset_cw: '[a-zA-Z0-9\_]+\.[a-zA-Z0-9\_]+\.wind_dev_1sec'
+    wind_speed: '[a-zA-Z0-9\_]+\.[a-zA-Z0-9\_]+\.WindSpeed'
+    power_output: '[a-zA-Z0-9\_]+\.[a-zA-Z0-9\_]+\.ActivePower'
+    nacelle_direction: '[a-zA-Z0-9\_]+\.[a-zA-Z0-9\_]+\.Nacelle_Position'
 
 turbine_signature: 
-- 'wt\d{3}'
-- 'Turbine[A-Z][0-9]'
+  - 'wt\d{3}'
+  - 'Turbine[A-Z][0-9]'
+
+datetime_signature:
+  - '\d{8}': '%Y%m%d'
+  - '\d{8}.\d{6}': '%Y%m%d.%H%M%S'
 
 turbine_mapping:
 - wt001: 1
@@ -229,16 +233,11 @@ turbine_mapping:
   TurbineJ8: 87
   TurbineJ9: 88
 
-datetime_signature:
-- '\d{8}': '%Y%m%d'
-- '\d{8}.\d{6}': '%Y%m%d.%H%M%S'
-
-merge_chunk: 176
-ram_limit: 85
+merge_chunk: 1056
+ram_limit: 70
 
 #  [(61, 60), (51, 50), (43, 42), (41, 40), (18, 19), (34, 33), (17, 16), (22, 21) FLIPPED, (87, 86), (62, 63), (32, 33) POSSIBLY DROP, (59, 60), (43, 42) FLIPPED]
 nacelle_calibration_turbine_pairs:
-# - [74,73]
 - [61,60]
 - [51,50]
 - [43,42]
@@ -255,16 +254,19 @@ nacelle_calibration_turbine_pairs:
 dt: 1
 
 raw_data_directory: 
-- /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/raw_awaken1_data/
-- /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/raw_awaken2_data/
+  - /projects/ssc/ahenry/wind_forecasting/awaken_data/kp.turbine.z02.b0
+  - /projects/ssc/ahenry/wind_forecasting/awaken_data/00_engie_scada/
+# raw_data_directory: /projects/ssc/ahenry/wind_forecasting/awaken_data/00_engie_scada_test/
+# processed_data_path: /tmp/scratch/$SLURM_JOB_ID/awaken_processed.parquet
+processed_data_path: /user/taed7566/Forecasting/wind-forecasting/examples/data/preprocessed_awaken_data/filled_data_normalized_train_ready.parquet
+temp_storage_dir: #/tmp/scratch/$SLURM_JOB_ID/
+# processed_data_path: /projects/ssc/ahenry/wind_forecasting/awaken_data/awaken_processed_debug.parquet
 
-processed_data_path: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/awaken_data/awaken_processed.parquet
-# processed_data_path: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/awaken_data/awaken_processed_debug.parquet
-temp_storage_dir: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/temp
-
+# processed_data_path: /tmp/scratch/$SLURM_JOB_ID/00_engie_scada_processed.parquet
+# processed_data_path: /srv/data/nfs/ahenry/preprocessed_awaken_data/00_engie_scada_processed.parquet
 raw_data_file_signature: 
-- kp.turbine.z02.b0.*.*.*.nc
-- ./**/KP_SCADA_*.*.parquet
-
-turbine_input_path: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/inputs/turbine_library/ge_282_127.yaml
-farm_input_path: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/inputs/gch_KP_v4.yaml
+  - kp.turbine.z02.b0.*.*.*.nc
+  - ./**/KP_SCADA_*.*.parquet
+  
+turbine_input_path: /user/taed7566/Forecasting/wind-forecasting/examples/inputs/turbine_library/ge_282_127.yaml
+farm_input_path: /user/taed7566/Forecasting/wind-forecasting/examples/inputs/gch_KP_v4.yaml

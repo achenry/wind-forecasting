@@ -2,8 +2,8 @@
 
 experiment:
   username: aoife-henry
-  project_name: wind_forecasting_awaken_pred60
-  run_name: aoifemac_awaken_pred60
+  project_name: wind_forecasting_awaken_pred600
+  run_name: aoifemac_awaken_pred600
   log_dir: /projects/ssc/ahenry/wind_forecasting/logging/
   project_root: /projects/ssc/ahenry/wind_forecasting/
   notes: "Tuning AWAKEN with Informer+"
@@ -23,9 +23,9 @@ optuna:
   n_trials_per_worker: 100     # Test a total of 4*12=48 trials
   max_epochs: 10              # epochs per trial
   limit_train_batches: 1000    # batches per epoch
-  metric: val_loss # The metric to optimize
-  direction: minimize       # Whether to minimize or maximize the metric
-  sampler: random
+  metric: "val_loss" # The metric to optimize
+  direction: "minimize"       # Whether to minimize or maximize the metric
+
   resample_freq_choices: [15, 30, 45, 60] # Resample frequency in seconds
   
   # Pruning configuration
@@ -79,7 +79,7 @@ dataset:
     data_path: /projects/ssc/ahenry/wind_forecasting/awaken_data/awaken_processed_normalized.parquet
     normalization_consts_path: /projects/ssc/ahenry/wind_forecasting/awaken_data/awaken_processed_normalization_consts.csv
     context_length: 600 # in seconds
-    prediction_length: 120 # in seconds
+    prediction_length: 600 # in seconds
     target_turbine_ids: # or leave blank to capture all
     normalize: False 
     batch_size: 64

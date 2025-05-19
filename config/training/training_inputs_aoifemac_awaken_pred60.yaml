@@ -83,7 +83,7 @@ dataset:
     data_path: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/awaken_data/awaken_processed_normalized.parquet
     normalization_consts_path: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/awaken_data/awaken_processed_normalization_consts.csv
     context_length: 600 # in seconds
-    prediction_length: 60 # in seconds
+    prediction_length: 120 # in seconds
     target_turbine_ids:  # or leave blank to capture all
     normalize: False 
     batch_size: 64
@@ -178,8 +178,8 @@ model:
     n_heads: 4 # Number of heads for spatio-temporal attention
     d_model: 200
     dim_feedforward: 800
-    d_queries_keys: 30
-    d_values: 30
+    d_queries_keys: 40
+    d_values: 40
     dropout_emb: 0.2
     dropout_attn_matrix: 0.0
     dropout_attn_out: 0.0

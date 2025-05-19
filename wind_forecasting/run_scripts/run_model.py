@@ -159,23 +159,6 @@ def main():
                             except ValueError:
                                 logging.warning(f"Could not parse GPU index from CUDA_VISIBLE_DEVICES: {visible_gpus[0]}")
 
-                        # Check if strategy needs special handling for TACTiS DDP
-                        # Use .get() with default to avoid KeyError if 'strategy' not in config['trainer']
-                        current_strategy_setting = config.get("trainer", {}).get("strategy", "auto")
-
-                        if isinstance(current_strategy_setting, str) and current_strategy_setting.lower() == "ddp" and args.model == "tactis":
-                             logging.warning("Instantiating DDPStrategy with find_unused_parameters=True for TACTiS-2.")
-                             # Instantiate the strategy object with the flag
-                             strategy_object = DDPStrategy(find_unused_parameters=True)
-                             # Store the object back into the config dictionary
-                             # Ensure config['trainer'] exists
-                             if "trainer" not in config: config["trainer"] = {}
-                             config["trainer"]["strategy"] = strategy_object
-                        # else:
-                             # Keep the original strategy setting (e.g., 'auto', 'ddp_spawn', or maybe already an object)
-                             # No change needed to config["trainer"]["strategy"]
-                             # logging.info(f"Using strategy setting from config: {current_strategy_setting}")
-
                     else:
                         logging.warning("CUDA_VISIBLE_DEVICES is set but no valid GPU indices found")
                 except Exception as e:
@@ -183,6 +166,24 @@ def main():
             else:
                 logging.warning("CUDA_VISIBLE_DEVICES is not set, using default GPU assignment")
 
+            # Check if strategy needs special handling for TACTiS DDP
+            # Use .get() with default to avoid KeyError if 'strategy' not in config['trainer']
+            current_strategy_setting = config.get("trainer", {}).get("strategy", "auto")
+
+            if isinstance(current_strategy_setting, str) and current_strategy_setting.lower() == "ddp" and args.model in ["tactis", "spacetimeformer"]:
+                logging.warning("Instantiating DDPStrategy with find_unused_parameters=True for TACTiS-2.")
+                # Instantiate the strategy object with the flag
+                strategy_object = DDPStrategy(find_unused_parameters=True)
+                # Store the object back into the config dictionary
+                # Ensure config['trainer'] exists
+                if "trainer" not in config: config["trainer"] = {}
+                config["trainer"]["strategy"] = strategy_object
+            # else:
+                    # Keep the original strategy setting (e.g., 'auto', 'ddp_spawn', or maybe already an object)
+                    # No change needed to config["trainer"]["strategy"]
+                    # logging.info(f"Using strategy setting from config: {current_strategy_setting}")
+
+            
             # Log memory information
             logging.info(f"GPU Memory: {torch.cuda.memory_allocated(device)/1e9:.2f}GB / {torch.cuda.get_device_properties(device).total_memory/1e9:.2f}GB")
 
@@ -454,7 +455,9 @@ def main():
             try:
                 logging.info(f"Getting tuned parameters.")
                 tuned_params = get_tuned_params(optuna_storage, db_setup_params["study_name"])
+                
                 # tuned_params = {'context_length_factor': 2, 'batch_size': 128, 'num_encoder_layers': 2, 'num_decoder_layers': 3, 'd_model': 128, 'n_heads': 6}
+                
                 config["model"]["distr_output"]["kwargs"].update({k: v for k, v in tuned_params.items() if k in config["model"]["distr_output"]["kwargs"]})
                 config["dataset"].update({k: v for k, v in tuned_params.items() if k in config["dataset"]})
                 # config["model"][args.model].update({k: v for k, v in tuned_params.items() if k in config["model"][args.model]})
@@ -668,7 +671,7 @@ def main():
         logging.info(f"Assigned {len(instantiated_callbacks)} callbacks to config['trainer']['callbacks'].")
 
         # Prepare all arguments in a dictionary for the Estimator
-
+        
         estimator_kwargs = {
             "freq": data_module.freq,
             "prediction_length": data_module.prediction_length,
@@ -677,7 +680,7 @@ def main():
             "cardinality": data_module.cardinality,
             "num_feat_static_real": data_module.num_feat_static_real,
             "input_size": data_module.num_target_vars,
-            "scaling": "std", #if model_hparams.get("scaling", "True") == "True" else False, # TODO ALLOW US TO SPECIFY SCALING, ALSO WHY STRING NOT B00L Scaling handled externally or internally by TACTiS
+            "scaling": "False", #if model_hparams.get("scaling", "True") == "True" else False, # TODO back to std, ALLOW US TO SPECIFY SCALING, ALSO WHY STRING NOT B00L Scaling handled externally or internally by TACTiS
             "lags_seq": [0], #model_hparams.get("lags_seq", [0]), #TODOconfig["model"][args.model]["lags_seq"], # TACTiS doesn't typically use lags
             "time_features": [second_of_minute, minute_of_hour, hour_of_day, day_of_year],
             "batch_size": data_module.batch_size,
@@ -706,12 +709,14 @@ def main():
             logging.warning("Using random sampler (ExpectedNumInstanceSampler) with limit_train_batches=null. "
                           "Consider setting an explicit integer value for limit_train_batches to avoid potential issues.")
         
-        if "dim_feedforward" not in model_hparams and "d_model" in model_hparams:
+        if  "d_model" in model_hparams: # and "dim_feedforward" not in model_hparams
             # set dim_feedforward to 4x the d_model found in this trial
             model_hparams["dim_feedforward"] = model_hparams["d_model"] * 4
+            logging.info(f"Updating estimator {args.model.capitalize()} dim_feedforward with 4x d_model = {model_hparams['dim_feedforward']}")
         elif "d_model" in estimator_params and estimator_sig.parameters["d_model"].default is not inspect.Parameter.empty:
             # if d_model is not contained in the trial but is a paramter, get the default
             model_hparams["dim_feedforward"] = estimator_sig.parameters["d_model"].default * 4
+            logging.info(f"Updating estimator {args.model.capitalize()} dim_feedforward with 4x estimator default d_model = {model_hparams['dim_feedforward']}")
 
         # Add model-specific arguments. Note that some params, such as num_feat_dynamic_real, are changed within Model, and so can't be used for estimator class
         estimator_kwargs.update({k: v for k, v in model_hparams.items() if k in estimator_params and not hasattr(data_module, k) })
@@ -810,15 +815,14 @@ def main():
         logging.info("Starting model training...")
         # %% TRAIN MODEL
         # Callbacks are now instantiated and added to estimator_kwargs above
-        if True:
-            logging.info(f"Training model with a total of {n_training_steps} training steps.")
-            estimator.train(
-                training_data=data_module.train_dataset,
-                validation_data=data_module.val_dataset,
-                forecast_generator=forecast_generator,
-                ckpt_path=checkpoint_path,
-                shuffle_buffer_length=1024
-            )
+        logging.info(f"Training model with a total of {n_training_steps} training steps.")
+        estimator.train(
+            training_data=data_module.train_dataset,
+            validation_data=data_module.val_dataset,
+            forecast_generator=forecast_generator,
+            ckpt_path=checkpoint_path
+            # shuffle_buffer_length=1024
+        )
         # train_output.trainer.checkpoint_callback.best_model_path
         logging.info("Model training completed.")
     elif args.mode == "test":

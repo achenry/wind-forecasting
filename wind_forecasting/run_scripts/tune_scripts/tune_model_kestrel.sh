@@ -1,9 +1,9 @@
 #!/bin/bash 
 #SBATCH --account=ssc
-#SBATCH --time=24:00:00
+#SBATCH --time=01:00:00
 ##SBATCH --time=01:00:00
 #SBATCH --output=%j-%x.out
-##SBATCH --partition=debug
+#SBATCH --partition=debug
 #SBATCH --nodes=1 # this needs to match Trainer(num_nodes...)
 #SBATCH --gres=gpu:2
 #SBATCH --ntasks-per-node=2 # this needs to match Trainer(devices=...)
@@ -74,12 +74,12 @@ echo "------------------------------------"
 # --- Setup Main Environment ---
 echo "Setting up main environment..."
 module purge
-ml mamba
+#ml mamba
 ml cuda
 echo "Modules loaded."
 
-# eval "$(mamba shell.bash hook)"
-mamba activate wind_forecasting_env
+eval "$(conda shell.bash hook)"
+conda activate wind_forecasting_env
 echo "Conda environment 'wind_forecasting_env' activated."
 # --- End Main Environment Setup ---
 
@@ -124,13 +124,13 @@ for i in $(seq 0 $((${NUM_GPUS}-1))); do
       # --- Module loading ---
       module purge
       # ml PrgEnv-intel
-      ml mamba
+      #ml mamba
       ml cuda
       echo \"Worker ${i}: Modules loaded.\"
 
       # --- Activate conda environment ---
-      # eval \"\$(conda shell.bash hook)\"
-      mamba activate wind_forecasting_env
+      eval \"\$(conda shell.bash hook)\"
+      conda activate wind_forecasting_env
       echo \"Worker ${i}: Conda environment 'wind_forecasting_env' activated.\"
 
       # --- Set Worker-Specific Environment ---
