@@ -869,7 +869,7 @@ def pi_normalized_average_width_samples(true_values, forecast_samples, confidenc
 
     if true_range == 0:
         if np.mean(interval_widths) > 1e-9:
-            print("Warning: True values are constant, returning average interval width directly for PINAW.")
+            logging.warning("True values are constant, returning average interval width directly for PINAW.")
             return np.mean(interval_widths)
         else:
             return 0.0
