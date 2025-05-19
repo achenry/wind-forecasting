@@ -12,7 +12,7 @@ experiment:
 logging:
   entity: jmb0507-cu-boulder # Wandb entity (group name)
   wandb_mode: online
-  save_code: true # Save code to wandb
+  save_code: false # Save code to wandb
   wandb_dir: /Users/ahenry/Documents/toolboxes/wind_forecasting/logging/wandb # WandB will create a 'wandb' subdirectory here automatically
   optuna_dir: /Users/ahenry/Documents/toolboxes/wind_forecasting/logging/optuna/
   checkpoint_dir: /Users/ahenry/Documents/toolboxes/wind_forecasting/logging/checkpoints/
@@ -83,7 +83,7 @@ dataset:
     data_path: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/awaken_data/awaken_processed_normalized.parquet
     normalization_consts_path: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/awaken_data/awaken_processed_normalization_consts.csv
     context_length: 600 # in seconds
-    prediction_length: 60 # in seconds
+    prediction_length: 120 # in seconds
     target_turbine_ids:  # or leave blank to capture all
     normalize: False 
     batch_size: 64
@@ -178,8 +178,8 @@ model:
     n_heads: 4 # Number of heads for spatio-temporal attention
     d_model: 200
     dim_feedforward: 800
-    d_queries_keys: 30
-    d_values: 30
+    d_queries_keys: 40
+    d_values: 40
     dropout_emb: 0.2
     dropout_attn_matrix: 0.0
     dropout_attn_out: 0.0
@@ -234,7 +234,7 @@ callbacks:
 
 trainer: 
     # grad_clip_norm: 0.0 # Prevents gradient explosion if > 0 
-    limit_val_batches: 10 
+    limit_val_batches: 100
     # val_check_interval: 1.0
     accelerator: cpu
     devices: auto
@@ -243,8 +243,8 @@ trainer:
     # n_workers: auto
     # debug: False 
     # accumulate: 1.0
-    max_epochs: 2 # Maximum number of epochs to train 100
-    limit_train_batches: 10 # 100
+    max_epochs: 3 # Maximum number of epochs to train 100
+    limit_train_batches: 100 # 100
     default_root_dir: /Users/ahenry/Documents/toolboxes/wind_forecasting/logging/wind_forecasting
     # precision: 32-true # 16-mixed enables mixed precision training 32-true is full precision
     # batch_size: 32 # larger = more stable gradients

@@ -2,12 +2,12 @@
 
 experiment:
   username: aoife-henry
-  project_name: wind_forecasting_awaken_pred60
-  run_name: aoifemac_awaken_pred60
+  project_name: wind_forecasting_awaken_pred600
+  run_name: aoifemac_awaken_pred600
   log_dir: /projects/ssc/ahenry/wind_forecasting/logging/
   project_root: /projects/ssc/ahenry/wind_forecasting/
   notes: "Tuning AWAKEN with Informer+"
-  extra_tags: ["awaken", "pred60"] # By default already has GPU id, model and mode.
+  extra_tags: ["awaken", "pred600"] # By default already has GPU id, model and mode.
 
 logging:
   entity: jmb0507-cu-boulder # Wandb entity (group name)
@@ -79,7 +79,7 @@ dataset:
     data_path: /projects/ssc/ahenry/wind_forecasting/awaken_data/awaken_processed_normalized.parquet
     normalization_consts_path: /projects/ssc/ahenry/wind_forecasting/awaken_data/awaken_processed_normalization_consts.csv
     context_length: 600 # in seconds
-    prediction_length: 120 # in seconds
+    prediction_length: 600 # in seconds
     target_turbine_ids: # or leave blank to capture all
     normalize: False 
     batch_size: 64
