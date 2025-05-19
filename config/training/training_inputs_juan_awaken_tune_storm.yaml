@@ -1,7 +1,7 @@
 experiment:
   username: jmb0507
   project_name: tune_awaken_storm_pred300
-  run_name: tune_awaken_turb
+  run_name: tune_awaken_informer_turb
   project_root: /user/taed7566/Forecasting/wind-forecasting
   log_dir: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/
   notes: "Tuning AWAKEN with Informer with per_turbine_target = true"
@@ -102,8 +102,8 @@ optuna:
 
 dataset:
     sampler: "random"    # Options: "random" (ExpectedNumInstanceSampler), "sequential" (SequentialSampler) INFO: This is used for training
-    data_path: /user/taed7566/Forecasting/wind-forecasting/examples/data/preprocessed_awaken_data/awaken_processed_normalized.parquet
-    normalization_consts_path:  /user/taed7566/Forecasting/wind-forecasting/examples/data/preprocessed_awaken_data/awaken_processed_normalization_consts.csv
+    data_path: /nfs/data/taed7566/preprocessed_awaken_data/awaken_processed_normalized.parquet
+    normalization_consts_path:  /nfs/data/taed7566/preprocessed_awaken_data/awaken_processed_normalization_consts.csv
     context_length: 600 # in seconds
     prediction_length: 300 # in seconds
     target_turbine_ids: # or leave blank to capture all
