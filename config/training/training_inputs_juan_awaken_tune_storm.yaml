@@ -21,14 +21,14 @@ optuna:
   n_trials_per_worker: 20   # Replaced by total_study_trials for global trial limit
   total_study_trials: 200     # Global maximum number of trials across all workers, takes precedence over n_trials_per_worker
   max_epochs: 100              # epochs per trial
-  sampler: "sequential"           # Options: "random" (ExpectedNumInstanceSampler), "sequential" (SequentialSampler)
+  sampler: "random"           # Options: "random" (ExpectedNumInstanceSampler), "sequential" (SequentialSampler)
   sampler_params:
     tpe:
       n_startup_trials: 16
       multivariate: true
       constant_liar: true
       group: false
-  limit_train_batches:    # batches per epoch - INFO: For "random" sampler, use explicit integer value
+  limit_train_batches: 5000    # batches per epoch - INFO: For "random" sampler, use explicit integer value
   metric: "val_loss"          # The metric to optimize (NLL)
   direction: "minimize"       # Whether to minimize or maximize the metric
 
@@ -271,4 +271,4 @@ trainer:
     num_nodes: 1
     strategy: ddp
     max_epochs: 100 # Maximum number of epochs to train 100
-    limit_train_batches: #5000
+    limit_train_batches: 5000
