@@ -3,7 +3,7 @@ experiment:
   project_name: validate_tactis_flasc_3
   run_name: validation_ptt_false_best_trial_181
   project_root: /user/taed7566/Forecasting/wind-forecasting
-  log_dir: /user/taed7566/Forecasting/wind-forecasting/logs/
+  log_dir: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/
   notes: ""
   extra_tags: ["flasc", "validation", "tcp", "turb", "ptt_false"]
 

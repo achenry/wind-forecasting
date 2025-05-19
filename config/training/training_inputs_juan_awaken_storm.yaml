@@ -77,9 +77,9 @@ optuna:
 
     # --- SQLite Specific Settings ---
     # Absolute path is recommended for SQLite when used across different contexts
-    sqlite_path: "/user/taed7566/Forecasting/wind-forecasting/optuna/SQL/flasc_tactis_2.db"
-    sqlite_wal: true  # Enable WAL mode for SQLite
-    sqlite_timeout: 600  # Timeout in seconds for SQLite locks
+    # sqlite_path: "/user/taed7566/Forecasting/wind-forecasting/optuna/SQL/flasc_tactis_2.db"
+    # sqlite_wal: true  # Enable WAL mode for SQLite
+    # sqlite_timeout: 600  # Timeout in seconds for SQLite locks
 
     # --- PostgreSQL Specific Settings (Commented out as backend is sqlite) ---
     # pgdata_path: "/user/taed7566/Forecasting/wind-forecasting/optuna/pgdata" # Directory for PostgreSQL data files
@@ -101,13 +101,13 @@ optuna:
     log_file: "${logging.optuna_dir}/optuna_dashboard.log" # Log file for the dashboard process
 
 dataset:
-    sampler: "sequential"    # Options: "random" (ExpectedNumInstanceSampler), "sequential" (SequentialSampler) INFO: This is used for training
-    data_path: /user/taed7566/Forecasting/wind-forecasting/examples/data/preprocessed_awaken_data/filled_data_normalized_train_ready.parquet
+    sampler: "random"    # Options: "random" (ExpectedNumInstanceSampler), "sequential" (SequentialSampler) INFO: This is used for training
+    data_path: /user/taed7566/Forecasting/wind-forecasting/examples/data/preprocessed_awaken_data/awaken_processed_normalized.parquet
     normalization_consts_path:  /user/taed7566/Forecasting/wind-forecasting/examples/data/preprocessed_awaken_data/awaken_processed_normalization_consts.csv
     context_length: 600 # in seconds
     prediction_length: 300 # in seconds
     target_turbine_ids: # or leave blank to capture all
-    normalize: false # Using denormalized data with TACTiS-2's internal scaling 
+    normalize: true # Using denormalized data with TACTiS-2's internal scaling 
     batch_size: 128 
     workers: 12 # Consider adjusting based on CPU cores per task
     overfit: false
