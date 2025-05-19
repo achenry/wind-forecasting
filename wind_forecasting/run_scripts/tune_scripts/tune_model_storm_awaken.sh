@@ -20,8 +20,9 @@
 
 # --- Base Directories ---
 BASE_DIR="/user/taed7566/Forecasting/wind-forecasting" # Absolute path to the base directory
+OUTPUT_DIR="/dss/work/taed7566/Forecasting_Outputs/wind-forecasting"
 export WORK_DIR="${BASE_DIR}/wind_forecasting"
-export LOG_DIR="/dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs"
+export LOG_DIR="${OUTPUT_DIR}/logs"
 export CONFIG_FILE="${BASE_DIR}/config/training/training_inputs_juan_awaken_tune_storm.yaml"
 export MODEL_NAME="informer"
 export RESTART_TUNING_FLAG="" # "" Or "--restart_tuning"
