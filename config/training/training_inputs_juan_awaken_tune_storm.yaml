@@ -1,29 +1,35 @@
 experiment:
-  username: aoife-henry
-  project_name: wind_forecasting_awaken_pred300
-  run_name: aoifemac_awaken_pred300
-  log_dir: /projects/ssc/ahenry/wind_forecasting/logging/
-  project_root: /projects/ssc/ahenry/wind_forecasting/
-  notes: "Tuning AWAKEN with Informer+"
-  extra_tags: ["awaken", "pred300"] # By default already has GPU id, model and mode.
+  username: jmb0507
+  project_name: tune_awaken_storm_pred300
+  run_name: tune_awaken_informer_turb
+  project_root: /user/taed7566/Forecasting/wind-forecasting
+  log_dir: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/
+  notes: "Tuning AWAKEN with Informer with per_turbine_target = true"
+  extra_tags: ["tune", "awaken", "turb", "pred300", "per_turbine_case"] # By default already has GPU id and model name.
 
 logging:
   entity: jmb0507-cu-boulder # Wandb entity (group name)
   wandb_mode: online
-  save_code: true # Save code to wandb
-  wandb_dir: /projects/ssc/ahenry/wind_forecasting/logging/ # WandB will create a 'wandb' subdirectory here automatically
-  optuna_dir: /projects/ssc/ahenry/wind_forecasting/logging/optuna/
-  checkpoint_dir: /projects/ssc/ahenry/wind_forecasting/logging/checkpoints/
-  slurm_output_dir: /projects/ssc/ahenry/wind_forecasting/logging/slurm_logs/
+  save_code: false # Do not save code to W&B
+  wandb_dir: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs # Let WandB create the 'wandb' subdir here
+  optuna_dir: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/optuna
+  checkpoint_dir: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/checkpoints
+  slurm_output_dir: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/slurm_logs
 
 optuna:
   save_trial_code: false      # Default false
-  n_trials_per_worker: 100     # Test a total of 4*12=48 trials
-  total_study_trials:
-  max_epochs: 10              # epochs per trial
-  limit_train_batches: 5000    # batches per epoch
-  sampler: "random" # Options: "random" (ExpectedNumInstanceSampler), "sequential" (SequentialSampler)
-  metric: "val_loss" # The metric to optimize
+  n_trials_per_worker: 20   # Replaced by total_study_trials for global trial limit
+  total_study_trials: 200     # Global maximum number of trials across all workers, takes precedence over n_trials_per_worker
+  max_epochs: 100              # epochs per trial
+  sampler: "random"           # Options: "random" (ExpectedNumInstanceSampler), "sequential" (SequentialSampler)
+  sampler_params:
+    tpe:
+      n_startup_trials: 16
+      multivariate: true
+      constant_liar: true
+      group: false
+  limit_train_batches: 5000    # batches per epoch - INFO: For "random" sampler, use explicit integer value
+  metric: "val_loss"          # The metric to optimize (NLL)
   direction: "minimize"       # Whether to minimize or maximize the metric
 
   resample_freq_choices: [15, 30, 45, 60] # Resample frequency in seconds
@@ -46,12 +52,6 @@ optuna:
       reduction_factor: 2         # Applies to SuccessiveHalving and Hyperband
       bootstrap_count: 0          # Number of trials to complete before pruning
 
-    # type: "hyperband"         # Options: "hyperband", "median", "percentile", "none"
-    # min_resource: 1           # Minimum epochs before pruning can occur (default: 2)
-    # reduction_factor: 3       # Hyperband reduction factor (default: 3)
-    # max_resource: 10
-    # percentile": 25
-
   # Optuna visualization configuration (additional to wandb)
   visualization:
     enabled: true
@@ -60,71 +60,86 @@ optuna:
       optimization_history: true
       parameter_importance: true
       slice_plot: true
-      
+
   # Storage backend configuration
   storage:
-    backend: "mysql"  # Options: "postgresql", "sqlite", "mysql", "journal"
-    # --- SQLite Specific Settings (not used if backend is postgresql) ---
-    # storage_dir: /projects/ssc/ahenry/wind_forecasting/optuna
-    sqlite_wal: true  # Enable WAL mode for SQLite
-    sqlite_timeout: 600 # Timeout in seconds for SQLite locks
+    backend: "postgresql"  # Options: "postgresql", "sqlite"
+    # --- TCP/IP PostgreSQL Settings ---
+    use_tcp: true
+    use_socket: false
+    db_host: "pg-windforecasting-aiven-wind-forecasting.e.aivencloud.com"
+    db_port: 12472
+    db_name: "optuna"
+    db_user: "avnadmin"
+    db_password_env_var: "AIVEN_PG_PASSWORD"
+    sslmode: "require"
+    sslrootcert_path: "config/certs/aiven_pg_ca.pem"
 
-    # --- MySQL Specific Settings --- #
-    db_host: tlv51ahenry01.nrel.gov # 10.121.2.72
-    db_port: 3306
-    db_user: optuna_user
+    # --- SQLite Specific Settings ---
+    # Absolute path is recommended for SQLite when used across different contexts
+    # sqlite_path: "/user/taed7566/Forecasting/wind-forecasting/optuna/SQL/flasc_tactis_2.db"
+    # sqlite_wal: true  # Enable WAL mode for SQLite
+    # sqlite_timeout: 600  # Timeout in seconds for SQLite locks
 
-    # --- Optional TCP/IP Settings (if use_socket is false) ---
+    # --- PostgreSQL Specific Settings (Commented out as backend is sqlite) ---
+    # pgdata_path: "/user/taed7566/Forecasting/wind-forecasting/optuna/pgdata" # Directory for PostgreSQL data files
+    # pgdata_instance_name: "flasc_tactis" # INFO: CREATE NEW INSTANCE (DIRECTORY) FOR STUDIES #flasc_tactis, flasc_default , keep same for resuming!!
+    # db_name: "optuna_study_db"  # Name of the PostgreSQL database
+    # db_user: "optuna_user"
+    # use_socket: true      # Use Unix domain socket for local connection (recommended on single node)
+    # socket_dir_base: "/user/taed7566/Forecasting/wind-forecasting/optuna/sockets" # Base directory for socket files
+    # sync_dir: "/user/taed7566/Forecasting/wind-forecasting/optuna/sync"           # Directory for synchronization files
     # use_tcp: false
     # db_host: "localhost"
     # db_port: 5432
-
-    # --- Optional Command Execution Settings ---
     # run_cmd_shell: false # Set to true if specific commands require shell=True
-    
+
   # Optuna Dashboard auto-launch configuration
   dashboard:
-    enabled: true             # Set to true to automatically launch the dashboard on rank 0
+    enabled: false             # Set to true to automatically launch the dashboard on rank 0
     port: 8088                # Port for the dashboard web server
     log_file: "${logging.optuna_dir}/optuna_dashboard.log" # Log file for the dashboard process
 
-
-dataset: 
-    data_path: /projects/ssc/ahenry/wind_forecasting/awaken_data/awaken_processed_normalized.parquet
-    normalization_consts_path: /projects/ssc/ahenry/wind_forecasting/awaken_data/awaken_processed_normalization_consts.csv
+dataset:
+    sampler: "random"    # Options: "random" (ExpectedNumInstanceSampler), "sequential" (SequentialSampler) INFO: This is used for training
+    data_path: /nfs/data/taed7566/preprocessed_awaken_data/awaken_processed_normalized.parquet
+    normalization_consts_path:  /nfs/data/taed7566/preprocessed_awaken_data/awaken_processed_normalization_consts.csv
     context_length: 600 # in seconds
     prediction_length: 300 # in seconds
     target_turbine_ids: # or leave blank to capture all
-    normalize: True 
-    batch_size: 128
-    workers: 12
-    overfit: False
+    normalize: true # Using denormalized data with TACTiS-2's internal scaling 
+    batch_size: 128 
+    workers: 32 # Consider adjusting based on CPU cores per task
+    overfit: false
     test_split: 0.20
-    val_split: 0.1
+    val_split: 0.10
     resample_freq: 30s
     n_splits: 1 # how many divisions of each continuity group to make which is further subdivided into training test and validation data
-    per_turbine_target: True
-    # context_length_factor: 2
-
+    per_turbine_target: true # TODO: Test this option.
+    # context_length_factor: 2  # INFO: Takes precedence over context_length when use_tuned_parameters is true
 
 model:
   distr_output: 
     class: LowRankMultivariateNormalOutput
     kwargs:
       rank: 8
-  
+
   ############# MODEL-SPECIFIC PARAMETERS ##############
   # [ TACTiS-2 ]
   tactis:
     # General TACTiS settings
     initial_stage: 1
-    stage2_start_epoch: 10
+    stage2_start_epoch: 30 # Epoch to start stage 2 (copula training)
+    ac_mlp_num_layers: 2 # MLP layers for attention copula
+    ac_mlp_dim: 128      # Dimension of AC's internal MLP layers
+    stage1_activation_function: "relu" # Activation for Stage 1 encoders (e.g., "relu", "gelu", "leaky_relu")
+    stage2_activation_function: "relu" # Activation for Stage 2 encoders (e.g., "relu", "gelu", "leaky_relu")
     input_encoding_normalization: true
-    scaling: null # Options: "mean", "std", null
-    loss_normalization: "std" # Options: "series", "timesteps", "both", "none"
+    scaling: "std" # Options: "mean", "std", null
+    loss_normalization: "both" # Options: "series", "timesteps", "both", "none"
     encoder_type: "standard" # Options: "standard", "temporal"
-    bagging_size: null # Optional, defaults to None in estimator
-    num_parallel_samples: 100 # Num of parallel samples for probabilistic prediction
+    bagging_size: null
+    num_parallel_samples: 1000 # Inference only setting
     # Marginal CDF Encoder
     marginal_embedding_dim_per_head: 8
     marginal_num_heads: 5
@@ -147,15 +162,32 @@ model:
     decoder_transformer_num_heads: 6
     decoder_num_bins: 50
     # Optimizer Params
-    lr_stage1: 0.0018
-    lr_stage2: 0.0007
-    weight_decay_stage1: 0.0
-    weight_decay_stage2: 0.0
+    lr_stage1: 5e-6
+    lr_stage2: 2e-6
+    weight_decay_stage1: 1e-5
+    weight_decay_stage2: 1e-5
     # Dropout & Clipping
     dropout_rate: 0.1
-    gradient_clip_val_stage1: 1000.0
-    gradient_clip_val_stage2: 1000.0
-
+    ### VALUES FOR per_turbine_target = true ###
+    # Learning Rate Scheduler for Stage 1
+    warmup_steps_s1: 1410 # Warmup steps for Stage 1
+    steps_to_decay_s1: 7050 # T_max = (steps_per_epoch [282] * epochs_in_stage [30]) - warmup_steps
+    eta_min_fraction_s1: 0.01  # Fraction of initial LR for eta_min in Stage 1 cosine decay
+    # Learning Rate Scheduler for Stage 2
+    warmup_steps_s2: 2256 # Warmup steps for Stage 2
+    steps_to_decay_s2: 17484 # T_max = (steps_per_epoch [282] * epochs_in_stage [100-30]) - warmup_steps ~ 47940 - warmup_steps    
+    eta_min_fraction_s2: 0.01  # Fraction of initial LR for eta_min in Stage 2 cosine decay    
+    ### VALUES FOR per_turbine_target = false ###
+    # # Learning Rate Scheduler for Stage 1
+    # warmup_steps_s1: 201 # Warmup steps for Stage 1
+    # steps_to_decay_s1: 1007 # T_max = (steps_per_epoch [282] * epochs_in_stage [30]) - warmup_steps
+    # eta_min_fraction_s1: 0.01  # Fraction of initial LR for eta_min in Stage 1 cosine decay
+    # # Learning Rate Scheduler for Stage 2
+    # warmup_steps_s2: 322 # Warmup steps for Stage 2
+    # steps_to_decay_s2: 2497 # T_max = (steps_per_epoch [282] * epochs_in_stage [100-30]) - warmup_steps ~ 47940 - warmup_steps    
+    # eta_min_fraction_s2: 0.01  # Fraction of initial LR for eta_min in Stage 2 cosine decay    
+  
+  # [ Informer ]
   informer:
     # embedding_dimension: 32 # Determines dimension of the embedding space
     num_encoder_layers: 2 # Number of transformer blocks stacked
@@ -195,6 +227,7 @@ model:
     embed_method: spatio-temporal
     activation: gelu
     use_given: False
+########### END OF MODEL-SPECIFIC PARAMETERS ###########
 
 callbacks:
     progress_bar:
@@ -235,10 +268,7 @@ trainer:
     val_check_interval: 5000
     accelerator: gpu
     devices: auto
-    # num_nodes: 1
+    num_nodes: 1
     strategy: ddp
     max_epochs: 100 # Maximum number of epochs to train 100
-    limit_train_batches: #5000
-    log_every_n_steps: 1 # For wandb logging
-    deterministic: false
-    benchmark: true
+    limit_train_batches: 5000

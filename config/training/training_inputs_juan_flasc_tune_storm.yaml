@@ -3,7 +3,7 @@ experiment:
   project_name: tune_tactis_flasc_3
   run_name: tune_v2_farm # [p = patience, d = min_delta, b = limit_train_batches, n = n_startup_trials] / hb = hyperband min_resource, reduction_factor
   project_root: /user/taed7566/Forecasting/wind-forecasting
-  log_dir: /user/taed7566/Forecasting/wind-forecasting/logs/
+  log_dir: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/
   notes: ""
   extra_tags: ["flasc", "tune", "tcp", "farm"] # By default already has GPU id and model name.
 
@@ -11,10 +11,10 @@ logging:
   entity: jmb0507-cu-boulder # Wandb entity (group name)
   wandb_mode: online
   save_code: false # Do not save code to W&B
-  wandb_dir: /user/taed7566/Forecasting/wind-forecasting/logs # Let WandB create the 'wandb' subdir here
-  optuna_dir: /user/taed7566/Forecasting/wind-forecasting/optuna
-  checkpoint_dir: /user/taed7566/Forecasting/wind-forecasting/logs/checkpoints
-  slurm_output_dir: /user/taed7566/Forecasting/wind-forecasting/logs/slurm_logs
+  wandb_dir: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs # Let WandB create the 'wandb' subdir here
+  optuna_dir: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/optuna
+  checkpoint_dir: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/checkpoints
+  slurm_output_dir: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/slurm_logs
 
 optuna:
   save_trial_code: false      # Default false
@@ -22,6 +22,12 @@ optuna:
   total_study_trials: 200     # Global maximum number of trials across all workers, takes precedence over n_trials_per_worker
   max_epochs: 100              # epochs per trial
   sampler: "sequential"           # Options: "random" (ExpectedNumInstanceSampler), "sequential" (SequentialSampler)
+  sampler_params:
+    tpe:
+      n_startup_trials: 16
+      multivariate: true
+      constant_liar: true
+      group: false
   limit_train_batches:    # batches per epoch - INFO: For "random" sampler, use explicit integer value
   metric: "val_loss"          # The metric to optimize (NLL)
   direction: "minimize"       # Whether to minimize or maximize the metric
@@ -31,18 +37,20 @@ optuna:
   # Pruning configuration
   pruning:
     enabled: true
-    # type: "patient"
-    # patience: 3               # Configure PatientPruner: number of steps to wait (epochs) before pruning
-    # min_delta: 0.0            # Configure PatientPruner: tolerance for improvement (default 0.0)
-    # wrapped_pruner:
+    type: "patient"
+    patience: 1               # Configure PatientPruner: number of steps to wait (epochs) before pruning
+    min_delta: 1.0            # Configure PatientPruner: tolerance for improvement (default 0.0)
+    wrapped_pruner:
     #   type: "percentile"      # Set the wrapped pruner type
     #   percentile: 50.0        # Configure PercentilePruner: prune trials below this percentile
     #   n_startup_trials: 4     # Configure PercentilePruner: wait for this many trials before pruning
     #   n_warmup_steps: 12      # Configure PercentilePruner: wait for this many steps (epochs) before pruning
-    type: "hyperband"
-    min_resource: 8
-    max_resource: 100
-    reduction_factor: 2
+    # type: "hyperband"
+      type: "successivehalving"
+      min_resource: 8             # Applies to SuccessiveHalving and Hyperband
+      max_resource: 100           # Applies to Hyperband only
+      reduction_factor: 2         # Applies to SuccessiveHalving and Hyperband
+      bootstrap_count: 0          # Number of trials to complete before pruning
 
   # Optuna visualization configuration (additional to wandb)
   visualization:
@@ -99,8 +107,8 @@ dataset:
     prediction_length: 300 # in seconds
     target_turbine_ids: # or leave blank to capture all
     normalize: false # Using denormalized data with TACTiS-2's internal scaling 
-    batch_size: 2048 
-    workers: 32 # Consider adjusting based on CPU cores per task
+    batch_size: 1024 
+    workers: 2 # Consider adjusting based on CPU cores per task
     overfit: false
     test_split: 0.20
     val_split: 0.1
@@ -131,7 +139,7 @@ model:
     loss_normalization: "both" # Options: "series", "timesteps", "both", "none"
     encoder_type: "standard" # Options: "standard", "temporal"
     bagging_size: null
-    num_parallel_samples: 100 # Inference only setting
+    num_parallel_samples: 1000 # Inference only setting
     # Marginal CDF Encoder
     marginal_embedding_dim_per_head: 8
     marginal_num_heads: 5
@@ -158,26 +166,26 @@ model:
     lr_stage2: 2e-6
     weight_decay_stage1: 1e-5
     weight_decay_stage2: 1e-5
-    ### VALUES FOR per_turbine_target = true ###
-    # Learning Rate Scheduler for Stage 1
-    # warmup_steps_s1: 1410 # Warmup steps for Stage 1
-    # steps_to_decay_s1: 7050 # T_max = (steps_per_epoch [282] * epochs_in_stage [30]) - warmup_steps
-    # eta_min_fraction_s1: 0.01  # Fraction of initial LR for eta_min in Stage 1 cosine decay
-    # Learning Rate Scheduler for Stage 2
-    # warmup_steps_s2: 2256 # Warmup steps for Stage 2
-    # steps_to_decay_s2: 17484 # T_max = (steps_per_epoch [282] * epochs_in_stage [100-30]) - warmup_steps ~ 47940 - warmup_steps    
-    # eta_min_fraction_s2: 0.01  # Fraction of initial LR for eta_min in Stage 2 cosine decay    
-    ### VALUES FOR per_turbine_target = false ###
-    # Learning Rate Scheduler for Stage 1
-    warmup_steps_s1: 201 # Warmup steps for Stage 1
-    steps_to_decay_s1: 1007 # T_max = (steps_per_epoch [282] * epochs_in_stage [30]) - warmup_steps
-    eta_min_fraction_s1: 0.01  # Fraction of initial LR for eta_min in Stage 1 cosine decay
-    # Learning Rate Scheduler for Stage 2
-    warmup_steps_s2: 322 # Warmup steps for Stage 2
-    steps_to_decay_s2: 2497 # T_max = (steps_per_epoch [282] * epochs_in_stage [100-30]) - warmup_steps ~ 47940 - warmup_steps    
-    eta_min_fraction_s2: 0.01  # Fraction of initial LR for eta_min in Stage 2 cosine decay 
     # Dropout & Clipping
     dropout_rate: 0.1
+    ### VALUES FOR per_turbine_target = true ###
+    # Learning Rate Scheduler for Stage 1
+    warmup_steps_s1: 1410 # Warmup steps for Stage 1
+    steps_to_decay_s1: 7050 # T_max = (steps_per_epoch [282] * epochs_in_stage [30]) - warmup_steps
+    eta_min_fraction_s1: 0.01  # Fraction of initial LR for eta_min in Stage 1 cosine decay
+    # Learning Rate Scheduler for Stage 2
+    warmup_steps_s2: 2256 # Warmup steps for Stage 2
+    steps_to_decay_s2: 17484 # T_max = (steps_per_epoch [282] * epochs_in_stage [100-30]) - warmup_steps ~ 47940 - warmup_steps    
+    eta_min_fraction_s2: 0.01  # Fraction of initial LR for eta_min in Stage 2 cosine decay    
+    ### VALUES FOR per_turbine_target = false ###
+    # # Learning Rate Scheduler for Stage 1
+    # warmup_steps_s1: 201 # Warmup steps for Stage 1
+    # steps_to_decay_s1: 1007 # T_max = (steps_per_epoch [282] * epochs_in_stage [30]) - warmup_steps
+    # eta_min_fraction_s1: 0.01  # Fraction of initial LR for eta_min in Stage 1 cosine decay
+    # # Learning Rate Scheduler for Stage 2
+    # warmup_steps_s2: 322 # Warmup steps for Stage 2
+    # steps_to_decay_s2: 2497 # T_max = (steps_per_epoch [282] * epochs_in_stage [100-30]) - warmup_steps ~ 47940 - warmup_steps    
+    # eta_min_fraction_s2: 0.01  # Fraction of initial LR for eta_min in Stage 2 cosine decay    
 
   # [ Informer ]
   informer:
@@ -228,7 +236,7 @@ callbacks:
     progress_bar:
       class_path: lightning.pytorch.callbacks.TQDMProgressBar
       init_args:
-        refresh_rate: 94  # every n steps, set to 0 to disable - 47*6 = 282(steps for 2048 batch size) ~ 1 epoch
+        refresh_rate: 50  # every n steps, set to 0 to disable - 47*6 = 282(steps for 2048 batch size) ~ 1 epoch
         leave: false
     # early_stopping:
     #   class_path: lightning.pytorch.callbacks.EarlyStopping
@@ -252,7 +260,7 @@ callbacks:
       init_args:
         logging_interval: step # Log every training step to see warmup
         log_momentum: false
-        log_weight_decay : true
+        log_weight_decay : false
     dead_neuron_monitor: # INFO @boujuan [custom callback] Currently doesnt work ~OOM (check utils/callbacks.py)
       enabled: false
 
