@@ -1,11 +1,11 @@
 experiment:
   username: jmb0507
   project_name: tune_awaken_storm
-  run_name: tune_awaken_informer_turb_pred210
+  run_name: tune_awaken_informer_turb_pred510
   project_root: /user/taed7566/Forecasting/wind-forecasting
   log_dir: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/
   notes: "Tuning AWAKEN with Informer with per_turbine_target = true"
-  extra_tags: ["tune", "awaken", "turb", "greedy", "pred210", "per_turbine_case"] # By default already has GPU id and model name.
+  extra_tags: ["tune", "awaken", "turb", "LUT", "pred510", "per_turbine_case"] # By default already has GPU id and model name.
 
 logging:
   entity: jmb0507-cu-boulder # Wandb entity (group name)
@@ -20,7 +20,7 @@ optuna:
   save_trial_code: false      # Default false
   n_trials_per_worker: 20   # Replaced by total_study_trials for global trial limit
   total_study_trials: 200     # Global maximum number of trials across all workers, takes precedence over n_trials_per_worker
-  max_epochs: 100              # epochs per trial
+  max_epochs: 20              # epochs per trial
   sampler: "random"           # Options: "random" (ExpectedNumInstanceSampler), "sequential" (SequentialSampler)
   sampler_params:
     tpe:
@@ -38,19 +38,19 @@ optuna:
   pruning:
     enabled: true
     type: "patient"
-    patience: 1               # Configure PatientPruner: number of steps to wait (epochs) before pruning
-    min_delta: 1.0            # Configure PatientPruner: tolerance for improvement (default 0.0)
+    patience: 2               # Configure PatientPruner: number of steps to wait (epochs) before pruning
+    min_delta: 0.1            # Configure PatientPruner: tolerance for improvement (default 0.0)
     wrapped_pruner:
-    #   type: "percentile"      # Set the wrapped pruner type
-    #   percentile: 50.0        # Configure PercentilePruner: prune trials below this percentile
-    #   n_startup_trials: 4     # Configure PercentilePruner: wait for this many trials before pruning
-    #   n_warmup_steps: 12      # Configure PercentilePruner: wait for this many steps (epochs) before pruning
-    # type: "hyperband"
-      type: "successivehalving"
-      min_resource: 8             # Applies to SuccessiveHalving and Hyperband
-      max_resource: 100           # Applies to Hyperband only
-      reduction_factor: 2         # Applies to SuccessiveHalving and Hyperband
-      bootstrap_count: 0          # Number of trials to complete before pruning
+      type: "percentile"      # Set the wrapped pruner type
+      percentile: 50.0        # Configure PercentilePruner: prune trials below this percentile
+      n_startup_trials: 4     # Configure PercentilePruner: wait for this many trials before pruning
+      n_warmup_steps: 4      # Configure PercentilePruner: wait for this many steps (epochs) before pruning
+    # # type: "hyperband"
+    #   type: "successivehalving"
+    #   min_resource: 8             # Applies to SuccessiveHalving and Hyperband
+    #   max_resource: 100           # Applies to Hyperband only
+    #   reduction_factor: 2         # Applies to SuccessiveHalving and Hyperband
+    #   bootstrap_count: 0          # Number of trials to complete before pruning
 
   # Optuna visualization configuration (additional to wandb)
   visualization:
@@ -109,7 +109,7 @@ dataset:
     target_turbine_ids: # or leave blank to capture all
     normalize: true # Using denormalized data with TACTiS-2's internal scaling 
     batch_size: 128 
-    workers: 32 # Consider adjusting based on CPU cores per task
+    workers: 4 # Consider adjusting based on CPU cores per task
     overfit: false
     test_split: 0.20
     val_split: 0.10
