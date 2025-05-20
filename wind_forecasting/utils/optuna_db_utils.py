@@ -503,6 +503,7 @@ def setup_mysql(db_setup_params, restart_tuning, rank):
                 logging.info(f"Rank 0: Database '{db_name}' already exists.")
                 if restart_tuning:
                     logging.warning(f"Rank 0: --restart_tuning set. Dropping and recreating Optuna tables in database '{db_name}'.")
+                    # TODO HIGH delete tables in the database
                     # Optuna's RDBStorage handles table creation/migration.
                     # To truly restart, we might need to drop tables, but let's rely on Optuna's behavior first.
                     # A simpler approach for restart might be to use a new study_name.
@@ -511,11 +512,12 @@ def setup_mysql(db_setup_params, restart_tuning, rank):
                     # Let's log a warning that restart might require manual intervention or new study name.
                     logging.warning("Rank 0: Actual table dropping for restart is not implemented here. Use a new study name or manage tables manually if a full reset is needed.")
                     # Example (requires permissions):
-                    # storage_temp = RDBStorage(url=optuna_storage_url)
-                    # studies = storage_temp.get_all_studies()
-                    # for s in studies:
-                    #     if s.study_name == db_setup_params['study_name']: # Check if study name matches DB name contextually
-                    #         storage_temp.delete_study(s.study_id)
+                    storage_temp = RDBStorage(url=optuna_storage_url)
+                    studies = storage_temp.get_all_studies()
+                    for s in studies:
+                        if db_setup_params['study_name'] in s.study_name: # Check if study name matches DB name contextually
+                            logging.info(f"Rank 0: Deleting study {s.study_name} from database '{db_name}'")
+                            storage_temp.delete_study(s._study_id)
 
             cursor.close()
             connection.close()
@@ -529,7 +531,8 @@ def setup_mysql(db_setup_params, restart_tuning, rank):
     # All ranks create the RDBStorage instance
     try:
         # Add connect_args for timeout, etc. if needed
-        storage = RDBStorage(url=optuna_storage_url)
+        # TODO HIGH if table studies already exists, need to skip table creation
+        storage = RDBStorage(url=optuna_storage_url, skip_table_creation=False)
         # Test connection
         _ = storage.get_all_studies()
         logging.info(f"Rank {rank}: Successfully connected to MySQL DB using URL: mysql+mysqlconnector://{db_user}@***:{db_port}/{db_name}")
