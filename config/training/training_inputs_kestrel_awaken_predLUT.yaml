@@ -1,11 +1,11 @@
 experiment:
   username: aoife-henry
-  project_name: wind_forecasting_awaken_pred300
+  project_name: wind_forecasting_awaken_pred510
   run_name: aoifemac_awaken_pred300
   log_dir: /projects/ssc/ahenry/wind_forecasting/logging/
   project_root: /projects/ssc/ahenry/wind_forecasting/
   notes: "Tuning AWAKEN with Informer+"
-  extra_tags: ["awaken", "pred300"] # By default already has GPU id, model and mode.
+  extra_tags: ["awaken", "pred510"] # By default already has GPU id, model and mode.
 
 logging:
   entity: jmb0507-cu-boulder # Wandb entity (group name)
@@ -21,10 +21,16 @@ optuna:
   n_trials_per_worker: 100     # Test a total of 4*12=48 trials
   total_study_trials:
   max_epochs: 10              # epochs per trial
-  limit_train_batches: 5000    # batches per epoch
-  sampler: "random" # Options: "random" (ExpectedNumInstanceSampler), "sequential" (SequentialSampler)
-  metric: "val_loss" # The metric to optimize
-  direction: "minimize"       # Whether to minimize or maximize the metric
+  sampler: "random"           # Options: "random" (ExpectedNumInstanceSampler), "sequential" (SequentialSampler)
+  sampler_params:
+    tpe:
+      n_startup_trials: 16
+      multivariate: true
+      constant_liar: true
+      group: false
+  limit_train_batches: 5000    # batches per epoch - INFO: For "random" sampler, use explicit integer value
+  metric: "val_loss"          # The metric to optimize (NLL)
+  direction: "minimize"  
 
   resample_freq_choices: [15, 30, 45, 60] # Resample frequency in seconds
   
@@ -32,25 +38,19 @@ optuna:
   pruning:
     enabled: true
     type: "patient"
-    patience: 1               # Configure PatientPruner: number of steps to wait (epochs) before pruning
-    min_delta: 1.0            # Configure PatientPruner: tolerance for improvement (default 0.0)
+    patience: 2               # Configure PatientPruner: number of steps to wait (epochs) before pruning
+    min_delta: 0.0            # Configure PatientPruner: tolerance for improvement (default 0.0)
     wrapped_pruner:
-    #   type: "percentile"      # Set the wrapped pruner type
-    #   percentile: 50.0        # Configure PercentilePruner: prune trials below this percentile
-    #   n_startup_trials: 4     # Configure PercentilePruner: wait for this many trials before pruning
-    #   n_warmup_steps: 12      # Configure PercentilePruner: wait for this many steps (epochs) before pruning
+      type: "percentile"      # Set the wrapped pruner type
+      percentile: 50.0        # Configure PercentilePruner: prune trials below this percentile
+      n_startup_trials: 4     # Configure PercentilePruner: wait for this many trials before pruning
+      n_warmup_steps: 4      # Configure PercentilePruner: wait for this many steps (epochs) before pruning
     # type: "hyperband"
-      type: "successivehalving"
-      min_resource: 8             # Applies to SuccessiveHalving and Hyperband
-      max_resource: 100           # Applies to Hyperband only
-      reduction_factor: 2         # Applies to SuccessiveHalving and Hyperband
-      bootstrap_count: 0          # Number of trials to complete before pruning
-
-    # type: "hyperband"         # Options: "hyperband", "median", "percentile", "none"
-    # min_resource: 1           # Minimum epochs before pruning can occur (default: 2)
-    # reduction_factor: 3       # Hyperband reduction factor (default: 3)
-    # max_resource: 10
-    # percentile": 25
+      # type: "successivehalving"
+      # min_resource: 8             # Applies to SuccessiveHalving and Hyperband
+      # max_resource: 10           # Applies to Hyperband only
+      # reduction_factor: 2         # Applies to SuccessiveHalving and Hyperband
+      # bootstrap_count: 0          # Number of trials to complete before pruning
 
   # Optuna visualization configuration (additional to wandb)
   visualization:
@@ -93,7 +93,7 @@ dataset:
     data_path: /projects/ssc/ahenry/wind_forecasting/awaken_data/awaken_processed_normalized.parquet
     normalization_consts_path: /projects/ssc/ahenry/wind_forecasting/awaken_data/awaken_processed_normalization_consts.csv
     context_length: 600 # in seconds
-    prediction_length: 300 # in seconds
+    prediction_length: 510 # in seconds
     target_turbine_ids: # or leave blank to capture all
     normalize: True 
     batch_size: 128
@@ -105,7 +105,6 @@ dataset:
     n_splits: 1 # how many divisions of each continuity group to make which is further subdivided into training test and validation data
     per_turbine_target: True
     # context_length_factor: 2
-
 
 model:
   distr_output: 
