@@ -737,7 +737,6 @@ class MLTuningObjective:
                 logging.debug(f"Loaded hparams from checkpoint: {hparams}")
 
                 model_config = hparams.get('model_config')
-                model_config['num_batches_per_epoch'] = estimator_kwargs.get('num_batches_per_epoch')
                 if model_config is None:
                     error_msg = f"Critical: 'model_config' dictionary not found within loaded hyperparameters in {checkpoint_path}. Check saving logic."
                     logging.error(f"Trial {trial.number} - {error_msg}")
@@ -749,11 +748,9 @@ class MLTuningObjective:
                 init_args = {
                     'model_config': model_config,
                     **{k: hparams.get(k, self.config["model"][self.model].get(k))
-                       for k in module_params if k not in ['model_config', 'num_batches_per_epoch']}
+                       for k in module_params if k not in ['model_config']}
                 }
                 
-                # logging.info(f"Setting 'num_batches_per_epoch' for re-instantiation from original trial config: {init_args['num_batches_per_epoch']}")
-
                 instantiation_stage_info = "N/A (Not TACTiS)"
                 if self.model == 'tactis':
                     if correct_stage is not None:
@@ -766,7 +763,7 @@ class MLTuningObjective:
                         logging.warning(f"Hyperparameter '{key}' not found in checkpoint, using default value from config: {val}")
 
                 missing_args = [k for k, v in init_args.items()
-                              if v is None and k not in ['model_config', 'initial_stage']]
+                               if v is None and k not in ['model_config', 'initial_stage']]
 
                 if missing_args:
                     error_msg = f"Missing required hyperparameters in checkpoint {checkpoint_path} even after checking defaults: {missing_args}"
