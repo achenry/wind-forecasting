@@ -454,8 +454,10 @@ def main():
         if args.use_tuned_parameters:
             try:
                 logging.info(f"Getting tuned parameters.")
+                
                 tuned_params = get_tuned_params(optuna_storage, db_setup_params["study_name"])
                 
+                # tuned_params = {'context_length_factor': 3, 'batch_size': 256, 'num_encoder_layers': 2, 'num_decoder_layers': 2, 'dim_feedforward': 2048, 'n_heads': 6, 'factor': 1, 'moving_avg': 21, 'lr': 4.7651748046751395e-05, 'weight_decay': 0.0, 'dropout': 0.0982708428790269}
                 # tuned_params = {'context_length_factor': 2, 'batch_size': 128, 'num_encoder_layers': 2, 'num_decoder_layers': 3, 'd_model': 128, 'n_heads': 6}
                 
                 config["model"]["distr_output"]["kwargs"].update({k: v for k, v in tuned_params.items() if k in config["model"]["distr_output"]["kwargs"]})

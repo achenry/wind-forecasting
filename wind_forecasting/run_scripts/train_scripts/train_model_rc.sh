@@ -26,7 +26,6 @@ export PYTHON_EXECUTABLE=$(which python)
 
 # NOTE run the following first: python load_data.py --config ../../examples/inputs/training_inputs_rc_awaken.yaml --reload
 # mpirun -np $SLURM_NTASKS 
-srun $PYTHON_EXECUTABLE run_model.py --config ../../examples/inputs/training_inputs_rc_flasc.yaml --mode train --model $1 
+srun $PYTHON_EXECUTABLE ../run_model.py --config ../../examples/inputs/training_inputs_rc_flasc.yaml --mode train --model $1 
 # srun python informer.py
 #python train_spacetimeformer.py spacetimeformer windfarm --debug --run_name spacetimeformer_windfarm_debug --context_points 600 --target_points 600
-
