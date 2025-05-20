@@ -551,4 +551,4 @@ def setup_mysql(db_setup_params, restart_tuning, rank):
     # Return storage and potentially connection details if needed elsewhere
     # For now, return None for connection_info similar to SQLite/Journal
     connection_info = {"db_host": db_host, "db_port": db_port, "db_name": db_name, "db_user": db_user} # Example
-    return storage, None # Return None for now
+    return storage, connection_info # Return None for now
