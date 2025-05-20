@@ -529,7 +529,7 @@ def setup_mysql(db_setup_params, restart_tuning, rank):
     # All ranks create the RDBStorage instance
     try:
         # Add connect_args for timeout, etc. if needed
-        storage = RDBStorage(url=optuna_storage_url)
+        storage = RDBStorage(url=optuna_storage_url, skip_table_creation=True)
         # Test connection
         _ = storage.get_all_studies()
         logging.info(f"Rank {rank}: Successfully connected to MySQL DB using URL: mysql+mysqlconnector://{db_user}@***:{db_port}/{db_name}")
