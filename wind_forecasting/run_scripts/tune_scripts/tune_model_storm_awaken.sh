@@ -6,8 +6,8 @@
 #SBATCH --cpus-per-task=4           # CPUs per task (4 tasks * 32 = 128 CPUs total) [1 CPU/GPU more than enough]
 #SBATCH --mem-per-cpu=2048           # Memory per CPU (Total Mem = ntasks * cpus-per-task * mem-per-cpu) [flasc uses only ~4-5 GiB max]
 #SBATCH --gres=gpu:A100:4            # Request 2 H100 GPUs
-#SBATCH --time=7-00:00                # Time limit (up to 7 days)
-#SBATCH --job-name=awaken_tune_informer
+#SBATCH --time=1-00:00                # Time limit (up to 7 days)
+#SBATCH --job-name=510awaken_tune_informer
 #SBATCH --output=/dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/slurm_logs/awaken_tune_informer510_%j.out
 #SBATCH --error=/dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/slurm_logs/awaken_tune_informer510_%j.err
 #SBATCH --hint=nomultithread        # Disable hyperthreading

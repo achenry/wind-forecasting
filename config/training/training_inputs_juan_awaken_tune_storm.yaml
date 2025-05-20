@@ -5,7 +5,7 @@ experiment:
   project_root: /user/taed7566/Forecasting/wind-forecasting
   log_dir: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/
   notes: "Tuning AWAKEN with Informer with per_turbine_target = true"
-  extra_tags: ["tune", "awaken", "turb", "LUT", "pred510", "per_turbine_case"] # By default already has GPU id and model name.
+  extra_tags: ["tune", "awaken", "turb", "LUT", "pred510", "per_turbine_case"] # By default already has GPU id and model name. LUT: 512, greedy: 210
 
 logging:
   entity: jmb0507-cu-boulder # Wandb entity (group name)
@@ -233,8 +233,8 @@ callbacks:
     progress_bar:
       class_path: lightning.pytorch.callbacks.TQDMProgressBar
       init_args:
-        refresh_rate: 1  # every n steps
-        leave: true
+        refresh_rate: 1000  # every n steps
+        leave: false
     # early_stopping:
     #   class_path: lightning.pytorch.callbacks.EarlyStopping
     #   init_args:
