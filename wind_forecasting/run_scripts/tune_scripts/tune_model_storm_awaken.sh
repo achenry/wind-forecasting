@@ -42,6 +42,10 @@ export PYTHONPATH=${WORK_DIR}:${PYTHONPATH}
 export WANDB_DIR=${LOG_DIR} # WandB will create a 'wandb' subdirectory here automatically
 
 # --- Print Job Info ---
+echo "--- User and Group Info within Slurm Job ---"
+id
+groups
+echo "--------------------------------------------"
 echo "--- SLURM JOB INFO ---"
 echo "JOB ID: ${SLURM_JOB_ID}"
 echo "JOB NAME: ${SLURM_JOB_NAME}"
