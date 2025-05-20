@@ -102,8 +102,8 @@ optuna:
 
 dataset:
     sampler: "sequential"    # Options: "random" (ExpectedNumInstanceSampler), "sequential" (SequentialSampler) INFO: This is used for training
-    data_path: /user/taed7566/Forecasting/wind-forecasting/examples/data/preprocessed_awaken_data/filled_data_normalized_train_ready.parquet
-    normalization_consts_path:  /user/taed7566/Forecasting/wind-forecasting/examples/data/preprocessed_awaken_data/awaken_processed_normalization_consts.csv
+    data_path: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/DATA/preprocessed_awaken_data/awaken_processed_normalized.parquet
+    normalization_consts_path:  /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/DATA/preprocessed_awaken_data//awaken_processed_normalization_consts.csv
     context_length: 600 # in seconds
     prediction_length: 300 # in seconds
     target_turbine_ids: # or leave blank to capture all
