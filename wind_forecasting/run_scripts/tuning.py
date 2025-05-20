@@ -784,7 +784,7 @@ class MLTuningObjective:
 
             # Instantiate Model and Load State Dict
             try:
-                model = self.lightning_module_class(**init_args)
+                model = self.lightning_module_class(**init_args) # TODO HIGH don't pass num_batches_per_epoch here, it's already in init_args
 
                 if self.model == 'tactis' and correct_stage is not None:
                     try:
