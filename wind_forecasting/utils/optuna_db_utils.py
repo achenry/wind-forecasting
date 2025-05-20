@@ -5,7 +5,7 @@ from shutil import rmtree
 
 from wind_forecasting.utils import db_utils
 from lightning.pytorch.utilities import rank_zero_only
-from mysql.connector import connect as sql_connect, MySQLInterfaceError
+from mysql.connector import connect as sql_connect #, MySQLInterfaceError
 import optuna
 from optuna.storages import JournalStorage, RDBStorage
 from optuna.storages.journal import JournalFileBackend
@@ -496,28 +496,31 @@ def setup_mysql(db_setup_params, restart_tuning, rank):
             databases = [item[0] for item in cursor.fetchall()]
 
             if db_name not in databases:
-                logging.info(f"Rank 0: Database '{db_name}' not found. Creating database.")
+                logging.info(f"Rank 0: Database '{db_name}' not found in list {databases}. Creating database.")
                 cursor.execute(f"CREATE DATABASE {db_name}")
                 logging.info(f"Rank 0: Database '{db_name}' created successfully.")
-            else:
+            elif restart_tuning:
                 logging.info(f"Rank 0: Database '{db_name}' already exists.")
-                if restart_tuning:
-                    logging.warning(f"Rank 0: --restart_tuning set. Dropping and recreating Optuna tables in database '{db_name}'.")
-                    # TODO HIGH delete tables in the database
-                    # Optuna's RDBStorage handles table creation/migration.
-                    # To truly restart, we might need to drop tables, but let's rely on Optuna's behavior first.
-                    # A simpler approach for restart might be to use a new study_name.
-                    # For now, we'll just let RDBStorage connect. If load_if_exists=False is used later,
-                    # Optuna might handle the study deletion/creation.
-                    # Let's log a warning that restart might require manual intervention or new study name.
-                    logging.warning("Rank 0: Actual table dropping for restart is not implemented here. Use a new study name or manage tables manually if a full reset is needed.")
-                    # Example (requires permissions):
-                    storage_temp = RDBStorage(url=optuna_storage_url)
-                    studies = storage_temp.get_all_studies()
-                    for s in studies:
-                        if db_setup_params['study_name'] in s.study_name: # Check if study name matches DB name contextually
-                            logging.info(f"Rank 0: Deleting study {s.study_name} from database '{db_name}'")
-                            storage_temp.delete_study(s._study_id)
+                logging.warning(f"Rank 0: --restart_tuning set. Dropping and recreating Optuna tables in database '{db_name}'.")
+                # TODO HIGH delete tables in the database ASK JUAN
+                # Optuna's RDBStorage handles table creation/migration.
+                # To truly restart, we might need to drop tables, but let's rely on Optuna's behavior first.
+                # A simpler approach for restart might be to use a new study_name.
+                # For now, we'll just let RDBStorage connect. If load_if_exists=False is used later,
+                # Optuna might handle the study deletion/creation.
+                # Let's log a warning that restart might require manual intervention or new study name.
+                # logging.warning("Rank 0: Actual table dropping for restart is not implemented here. Use a new study name or manage tables manually if a full reset is needed.")
+                cursor.execute(f"DROP DATABASE {db_name}")
+                cursor.execute(f"CREATE DATABASE {db_name}")
+                
+                # Example (requires permissions):
+                
+                # storage_temp = RDBStorage(url=optuna_storage_url)
+                # studies = storage_temp.get_all_studies()
+                # for s in studies:
+                #     if db_setup_params['study_name'] in s.study_name: # Check if study name matches DB name contextually
+                #         logging.info(f"Rank 0: Deleting study {s.study_name} from database '{db_name}'")
+                #         storage_temp.delete_study(s._study_id)
 
             cursor.close()
             connection.close()
@@ -531,16 +534,16 @@ def setup_mysql(db_setup_params, restart_tuning, rank):
     # All ranks create the RDBStorage instance
     try:
         # Add connect_args for timeout, etc. if needed
-        # TODO HIGH if table studies already exists, need to skip table creation
-        storage = RDBStorage(url=optuna_storage_url, skip_table_creation=False)
+        # TODO HIGH if table studies already exists, need to skip table creation, is this necessary in tuning...
+        storage = RDBStorage(url=optuna_storage_url, heartbeat_interval=60)
         # Test connection
-        _ = storage.get_all_studies()
+        # _ = storage.get_all_studies()
         logging.info(f"Rank {rank}: Successfully connected to MySQL DB using URL: mysql+mysqlconnector://{db_user}@***:{db_port}/{db_name}")
-    except MySQLInterfaceError as e:
-        storage = RDBStorage(url=optuna_storage_url, skip_table_creation=True)
-        # Test connection
-        _ = storage.get_all_studies()
-        logging.info(f"Rank {rank}: Successfully connected to MySQL DB using URL: mysql+mysqlconnector://{db_user}@***:{db_port}/{db_name}, skipping table creation due to error {e}.")
+    # except MySQLInterfaceError as e:
+    #     storage = RDBStorage(url=optuna_storage_url, skip_table_creation=True)
+    #     # Test connection
+    #     # _ = stosacrage.get_all_studies()
+    #     logging.info(f"Rank {rank}: Successfully connected to MySQL DB using URL: mysql+mysqlconnector://{db_user}@***:{db_port}/{db_name}, skipping table creation due to error {e}.")
     except Exception as e:
         logging.error(f"Rank {rank}: Failed to create RDBStorage for MySQL URL {optuna_storage_url}: {e}", exc_info=True)
         raise RuntimeError(f"Failed MySQL RDBStorage initialization for rank {rank}") from e
