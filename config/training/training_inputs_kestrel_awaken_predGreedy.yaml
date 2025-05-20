@@ -22,7 +22,7 @@ optuna:
   save_trial_code: false      # Default false
   n_trials_per_worker: 100     # Test a total of 4*12=48 trials
   total_study_trials:
-  max_epochs: 10              # epochs per trial
+  max_epochs: 20              # epochs per trial
   sampler: "random"           # Options: "random" (ExpectedNumInstanceSampler), "sequential" (SequentialSampler)
   sampler_params:
     tpe:
