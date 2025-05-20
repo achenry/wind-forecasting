@@ -517,7 +517,7 @@ def setup_mysql(db_setup_params, restart_tuning, rank):
                     for s in studies:
                         if db_setup_params['study_name'] in s.study_name: # Check if study name matches DB name contextually
                             logging.info(f"Rank 0: Deleting study {s.study_name} from database '{db_name}'")
-                            storage_temp.delete_study(s.study_id)
+                            storage_temp.delete_study(s._study_id)
 
             cursor.close()
             connection.close()
