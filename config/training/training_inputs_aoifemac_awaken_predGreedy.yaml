@@ -3,7 +3,7 @@
 experiment:
   username: aoife-henry
   project_name: wind_forecasting_awaken_pred210
-  run_name: aoifemac_awaken_pred210
+  run_name: kestrel_awaken_pred210
   log_dir: /Users/ahenry/Documents/toolboxes/wind_forecasting/logging/
   project_root: /Users/ahenry/Documents/toolboxes/wind_forecasting
   notes: "Tuning AWAKEN with Informer+"

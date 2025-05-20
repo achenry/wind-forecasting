@@ -5,7 +5,7 @@ from shutil import rmtree
 
 from wind_forecasting.utils import db_utils
 from lightning.pytorch.utilities import rank_zero_only
-from mysql.connector import connect as sql_connect
+from mysql.connector import connect as sql_connect, MySQLInterfaceError
 import optuna
 from optuna.storages import JournalStorage, RDBStorage
 from optuna.storages.journal import JournalFileBackend
@@ -536,6 +536,11 @@ def setup_mysql(db_setup_params, restart_tuning, rank):
         # Test connection
         _ = storage.get_all_studies()
         logging.info(f"Rank {rank}: Successfully connected to MySQL DB using URL: mysql+mysqlconnector://{db_user}@***:{db_port}/{db_name}")
+    except MySQLInterfaceError as e:
+        storage = RDBStorage(url=optuna_storage_url, skip_table_creation=True)
+        # Test connection
+        _ = storage.get_all_studies()
+        logging.info(f"Rank {rank}: Successfully connected to MySQL DB using URL: mysql+mysqlconnector://{db_user}@***:{db_port}/{db_name}, skipping table creation due to error {e}.")
     except Exception as e:
         logging.error(f"Rank {rank}: Failed to create RDBStorage for MySQL URL {optuna_storage_url}: {e}", exc_info=True)
         raise RuntimeError(f"Failed MySQL RDBStorage initialization for rank {rank}") from e
