@@ -40,7 +40,7 @@ if __name__ == "__main__":
         connection = None
         try:
             # Try connecting without specifying the database first to check server access and create DB if needed
-            connection = sql_connect(host=db_host, user=db_user, password=None, port=db_port, autocommit=True)
+            connection = sql_connect(host=db_host, user=db_user, password=None, port=db_port)
             cursor = connection.cursor()
             
             cursor.execute("SHOW DATABASES")
@@ -49,7 +49,7 @@ if __name__ == "__main__":
             if db_name not in databases:
                 logging.info(f"Rank 0: Database '{db_name}' not found in list {databases}. Creating database.")
                 cursor.execute(f"CREATE DATABASE {db_name}")
-                # connection.commit()
+                connection.commit()
                 logging.info(f"Rank 0: Database '{db_name}' created successfully.")
                 
             elif restart_tuning:
@@ -60,12 +60,16 @@ if __name__ == "__main__":
                 tables = [item[0] for item in cursor.fetchall()]
                 logging.info(f"L61, Rank 0: Available tables in database {db_name}: {tables}")
                 
-                logging.info(f"Rank 0: Attempting to remove tables from database `{db_name}` ")
-                # cursor.execute(f"DROP DATABASE IF EXISTS `{db_name}`")
-                for table in tables:
-                    logging.info(f"Rank 0: Attempting to remove table `{table}` from database `{db_name}`")
-                    cursor.execute(f"DROP TABLE IF EXISTS `{table}`")
-                    # connection.commit()
+                logging.info(f"Rank 0: Attempting to drop database `{db_name}` ")
+                cursor.execute(f"DROP DATABASE IF EXISTS `{db_name}`")
+                connection.commit()
+                logging.info(f"Rank 0: Attempting to create database `{db_name}` ")
+                cursor.execute(f"CREATE DATABASE {db_name}")
+                connection.commit()
+                # for table in tables:
+                #     logging.info(f"Rank 0: Attempting to remove table `{table}` from database `{db_name}`")
+                #     cursor.execute(f"DROP TABLE IF EXISTS `{table}`")
+                #     connection.commit()
             
             cursor.execute("SHOW DATABASES")
             databases = [item[0] for item in cursor.fetchall()]
@@ -107,8 +111,8 @@ if __name__ == "__main__":
                 "max_overflow": 4,
                 "pool_timeout": 30,
                 "pool_recycle": 1800,
-                "pool_pre_ping": True,
-                "connect_args": {"application_name": f"optuna_worker_0_main"}
+                "pool_pre_ping": True
+                # "connect_args": {"application_name": f"optuna_worker_0_main"}
         }
         
         # Log the engine_kwargs
