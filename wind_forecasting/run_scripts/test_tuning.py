@@ -133,9 +133,9 @@ if __name__ == "__main__":
                 failed_trial_callback=RetryFailedTrialCallback(max_retry=3)
             )
             
-            cursor.execute(f"USE {db_name}; SHOW TABLES")
-            tables = [item[0] for item in cursor.fetchall()]
-            logging.info(f"L31, Rank {rank}: Available tables in database {db_name}: {tables}")
+            # cursor.execute(f"USE {db_name}; SHOW TABLES")
+            # tables = [item[0] for item in cursor.fetchall()]
+            # logging.info(f"L31, Rank {rank}: Available tables in database {db_name}: {tables}")
             # Test connection
             # _ = storage.get_all_studies()
             logging.info(f"Rank {rank}: Successfully connected to MySQL DB using URL: mysql+mysqlconnector://{db_user}@***:{db_port}/{db_name}")
