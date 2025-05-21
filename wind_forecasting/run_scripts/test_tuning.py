@@ -30,7 +30,7 @@ if __name__ == "__main__":
     # Rank 0 handles database/study creation and restart
     
     # TODO doesn't work when new database is created
-    #  Check auto commit, 
+    #  Check auto commit, X
     #   check where each worker is going, 
     #   check that rank 0 runs before others, 
     #   check of rdbstorage creates databases, 
@@ -40,7 +40,7 @@ if __name__ == "__main__":
         connection = None
         try:
             # Try connecting without specifying the database first to check server access and create DB if needed
-            connection = sql_connect(host=db_host, user=db_user, password=None, port=db_port) #, autocommit=True)
+            connection = sql_connect(host=db_host, user=db_user, password=None, port=db_port, autocommit=True)
             cursor = connection.cursor()
             
             cursor.execute("SHOW DATABASES")
@@ -49,7 +49,7 @@ if __name__ == "__main__":
             if db_name not in databases:
                 logging.info(f"Rank 0: Database '{db_name}' not found in list {databases}. Creating database.")
                 cursor.execute(f"CREATE DATABASE {db_name}")
-                connection.commit()
+                # connection.commit()
                 logging.info(f"Rank 0: Database '{db_name}' created successfully.")
                 
             elif restart_tuning:
@@ -65,7 +65,7 @@ if __name__ == "__main__":
                 for table in tables:
                     logging.info(f"Rank 0: Attempting to remove table `{table}` from database `{db_name}`")
                     cursor.execute(f"DROP TABLE IF EXISTS `{table}`")
-                    connection.commit()
+                    # connection.commit()
             
             cursor.execute("SHOW DATABASES")
             databases = [item[0] for item in cursor.fetchall()]
@@ -82,10 +82,21 @@ if __name__ == "__main__":
             cursor.close()
             if connection:
                 connection.close()
-        
     
     # All ranks create the RDBStorage instance
     try:
+        
+        connection = sql_connect(host=db_host, user=db_user, password=None, port=db_port, autocommit=True)
+        cursor = connection.cursor()
+        
+        cursor.execute("SHOW DATABASES")
+        databases = [item[0] for item in cursor.fetchall()]
+        logging.info(f"L94, Rank {rank}: Available databases: {databases}")
+        
+        cursor.execute(f"USE {db_name}; SHOW TABLES")
+        tables = [item[0] for item in cursor.fetchall()]
+        logging.info(f"L98, Rank {rank}: Available tables in database {db_name}: {tables}")
+            
         # Add connect_args for timeout, etc. if needed
         url_user_part = db_user
         optuna_storage_url = f"mysql+mysqlconnector://{url_user_part}@{db_host}:{db_port}/{db_name}"
@@ -99,7 +110,7 @@ if __name__ == "__main__":
         }
         
         # Log the engine_kwargs
-        logging.info(f"Rank 0: Using SQLAlchemy engine_kwargs for external DB: {engine_kwargs}")
+        logging.info(f"Rank {rank}: Using SQLAlchemy engine_kwargs for external DB: {engine_kwargs}")
         
         # Create RDBStorage with optimized settings for external DB
         storage = RDBStorage(
@@ -111,6 +122,11 @@ if __name__ == "__main__":
         # Test connection
         # _ = storage.get_all_studies()
         logging.info(f"Rank {rank}: Successfully connected to MySQL DB using URL: mysql+mysqlconnector://{db_user}@***:{db_port}/{db_name}")
+        
+        cursor.close()
+        if connection:
+            connection.close()
+            
     except Exception as e:
         logging.error(f"Rank {rank}: Failed to create RDBStorage for MySQL URL {optuna_storage_url}: {e}", exc_info=True)
         raise RuntimeError(f"Failed MySQL RDBStorage initialization for rank {rank}") from e
