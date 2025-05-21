@@ -101,12 +101,12 @@ if __name__ == "__main__":
             tables = [item[0] for item in cursor.fetchall()]
             logging.info(f"Rank 0: Available tables in database {db_name}: {tables}")
             
-            storage = RDBStorage(
-                url=optuna_storage_url,
-                engine_kwargs=engine_kwargs,
-                heartbeat_interval=60,
-                failed_trial_callback=RetryFailedTrialCallback(max_retry=3)
-            )
+            # storage = RDBStorage(
+            #     url=optuna_storage_url,
+            #     engine_kwargs=engine_kwargs,
+            #     heartbeat_interval=60,
+            #     failed_trial_callback=RetryFailedTrialCallback(max_retry=3)
+            # )
 
         except Exception as e:
             logging.error(f"Rank 0: Failed to connect to MySQL server or manage database '{db_name}': {e}", exc_info=True)
@@ -116,26 +116,26 @@ if __name__ == "__main__":
             if connection:
                 connection.close()
                 
-    else:
-        # All ranks create the RDBStorage instance
-        # Add a small delay and retry mechanism for loading, in case rank 0 is slightly delayed
-        max_retries = 6 # Increased retries slightly
-        retry_delay = 10 # Increased delay slightly
-        for attempt in range(max_retries):
-            try:
-                # Attempt to create the RDBStorage instance
-                storage = RDBStorage(
-                    url=optuna_storage_url,
-                    engine_kwargs=engine_kwargs,
-                    heartbeat_interval=60,
-                    failed_trial_callback=RetryFailedTrialCallback(max_retry=3)
-                )
-                logging.info(f"Rank {rank}: Successfully connected to MySQL DB using URL: mysql+mysqlconnector://{db_user}@***:{db_port}/{db_name}")
-                break  # Exit the loop if successful
-            except Exception as e:
-                logging.error(f"Rank {rank}: Failed to create RDBStorage instance: {e}", exc_info=True)
-                if attempt < max_retries - 1:
-                    logging.info(f"Rank {rank}: Retrying in {retry_delay} seconds...")
-                    sleep(retry_delay)
-                else:
-                    raise RuntimeError(f"Rank {rank} failed to create RDBStorage after {max_retries} attempts") from e
+    # else:
+    # All ranks create the RDBStorage instance
+    # Add a small delay and retry mechanism for loading, in case rank 0 is slightly delayed
+    max_retries = 6 # Increased retries slightly
+    retry_delay = 10 # Increased delay slightly
+    for attempt in range(max_retries):
+        try:
+            # Attempt to create the RDBStorage instance
+            storage = RDBStorage(
+                url=optuna_storage_url,
+                engine_kwargs=engine_kwargs,
+                heartbeat_interval=60,
+                failed_trial_callback=RetryFailedTrialCallback(max_retry=3)
+            )
+            logging.info(f"Rank {rank}: Successfully connected to MySQL DB using URL: mysql+mysqlconnector://{db_user}@***:{db_port}/{db_name}")
+            break  # Exit the loop if successful
+        except Exception as e:
+            logging.error(f"Rank {rank}: Failed to create RDBStorage instance: {e}", exc_info=True)
+            if attempt < max_retries - 1:
+                logging.info(f"Rank {rank}: Retrying in {retry_delay} seconds...")
+                sleep(retry_delay)
+            else:
+                raise RuntimeError(f"Rank {rank} failed to create RDBStorage after {max_retries} attempts") from e
