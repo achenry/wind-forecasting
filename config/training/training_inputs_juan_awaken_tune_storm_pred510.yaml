@@ -1,11 +1,11 @@
 experiment:
   username: jmb0507
-  project_name: tune_awaken_storm
-  run_name: tune_awaken_informer_turb_pred510
+  project_name: tune_awaken_storm_2
+  run_name: tune_awaken_informer_turb_pred510_ptt
   project_root: /user/taed7566/Forecasting/wind-forecasting
   log_dir: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/
   notes: "Tuning AWAKEN with Informer with per_turbine_target = true"
-  extra_tags: ["tune", "awaken", "turb", "LUT", "pred510", "per_turbine_case"] # By default already has GPU id and model name. LUT: 512, greedy: 210
+  extra_tags: ["tune", "awaken", "turb", "LUT", "pred510", "ptt"] # By default already has GPU id and model name. LUT: 512, greedy: 210
 
 logging:
   entity: jmb0507-cu-boulder # Wandb entity (group name)
@@ -38,7 +38,7 @@ optuna:
   pruning:
     enabled: true
     type: "patient"
-    patience: 2               # Configure PatientPruner: number of steps to wait (epochs) before pruning
+    patience: 1               # Configure PatientPruner: number of steps to wait (epochs) before pruning
     min_delta: 0.1            # Configure PatientPruner: tolerance for improvement (default 0.0)
     wrapped_pruner:
       type: "percentile"      # Set the wrapped pruner type
