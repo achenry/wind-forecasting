@@ -38,8 +38,8 @@ optuna:
   pruning:
     enabled: true
     type: "patient"
-    patience: 1               # Configure PatientPruner: number of steps to wait (epochs) before pruning
-    min_delta: 0.1            # Configure PatientPruner: tolerance for improvement (default 0.0)
+    patience: 2               # Configure PatientPruner: number of steps to wait (epochs) before pruning
+    min_delta: 1.0            # Configure PatientPruner: tolerance for improvement (default 0.0)
     wrapped_pruner:
       type: "percentile"      # Set the wrapped pruner type
       percentile: 50.0        # Configure PercentilePruner: prune trials below this percentile
