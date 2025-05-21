@@ -139,10 +139,6 @@ if __name__ == "__main__":
             # Test connection
             # _ = storage.get_all_studies()
             logging.info(f"Rank {rank}: Successfully connected to MySQL DB using URL: mysql+mysqlconnector://{db_user}@***:{db_port}/{db_name}")
-            
-            cursor.close()
-            if connection:
-                connection.close()
                 
         except Exception as e:
             logging.error(f"Rank {rank}: Failed to create RDBStorage for MySQL URL {optuna_storage_url}: {e}", exc_info=True)
