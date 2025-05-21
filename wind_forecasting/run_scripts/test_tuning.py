@@ -64,6 +64,10 @@ if __name__ == "__main__":
                 connection.commit()
                 logging.info(f"Rank 0: Database '{db_name}' created successfully.")
                 
+                cursor.execute("SHOW DATABASES")
+                databases = [item[0] for item in cursor.fetchall()]
+                logging.info(f"After create, Rank 0: Available databases: {databases}")
+                
             elif restart_tuning:
                 logging.info(f"Rank 0: Database '{db_name}' already exists.")
                 logging.warning(f"Rank 0: --restart_tuning set. Dropping and recreating Optuna tables in database '{db_name}'.")
@@ -75,21 +79,27 @@ if __name__ == "__main__":
                 logging.info(f"Rank 0: Attempting to drop database `{db_name}` ")
                 cursor.execute(f"DROP DATABASE IF EXISTS `{db_name}`")
                 connection.commit()
+                
+                cursor.execute("SHOW DATABASES")
+                databases = [item[0] for item in cursor.fetchall()]
+                logging.info(f"After drop, Rank 0: Available databases: {databases}")
+                
                 logging.info(f"Rank 0: Attempting to create database `{db_name}` ")
                 cursor.execute(f"CREATE DATABASE {db_name}")
                 connection.commit()
+                
+                cursor.execute("SHOW DATABASES")
+                databases = [item[0] for item in cursor.fetchall()]
+                logging.info(f"After drop/create, Rank 0: Available databases: {databases}")
+                
                 # for table in tables:
                 #     logging.info(f"Rank 0: Attempting to remove table `{table}` from database `{db_name}`")
                 #     cursor.execute(f"DROP TABLE IF EXISTS `{table}`")
                 #     connection.commit()
             
-            cursor.execute("SHOW DATABASES")
-            databases = [item[0] for item in cursor.fetchall()]
-            logging.info(f"L72, Rank 0: Available databases: {databases}")
-            
             cursor.execute(f"USE {db_name}; SHOW TABLES")
             tables = [item[0] for item in cursor.fetchall()]
-            logging.info(f"L76, Rank 0: Available tables in database {db_name}: {tables}")
+            logging.info(f"Rank 0: Available tables in database {db_name}: {tables}")
             
             storage = RDBStorage(
                 url=optuna_storage_url,
@@ -121,7 +131,7 @@ if __name__ == "__main__":
             # tables = [item[0] for item in cursor.fetchall()]
             # logging.info(f"L98, Rank {rank}: Available tables in database {db_name}: {tables}")
                 
-            sleep(10)
+            # sleep(10)
             # Log the engine_kwargs
             logging.info(f"Rank {rank}: Using SQLAlchemy engine_kwargs for external DB: {engine_kwargs}")
             
