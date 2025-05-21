@@ -131,7 +131,7 @@ if __name__ == "__main__":
             # tables = [item[0] for item in cursor.fetchall()]
             # logging.info(f"L98, Rank {rank}: Available tables in database {db_name}: {tables}")
                 
-            # sleep(10)
+            sleep(10)
             # Log the engine_kwargs
             logging.info(f"Rank {rank}: Using SQLAlchemy engine_kwargs for external DB: {engine_kwargs}")
             
