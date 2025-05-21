@@ -56,9 +56,9 @@ if __name__ == "__main__":
                 logging.info(f"Rank 0: Database '{db_name}' already exists.")
                 logging.warning(f"Rank 0: --restart_tuning set. Dropping and recreating Optuna tables in database '{db_name}'.")
                 
-                cursor.execute(f"USE {db_name}; SHOW TABLES")
-                tables = [item[0] for item in cursor.fetchall()]
-                logging.info(f"L61, Rank 0: Available tables in database {db_name}: {tables}")
+                # cursor.execute(f"USE {db_name}; SHOW TABLES")
+                # tables = [item[0] for item in cursor.fetchall()]
+                # logging.info(f"L61, Rank 0: Available tables in database {db_name}: {tables}")
                 
                 logging.info(f"Rank 0: Attempting to drop database `{db_name}` ")
                 cursor.execute(f"DROP DATABASE IF EXISTS `{db_name}`")
@@ -125,6 +125,10 @@ if __name__ == "__main__":
             heartbeat_interval=60,
             failed_trial_callback=RetryFailedTrialCallback(max_retry=3)
         )
+        
+        cursor.execute(f"USE {db_name}; SHOW TABLES")
+        tables = [item[0] for item in cursor.fetchall()]
+        logging.info(f"L31, Rank {rank}: Available tables in database {db_name}: {tables}")
         # Test connection
         # _ = storage.get_all_studies()
         logging.info(f"Rank {rank}: Successfully connected to MySQL DB using URL: mysql+mysqlconnector://{db_user}@***:{db_port}/{db_name}")
