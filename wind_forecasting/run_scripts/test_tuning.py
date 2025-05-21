@@ -82,6 +82,9 @@ if __name__ == "__main__":
             cursor.close()
             if connection:
                 connection.close()
+                
+    url_user_part = db_user
+    optuna_storage_url = f"mysql+mysqlconnector://{url_user_part}@{db_host}:{db_port}/{db_name}"
     
     # All ranks create the RDBStorage instance
     try:
@@ -98,8 +101,7 @@ if __name__ == "__main__":
         logging.info(f"L98, Rank {rank}: Available tables in database {db_name}: {tables}")
             
         # Add connect_args for timeout, etc. if needed
-        url_user_part = db_user
-        optuna_storage_url = f"mysql+mysqlconnector://{url_user_part}@{db_host}:{db_port}/{db_name}"
+
         engine_kwargs = {
                 "pool_size": 4,
                 "max_overflow": 4,
