@@ -36,6 +36,18 @@ if __name__ == "__main__":
     #   check of rdbstorage creates databases, 
     #   log existing databases and tables throughout 
     
+    # Add connect_args for timeout, etc. if needed
+    engine_kwargs = {
+            "pool_size": 4,
+            "max_overflow": 4,
+            "pool_timeout": 30,
+            "pool_recycle": 1800,
+            "pool_pre_ping": True
+            # "connect_args": {"application_name": f"optuna_worker_0_main"}
+    }
+    url_user_part = db_user
+    optuna_storage_url = f"mysql+mysqlconnector://{url_user_part}@{db_host}:{db_port}/{db_name}"
+        
     if rank == 0:
         connection = None
         try:
@@ -78,6 +90,13 @@ if __name__ == "__main__":
             cursor.execute(f"USE {db_name}; SHOW TABLES")
             tables = [item[0] for item in cursor.fetchall()]
             logging.info(f"L76, Rank 0: Available tables in database {db_name}: {tables}")
+            
+            storage = RDBStorage(
+                url=optuna_storage_url,
+                engine_kwargs=engine_kwargs,
+                heartbeat_interval=60,
+                failed_trial_callback=RetryFailedTrialCallback(max_retry=3)
+            )
 
         except Exception as e:
             logging.error(f"Rank 0: Failed to connect to MySQL server or manage database '{db_name}': {e}", exc_info=True)
@@ -87,56 +106,44 @@ if __name__ == "__main__":
             if connection:
                 connection.close()
                 
-    url_user_part = db_user
-    optuna_storage_url = f"mysql+mysqlconnector://{url_user_part}@{db_host}:{db_port}/{db_name}"
-    
-    # All ranks create the RDBStorage instance
-    try:
-        
-        connection = sql_connect(host=db_host, user=db_user, password=None, port=db_port, autocommit=True)
-        cursor = connection.cursor()
-        
-        cursor.execute("SHOW DATABASES")
-        databases = [item[0] for item in cursor.fetchall()]
-        logging.info(f"L94, Rank {rank}: Available databases: {databases}")
-        
-        cursor.execute(f"USE {db_name}; SHOW TABLES")
-        tables = [item[0] for item in cursor.fetchall()]
-        logging.info(f"L98, Rank {rank}: Available tables in database {db_name}: {tables}")
+    else:
+        # All ranks create the RDBStorage instance
+        try:
             
-        # Add connect_args for timeout, etc. if needed
+            # connection = sql_connect(host=db_host, user=db_user, password=None, port=db_port)
+            # cursor = connection.cursor()
+            
+            # cursor.execute("SHOW DATABASES")
+            # databases = [item[0] for item in cursor.fetchall()]
+            # logging.info(f"L94, Rank {rank}: Available databases: {databases}")
+            
+            # cursor.execute(f"USE {db_name}; SHOW TABLES")
+            # tables = [item[0] for item in cursor.fetchall()]
+            # logging.info(f"L98, Rank {rank}: Available tables in database {db_name}: {tables}")
+                
 
-        engine_kwargs = {
-                "pool_size": 4,
-                "max_overflow": 4,
-                "pool_timeout": 30,
-                "pool_recycle": 1800,
-                "pool_pre_ping": True
-                # "connect_args": {"application_name": f"optuna_worker_0_main"}
-        }
-        
-        # Log the engine_kwargs
-        logging.info(f"Rank {rank}: Using SQLAlchemy engine_kwargs for external DB: {engine_kwargs}")
-        
-        # Create RDBStorage with optimized settings for external DB
-        storage = RDBStorage(
-            url=optuna_storage_url,
-            engine_kwargs=engine_kwargs,
-            heartbeat_interval=60,
-            failed_trial_callback=RetryFailedTrialCallback(max_retry=3)
-        )
-        
-        cursor.execute(f"USE {db_name}; SHOW TABLES")
-        tables = [item[0] for item in cursor.fetchall()]
-        logging.info(f"L31, Rank {rank}: Available tables in database {db_name}: {tables}")
-        # Test connection
-        # _ = storage.get_all_studies()
-        logging.info(f"Rank {rank}: Successfully connected to MySQL DB using URL: mysql+mysqlconnector://{db_user}@***:{db_port}/{db_name}")
-        
-        cursor.close()
-        if connection:
-            connection.close()
+            # Log the engine_kwargs
+            logging.info(f"Rank {rank}: Using SQLAlchemy engine_kwargs for external DB: {engine_kwargs}")
             
-    except Exception as e:
-        logging.error(f"Rank {rank}: Failed to create RDBStorage for MySQL URL {optuna_storage_url}: {e}", exc_info=True)
-        raise RuntimeError(f"Failed MySQL RDBStorage initialization for rank {rank}") from e
+            # Create RDBStorage with optimized settings for external DB
+            storage = RDBStorage(
+                url=optuna_storage_url,
+                engine_kwargs=engine_kwargs,
+                heartbeat_interval=60,
+                failed_trial_callback=RetryFailedTrialCallback(max_retry=3)
+            )
+            
+            cursor.execute(f"USE {db_name}; SHOW TABLES")
+            tables = [item[0] for item in cursor.fetchall()]
+            logging.info(f"L31, Rank {rank}: Available tables in database {db_name}: {tables}")
+            # Test connection
+            # _ = storage.get_all_studies()
+            logging.info(f"Rank {rank}: Successfully connected to MySQL DB using URL: mysql+mysqlconnector://{db_user}@***:{db_port}/{db_name}")
+            
+            cursor.close()
+            if connection:
+                connection.close()
+                
+        except Exception as e:
+            logging.error(f"Rank {rank}: Failed to create RDBStorage for MySQL URL {optuna_storage_url}: {e}", exc_info=True)
+            raise RuntimeError(f"Failed MySQL RDBStorage initialization for rank {rank}") from e
