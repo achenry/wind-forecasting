@@ -737,7 +737,7 @@ class MLTuningObjective:
                 logging.debug(f"Loaded hparams from checkpoint: {hparams}")
 
                 model_config = hparams.get('model_config')
-                model_config['num_batches_per_epoch'] = estimator_kwargs.get('num_batches_per_epoch')
+                
                 if model_config is None:
                     error_msg = f"Critical: 'model_config' dictionary not found within loaded hyperparameters in {checkpoint_path}. Check saving logic."
                     logging.error(f"Trial {trial.number} - {error_msg}")
