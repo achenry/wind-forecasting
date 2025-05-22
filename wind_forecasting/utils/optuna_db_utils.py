@@ -7,7 +7,7 @@ from wind_forecasting.utils import db_utils
 from lightning.pytorch.utilities import rank_zero_only
 from mysql.connector import connect as sql_connect #, MySQLInterfaceError
 import optuna
-from optuna.storages import JournalStorage, RDBStorage
+from optuna.storages import JournalStorage, RDBStorage, RetryFailedTrialCallback
 from optuna.storages.journal import JournalFileBackend
 
 # from gluonts.src.gluonts.nursery.daf import engine
@@ -145,7 +145,7 @@ def setup_postgresql_rank_zero(db_setup_params, restart_tuning=False, register_c
                 url=optuna_storage_url,
                 engine_kwargs=engine_kwargs,
                 heartbeat_interval=60,
-                failed_trial_callback=optuna.storages.RetryFailedTrialCallback(max_retry=3)
+                failed_trial_callback=RetryFailedTrialCallback(max_retry=3)
             )
         else:
             # For local PostgreSQL (unix socket), use the original simple connection
@@ -264,7 +264,7 @@ def setup_postgresql(db_setup_params, rank, restart_tuning):
                     url=optuna_storage_url,
                     engine_kwargs=engine_kwargs,
                     heartbeat_interval=60,
-                    failed_trial_callback=optuna.storages.RetryFailedTrialCallback(max_retry=3)
+                    failed_trial_callback=RetryFailedTrialCallback(max_retry=3)
                 )
                 
                 # Test connection
@@ -483,92 +483,99 @@ def setup_mysql(db_setup_params, restart_tuning, rank):
     url_user_part = db_user
     if db_password:
         url_user_part += f":{db_password}"
-    
-
-    # TODO HIGH this is not consistent with how post gres uses restart_tuning, this drops the entire db,
     # Rank 0 handles database/study creation and restart
-    
-    # TODO doesn't work when new database is created
-    #  Check auto commit, 
-    #   check where each worker is going, 
-    #   check that rank 0 runs before others, 
-    #   check of rdbstorage creates databases, 
-    #   log existing databases and tables throughout 
-    
-    # if rank == 0:
-    #     connection = None
-    #     try:
-    #         # Try connecting without specifying the database first to check server access and create DB if needed
-    #         connection = sql_connect(host=db_host, user=db_user, password=db_password, port=db_port) #, autocommit=True)
-    #         cursor = connection.cursor()
-    #         cursor.execute("SHOW DATABASES")
-            
-    #         databases = [item[0] for item in cursor.fetchall()]
-    #         logging.info(f"Rank 0: Available databases: {databases}")
-    #         if db_name not in databases:
-    #             logging.info(f"Rank 0: Database '{db_name}' not found in list {databases}. Creating database.")
-    #             cursor.execute(f"CREATE DATABASE {db_name}")
-    #             connection.commit()
-    #             logging.info(f"Rank 0: Database '{db_name}' created successfully.")
-    #         elif restart_tuning:
-    #             logging.info(f"Rank 0: Database '{db_name}' already exists.")
-    #             logging.warning(f"Rank 0: --restart_tuning set. Dropping and recreating Optuna tables in database '{db_name}'.")
-                
-    #             # Optuna's RDBStorage handles table creation/migration.
-    #             # To truly restart, we might need to drop tables, but let's rely on Optuna's behavior first.
-    #             # A simpler approach for restart might be to use a new study_name.
-    #             # For now, we'll just let RDBStorage connect. If load_if_exists=False is used later,
-    #             # Optuna might handle the study deletion/creation.
-    #             # Let's log a warning that restart might require manual intervention or new study name.
-    #             # logging.warning("Rank 0: Actual table dropping for restart is not implemented here. Use a new study name or manage tables manually if a full reset is needed.")
-    #             cursor.execute(f"USE {db_name}; SHOW TABLES")
-    #             tables = [item[0] for item in cursor.fetchall()]
-    #             logging.info(f"Rank 0: Available tables in database {db_name}: {tables}")
-                
-    #             logging.info(f"Rank 0: Attempting to remove tables from database `{db_name}` ")
-    #             # cursor.execute(f"DROP DATABASE IF EXISTS `{db_name}`")
-    #             for table in tables:
-    #                 logging.info(f"Rank 0: Attempting to remove table `{table}` from database `{db_name}`")
-    #                 cursor.execute(f"DROP TABLE IF EXISTS `{table}`")
-    #                 connection.commit()
-                    
-    #             # cursor.execute(f"CREATE DATABASE {db_name}")
-                
-                
-    #             # Example (requires permissions):
-                
-    #             # storage_temp = RDBStorage(url=optuna_storage_url)
-    #             # studies = storage_temp.get_all_studies()
-    #             # for s in studies:
-    #             #     if db_setup_params['study_name'] in s.study_name: # Check if study name matches DB name contextually
-    #             #         logging.info(f"Rank 0: Deleting study {s.study_name} from database '{db_name}'")
-    #             #         storage_temp.delete_study(s._study_id)
 
-    #     except Exception as e:
-    #         logging.error(f"Rank 0: Failed to connect to MySQL server or manage database '{db_name}': {e}", exc_info=True)
-    #         raise RuntimeError(f"Rank 0 failed MySQL setup for {db_name}") from e
-    #     finally:
-    #         cursor.close()
-    #         if connection:
-    #             connection.close()
+    optuna_storage_url = f"mysql+mysqlconnector://{url_user_part}@{db_host}:{db_port}/{db_name}"
         
+    if rank == 0:
+        logging.info(f"Rank 0: Managing MySQL instance...")
+        connection = None
+        try:
+            # Try connecting without specifying the database first to check server access and create DB if needed
+            connection = sql_connect(host=db_host, user=db_user, password=db_password, port=db_port)
+            cursor = connection.cursor()
+            
+            cursor.execute("SHOW DATABASES")
+            databases = [item[0] for item in cursor.fetchall()]
+            logging.info(f"L48, Rank 0: Available databases: {databases}")
+            if db_name not in databases:
+                logging.info(f"Rank 0: Database '{db_name}' not found in list {databases}. Creating database.")
+                cursor.execute(f"CREATE DATABASE {db_name}")
+                connection.commit()
+                logging.info(f"Rank 0: Database '{db_name}' created successfully.")
+                
+                cursor.execute("SHOW DATABASES")
+                databases = [item[0] for item in cursor.fetchall()]
+                logging.info(f"After create, Rank 0: Available databases: {databases}")
+                
+            elif restart_tuning:
+                # TODO HIGH this is not consistent with how post gres uses restart_tuning, this drops the entire db,
+                logging.info(f"Rank 0: Database '{db_name}' already exists.")
+                logging.warning(f"Rank 0: --restart_tuning set. Dropping and recreating Optuna tables in database '{db_name}'.")
+                
+                logging.info(f"Rank 0: Attempting to drop database `{db_name}` ")
+                cursor.execute(f"DROP DATABASE IF EXISTS `{db_name}`")
+                connection.commit()
+                
+                cursor.execute("SHOW DATABASES")
+                databases = [item[0] for item in cursor.fetchall()]
+                logging.info(f"After drop, Rank 0: Available databases: {databases}")
+                
+                logging.info(f"Rank 0: Attempting to create database `{db_name}` ")
+                cursor.execute(f"CREATE DATABASE {db_name}")
+                connection.commit()
+                
+                cursor.execute("SHOW DATABASES")
+                databases = [item[0] for item in cursor.fetchall()]
+                logging.info(f"After drop/create, Rank 0: Available databases: {databases}")
+                
+                # for table in tables:
+                #     logging.info(f"Rank 0: Attempting to remove table `{table}` from database `{db_name}`")
+                #     cursor.execute(f"DROP TABLE IF EXISTS `{table}`")
+                #     connection.commit()
+            
+            cursor.execute(f"USE {db_name}; SHOW TABLES")
+            tables = [item[0] for item in cursor.fetchall()]
+            logging.info(f"Rank 0: Available tables in database {db_name}: {tables}")
+
+        except Exception as e:
+            logging.error(f"Rank 0: Failed to connect to MySQL server or manage database '{db_name}': {e}", exc_info=True)
+            raise RuntimeError(f"Rank 0 failed MySQL setup for {db_name}") from e
+        finally:
+            cursor.close()
+            if connection:
+                connection.close()
     
     # All ranks create the RDBStorage instance
-    try:
-        # Add connect_args for timeout, etc. if needed
-        optuna_storage_url = f"mysql+mysqlconnector://{url_user_part}@{db_host}:{db_port}/{db_name}"
-        storage = RDBStorage(url=optuna_storage_url)
-        # Test connection
-        # _ = storage.get_all_studies()
-        logging.info(f"Rank {rank}: Successfully connected to MySQL DB using URL: mysql+mysqlconnector://{db_user}@***:{db_port}/{db_name}")
-    # except MySQLInterfaceError as e:
-    #     storage = RDBStorage(url=optuna_storage_url, skip_table_creation=True)
-    #     # Test connection
-    #     # _ = stosacrage.get_all_studies()
-    #     logging.info(f"Rank {rank}: Successfully connected to MySQL DB using URL: mysql+mysqlconnector://{db_user}@***:{db_port}/{db_name}, skipping table creation due to error {e}.")
-    except Exception as e:
-        logging.error(f"Rank {rank}: Failed to create RDBStorage for MySQL URL {optuna_storage_url}: {e}", exc_info=True)
-        raise RuntimeError(f"Failed MySQL RDBStorage initialization for rank {rank}") from e
+    engine_kwargs = {
+        "pool_size": 4,
+        "max_overflow": 4,
+        "pool_timeout": 30,
+        "pool_recycle": 1800,
+        "pool_pre_ping": True
+    }
+    # Add a small delay and retry mechanism for loading, in case rank 0 is slightly delayed
+    max_retries = 6 # Increased retries slightly
+    retry_delay = 5 # Increased delay slightly
+    time.sleep(retry_delay)  # Ensure rank 0 has time to set up the database before others try to connect
+    for attempt in range(max_retries):
+        try:
+            # Attempt to create the RDBStorage instance
+            storage = RDBStorage(
+                url=optuna_storage_url,
+                engine_kwargs=engine_kwargs,
+                heartbeat_interval=60,
+                failed_trial_callback=RetryFailedTrialCallback(max_retry=3)
+            )
+            logging.info(f"Rank {rank}: Successfully connected to MySQL DB using URL: mysql+mysqlconnector://{db_user}@***:{db_port}/{db_name}")
+            break  # Exit the loop if successful
+        except Exception as e:
+            logging.error(f"Rank {rank}: Failed to create RDBStorage instance: {e}", exc_info=True)
+            if attempt < max_retries - 1:
+                logging.info(f"Rank {rank}: Retrying in {retry_delay} seconds...")
+                time.sleep(retry_delay)
+            else:
+                raise RuntimeError(f"Rank {rank} failed to create RDBStorage after {max_retries} attempts") from e
 
     # Return storage and potentially connection details if needed elsewhere
     # For now, return None for connection_info similar to SQLite/Journal

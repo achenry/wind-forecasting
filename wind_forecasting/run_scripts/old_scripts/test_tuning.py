@@ -115,12 +115,13 @@ if __name__ == "__main__":
             cursor.close()
             if connection:
                 connection.close()
-                
+    
     # else:
     # All ranks create the RDBStorage instance
     # Add a small delay and retry mechanism for loading, in case rank 0 is slightly delayed
     max_retries = 6 # Increased retries slightly
-    retry_delay = 10 # Increased delay slightly
+    retry_delay = 5 # Increased delay slightly
+    sleep(retry_delay)  # Ensure rank 0 has time to set up the database before others try to connect
     for attempt in range(max_retries):
         try:
             # Attempt to create the RDBStorage instance

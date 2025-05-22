@@ -14,6 +14,7 @@ import inspect
 from itertools import product
 from pathlib import Path
 import subprocess
+from datetime import datetime
 import re # Added for epoch parsing
 # Imports for Optuna
 import optuna
@@ -449,8 +450,6 @@ class MLTuningObjective:
 
         # Initialize W&B for ALL workers
         try:
-            # Construct unique run name and tags
-            run_name = f"{self.config['experiment']['run_name']}_rank_{os.environ.get('WORKER_RANK', '0')}_trial_{trial.number}"
 
             # Clean and flatten the parameters for logging without duplicates
             cleaned_params = {}
@@ -488,12 +487,17 @@ class MLTuningObjective:
 
             cleaned_params["optuna_trial_number"] = trial.number
 
+            project_name = f"{self.config['experiment'].get('project_name', 'wind_forecasting')}_{self.model}"
+            group_name = self.config['experiment']['run_name']
+            # Construct unique run name and tags
+            run_name = f"{self.config['experiment']['run_name']}_rank_{os.environ.get('WORKER_RANK', '0')}_trial_{trial.number}"
+            
             # Initialize a new W&B run for this specific trial
             wandb.init(
                 # Core identification
-                project=self.config['experiment'].get('project_name', 'wind_forecasting'),
+                project=project_name,
                 entity=self.config['logging'].get('entity', None),
-                group=self.config['experiment']['run_name'],
+                group=group_name,
                 name=run_name,
                 job_type="optuna_trial",
                 dir=self.config['logging']['wandb_dir'],
@@ -946,7 +950,6 @@ def tune_model(model, config, study_name, optuna_storage, lightning_module_class
                distr_output_class, data_module,
                metric="val_loss", direction="minimize", n_trials_per_worker=10, total_study_trials=100,
                trial_protection_callback=None, seed=42, tuning_phase=0, restart_tuning=False, optimize_callbacks=None,):
-    import os
 
     # Log safely without credentials if they were included (they aren't for socket trust)
     if hasattr(optuna_storage, "url"):
@@ -1079,8 +1082,6 @@ def tune_model(model, config, study_name, optuna_storage, lightning_module_class
     worker_id = os.environ.get('WORKER_RANK', '0')
 
     # Generate unique study name based on restart_tuning flag
-    from datetime import datetime
-    import os
 
     base_study_prefix = study_name
     if restart_tuning:
@@ -1440,7 +1441,7 @@ def tune_model(model, config, study_name, optuna_storage, lightning_module_class
             if wandb.run is not None:
                 logging.warning(f"Rank 0: Found an existing W&B run ({wandb.run.id}) before starting summary run. Finishing it.")
                 wandb.finish()
-
+            # TODO JUAN why do we need to init wandb twice?
             wandb.init(
                 name=run_name,
                 project=project_name,
