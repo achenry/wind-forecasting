@@ -3,7 +3,7 @@
 experiment:
   username: aoife-henry
   project_name: wind_forecasting_awaken_pred510
-  run_name: aoifemac_awaken_pred510
+  run_name: kestrel_awaken_pred510
   log_dir: /Users/ahenry/Documents/toolboxes/wind_forecasting/logging/
   project_root: /Users/ahenry/Documents/toolboxes/wind_forecasting
   notes: "Tuning AWAKEN with Informer+"
@@ -77,7 +77,7 @@ optuna:
       
   # Storage backend configuration
   storage:
-    backend: "sqlite"  # Options: "postgresql", "sqlite", "mysql", "journal"
+    backend: "mysql"  # Options: "postgresql", "sqlite", "mysql", "journal"
     # --- SQLite Specific Settings (not used if backend is postgresql) ---
     # storage_dir: /Users/ahenry/Documents/toolboxes/wind_forecasting/logging/optuna/
     sqlite_wal: true  # Enable WAL mode for SQLite
