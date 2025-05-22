@@ -149,6 +149,57 @@ def flatten_dict(d, parent_key='', sep='.'):
             items.append((new_key, v))
     return dict(items)
 
+def _generate_optuna_dashboard_command(db_setup_params, final_study_name):
+    backend = db_setup_params.get("backend", "sqlite")
+    db_host = db_setup_params.get("db_host", "localhost")
+    db_port = db_setup_params.get("db_port", 5432)
+    db_name = db_setup_params.get("db_name", "optuna_study_db")
+    db_user = db_setup_params.get("db_user", "optuna_user")
+    sslmode = db_setup_params.get("sslmode")
+    sslrootcert_path = db_setup_params.get("sslrootcert_path")
+
+    command_parts = [
+        "optuna-monitor",
+        f"--db-type {backend}"
+    ]
+
+    if backend == "postgresql":
+        command_parts.append(f"--db-host {db_host}")
+        command_parts.append(f"--db-port {db_port}")
+        command_parts.append(f"--db-name {db_name}")
+        command_parts.append(f"--db-user {db_user}")
+
+        if sslrootcert_path:
+            command_parts.append(f"--cert-path {sslrootcert_path}")
+            if sslmode and sslmode != "disable": # Assuming 'disable' means no cert
+                command_parts.append("--use-cert")
+            else:
+                command_parts.append("--no-cert")
+        elif sslmode == "disable":
+            command_parts.append("--no-cert")
+
+    command_parts.append(f"--study {final_study_name}")
+
+    # Example of how to use it with run_optuna_miniforge.sh
+    example_command = f"""
+    To launch the Optuna Dashboard for this study, use the following command:
+
+    Important Parameters:
+    - Database Type: {backend}
+    - Database Host: {db_host}
+    - Database Port: {db_port}
+    - Database Name: {db_name}
+    - Database User: {db_user}
+    - Study Name: {final_study_name}
+    - SSL Mode: {sslmode if sslmode else 'Not specified/Default'}
+    - SSL Certificate Path: {sslrootcert_path if sslrootcert_path else 'Not specified'}
+
+    Example Command:
+
+    run_optuna_miniforge.sh --conda-env your_conda_env_name {' '.join(command_parts)} --db-password 'your_password'
+    """
+    return example_command
+
 # Wrapper class to safely pass the Optuna pruning callback to PyTorch Lightning
 class SafePruningCallback(pl.Callback):
     def __init__(self, trial: optuna.trial.Trial, monitor: str):
@@ -1534,5 +1585,10 @@ def tune_model(model, config, study_name, optuna_storage, lightning_module_class
                 logging.info("    {}: {}".format(key, value))
         else:
             logging.warning("No trials were completed")
+
+        # Generate and print Optuna Dashboard command
+        db_setup_params = generate_df_setup_params(model, config)
+        dashboard_command_output = _generate_optuna_dashboard_command(db_setup_params, final_study_name)
+        logging.info(dashboard_command_output)
 
     return study.best_params
