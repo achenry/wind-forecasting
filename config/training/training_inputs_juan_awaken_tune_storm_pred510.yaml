@@ -1,11 +1,11 @@
 experiment:
   username: jmb0507
-  project_name: wind_forecasting_awaken_storm_pred300
-  run_name: train_awaken_turb
+  project_name: tune_awaken_storm_2
+  run_name: tune_awaken_informer_turb_pred510_ptt
   project_root: /user/taed7566/Forecasting/wind-forecasting
-  log_dir: /user/taed7566/Forecasting/wind-forecasting/logs/
+  log_dir: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/
   notes: "Tuning AWAKEN with Informer with per_turbine_target = true"
-  extra_tags: ["train", "awaken", "turb", "pred300"] # By default already has GPU id and model name.
+  extra_tags: ["tune", "awaken", "turb", "LUT", "pred510", "ptt"] # By default already has GPU id and model name. LUT: 512, greedy: 210
 
 logging:
   entity: jmb0507-cu-boulder # Wandb entity (group name)
@@ -20,15 +20,15 @@ optuna:
   save_trial_code: false      # Default false
   n_trials_per_worker: 20   # Replaced by total_study_trials for global trial limit
   total_study_trials: 200     # Global maximum number of trials across all workers, takes precedence over n_trials_per_worker
-  max_epochs: 100              # epochs per trial
-  sampler: "sequential"           # Options: "random" (ExpectedNumInstanceSampler), "sequential" (SequentialSampler)
+  max_epochs: 20              # epochs per trial
+  sampler: "random"           # Options: "random" (ExpectedNumInstanceSampler), "sequential" (SequentialSampler)
   sampler_params:
     tpe:
       n_startup_trials: 16
       multivariate: true
       constant_liar: true
       group: false
-  limit_train_batches:    # batches per epoch - INFO: For "random" sampler, use explicit integer value
+  limit_train_batches: 5000    # batches per epoch - INFO: For "random" sampler, use explicit integer value
   metric: "val_loss"          # The metric to optimize (NLL)
   direction: "minimize"       # Whether to minimize or maximize the metric
 
@@ -38,19 +38,19 @@ optuna:
   pruning:
     enabled: true
     type: "patient"
-    patience: 1               # Configure PatientPruner: number of steps to wait (epochs) before pruning
+    patience: 2               # Configure PatientPruner: number of steps to wait (epochs) before pruning
     min_delta: 1.0            # Configure PatientPruner: tolerance for improvement (default 0.0)
     wrapped_pruner:
-    #   type: "percentile"      # Set the wrapped pruner type
-    #   percentile: 50.0        # Configure PercentilePruner: prune trials below this percentile
-    #   n_startup_trials: 4     # Configure PercentilePruner: wait for this many trials before pruning
-    #   n_warmup_steps: 12      # Configure PercentilePruner: wait for this many steps (epochs) before pruning
-    # type: "hyperband"
-      type: "successivehalving"
-      min_resource: 8             # Applies to SuccessiveHalving and Hyperband
-      max_resource: 100           # Applies to Hyperband only
-      reduction_factor: 2         # Applies to SuccessiveHalving and Hyperband
-      bootstrap_count: 0          # Number of trials to complete before pruning
+      type: "percentile"      # Set the wrapped pruner type
+      percentile: 50.0        # Configure PercentilePruner: prune trials below this percentile
+      n_startup_trials: 4     # Configure PercentilePruner: wait for this many trials before pruning
+      n_warmup_steps: 4      # Configure PercentilePruner: wait for this many steps (epochs) before pruning
+    # # type: "hyperband"
+    #   type: "successivehalving"
+    #   min_resource: 8             # Applies to SuccessiveHalving and Hyperband
+    #   max_resource: 100           # Applies to Hyperband only
+    #   reduction_factor: 2         # Applies to SuccessiveHalving and Hyperband
+    #   bootstrap_count: 0          # Number of trials to complete before pruning
 
   # Optuna visualization configuration (additional to wandb)
   visualization:
@@ -77,9 +77,9 @@ optuna:
 
     # --- SQLite Specific Settings ---
     # Absolute path is recommended for SQLite when used across different contexts
-    sqlite_path: "/user/taed7566/Forecasting/wind-forecasting/optuna/SQL/flasc_tactis_2.db"
-    sqlite_wal: true  # Enable WAL mode for SQLite
-    sqlite_timeout: 600  # Timeout in seconds for SQLite locks
+    # sqlite_path: "/user/taed7566/Forecasting/wind-forecasting/optuna/SQL/flasc_tactis_2.db"
+    # sqlite_wal: true  # Enable WAL mode for SQLite
+    # sqlite_timeout: 600  # Timeout in seconds for SQLite locks
 
     # --- PostgreSQL Specific Settings (Commented out as backend is sqlite) ---
     # pgdata_path: "/user/taed7566/Forecasting/wind-forecasting/optuna/pgdata" # Directory for PostgreSQL data files
@@ -101,21 +101,21 @@ optuna:
     log_file: "${logging.optuna_dir}/optuna_dashboard.log" # Log file for the dashboard process
 
 dataset:
-    sampler: "sequential"    # Options: "random" (ExpectedNumInstanceSampler), "sequential" (SequentialSampler) INFO: This is used for training
+    sampler: "random"    # Options: "random" (ExpectedNumInstanceSampler), "sequential" (SequentialSampler) INFO: This is used for training
     data_path: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/DATA/preprocessed_awaken_data/awaken_processed_normalized.parquet
-    normalization_consts_path:  /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/DATA/preprocessed_awaken_data//awaken_processed_normalization_consts.csv
+    normalization_consts_path:  /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/DATA/preprocessed_awaken_data/awaken_processed_normalization_consts.csv
     context_length: 600 # in seconds
-    prediction_length: 300 # in seconds
+    prediction_length: 510 # in seconds
     target_turbine_ids: # or leave blank to capture all
-    normalize: false # Using denormalized data with TACTiS-2's internal scaling 
+    normalize: true # Using denormalized data with TACTiS-2's internal scaling 
     batch_size: 128 
-    workers: 12 # Consider adjusting based on CPU cores per task
+    workers: 4 # Consider adjusting based on CPU cores per task
     overfit: false
     test_split: 0.20
     val_split: 0.10
     resample_freq: 30s
     n_splits: 1 # how many divisions of each continuity group to make which is further subdivided into training test and validation data
-    per_turbine_target: true # TODO: Test this option.
+    per_turbine_target: true
     # context_length_factor: 2  # INFO: Takes precedence over context_length when use_tuned_parameters is true
 
 model:
@@ -233,16 +233,16 @@ callbacks:
     progress_bar:
       class_path: lightning.pytorch.callbacks.TQDMProgressBar
       init_args:
-        refresh_rate: 1  # every n steps
-        leave: true
-    early_stopping:
-      class_path: lightning.pytorch.callbacks.EarlyStopping
-      init_args:
-        monitor: 'val_loss'
-        patience: 100 # Number of epochs to wait before stopping (val>epochs to disable)
-        min_delta: 0.01 # Minimum change to be considered an improvement
-        mode: 'min'
-        check_finite: true
+        refresh_rate: 1000  # every n steps
+        leave: false
+    # early_stopping:
+    #   class_path: lightning.pytorch.callbacks.EarlyStopping
+    #   init_args:
+    #     monitor: 'val_loss'
+    #     patience: 100 # Number of epochs to wait before stopping (val>epochs to disable)
+    #     min_delta: 0.01 # Minimum change to be considered an improvement
+    #     mode: 'min'
+    #     check_finite: true
     model_checkpoint:
       class_path: lightning.pytorch.callbacks.ModelCheckpoint
       init_args:
@@ -271,4 +271,4 @@ trainer:
     num_nodes: 1
     strategy: ddp
     max_epochs: 100 # Maximum number of epochs to train 100
-    limit_train_batches: #5000
+    limit_train_batches: 5000
