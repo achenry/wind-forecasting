@@ -880,6 +880,12 @@ class MLTuningObjective:
         metric_to_return = self.config.get("trainer", {}).get("monitor_metric", "val_loss")
         optuna_direction = self.config.get("optuna", {}).get("direction", "minimize")
 
+        # INFO @boujuan Added check to handle HITL pruner actions
+        current_trial_state = trial.state
+        if current_trial_state == TrialState.PRUNED:
+            logging.warning(f"Trial {trial.number} is in PRUNED state but is attempting to return a metric. This should not happen.")
+            raise optuna.exceptions.TrialPruned(f"Trial {trial.number} was pruned but attempted to return a metric.")
+
         if agg_metrics is None:
             error_msg = f"Trial {trial.number} - 'agg_metrics' is None, indicating an error occurred before metrics could be computed."
             logging.error(error_msg)
