@@ -1,11 +1,11 @@
 experiment:
   username: jmb0507
-  project_name: tune_awaken_storm
-  run_name: tune_awaken_informer_turb_pred510
+  project_name: tune_awaken_storm_2
+  run_name: tune_awaken_informer_turb_pred210_ptt
   project_root: /user/taed7566/Forecasting/wind-forecasting
   log_dir: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/
   notes: "Tuning AWAKEN with Informer with per_turbine_target = true"
-  extra_tags: ["tune", "awaken", "turb", "LUT", "pred510", "per_turbine_case"] # By default already has GPU id and model name.
+  extra_tags: ["tune", "awaken", "turb", "greedy", "pred210", "ptt"] # By default already has GPU id and model name. LUT: 512, greedy: 210
 
 logging:
   entity: jmb0507-cu-boulder # Wandb entity (group name)
@@ -38,8 +38,8 @@ optuna:
   pruning:
     enabled: true
     type: "patient"
-    patience: 2               # Configure PatientPruner: number of steps to wait (epochs) before pruning
-    min_delta: 0.1            # Configure PatientPruner: tolerance for improvement (default 0.0)
+    patience: 1               # Configure PatientPruner: number of steps to wait (epochs) before pruning
+    min_delta: 1.0            # Configure PatientPruner: tolerance for improvement (default 0.0)
     wrapped_pruner:
       type: "percentile"      # Set the wrapped pruner type
       percentile: 50.0        # Configure PercentilePruner: prune trials below this percentile
@@ -105,7 +105,7 @@ dataset:
     data_path: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/DATA/preprocessed_awaken_data/awaken_processed_normalized.parquet
     normalization_consts_path:  /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/DATA/preprocessed_awaken_data/awaken_processed_normalization_consts.csv
     context_length: 600 # in seconds
-    prediction_length: 510 # in seconds
+    prediction_length: 210 # in seconds
     target_turbine_ids: # or leave blank to capture all
     normalize: true # Using denormalized data with TACTiS-2's internal scaling 
     batch_size: 128 
@@ -233,8 +233,8 @@ callbacks:
     progress_bar:
       class_path: lightning.pytorch.callbacks.TQDMProgressBar
       init_args:
-        refresh_rate: 1  # every n steps
-        leave: true
+        refresh_rate: 1000  # every n steps
+        leave: false
     # early_stopping:
     #   class_path: lightning.pytorch.callbacks.EarlyStopping
     #   init_args:

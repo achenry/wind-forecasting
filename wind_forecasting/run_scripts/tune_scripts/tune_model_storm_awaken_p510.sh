@@ -5,9 +5,9 @@
 #SBATCH --ntasks-per-node=4         # Match number of GPUs requested below
 #SBATCH --cpus-per-task=4           # CPUs per task (4 tasks * 32 = 128 CPUs total) [1 CPU/GPU more than enough]
 #SBATCH --mem-per-cpu=2048           # Memory per CPU (Total Mem = ntasks * cpus-per-task * mem-per-cpu) [flasc uses only ~4-5 GiB max]
-#SBATCH --gres=gpu:A100:4            # Request 2 H100 GPUs
+#SBATCH --gres=gpu:4            # Request 2 H100 GPUs
 #SBATCH --time=7-00:00                # Time limit (up to 7 days)
-#SBATCH --job-name=awaken_tune_informer
+#SBATCH --job-name=510awaken_tune_informer
 #SBATCH --output=/dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/slurm_logs/awaken_tune_informer510_%j.out
 #SBATCH --error=/dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/slurm_logs/awaken_tune_informer510_%j.err
 #SBATCH --hint=nomultithread        # Disable hyperthreading
@@ -23,7 +23,7 @@ BASE_DIR="/user/taed7566/Forecasting/wind-forecasting" # Absolute path to the ba
 OUTPUT_DIR="/dss/work/taed7566/Forecasting_Outputs/wind-forecasting"
 export WORK_DIR="${BASE_DIR}/wind_forecasting"
 export LOG_DIR="${OUTPUT_DIR}/logs"
-export CONFIG_FILE="${BASE_DIR}/config/training/training_inputs_juan_awaken_tune_storm.yaml"
+export CONFIG_FILE="${BASE_DIR}/config/training/training_inputs_juan_awaken_tune_storm_pred510.yaml"
 export MODEL_NAME="informer"
 export RESTART_TUNING_FLAG="" # "" Or "--restart_tuning"
 export AUTO_EXIT_WHEN_DONE="true"  # Set to "true" to exit script when all workers finish, "false" to keep running until timeout
