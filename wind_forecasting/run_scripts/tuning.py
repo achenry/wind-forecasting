@@ -1444,6 +1444,7 @@ def tune_model(model, config, study_name, optuna_storage, lightning_module_class
                 logging.warning(f"Rank 0: Found an existing W&B run ({wandb.run.id}) before starting summary run. Finishing it.")
                 wandb.finish()
 
+            # INFO: This wandb.init is to initialize W&B summary run at the end
             wandb.init(
                 name=run_name,
                 project=project_name,
