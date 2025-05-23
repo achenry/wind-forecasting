@@ -506,6 +506,10 @@ def setup_mysql(db_setup_params, restart_tuning, rank):
             processes = [item[0] for item in cursor.fetchall()]
             logging.info(f"Rank 0: 'processes': {processes}")
             
+            cursor.execute(f"SELECT user, host FROM mysql.user WHERE user = '{db_user}'")
+            user_host = [item[0] for item in cursor.fetchall()]
+            logging.info(f"Rank 0: 'user, host': {user_host}")
+            
             if db_name not in databases:
                 logging.info(f"Rank 0: Database '{db_name}' not found in list {databases}. Creating database.")
                 cursor.execute(f"CREATE DATABASE {db_name}")
