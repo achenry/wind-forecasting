@@ -1,11 +1,11 @@
 experiment:
   username: jmb0507
-  project_name: tune_awaken_storm_pred300
-  run_name: tune_awaken_informer_turb
+  project_name: tune_awaken_storm_2
+  run_name: tune_awaken_informer_turb_pred210_ptt
   project_root: /user/taed7566/Forecasting/wind-forecasting
   log_dir: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/
   notes: "Tuning AWAKEN with Informer with per_turbine_target = true"
-  extra_tags: ["tune", "awaken", "turb", "pred300", "per_turbine_case"] # By default already has GPU id and model name.
+  extra_tags: ["tune", "awaken", "turb", "greedy", "pred210", "ptt"] # By default already has GPU id and model name. LUT: 512, greedy: 210
 
 logging:
   entity: jmb0507-cu-boulder # Wandb entity (group name)
@@ -20,7 +20,7 @@ optuna:
   save_trial_code: false      # Default false
   n_trials_per_worker: 20   # Replaced by total_study_trials for global trial limit
   total_study_trials: 200     # Global maximum number of trials across all workers, takes precedence over n_trials_per_worker
-  max_epochs: 100              # epochs per trial
+  max_epochs: 20              # epochs per trial
   sampler: "random"           # Options: "random" (ExpectedNumInstanceSampler), "sequential" (SequentialSampler)
   sampler_params:
     tpe:
@@ -41,16 +41,16 @@ optuna:
     patience: 1               # Configure PatientPruner: number of steps to wait (epochs) before pruning
     min_delta: 1.0            # Configure PatientPruner: tolerance for improvement (default 0.0)
     wrapped_pruner:
-    #   type: "percentile"      # Set the wrapped pruner type
-    #   percentile: 50.0        # Configure PercentilePruner: prune trials below this percentile
-    #   n_startup_trials: 4     # Configure PercentilePruner: wait for this many trials before pruning
-    #   n_warmup_steps: 12      # Configure PercentilePruner: wait for this many steps (epochs) before pruning
-    # type: "hyperband"
-      type: "successivehalving"
-      min_resource: 8             # Applies to SuccessiveHalving and Hyperband
-      max_resource: 100           # Applies to Hyperband only
-      reduction_factor: 2         # Applies to SuccessiveHalving and Hyperband
-      bootstrap_count: 0          # Number of trials to complete before pruning
+      type: "percentile"      # Set the wrapped pruner type
+      percentile: 50.0        # Configure PercentilePruner: prune trials below this percentile
+      n_startup_trials: 4     # Configure PercentilePruner: wait for this many trials before pruning
+      n_warmup_steps: 4      # Configure PercentilePruner: wait for this many steps (epochs) before pruning
+    # # type: "hyperband"
+    #   type: "successivehalving"
+    #   min_resource: 8             # Applies to SuccessiveHalving and Hyperband
+    #   max_resource: 100           # Applies to Hyperband only
+    #   reduction_factor: 2         # Applies to SuccessiveHalving and Hyperband
+    #   bootstrap_count: 0          # Number of trials to complete before pruning
 
   # Optuna visualization configuration (additional to wandb)
   visualization:
@@ -102,20 +102,20 @@ optuna:
 
 dataset:
     sampler: "random"    # Options: "random" (ExpectedNumInstanceSampler), "sequential" (SequentialSampler) INFO: This is used for training
-    data_path: /nfs/data/taed7566/preprocessed_awaken_data/awaken_processed_normalized.parquet
-    normalization_consts_path:  /nfs/data/taed7566/preprocessed_awaken_data/awaken_processed_normalization_consts.csv
+    data_path: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/DATA/preprocessed_awaken_data/awaken_processed_normalized.parquet
+    normalization_consts_path:  /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/DATA/preprocessed_awaken_data/awaken_processed_normalization_consts.csv
     context_length: 600 # in seconds
-    prediction_length: 300 # in seconds
+    prediction_length: 210 # in seconds
     target_turbine_ids: # or leave blank to capture all
     normalize: true # Using denormalized data with TACTiS-2's internal scaling 
     batch_size: 128 
-    workers: 32 # Consider adjusting based on CPU cores per task
+    workers: 4 # Consider adjusting based on CPU cores per task
     overfit: false
     test_split: 0.20
     val_split: 0.10
     resample_freq: 30s
     n_splits: 1 # how many divisions of each continuity group to make which is further subdivided into training test and validation data
-    per_turbine_target: true # TODO: Test this option.
+    per_turbine_target: true
     # context_length_factor: 2  # INFO: Takes precedence over context_length when use_tuned_parameters is true
 
 model:
@@ -233,8 +233,8 @@ callbacks:
     progress_bar:
       class_path: lightning.pytorch.callbacks.TQDMProgressBar
       init_args:
-        refresh_rate: 1  # every n steps
-        leave: true
+        refresh_rate: 1000  # every n steps
+        leave: false
     # early_stopping:
     #   class_path: lightning.pytorch.callbacks.EarlyStopping
     #   init_args:
