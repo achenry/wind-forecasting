@@ -438,7 +438,6 @@ class MLTuningObjective:
             current_callbacks.append(dead_neuron_callback)
             logging.info(f"Trial {trial.number}: Added DeadNeuronMonitor callback (enabled by boolean flag).")
 
-
         final_callbacks = general_instantiated_callbacks + current_callbacks
 
         trial_trainer_kwargs["callbacks"] = final_callbacks
