@@ -29,6 +29,7 @@ import wandb
 from lightning.pytorch.loggers import WandbLogger
 from lightning.pytorch.callbacks import ModelCheckpoint
 from wind_forecasting.utils.callbacks import DeadNeuronMonitor
+from wind_forecasting.utils.optuna_sampler_pruner_utils import OptunaSamplerPrunerPersistence
 
 from wind_forecasting.utils.optuna_visualization import launch_optuna_dashboard, log_optuna_visualizations_to_wandb
 from wind_forecasting.utils.optuna_table import log_detailed_trials_table_to_wandb
@@ -1152,24 +1153,33 @@ def tune_model(model, config, study_name, optuna_storage, lightning_module_class
         final_study_name = base_study_prefix
         logging.info(f"Using existing study name to resume: {final_study_name}")
 
+    # Define pickle directory for sampler/pruner persistence
+    pickle_dir = os.path.join(config.get("logging", {}).get("optuna_dir", "logging/optuna"), "pickles")
+    
+    # Instantiate the persistence utility
+    sampler_pruner_persistence = OptunaSamplerPrunerPersistence(config, seed)
+
+    # Get sampler and pruner objects using pickling logic
+    try:
+        sampler, pruner_for_study = sampler_pruner_persistence.get_sampler_pruner_objects(
+            worker_id, pruner, restart_tuning, final_study_name, optuna_storage, pickle_dir
+        )
+    except Exception as e:
+        logging.error(f"Worker {worker_id}: Error getting sampler/pruner objects: {str(e)}", exc_info=True)
+        raise
+
     # Create study on rank 0, load on other ranks
     study = None # Initialize study variable
     try:
         if worker_id == '0':
-            logging.info(f"Rank 0: Creating/loading Optuna study '{final_study_name}' with pruner: {type(pruner).__name__}")
+            logging.info(f"Rank 0: Creating/loading Optuna study '{final_study_name}' with pruner: {type(pruner_for_study).__name__}")
             study = create_study(
                 study_name=final_study_name,
                 storage=optuna_storage,
                 direction=direction,
                 load_if_exists=not restart_tuning, # Only load if not restarting
-                sampler=TPESampler(
-                    seed=seed,
-                    n_startup_trials=config["optuna"]["sampler_params"]["tpe"].get("n_startup_trials", 16),
-                    multivariate=config["optuna"]["sampler_params"]["tpe"].get("multivariate", True),
-                    constant_liar=config["optuna"]["sampler_params"]["tpe"].get("constant_liar", True),
-                    group=config["optuna"]["sampler_params"]["tpe"].get("group", False)
-                ),
-                pruner=pruner
+                sampler=sampler,
+                pruner=pruner_for_study
             )
             logging.info(f"Rank 0: Study '{final_study_name}' created or loaded successfully.")
         else:
@@ -1183,8 +1193,8 @@ def tune_model(model, config, study_name, optuna_storage, lightning_module_class
                     study = load_study(
                         study_name=final_study_name,
                         storage=optuna_storage,
-                        sampler=TPESampler(seed=seed), # Sampler might be needed for load_study too
-                        pruner=pruner
+                        sampler=sampler,
+                        pruner=pruner_for_study
                     )
                     logging.info(f"Rank {worker_id}: Study '{final_study_name}' loaded successfully on attempt {attempt+1}.")
                     break # Exit loop on success
