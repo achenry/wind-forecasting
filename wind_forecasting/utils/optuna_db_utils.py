@@ -1,12 +1,10 @@
 import os
 import logging
 import time
-from shutil import rmtree
 
 from wind_forecasting.utils import db_utils
-from lightning.pytorch.utilities import rank_zero_only
+# from lightning.pytorch.utilities import rank_zero_only
 from mysql.connector import connect as sql_connect #, MySQLInterfaceError
-import optuna
 from optuna.storages import JournalStorage, RDBStorage, RetryFailedTrialCallback
 from optuna.storages.journal import JournalFileBackend
 
@@ -77,13 +75,13 @@ def setup_optuna_storage(db_setup_params, restart_tuning, rank):
 
     return storage, connection_info
 
-@rank_zero_only
+# @rank_zero_only
 def delete_studies(storage):
     logging.info(f"Deleting existing Optuna studies {storage.get_all_studies()}.")  
     for s in storage.get_all_studies():
         storage.delete_study(s._study_id)
 
-@rank_zero_only
+# @rank_zero_only
 def setup_postgresql_rank_zero(db_setup_params, restart_tuning=False, register_cleanup=True):
     """
     Sets up PostgreSQL instance on rank 0 (primary worker).
@@ -499,16 +497,13 @@ def setup_mysql(db_setup_params, restart_tuning, rank):
             logging.info(f"Rank 0: Available databases: {databases}")
             
             cursor.execute("SHOW VARIABLES LIKE 'max_connections'")
-            vars = [item[0] for item in cursor.fetchall()]
-            logging.info(f"Rank 0: 'max_connections': {vars}")
+            logging.info(f"Rank 0: 'max_connections': {cursor.fetchall()}")
             
             cursor.execute("SHOW PROCESSLIST")
-            processes = [item[0] for item in cursor.fetchall()]
-            logging.info(f"Rank 0: 'processes': {processes}")
+            logging.info(f"Rank 0: 'processes': {cursor.fetchall()}")
             
             cursor.execute(f"SELECT user, host FROM mysql.user WHERE user = '{db_user}'")
-            user_host = [item[0] for item in cursor.fetchall()]
-            logging.info(f"Rank 0: 'user, host': {user_host}")
+            logging.info(f"Rank 0: 'user, host': {cursor.fetchall()}")
             
             if db_name not in databases:
                 logging.info(f"Rank 0: Database '{db_name}' not found in list {databases}. Creating database.")
@@ -517,8 +512,7 @@ def setup_mysql(db_setup_params, restart_tuning, rank):
                 logging.info(f"Rank 0: Database '{db_name}' created successfully.")
                 
                 cursor.execute("SHOW DATABASES")
-                databases = [item[0] for item in cursor.fetchall()]
-                logging.info(f"After create, Rank 0: Available databases: {databases}")
+                logging.info(f"After create, Rank 0: Available databases: {cursor.fetchall()}")
                 
             # elif restart_tuning:
             #     # TODO HIGH this is not consistent with how post gres uses restart_tuning, this drops the entire db,
@@ -546,9 +540,8 @@ def setup_mysql(db_setup_params, restart_tuning, rank):
                 #     cursor.execute(f"DROP TABLE IF EXISTS `{table}`")
                 #     connection.commit()
             
-            cursor.execute(f"USE {db_name}; SHOW TABLES")
-            tables = [item[0] for item in cursor.fetchall()]
-            logging.info(f"Rank 0: Available tables in database {db_name}: {tables}")
+            cursor.execute(f"SHOW TABLES FROM {db_name}")
+            logging.info(f"Rank 0: Available tables in database {db_name}: {cursor.fetchall()}")
 
         except Exception as e:
             logging.error(f"Rank 0: Failed to connect to MySQL server or manage database '{db_name}': {e}", exc_info=True)

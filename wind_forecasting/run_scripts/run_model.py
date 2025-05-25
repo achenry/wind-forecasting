@@ -498,6 +498,7 @@ def main():
                 del config["model"][args.model]["context_length_factor"]
             
         # Use the get_checkpoint function to handle checkpoint finding
+        # TODO can we grab the checkpoint from the winning hyperparameter trial?
         if args.checkpoint:
             # Set up parameters for checkpoint finding
             metric = config.get("trainer", {}).get("monitor_metric", "val_loss")
