@@ -326,7 +326,7 @@ def setup_postgresql(db_setup_params, rank, restart_tuning):
     # However, pg_config is generated for workers too to find sync file, so it should exist.
     return storage, pg_config
 
-@rank_zero_only
+# @rank_zero_only
 def restart_journal_rank_zero(journal_abs_path):
     """
     Handles journal database restart for rank 0.
@@ -338,7 +338,7 @@ def restart_journal_rank_zero(journal_abs_path):
          except OSError as e:
              logging.error(f"Failed to remove Journal file {journal_abs_path}: {e}")
              
-@rank_zero_only
+# @rank_zero_only
 def restart_sqlite_rank_zero(sqlite_abs_path):
     """
     Handles SQLite database restart for rank 0.
