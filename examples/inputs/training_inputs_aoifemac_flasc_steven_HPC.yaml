@@ -46,8 +46,10 @@ optuna:
     # sqlite_timeout: 600 # Timeout in seconds for SQLite locks
 
     # "backend": "journal"
+    backend: sqlite
+    sqlite_path: /projects/stth7454/software/wind-hybrid-open-controller/optuna_results/optuna_tuning.sqlite3
 
-    "backend": "mysql"
+    #"backend": "mysql"
 
     # --- Optional TCP/IP Settings (if use_socket is false) ---
     # use_tcp: false
@@ -67,8 +69,8 @@ optuna:
 dataset: 
     data_path: /projects/stth7454/SMARTEOLE_WakeSteering_SCADA_1minData_normalized.parquet 
     normalization_consts_path: /projects/stth7454/SMARTEOLE_WakeSteering_SCADA_1minData_normalization_consts.csv
-    context_length: 10 # 120=10 minutes for 5 sec sample size
-    prediction_length: 5 # 120=10 minutes for 5 sec sample size
+    context_length: 60 # 120=10 minutes for 5 sec sample size
+    prediction_length: 480 # 120=10 minutes for 5 sec sample size
     target_turbine_ids: # or leave blank to capture all
     normalize: False 
     batch_size: 128
