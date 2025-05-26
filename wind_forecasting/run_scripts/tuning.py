@@ -30,6 +30,7 @@ import wandb
 from lightning.pytorch.loggers import WandbLogger
 from lightning.pytorch.callbacks import ModelCheckpoint
 from wind_forecasting.utils.callbacks import DeadNeuronMonitor
+from wind_forecasting.utils.optuna_sampler_pruner_utils import OptunaSamplerPrunerPersistence
 
 from wind_forecasting.utils.optuna_visualization import launch_optuna_dashboard, log_optuna_visualizations_to_wandb
 from wind_forecasting.utils.optuna_table import log_detailed_trials_table_to_wandb
@@ -149,6 +150,57 @@ def flatten_dict(d, parent_key='', sep='.'):
         else:
             items.append((new_key, v))
     return dict(items)
+
+def _generate_optuna_dashboard_command(db_setup_params, final_study_name):
+    backend = db_setup_params.get("backend", "sqlite")
+    db_host = db_setup_params.get("db_host", "localhost")
+    db_port = db_setup_params.get("db_port", 5432)
+    db_name = db_setup_params.get("db_name", "optuna_study_db")
+    db_user = db_setup_params.get("db_user", "optuna_user")
+    sslmode = db_setup_params.get("sslmode")
+    sslrootcert_path = db_setup_params.get("sslrootcert_path")
+
+    command_parts = [
+        "optuna-monitor",
+        f"--db-type {backend}"
+    ]
+
+    if backend == "postgresql":
+        command_parts.append(f"--db-host {db_host}")
+        command_parts.append(f"--db-port {db_port}")
+        command_parts.append(f"--db-name {db_name}")
+        command_parts.append(f"--db-user {db_user}")
+
+        if sslrootcert_path:
+            command_parts.append(f"--cert-path {sslrootcert_path}")
+            if sslmode and sslmode != "disable": # Assuming 'disable' means no cert
+                command_parts.append("--use-cert")
+            else:
+                command_parts.append("--no-cert")
+        elif sslmode == "disable":
+            command_parts.append("--no-cert")
+
+    command_parts.append(f"--study {final_study_name}")
+
+    # Example of how to use it with run_optuna_miniforge.sh
+    example_command = f"""
+    To launch the Optuna Dashboard for this study, use the following command:
+
+    Important Parameters:
+    - Database Type: {backend}
+    - Database Host: {db_host}
+    - Database Port: {db_port}
+    - Database Name: {db_name}
+    - Database User: {db_user}
+    - Study Name: {final_study_name}
+    - SSL Mode: {sslmode if sslmode else 'Not specified/Default'}
+    - SSL Certificate Path: {sslrootcert_path if sslrootcert_path else 'Not specified'}
+
+    Example Command:
+
+    run_optuna_miniforge.sh --conda-env your_conda_env_name {' '.join(command_parts)} --db-password 'your_password'
+    """
+    return example_command
 
 # Wrapper class to safely pass the Optuna pruning callback to PyTorch Lightning
 class SafePruningCallback(pl.Callback):
@@ -1103,24 +1155,33 @@ def tune_model(model, config, study_name, optuna_storage, lightning_module_class
         final_study_name = base_study_prefix
         logging.info(f"Using existing study name to resume: {final_study_name}")
 
+    # Define pickle directory for sampler/pruner persistence
+    pickle_dir = os.path.join(config.get("logging", {}).get("optuna_dir", "logging/optuna"), "pickles")
+    
+    # Instantiate the persistence utility
+    sampler_pruner_persistence = OptunaSamplerPrunerPersistence(config, seed)
+
+    # Get sampler and pruner objects using pickling logic
+    try:
+        sampler, pruner_for_study = sampler_pruner_persistence.get_sampler_pruner_objects(
+            worker_id, pruner, restart_tuning, final_study_name, optuna_storage, pickle_dir
+        )
+    except Exception as e:
+        logging.error(f"Worker {worker_id}: Error getting sampler/pruner objects: {str(e)}", exc_info=True)
+        raise
+
     # Create study on rank 0, load on other ranks
     study = None # Initialize study variable
     try:
         if worker_id == '0':
-            logging.info(f"Rank 0: Creating/loading Optuna study '{final_study_name}' with pruner: {type(pruner).__name__}")
+            logging.info(f"Rank 0: Creating/loading Optuna study '{final_study_name}' with pruner: {type(pruner_for_study).__name__}")
             study = create_study(
                 study_name=final_study_name,
                 storage=optuna_storage,
                 direction=direction,
                 load_if_exists=not restart_tuning, # Only load if not restarting
-                sampler=TPESampler(
-                    seed=seed,
-                    n_startup_trials=config["optuna"]["sampler_params"]["tpe"].get("n_startup_trials", 16),
-                    multivariate=config["optuna"]["sampler_params"]["tpe"].get("multivariate", True),
-                    constant_liar=config["optuna"]["sampler_params"]["tpe"].get("constant_liar", True),
-                    group=config["optuna"]["sampler_params"]["tpe"].get("group", False)
-                ),
-                pruner=pruner
+                sampler=sampler,
+                pruner=pruner_for_study
             )
             logging.info(f"Rank 0: Study '{final_study_name}' created or loaded successfully.")
         else:
@@ -1134,8 +1195,8 @@ def tune_model(model, config, study_name, optuna_storage, lightning_module_class
                     study = load_study(
                         study_name=final_study_name,
                         storage=optuna_storage,
-                        sampler=TPESampler(seed=seed), # Sampler might be needed for load_study too
-                        pruner=pruner
+                        sampler=sampler,
+                        pruner=pruner_for_study
                     )
                     logging.info(f"Rank {worker_id}: Study '{final_study_name}' loaded successfully on attempt {attempt+1}.")
                     break # Exit loop on success
@@ -1536,5 +1597,10 @@ def tune_model(model, config, study_name, optuna_storage, lightning_module_class
                 logging.info("    {}: {}".format(key, value))
         else:
             logging.warning("No trials were completed")
+
+        # Generate and print Optuna Dashboard command
+        db_setup_params = generate_df_setup_params(model, config)
+        dashboard_command_output = _generate_optuna_dashboard_command(db_setup_params, final_study_name)
+        logging.info(dashboard_command_output)
 
     return study.best_params
