@@ -48,6 +48,8 @@ optuna:
     # "backend": "journal"
     backend: sqlite
     sqlite_path: /projects/stth7454/software/wind-hybrid-open-controller/optuna_results/optuna_tuning.sqlite3
+    sqlite_wal: true  # Enable WAL mode for SQLite
+    sqlite_timeout: 600 # Timeout in seconds for SQLite locks
 
     #"backend": "mysql"
 
