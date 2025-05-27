@@ -800,7 +800,8 @@ def main():
                    distr_output_class=DistrOutputClass,
                    data_module=data_module,
                    max_epochs=config["optuna"]["max_epochs"],
-                   limit_train_batches=config["optuna"]["limit_train_batches"],
+                   # Use base_limit_train_batches if available, otherwise fallback to limit_train_batches (or None)
+                   limit_train_batches=config["optuna"].get("base_limit_train_batches", config["optuna"].get("limit_train_batches", None)),
                    metric=config["optuna"]["metric"],
                    direction=config["optuna"]["direction"],
                    n_trials_per_worker=config["optuna"]["n_trials_per_worker"],
