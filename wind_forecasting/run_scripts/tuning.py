@@ -558,6 +558,13 @@ class MLTuningObjective:
             # Add study config params to WandB config
             cleaned_params.update(self.study_config_params)
 
+            # Add the dynamically calculated limit_train_batches for this trial
+            if self.base_limit_train_batches is not None and self.base_batch_size is not None and self.base_batch_size > 0:
+                calculated_limit = max(1, round(self.base_limit_train_batches * self.base_batch_size / current_batch_size))
+                cleaned_params["actual_limit_train_batches"] = calculated_limit
+            else:
+                cleaned_params["actual_limit_train_batches"] = self.config["trainer"]["limit_train_batches"]
+
             cleaned_params["optuna_trial_number"] = trial.number
 
             project_name = f"{self.config['experiment'].get('project_name', 'wind_forecasting')}_{self.model}"
@@ -1262,7 +1269,9 @@ def tune_model(model, config, study_name, optuna_storage, lightning_module_class
         "optuna_sampler": config["optuna"].get("sampler"),
         "optuna_pruner_type": config["optuna"]["pruning"].get("type") if "pruning" in config["optuna"] else None,
         "optuna_max_epochs": config["optuna"].get("max_epochs"),
-        "optuna_limit_train_batches": config["optuna"].get("limit_train_batches"),
+        "optuna_base_limit_train_batches": config["optuna"].get("base_limit_train_batches"),
+        "optuna_limit_train_batches": config["optuna"].get("limit_train_batches"),  # Legacy fallback
+        "dataset_base_batch_size": config["dataset"].get("base_batch_size"),
         "optuna_metric": config["optuna"].get("metric"),
         "dataset_data_path": config["dataset"].get("data_path"),
         "dataset_resample_freq": config["dataset"].get("resample_freq"),
@@ -1274,7 +1283,8 @@ def tune_model(model, config, study_name, optuna_storage, lightning_module_class
     if model == 'tactis':
         # Adjust TACTiS scheduler parameters based on dataset and training settings
         per_turbine_target = config["dataset"].get("per_turbine_target", False)
-        limit_train_batches = config["optuna"].get("limit_train_batches")
+        # Use base_limit_train_batches if available, otherwise fallback to limit_train_batches
+        limit_train_batches = config["optuna"].get("base_limit_train_batches") or config["optuna"].get("limit_train_batches")
         num_turbines = 1 # Default to 1 in case target_suffixes is not available or per_turbine_target is True
         if not data_module.per_turbine_target and data_module.target_suffixes is not None:
             try:
@@ -1331,7 +1341,9 @@ def tune_model(model, config, study_name, optuna_storage, lightning_module_class
             "model_tactis_warmup_steps_s1": config["model"][model].get("warmup_steps_s1"),
             "model_tactis_warmup_steps_s2": config["model"][model].get("warmup_steps_s2"),
             "model_tactis_steps_to_decay_s1": config["model"][model].get("steps_to_decay_s1"),
-            "model_tactis_steps_to_decay_s2": config["model"][model].get("steps_to_decay_s2")
+            "model_tactis_steps_to_decay_s2": config["model"][model].get("steps_to_decay_s2"),
+            "model_tactis_eta_min_fraction_s1": config["model"][model].get("eta_min_fraction_s1"),
+            "model_tactis_eta_min_fraction_s2": config["model"][model].get("eta_min_fraction_s2")
         }
         study_config_params.update(tactis_params_for_logging)
 
