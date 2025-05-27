@@ -252,6 +252,10 @@ class MLTuningObjective:
         self.config["trainer"]["limit_train_batches"] = limit_train_batches
         self.config["trainer"]["val_check_interval"] = limit_train_batches
         
+        # Store base values for dynamic calculation
+        self.base_limit_train_batches = self.config["optuna"].get("base_limit_train_batches")
+        self.base_batch_size = self.config["dataset"].get("base_batch_size")
+        
         # Store pruning configuration
         self.pruning_enabled = "pruning" in config["optuna"] and config["optuna"]["pruning"].get("enabled", False)
         if self.pruning_enabled:
@@ -326,6 +330,21 @@ class MLTuningObjective:
 
         logging.info(f"Testing params {tuple((k, v) for k, v in params.items())}")
 
+        # Calculate dynamic limit_train_batches if base values are available
+        current_batch_size = params.get('batch_size', self.config["dataset"].get("batch_size", 128))
+        if self.base_limit_train_batches is not None and self.base_batch_size is not None and self.base_batch_size > 0:
+            # Calculate dynamic limit_train_batches to maintain constant total data per epoch
+            dynamic_limit_train_batches = max(1, round(self.base_limit_train_batches * self.base_batch_size / current_batch_size))
+            logging.info(f"Dynamic limit_train_batches calculation: base_limit={self.base_limit_train_batches}, "
+                        f"base_batch_size={self.base_batch_size}, current_batch_size={current_batch_size}, "
+                        f"calculated_limit={dynamic_limit_train_batches}")
+            
+            # Update trainer config with dynamic value
+            self.config["trainer"]["limit_train_batches"] = dynamic_limit_train_batches
+            self.config["trainer"]["val_check_interval"] = dynamic_limit_train_batches
+        else:
+            logging.info(f"Using static limit_train_batches: {self.config['trainer']['limit_train_batches']}")
+
         self.config["model"]["distr_output"]["kwargs"].update({k: v for k, v in params.items() if k in self.config["model"]["distr_output"]["kwargs"]})
         self.config["dataset"].update({k: v for k, v in params.items() if k in self.config["dataset"]})
         self.config["model"][self.model].update({k: v for k, v in params.items() if k in self.config["model"][self.model]})
@@ -353,9 +372,11 @@ class MLTuningObjective:
         checkpoint_mode = "min" if self.config.get("optuna", {}).get("direction", "minimize") == "minimize" else "max"
         
         # Create a unique directory for this trial's checkpoints
+        chkp_dir_suffix = self.config.get("logging", {}).get("chkp_dir_suffix", "")
+        
         checkpoint_dir = os.path.join(
             self.config.get("logging", {}).get("checkpoint_dir", "checkpoints"),
-            self.model,
+            f"{self.model}{chkp_dir_suffix}",
             f"trial_{trial.number}"
         )
         os.makedirs(checkpoint_dir, exist_ok=True)
@@ -610,6 +631,8 @@ class MLTuningObjective:
             "use_lazyframe": False,
             "batch_size": self.config["dataset"].get("batch_size", 128),
             "num_batches_per_epoch": trial_trainer_kwargs["limit_train_batches"], # Use value from trial_trainer_kwargs
+            "base_batch_size_for_scheduler_steps": self.config["dataset"].get("base_batch_size", 512), # Use base_batch_size from config
+            "base_limit_train_batches": self.base_limit_train_batches, # Pass base_limit_train_batches for conditional scaling
             "train_sampler": SequentialSampler(min_past=self.config["dataset"]["context_length"], min_future=self.data_module.prediction_length)
                 if self.config["optuna"].get("sampler", "random") == "sequential"
                 else ExpectedNumInstanceSampler(num_instances=1.0, min_past=self.config["dataset"]["context_length"], min_future=self.data_module.prediction_length),
