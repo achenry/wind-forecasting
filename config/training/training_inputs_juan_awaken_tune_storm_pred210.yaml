@@ -1,10 +1,10 @@
 experiment:
   username: jmb0507
   project_name: tune_awaken_storm_2
-  run_name: tune_awaken_informer_turb_pred210_ptt
+  run_name: tune_awaken_tactis_turb_pred210_ptt
   project_root: /user/taed7566/Forecasting/wind-forecasting
   log_dir: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/
-  notes: "Tuning AWAKEN with Informer with per_turbine_target = true"
+  notes: "Tuning AWAKEN with Tactis with per_turbine_target = true"
   extra_tags: ["tune", "tactis", "turb", "greedy", "pred210", "ptt"] # By default already has GPU id and model name. LUT: 512, greedy: 210
 
 logging:
