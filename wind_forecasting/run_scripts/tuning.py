@@ -661,6 +661,9 @@ class MLTuningObjective:
         }
         logging.info(f"Trial {trial.number}: Updating estimator_kwargs with filtered params: {list(filtered_params.keys())}")
         estimator_kwargs.update(filtered_params)
+        if "num_batches_per_epoch" not in self.config["model"][self.model]:
+            self.config["model"][self.model]["num_batches_per_epoch"] = estimator_kwargs["num_batches_per_epoch"]
+            logging.info(f"Trial {trial.number}: Added num_batches_per_epoch={estimator_kwargs['num_batches_per_epoch']} to self.config['model'][self.model] for checkpointing stability.")
 
         # TACTiS manages its own distribution output internally, remove if present
         if self.model == 'tactis' and 'distr_output' in estimator_kwargs:
