@@ -732,8 +732,12 @@ def main():
         # Add distr_output only if the model is NOT tactis
         if args.model != 'tactis' and "distr_output" not in estimator_kwargs:
             estimator_kwargs["distr_output"] = DistrOutputClass(dim=data_module.num_target_vars, **config["model"]["distr_output"]["kwargs"]) # TODO or checkpoint_hparams["model_config"]["distr_output"]
-        elif 'distr_output' in estimator_kwargs:
-             del estimator_kwargs['distr_output']
+        elif args.model == "spacetimeformer":
+            for k in estimator_kwargs["distr_output"].args_dim:
+                estimator_kwargs["distr_output"].args_dim[k] *= estimator_kwargs["input_size"]
+            
+        # elif 'distr_output' in estimator_kwargs:
+        #      del estimator_kwargs['distr_output']
         
         logging.info(f"Using final estimator_kwargs:\n {estimator_kwargs}")
         estimator = EstimatorClass(**estimator_kwargs)
