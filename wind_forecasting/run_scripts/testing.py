@@ -186,7 +186,8 @@ def get_checkpoint(checkpoint, metric, mode, log_dir):
         checkpoint_paths = glob(os.path.join(log_dir, "*/*.ckpt")) + glob(os.path.join(log_dir, "*/*/*.ckpt"))
         # version_dirs = glob(os.path.join(log_dir, "*"))
         if len(checkpoint_paths) == 0:
-            raise FileNotFoundError(f"There are no checkpoint files in {log_dir}, returning None.")
+            logging.warning(f"There are no checkpoint files in {log_dir}, returning None.")
+            return None
         
     elif not os.path.exists(checkpoint):
         raise FileNotFoundError(f"There is no checkpoint file at {checkpoint}, returning None.")

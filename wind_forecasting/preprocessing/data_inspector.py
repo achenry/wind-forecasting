@@ -509,10 +509,9 @@ class DataInspector:
         """
         if turbine_ids == "all":
             # Extract wind speed data
-            wind_speeds = df.select(cs.contains("wind_speed")).collect().to_numpy().flatten()
-            wind_speeds = wind_speeds[wind_speeds > 0]
-            wind_speeds = wind_speeds[np.isfinite(wind_speeds)]  # Remove non-finite values
-        
+            wind_speeds = df.select(cs.starts_with("wind_speed")).collect().to_numpy().flatten()
+            # wind_speeds = wind_speeds[(wind_speeds > 0) & (np.isfinite(wind_speeds))]
+            # wind_speeds = np.concatenate([wind_speeds[0:1], wind_speeds[1:][np.diff(wind_speeds) != 0]])
             if len(wind_speeds) == 0:
                 print("No valid wind speed data found after filtering")
                 return
@@ -526,14 +525,15 @@ class DataInspector:
 
             # Plot
             fig, ax = plt.subplots(1, 1, figsize=(10, 6))
-            sns.histplot(wind_speeds, stat='density', kde=True, color='skyblue', label='Observed', ax=ax)
+            sns.histplot(wind_speeds, stat='density', kde=False, color='skyblue', label='Observed', ax=ax)
             ax.plot(x, y, 'r-', lw=2, label=f'Weibull (k={shape:.2f}, λ={scale:.2f})')
             
             # ax.set_title('Wind Speed Distribution with Fitted Weibull', fontsize=16)
-            ax.set_xlabel('Wind Speed (m/s)')
+            ax.set_xlabel('Wind Magnitude (m/s)')
             ax.set_ylabel('Density')
             ax.legend()
             ax.grid(True, alpha=0.3)
+            ax.set_xlim((0.1, ax.get_xlim()[1]))
             sns.despine()
             plt.show()
             plt.tight_layout()
@@ -627,6 +627,13 @@ class DataInspector:
             highlight_turbine_groups=turbine_groups,
             highlight_colors=turbine_group_colors)
         
+        # Calculate and visualize the flow field
+        horizontal_plane = self.fmodel.calculate_horizontal_plane(height=self.fmodel.core.farm.hub_heights[0])
+        ax.set_xlim((horizontal_plane.df.x1.min(), horizontal_plane.df.x1.max()))
+        ax.set_ylim((horizontal_plane.df.x2.min(), horizontal_plane.df.x2.max()))
+        ax.set_ylim((-200, 10000))
+        visualize_cut_plane(horizontal_plane, ax=ax, min_speed=1, max_speed=10, color_bar=True)
+        
         if turbine_labels:
             # turbine_labels = list(turbine_labels)
             turbine_indices = np.concatenate([tg for g, tg in enumerate(turbine_groups) if turbine_labels[g] is not None])
@@ -645,7 +652,8 @@ class DataInspector:
                 ax=ax, 
                 turbine_names=turbine_names, 
                 show_bbox=False, bbox_dict={"facecolor": "white", "alpha": 0.5},
-                label_offset=[(label_offset, label_offset), (label_offset, label_offset), (label_offset, -20*label_offset)]
+                plotting_dict={"color": "white"},
+                label_offset=[(-150*label_offset, -200*label_offset), (-300*label_offset, -100*label_offset), (-300*label_offset, -200*label_offset)]
             )
         # Add turbine labels
         # turbine_names = [f"T{i+1}" for i in range(self.fmodel.n_turbines)]
@@ -663,23 +671,17 @@ class DataInspector:
         #         label_offset=label_offset
         #     )
         
-        # Calculate and visualize the flow field
-        horizontal_plane = self.fmodel.calculate_horizontal_plane(height=self.fmodel.core.farm.hub_heights[0])
-        visualize_cut_plane(horizontal_plane, ax=ax, min_speed=1, max_speed=10, color_bar=True)
-        
+
         # Plot turbine rotors
         # layoutviz.plot_turbine_rotors(self.fmodel, ax=ax)
         
-        ax.set_xlim((horizontal_plane.df.x1.min(), horizontal_plane.df.x1.max()))
-        ax.set_ylim((horizontal_plane.df.x2.min(), horizontal_plane.df.x2.max()))
-        ax.set_ylim((-100, 10000))
         # ax.set_aspect("equal")
         # Set plot title and labels
         # ax.set_title('Wind Farm Layout', fontsize=16)
         ax.tick_params(axis='both', which='major', labelsize=20)
         ax.set_xlabel('X coordinate (m)', fontsize=20)
         ax.set_ylabel('Y coordinate (m)', fontsize=20)
-        fig.get_axes()[1].yaxis.label.set_text("Wind Speed (m/s)")
+        fig.get_axes()[1].yaxis.label.set_text("Wind Magnitude (m/s)")
          
         # Adjust layout and display the plot
         plt.tight_layout()
