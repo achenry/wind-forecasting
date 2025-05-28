@@ -529,7 +529,7 @@ def main():
                     and (checkpoint_hparams["init_args"]["model_config"][param] is not None)
                     and (getattr(data_module, param) is not None) 
                     and (checkpoint_hparams["init_args"]["model_config"][param] != getattr(data_module, param))):
-                    incompatible_params.append(param)
+                    incompatible_params.append((param, checkpoint_hparams["init_args"]["model_config"][param], getattr(data_module, param)))
             
             if incompatible_params:
                 raise TypeError(f"Checkpoint parameters and data module parameters {incompatible_params} are incompatible.")
