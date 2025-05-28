@@ -519,14 +519,14 @@ def main():
             data_module.freq = checkpoint_hparams["freq_str"]
             
             # check if any new hyperparameters are incompatible with data_module
-            core_data_module_params = ["num_feat_dynamic_real", "num_feat_static_real", "num_feat_static_cat",
-                                  "cardinality", "embedding_dimension"]
+            # core_data_module_params = ["num_feat_dynamic_real", "num_feat_static_real", "num_feat_static_cat",
+            #                       "cardinality", "embedding_dimension"]
             # data_module_sig = inspect.signature(DataModule.__init__)
             # data_module_params = [param.name for param in data_module_sig.parameters.values()]
             
-            # NOTE JUAN we don't expect these to be equal, num_feat_dynamic_real is changed internally in estimator.py:create_lightning_module, 
+            # TODO JUAN we don't expect these to be equal, num_feat_dynamic_real is changed internally in estimator.py:create_lightning_module, 
             # num_feat_static_real and num_feat_static_cat are set to the max of the data_module value and 1,
-            # cardinality is a list and a tuple
+            # cardinality is a list and a tuple, so this needs to be handled differently.
             # incompatible_params = []
             # for param in core_data_module_params:
             #     if ((param in checkpoint_hparams["init_args"]["model_config"]) 
@@ -617,7 +617,9 @@ def main():
         
         if args.mode == "train" and args.checkpoint is not None:
             logging.info("Restarting training from checkpoint, updating max_epochs accordingly.")
-            config["trainer"]["max_epochs"] += int(re.search("(?<=epoch=)\\d+", os.path.basename(checkpoint_path)).group())
+            capture = re.search("(?<=epoch=)\\d+", os.path.basename(checkpoint_path))
+            if capture:
+                config["trainer"]["max_epochs"] += int(capture.group())
         
         # --- Instantiate Callbacks ---
         # We need to do this BEFORE creating the estimator,
