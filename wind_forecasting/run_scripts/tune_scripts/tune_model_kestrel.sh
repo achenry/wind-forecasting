@@ -108,10 +108,10 @@ echo "Launching ${NUM_GPUS} tuning workers..."
 # Launch multiple workers per GPU
 for i in $(seq 0 $((${NUM_GPUS}-1))); do
       # Create a unique seed for this worker
-      export CURRENT_WORKER_SEED=$((12 + i*100)) # Base seed + offset per worker (increased multiplier to avoid trials overlap on workers)
+      export WORKER_SEED=$((12 + i*100)) # Base seed + offset per worker (increased multiplier to avoid trials overlap on workers)
       
       echo "Saving output for worker ${i} to '${LOG_DIR}/slurm_logs/${SLURM_JOB_ID}/worker_${i}_${SLURM_JOB_ID}.log'"
-      echo "Starting worker ${i} on assigned GPU ${i} with seed ${CURRENT_WORKER_SEED}"
+      echo "Starting worker ${i} on assigned GPU ${i} with seed ${WORKER_SEED}"
       export WORKER_RANK=${i}          # Export rank for Python script
       # Launch worker in the background using nohup and a dedicated bash shell
       
@@ -147,7 +147,7 @@ for i in $(seq 0 $((${NUM_GPUS}-1))); do
         --config ${CONFIG_FILE} \
         --model ${MODEL_NAME} \
         --mode tune \
-        --seed ${CURRENT_WORKER_SEED} \
+        --seed ${WORKER_SEED} \
         ${RESTART_TUNING_FLAG} \
         --single_gpu # Crucial for making Lightning use only the assigned GPU
 

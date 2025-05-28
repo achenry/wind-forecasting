@@ -1,12 +1,10 @@
 import os
 import logging
 import time
-from shutil import rmtree
 
 from wind_forecasting.utils import db_utils
-from lightning.pytorch.utilities import rank_zero_only
+# from lightning.pytorch.utilities import rank_zero_only
 from mysql.connector import connect as sql_connect #, MySQLInterfaceError
-import optuna
 from optuna.storages import JournalStorage, RDBStorage, RetryFailedTrialCallback
 from optuna.storages.journal import JournalFileBackend
 
@@ -77,13 +75,13 @@ def setup_optuna_storage(db_setup_params, restart_tuning, rank):
 
     return storage, connection_info
 
-@rank_zero_only
+# @rank_zero_only
 def delete_studies(storage):
     logging.info(f"Deleting existing Optuna studies {storage.get_all_studies()}.")  
     for s in storage.get_all_studies():
         storage.delete_study(s._study_id)
 
-@rank_zero_only
+# @rank_zero_only
 def setup_postgresql_rank_zero(db_setup_params, restart_tuning=False, register_cleanup=True):
     """
     Sets up PostgreSQL instance on rank 0 (primary worker).
@@ -328,7 +326,7 @@ def setup_postgresql(db_setup_params, rank, restart_tuning):
     # However, pg_config is generated for workers too to find sync file, so it should exist.
     return storage, pg_config
 
-@rank_zero_only
+# @rank_zero_only
 def restart_journal_rank_zero(journal_abs_path):
     """
     Handles journal database restart for rank 0.
@@ -340,7 +338,7 @@ def restart_journal_rank_zero(journal_abs_path):
          except OSError as e:
              logging.error(f"Failed to remove Journal file {journal_abs_path}: {e}")
              
-@rank_zero_only
+# @rank_zero_only
 def restart_sqlite_rank_zero(sqlite_abs_path):
     """
     Handles SQLite database restart for rank 0.
@@ -488,7 +486,6 @@ def setup_mysql(db_setup_params, restart_tuning, rank):
     optuna_storage_url = f"mysql+mysqlconnector://{url_user_part}@{db_host}:{db_port}/{db_name}"
         
     if rank == 0:
-        logging.info(f"Rank 0: Managing MySQL instance...")
         connection = None
         try:
             # Try connecting without specifying the database first to check server access and create DB if needed
@@ -497,7 +494,17 @@ def setup_mysql(db_setup_params, restart_tuning, rank):
             
             cursor.execute("SHOW DATABASES")
             databases = [item[0] for item in cursor.fetchall()]
-            logging.info(f"L48, Rank 0: Available databases: {databases}")
+            logging.info(f"Rank 0: Available databases: {databases}")
+            
+            cursor.execute("SHOW VARIABLES LIKE 'max_connections'")
+            logging.info(f"Rank 0: 'max_connections': {cursor.fetchall()}")
+            
+            cursor.execute("SHOW PROCESSLIST")
+            logging.info(f"Rank 0: 'processes': {cursor.fetchall()}")
+            
+            cursor.execute(f"SELECT user, host FROM mysql.user WHERE user = '{db_user}'")
+            logging.info(f"Rank 0: 'user, host': {cursor.fetchall()}")
+            
             if db_name not in databases:
                 logging.info(f"Rank 0: Database '{db_name}' not found in list {databases}. Creating database.")
                 cursor.execute(f"CREATE DATABASE {db_name}")
@@ -505,38 +512,36 @@ def setup_mysql(db_setup_params, restart_tuning, rank):
                 logging.info(f"Rank 0: Database '{db_name}' created successfully.")
                 
                 cursor.execute("SHOW DATABASES")
-                databases = [item[0] for item in cursor.fetchall()]
-                logging.info(f"After create, Rank 0: Available databases: {databases}")
+                logging.info(f"After create, Rank 0: Available databases: {cursor.fetchall()}")
                 
-            elif restart_tuning:
-                # TODO HIGH this is not consistent with how post gres uses restart_tuning, this drops the entire db,
-                logging.info(f"Rank 0: Database '{db_name}' already exists.")
-                logging.warning(f"Rank 0: --restart_tuning set. Dropping and recreating Optuna tables in database '{db_name}'.")
+            # elif restart_tuning:
+            #     # TODO HIGH this is not consistent with how post gres uses restart_tuning, this drops the entire db,
+            #     logging.info(f"Rank 0: Database '{db_name}' already exists.")
+            #     logging.warning(f"Rank 0: --restart_tuning set. Dropping and recreating Optuna tables in database '{db_name}'.")
                 
-                logging.info(f"Rank 0: Attempting to drop database `{db_name}` ")
-                cursor.execute(f"DROP DATABASE IF EXISTS `{db_name}`")
-                connection.commit()
+            #     # logging.info(f"Rank 0: Attempting to drop database `{db_name}` ")
+            #     # cursor.execute(f"DROP DATABASE IF EXISTS `{db_name}`")
+            #     # connection.commit()
                 
-                cursor.execute("SHOW DATABASES")
-                databases = [item[0] for item in cursor.fetchall()]
-                logging.info(f"After drop, Rank 0: Available databases: {databases}")
+            #     # cursor.execute("SHOW DATABASES")
+            #     # databases = [item[0] for item in cursor.fetchall()]
+            #     # logging.info(f"After drop, Rank 0: Available databases: {databases}")
                 
-                logging.info(f"Rank 0: Attempting to create database `{db_name}` ")
-                cursor.execute(f"CREATE DATABASE {db_name}")
-                connection.commit()
+            #     # logging.info(f"Rank 0: Attempting to create database `{db_name}` ")
+            #     # cursor.execute(f"CREATE DATABASE {db_name}")
+            #     # connection.commit()
                 
-                cursor.execute("SHOW DATABASES")
-                databases = [item[0] for item in cursor.fetchall()]
-                logging.info(f"After drop/create, Rank 0: Available databases: {databases}")
+            #     cursor.execute("SHOW DATABASES")
+            #     databases = [item[0] for item in cursor.fetchall()]
+            #     logging.info(f"After drop/create, Rank 0: Available databases: {databases}")
                 
                 # for table in tables:
                 #     logging.info(f"Rank 0: Attempting to remove table `{table}` from database `{db_name}`")
                 #     cursor.execute(f"DROP TABLE IF EXISTS `{table}`")
                 #     connection.commit()
             
-            cursor.execute(f"USE {db_name}; SHOW TABLES")
-            tables = [item[0] for item in cursor.fetchall()]
-            logging.info(f"Rank 0: Available tables in database {db_name}: {tables}")
+            cursor.execute(f"SHOW TABLES FROM {db_name}")
+            logging.info(f"Rank 0: Available tables in database {db_name}: {cursor.fetchall()}")
 
         except Exception as e:
             logging.error(f"Rank 0: Failed to connect to MySQL server or manage database '{db_name}': {e}", exc_info=True)
@@ -548,8 +553,8 @@ def setup_mysql(db_setup_params, restart_tuning, rank):
     
     # All ranks create the RDBStorage instance
     engine_kwargs = {
-        "pool_size": 4,
-        "max_overflow": 4,
+        "pool_size": 4, # connections allocated for each worker
+        "max_overflow": 4, # up to 4 extra temporary connections in additiont to pool_size
         "pool_timeout": 30,
         "pool_recycle": 1800,
         "pool_pre_ping": True

@@ -92,7 +92,7 @@ optuna:
 dataset: 
     data_path: /projects/ssc/ahenry/wind_forecasting/awaken_data/awaken_processed_normalized.parquet
     normalization_consts_path: /projects/ssc/ahenry/wind_forecasting/awaken_data/awaken_processed_normalization_consts.csv
-    context_length: 600 # in seconds
+    context_length: 1020 # in seconds
     prediction_length: 510 # in seconds
     target_turbine_ids: # or leave blank to capture all
     normalize: True 
