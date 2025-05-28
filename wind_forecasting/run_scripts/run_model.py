@@ -388,7 +388,6 @@ def main():
             reload = True
         else:
             reload = False
-       
     else:
         reload = False
     
@@ -521,7 +520,7 @@ def main():
             
             # check if any new hyperparameters are incompatible with data_module
             core_data_module_params = ["num_feat_dynamic_real", "num_feat_static_real", "num_feat_static_cat",
-                                  "cardinality", "embedding_dimension", "input_size"]
+                                  "cardinality", "embedding_dimension"]
             # data_module_sig = inspect.signature(DataModule.__init__)
             # data_module_params = [param.name for param in data_module_sig.parameters.values()]
             incompatible_params = []
