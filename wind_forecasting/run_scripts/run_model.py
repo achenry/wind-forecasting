@@ -523,16 +523,20 @@ def main():
                                   "cardinality", "embedding_dimension"]
             # data_module_sig = inspect.signature(DataModule.__init__)
             # data_module_params = [param.name for param in data_module_sig.parameters.values()]
-            incompatible_params = []
-            for param in core_data_module_params:
-                if ((param in checkpoint_hparams["init_args"]["model_config"]) 
-                    and (checkpoint_hparams["init_args"]["model_config"][param] is not None)
-                    and (getattr(data_module, param) is not None) 
-                    and (checkpoint_hparams["init_args"]["model_config"][param] != getattr(data_module, param))):
-                    incompatible_params.append((param, checkpoint_hparams["init_args"]["model_config"][param], getattr(data_module, param)))
             
-            if incompatible_params:
-                raise TypeError(f"Checkpoint parameters and data module parameters {incompatible_params} are incompatible.")
+            # NOTE JUAN we don't expect these to be equal, num_feat_dynamic_real is changed internally in estimator.py:create_lightning_module, 
+            # num_feat_static_real and num_feat_static_cat are set to the max of the data_module value and 1,
+            # cardinality is a list and a tuple
+            # incompatible_params = []
+            # for param in core_data_module_params:
+            #     if ((param in checkpoint_hparams["init_args"]["model_config"]) 
+            #         and (checkpoint_hparams["init_args"]["model_config"][param] is not None)
+            #         and (getattr(data_module, param) is not None) 
+            #         and (checkpoint_hparams["init_args"]["model_config"][param] != getattr(data_module, param))):
+            #         incompatible_params.append((param, checkpoint_hparams["init_args"]["model_config"][param], getattr(data_module, param)))
+            
+            # if incompatible_params:
+            #     raise TypeError(f"Checkpoint parameters and data module parameters {incompatible_params} are incompatible.")
             
             logging.info(f"Updating estimator {args.model.capitalize()} kwargs with checkpoint parameters {checkpoint_hparams['init_args']['model_config']}.")
         else:
