@@ -16,6 +16,7 @@ from pathlib import Path
 import subprocess
 from datetime import datetime
 import re # Added for epoch parsing
+import pandas as pd # Added for pd.Timedelta
 # Imports for Optuna
 import optuna
 from optuna import create_study, load_study
@@ -308,16 +309,66 @@ class MLTuningObjective:
         # Log GPU stats at the beginning of the trial
         self.log_gpu_stats(stage=f"Trial {trial.number} Start")
       
-        params = self.estimator_class.get_params(trial, self.tuning_phase, 
+        params = self.estimator_class.get_params(trial, self.tuning_phase,
                                                  dynamic_kwargs=self.dynamic_params)
-        
-        if "resample_freq" in params or "per_turbine" in params:
-            self.data_module.freq = f"{params['resample_freq']}s"
+
+        # INFO: @boujuan Update DataModule parameters based on trial tuned parameters
+        # Determine the frequency for the current trial
+        # Default to DataModule's current freq if not tuned
+        current_freq_val = params.get('resample_freq', int(self.data_module.freq[:-1]))
+        current_freq_str = f"{current_freq_val}s"
+
+        # Get original prediction length in seconds from config (immutable)
+        original_prediction_len_seconds = self.config["dataset"]["prediction_length"]
+
+        # Calculate current prediction_length in timesteps based on current_freq_str using pandas.Timedelta
+        current_prediction_len_timesteps = int(pd.Timedelta(original_prediction_len_seconds, unit="s") / pd.Timedelta(current_freq_str))
+
+        # Get tuned context_length_factor for this trial
+        context_length_factor_trial = params.get('context_length_factor', self.config["dataset"].get("context_length_factor", 2))
+
+        # Calculate the tuned model context_length in timesteps
+        tuned_model_context_len_timesteps = int(context_length_factor_trial * current_prediction_len_timesteps)
+
+        # Update the DataModule instance's internal attributes BEFORE generate_splits might be called
+        needs_split_regeneration = False
+        if self.data_module.freq != current_freq_str:
+            logging.info(f"Trial {trial.number}: Updating DataModule.freq from {self.data_module.freq} to {current_freq_str}")
+            self.data_module.freq = current_freq_str
+            needs_split_regeneration = True # Freq change implies path change and data structure change
+
+        if self.data_module.prediction_length != current_prediction_len_timesteps:
+            logging.info(f"Trial {trial.number}: Updating DataModule.prediction_length (timesteps) from {self.data_module.prediction_length} to {current_prediction_len_timesteps} (due to freq or initial setup).")
+            self.data_module.prediction_length = current_prediction_len_timesteps
+
+        if self.data_module.context_length != tuned_model_context_len_timesteps:
+            logging.info(f"Trial {trial.number}: Updating DataModule.context_length (timesteps) from {self.data_module.context_length} to {tuned_model_context_len_timesteps} (factor: {context_length_factor_trial}).")
+            self.data_module.context_length = tuned_model_context_len_timesteps
+            needs_split_regeneration = True # Context length change directly affects splitting
+
+        # Update per_turbine_target if tuned
+        if "per_turbine" in params and self.data_module.per_turbine_target != params["per_turbine"]:
+            logging.info(f"Trial {trial.number}: Updating DataModule.per_turbine_target to {params['per_turbine']}")
             self.data_module.per_turbine_target = params["per_turbine"]
+            needs_split_regeneration = True
+
+        # If any critical DataModule parameter changed that affects splitting, regenerate splits.
+        if needs_split_regeneration:
+            logging.info(f"Trial {trial.number}: DataModule parameters changed. Loading or generating splits.")
             self.data_module.set_train_ready_path()
-            assert os.path.exists(self.data_module.train_ready_data_path), "Must generate dataset and splits in tuning.py, rank 0. Requested resampling frequency may not be compatible."
-            self.data_module.generate_splits(save=True, reload=False, splits=["train", "val"])
-        
+
+            if not os.path.exists(self.data_module.train_ready_data_path):
+                logging.error(f"Trial {trial.number}: ERROR: Base resampled Parquet file {self.data_module.train_ready_data_path} does not exist. Pre-computation issue.")
+                raise FileNotFoundError(f"Missing pre-computed base Parquet file for freq {self.data_module.freq} and per_turbine {self.data_module.per_turbine_target}")
+
+            logging.info(f"Trial {trial.number}: Calling generate_splits with reload=False. Path: {self.data_module.train_ready_data_path}")
+            try:
+                self.data_module.generate_splits(save=True, reload=False, splits=["train", "val"])
+            except Exception as e:
+                logging.error(f"Trial {trial.number}: Error during data split generation: {e}", exc_info=True)
+                raise
+        else:
+            logging.info(f"Trial {trial.number}: No DataModule parameter changes. Using existing splits.")
         estimator_sig = inspect.signature(self.estimator_class.__init__)
         estimator_params = [param.name for param in estimator_sig.parameters.values()]
 
@@ -640,10 +691,10 @@ class MLTuningObjective:
             "num_batches_per_epoch": trial_trainer_kwargs["limit_train_batches"], # Use value from trial_trainer_kwargs
             "base_batch_size_for_scheduler_steps": self.config["dataset"].get("base_batch_size", 512), # Use base_batch_size from config
             "base_limit_train_batches": self.base_limit_train_batches, # Pass base_limit_train_batches for conditional scaling
-            "train_sampler": SequentialSampler(min_past=self.config["dataset"]["context_length"], min_future=self.data_module.prediction_length)
+            "train_sampler": SequentialSampler(min_past=context_length, min_future=self.data_module.prediction_length)
                 if self.config["optuna"].get("sampler", "random") == "sequential"
-                else ExpectedNumInstanceSampler(num_instances=1.0, min_past=self.config["dataset"]["context_length"], min_future=self.data_module.prediction_length),
-            "validation_sampler": ValidationSplitSampler(min_past=self.config["dataset"]["context_length"], min_future=self.data_module.prediction_length),
+                else ExpectedNumInstanceSampler(num_instances=1.0, min_past=context_length, min_future=self.data_module.prediction_length),
+            "validation_sampler": ValidationSplitSampler(min_past=context_length, min_future=self.data_module.prediction_length),
             "time_features": [second_of_minute, minute_of_hour, hour_of_day, day_of_year],
             # Include distr_output initially, will be removed conditionally
             "distr_output": self.distr_output_class(dim=self.data_module.num_target_vars, **self.config["model"]["distr_output"]["kwargs"]),
@@ -745,6 +796,7 @@ class MLTuningObjective:
             self.log_gpu_stats(stage=f"Trial {trial.number} After Training")
             
             # Checkpoint Loading and Processing
+            checkpoint = None # Initialize checkpoint to None to prevent UnboundLocalError
             try:
                 checkpoint_path = trial_checkpoint_callback.best_model_path
                 best_score = trial_checkpoint_callback.best_model_score if hasattr(trial_checkpoint_callback, 'best_model_score') else None
@@ -752,11 +804,12 @@ class MLTuningObjective:
                 logging.info(f"Trial {trial.number} - Using best checkpoint from trial-specific callback: {checkpoint_path}")
                 logging.info(f"Trial {trial.number} - Best score: {best_score}")
                 
-                if not os.path.exists(checkpoint_path):
-                    error_msg = f"Checkpoint path does not exist: {checkpoint_path}. Cannot load model for metric retrieval."
+                if not os.path.exists(checkpoint_path) or not checkpoint_path: # Also check if checkpoint_path is empty string
+                    error_msg = f"Checkpoint path does not exist or is empty: '{checkpoint_path}'. Cannot load model for metric retrieval."
                     logging.error(f"Trial {trial.number} - {error_msg}")
-                    # Raise a standard error, not TrialPruned
-                    raise FileNotFoundError(f"Trial {trial.number}: {error_msg}")
+                    # We log the error but do NOT raise here immediately.
+                    # This lets the 'finally' and metric return logic handle the outcome.
+                    raise FileNotFoundError(error_msg) # Raise to jump to except block gracefully
 
                 logging.info(f"Trial {trial.number} - Loading checkpoint from: {checkpoint_path}")
                 checkpoint = torch.load(checkpoint_path, map_location=lambda storage, loc: storage, weights_only=False)
@@ -1365,19 +1418,41 @@ def tune_model(model, config, study_name, optuna_storage, lightning_module_class
     dynamic_params = None
 
     if tuning_phase == 0 and worker_id == "0":
-        resample_freq_choices = config["optuna"]["resample_freq_choices"]
-        per_turbine_choices = [True, False]
-        for resample_freq, per_turbine in product(resample_freq_choices, per_turbine_choices):
-            # for each combination of resample_freq and per_turbine, generate the datasets
-            data_module.freq = f"{resample_freq}s"
-            data_module.per_turbine_target = per_turbine
+        resample_freq_choices = config["optuna"].get("resample_freq_choices", [int(data_module.freq[:-1])])
+        fixed_per_turbine = config.get("dataset", {}).get("per_turbine_target", False)
+        logging.info(f"Rank 0: DataModule 'per_turbine_target' fixed to: {fixed_per_turbine} for pre-computation.")
+
+        original_dm_freq = data_module.freq
+        original_dm_per_turbine = data_module.per_turbine_target
+        original_dm_pred_len = data_module.prediction_length
+        original_dm_ctx_len = data_module.context_length
+
+        logging.info("Rank 0: Starting pre-computation of base resampled Parquet files.")
+        for resample_freq_seconds in resample_freq_choices:
+            current_freq_str = f"{resample_freq_seconds}s"
+            logging.info(f"Rank 0: Checking/generating base resampled Parquet for freq={current_freq_str}, per_turbine={fixed_per_turbine}.")
+            
+            data_module.freq = current_freq_str
+            data_module.per_turbine_target = fixed_per_turbine
+            
+            original_prediction_len_seconds_config = config["dataset"]["prediction_length"]
+            data_module.prediction_length = int(pd.Timedelta(original_prediction_len_seconds_config, unit="s") / pd.Timedelta(data_module.freq))
+            
             data_module.set_train_ready_path()
+
             if not os.path.exists(data_module.train_ready_data_path):
+                logging.info(f"Rank 0: Base resampled Parquet {data_module.train_ready_data_path} not found. Calling DataModule.generate_datasets().")
                 data_module.generate_datasets()
-                reload = True
             else:
-                reload = False
-            data_module.generate_splits(save=True, reload=reload, splits=["train", "val"])
+                logging.info(f"Rank 0: Base resampled Parquet {data_module.train_ready_data_path} already exists.")
+
+        data_module.freq = original_dm_freq
+        data_module.per_turbine_target = original_dm_per_turbine
+        data_module.prediction_length = original_dm_pred_len
+        data_module.context_length = original_dm_ctx_len
+        data_module.set_train_ready_path()
+
+        logging.info("Rank 0: Finished pre-computation of base resampled Parquet files.")
         dynamic_params = {"resample_freq": resample_freq_choices}
 
     logging.info(f"Worker {worker_id}: Participating in Optuna study {final_study_name}")
