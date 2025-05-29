@@ -6,10 +6,10 @@
 #SBATCH --cpus-per-task=4           # CPUs per task (4 tasks * 32 = 128 CPUs total) [1 CPU/GPU more than enough]
 #SBATCH --mem-per-cpu=2048           # Memory per CPU (Total Mem = ntasks * cpus-per-task * mem-per-cpu) [flasc uses only ~4-5 GiB max]
 #SBATCH --gres=gpu:4            # Request 2 H100 GPUs
-#SBATCH --time=1-00:00                # Time limit (up to 1 day)
-#SBATCH --job-name=210awaken_tune_tactis
-#SBATCH --output=/dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/slurm_logs/awaken_tune_tactis210_%j.out
-#SBATCH --error=/dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/slurm_logs/awaken_tune_tactis210_%j.err
+#SBATCH --time=0-10:00                # Time limit (up to 1 day)
+#SBATCH --job-name=debug_awaken_tune_tactis
+#SBATCH --output=/dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/slurm_logs/debug_awaken_tune_tactis210_%j.out
+#SBATCH --error=/dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/slurm_logs/debug_awaken_tune_tactis210_%j.err
 #SBATCH --hint=nomultithread        # Disable hyperthreading
 #SBATCH --distribution=block:block  # Improve GPU-CPU affinity
 #SBATCH --gres-flags=enforce-binding # Enforce binding of GPUs to tasks
@@ -23,7 +23,7 @@ BASE_DIR="/user/taed7566/Forecasting/wind-forecasting" # Absolute path to the ba
 OUTPUT_DIR="/dss/work/taed7566/Forecasting_Outputs/wind-forecasting"
 export WORK_DIR="${BASE_DIR}/wind_forecasting"
 export LOG_DIR="${OUTPUT_DIR}/logs"
-export CONFIG_FILE="${BASE_DIR}/config/training/training_inputs_juan_awaken_tune_storm_pred210.yaml"
+export CONFIG_FILE="${BASE_DIR}/config/training/debug_scripts/debug_juan_awaken_tune_storm.yaml"
 export MODEL_NAME="tactis"
 export RESTART_TUNING_FLAG="" # "" Or "--restart_tuning"
 export AUTO_EXIT_WHEN_DONE="true"  # Set to "true" to exit script when all workers finish, "false" to keep running until timeout
