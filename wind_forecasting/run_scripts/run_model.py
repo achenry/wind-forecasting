@@ -619,7 +619,7 @@ def main():
             logging.info("Restarting training from checkpoint, updating max_epochs accordingly.")
             capture = re.search("(?<=epoch=)\\d+", os.path.basename(checkpoint_path))
             if capture:
-                config["trainer"]["max_epochs"] += int(capture.group())
+                config["trainer"]["max_epochs"] += int(capture.group()) # TODO doesn't work for last.ckpt, but this is probably just a symbolic link so could find the file it points to
         
         # --- Instantiate Callbacks ---
         # We need to do this BEFORE creating the estimator,

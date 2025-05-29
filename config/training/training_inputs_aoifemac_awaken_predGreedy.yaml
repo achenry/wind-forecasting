@@ -100,7 +100,7 @@ dataset:
     # normalization_consts_path: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/preprocessed_awaken_data/short_loaded_data_normalization_consts.csv
     data_path: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/awaken_data/awaken_processed_normalized.parquet
     normalization_consts_path: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/awaken_data/awaken_processed_normalization_consts.csv
-    context_length: 600 # in seconds
+    context_length: 420 # in seconds
     prediction_length: 210 # in seconds
     target_turbine_ids:  # or leave blank to capture all
     normalize: False 
