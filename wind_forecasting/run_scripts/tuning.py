@@ -251,7 +251,11 @@ class MLTuningObjective:
 
         self.config["trainer"]["max_epochs"] = max_epochs
         self.config["trainer"]["limit_train_batches"] = limit_train_batches
-        self.config["trainer"]["val_check_interval"] = limit_train_batches
+        # Don't override val_check_interval - let it use the YAML config value
+        
+        # Debug logging for max_epochs issue
+        logging.info(f"MLTuningObjective.__init__: Setting trainer max_epochs={max_epochs}, limit_train_batches={limit_train_batches}")
+        # self.config["trainer"]["val_check_interval"] = limit_train_batches
         
         # Store base values for dynamic calculation
         self.base_limit_train_batches = self.config["optuna"].get("base_limit_train_batches")
@@ -392,14 +396,39 @@ class MLTuningObjective:
             
             # Update trainer config with dynamic value
             self.config["trainer"]["limit_train_batches"] = dynamic_limit_train_batches
-            self.config["trainer"]["val_check_interval"] = dynamic_limit_train_batches
+            
+            # Scale val_check_interval proportionally with limit_train_batches to maintain same validation frequency
+            base_val_check_interval = self.config["trainer"].get("val_check_interval", 5000)
+            scaling_factor = self.base_batch_size / current_batch_size
+            dynamic_val_check_interval = max(1, round(base_val_check_interval * scaling_factor))
+            
+            # Ensure val_check_interval doesn't exceed limit_train_batches
+            if dynamic_val_check_interval > dynamic_limit_train_batches:
+                dynamic_val_check_interval = dynamic_limit_train_batches
+                logging.info(f"Capped val_check_interval to limit_train_batches={dynamic_limit_train_batches}")
+            
+            self.config["trainer"]["val_check_interval"] = dynamic_val_check_interval
+            logging.info(f"Scaled val_check_interval: {base_val_check_interval} -> {dynamic_val_check_interval} (scaling_factor={scaling_factor:.2f})")
         else:
             logging.info(f"Using static limit_train_batches: {self.config['trainer']['limit_train_batches']}")
+            
+            # Even with static values, ensure val_check_interval is valid
+            limit_train_batches = self.config["trainer"]["limit_train_batches"]
+            val_check_interval = self.config["trainer"].get("val_check_interval", 5000)
+            
+            if val_check_interval > limit_train_batches:
+                self.config["trainer"]["val_check_interval"] = limit_train_batches
+                logging.info(f"Adjusted val_check_interval from {val_check_interval} to {limit_train_batches} (must be <= limit_train_batches)")
 
         self.config["model"]["distr_output"]["kwargs"].update({k: v for k, v in params.items() if k in self.config["model"]["distr_output"]["kwargs"]})
         self.config["dataset"].update({k: v for k, v in params.items() if k in self.config["dataset"]})
         self.config["model"][self.model].update({k: v for k, v in params.items() if k in self.config["model"][self.model]})
         self.config["trainer"].update({k: v for k, v in params.items() if k in self.config["trainer"]})
+        
+        # Update the DataModule batch size if it was tuned
+        if 'batch_size' in params and self.data_module.batch_size != params['batch_size']:
+            logging.info(f"Trial {trial.number}: Updating DataModule batch_size from {self.data_module.batch_size} to {params['batch_size']}")
+            self.data_module.batch_size = params['batch_size']
 
         # Start with an empty list for this trial's specific callbacks
         current_callbacks = []
@@ -450,6 +479,19 @@ class MLTuningObjective:
         current_callbacks.append(trial_checkpoint_callback)
 
         trial_trainer_kwargs = {k: v for k, v in self.config["trainer"].items() if k != 'callbacks'}
+        
+        # Log the trainer kwargs to debug max_epochs issue
+        logging.info(f"Trial {trial.number}: trial_trainer_kwargs = {trial_trainer_kwargs}")
+        logging.info(f"Trial {trial.number}: max_epochs from trainer_kwargs = {trial_trainer_kwargs.get('max_epochs', 'NOT SET')}")
+        logging.info(f"Trial {trial.number}: limit_train_batches from trainer_kwargs = {trial_trainer_kwargs.get('limit_train_batches', 'NOT SET')}")
+        
+        # CRITICAL DEBUG: Check if limit_train_batches is being interpreted as a fraction
+        ltb = trial_trainer_kwargs.get('limit_train_batches')
+        if ltb is not None and isinstance(ltb, (int, float)):
+            if ltb < 1.0:
+                logging.warning(f"Trial {trial.number}: limit_train_batches={ltb} is < 1.0 - PyTorch Lightning will interpret this as a FRACTION of the dataset!")
+            else:
+                logging.info(f"Trial {trial.number}: limit_train_batches={ltb} will be interpreted as an absolute number of batches")
 
         # Instantiate general callbacks from the original YAML configuration.
         # Trial-specific callbacks (Pruning, ModelCheckpoint, EarlyStopping) are already in 'current_callbacks'.
@@ -686,7 +728,7 @@ class MLTuningObjective:
             "scaling": False,
             "lags_seq": [0],
             "use_lazyframe": False,
-            "batch_size": self.config["dataset"].get("batch_size", 128),
+            "batch_size": current_batch_size,  # Use the current batch size from params, not config
             "num_batches_per_epoch": trial_trainer_kwargs["limit_train_batches"], # Use value from trial_trainer_kwargs
             "base_batch_size_for_scheduler_steps": self.config["dataset"].get("base_batch_size", 512), # Use base_batch_size from config
             "base_limit_train_batches": self.base_limit_train_batches, # Pass base_limit_train_batches for conditional scaling
@@ -700,12 +742,40 @@ class MLTuningObjective:
             "trainer_kwargs": trial_trainer_kwargs, # Pass the trial-specific kwargs
             "num_parallel_samples": self.config["model"][self.model].get("num_parallel_samples", 100) if self.model == 'tactis' else 100, # Default 100 if not specified
         }
+        
+        # Debug logging for epoch calculation issue
+        logging.info(f"Trial {trial.number}: Critical DataLoader parameters:")
+        logging.info(f"  - batch_size: {estimator_kwargs['batch_size']}")
+        logging.info(f"  - num_batches_per_epoch: {estimator_kwargs['num_batches_per_epoch']}")
+        logging.info(f"  - trainer max_epochs: {trial_trainer_kwargs.get('max_epochs', 'NOT SET')}")
+        logging.info(f"  - trainer limit_train_batches: {trial_trainer_kwargs.get('limit_train_batches', 'NOT SET')}")
+        logging.info(f"  - Expected total batches: {trial_trainer_kwargs.get('max_epochs', 0) * estimator_kwargs['num_batches_per_epoch']}")
+        
+        # Calculate actual number of training samples
+        n_training_samples = 0
+        for ds in self.data_module.train_dataset:
+            a, b = estimator_kwargs["train_sampler"]._get_bounds(ds["target"])
+            n_training_samples += (b - a + 1)
+        actual_batches = np.ceil(n_training_samples / estimator_kwargs['batch_size']).astype(int)
+        logging.info(f"  - Total training samples: {n_training_samples}")
+        logging.info(f"  - Actual batches from data: {actual_batches}")
+        logging.info(f"  - DataLoader will provide: min({actual_batches}, {estimator_kwargs['num_batches_per_epoch']}) = {min(actual_batches, estimator_kwargs['num_batches_per_epoch'])} batches/epoch")
+        
+        # CRITICAL: Check if we're using ExpectedNumInstanceSampler with Cyclic wrapper
+        if isinstance(estimator_kwargs["train_sampler"], ExpectedNumInstanceSampler):
+            logging.info(f"  - Using ExpectedNumInstanceSampler with Cyclic wrapper - batches will cycle indefinitely")
+            logging.info(f"  - DataLoader will provide EXACTLY {estimator_kwargs['num_batches_per_epoch']} batches per epoch")
         # Add model-specific arguments from the default config YAML
+        # CRITICAL: Preserve the dynamically calculated num_batches_per_epoch
+        dynamic_num_batches = estimator_kwargs["num_batches_per_epoch"]
         estimator_kwargs.update(self.config["model"][self.model])
+        estimator_kwargs["num_batches_per_epoch"] = dynamic_num_batches  # Restore dynamic value
         
         if "num_batches_per_epoch" not in self.config["model"][self.model]:
-            self.config["model"][self.model]["num_batches_per_epoch"] = estimator_kwargs["num_batches_per_epoch"]
-            logging.info(f"Trial {trial.number}: Added num_batches_per_epoch={estimator_kwargs['num_batches_per_epoch']} to self.config['model'][self.model] for checkpointing stability.")
+            self.config["model"][self.model]["num_batches_per_epoch"] = dynamic_num_batches
+            logging.info(f"Trial {trial.number}: Added num_batches_per_epoch={dynamic_num_batches} to self.config['model'][self.model] for checkpointing stability.")
+        else:
+            logging.warning(f"Trial {trial.number}: Overriding config num_batches_per_epoch={self.config['model'][self.model].get('num_batches_per_epoch')} with dynamic value={dynamic_num_batches}")
 
         # Add model-specific tunable hyperparameters suggested by Optuna trial
         valid_estimator_params = set(estimator_params)
@@ -724,7 +794,13 @@ class MLTuningObjective:
         metric_to_return = self.config.get("trainer", {}).get("monitor_metric", "val_loss") # Default to val_loss
         
         logging.info(f"Trial {trial.number}: Instantiating estimator '{self.model}' with final args: {list(estimator_kwargs.keys())}")
+        logging.info(f"Trial {trial.number}: FINAL num_batches_per_epoch being passed to estimator: {estimator_kwargs.get('num_batches_per_epoch', 'NOT SET')}")
         
+        # Debug max_epochs issue - log the actual trainer_kwargs being passed
+        if "trainer_kwargs" in estimator_kwargs:
+            logging.info(f"Trial {trial.number}: trainer_kwargs being passed to estimator: {estimator_kwargs['trainer_kwargs']}")
+            logging.info(f"Trial {trial.number}: max_epochs in trainer_kwargs: {estimator_kwargs['trainer_kwargs'].get('max_epochs', 'NOT SET')}")
+            logging.info(f"Trial {trial.number}: limit_train_batches in trainer_kwargs: {estimator_kwargs['trainer_kwargs'].get('limit_train_batches', 'NOT SET')}")
 
         agg_metrics = None
 
@@ -769,7 +845,7 @@ class MLTuningObjective:
 
             # Train Model
             try:
-                train_output = estimator.train(
+                estimator.train(
                     training_data=self.data_module.train_dataset,
                     validation_data=self.data_module.val_dataset,
                     forecast_generator=forecast_generator
@@ -811,7 +887,7 @@ class MLTuningObjective:
                     raise FileNotFoundError(error_msg) # Raise to jump to except block gracefully
 
                 logging.info(f"Trial {trial.number} - Loading checkpoint from: {checkpoint_path}")
-                checkpoint = torch.load(checkpoint_path, map_location=lambda storage, loc: storage, weights_only=False)
+                checkpoint = torch.load(checkpoint_path, weights_only=False)
 
                 epoch_number = None
                 correct_stage = None
