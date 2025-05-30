@@ -75,6 +75,41 @@ class DataModule():
             self.train_ready_data_path = self.data_path.replace(
                 ".parquet", f"_train_ready_{self.freq}_{'per_turbine' if self.per_turbine_target else 'all_turbine'}_denormalize.parquet")
      
+    def get_split_file_path(self, split):
+        """Generate split file path that includes context_length to ensure cache uniqueness."""
+        # Extract base name without .parquet extension
+        if self.train_ready_data_path.endswith("_denormalize.parquet"):
+            base_path = self.train_ready_data_path.replace("_denormalize.parquet", "")
+            suffix = "_denormalize"
+        else:
+            base_path = self.train_ready_data_path.replace(".parquet", "")
+            suffix = ""
+        
+        # Include context_length in the filename to make cache files distinct
+        return f"{base_path}_ctx{self.context_length}_{split}{suffix}.pkl"
+    
+    def _validate_loaded_splits(self, splits, rank):
+        """Validate that loaded splits are compatible with current context_length requirements."""
+        min_required_length = self.context_length + self.prediction_length
+        
+        for split in splits:
+            dataset = getattr(self, f"{split}_dataset")
+            if not dataset:
+                logging.warning(f"Rank {rank}: {split} dataset is empty! This may cause validation issues.")
+                continue
+                
+            # Check if dataset has enough samples for the current context_length requirements
+            if isinstance(dataset, list) and len(dataset) > 0:
+                # Check a representative sample from the dataset
+                sample = dataset[0] if dataset else None
+                if sample and "target" in sample:
+                    target_length = sample["target"].shape[1] if hasattr(sample["target"], "shape") else len(sample["target"][0])
+                    if target_length < min_required_length:
+                        logging.error(f"Rank {rank}: {split} dataset samples are too short ({target_length}) for context_length={self.context_length} + prediction_length={self.prediction_length} = {min_required_length}")
+                        raise ValueError(f"Loaded {split} dataset is incompatible with current context_length={self.context_length}")
+                        
+        logging.info(f"Rank {rank}: Validation passed for loaded splits with context_length={self.context_length}, prediction_length={self.prediction_length}")
+    
     def compute_scaler_params(self):
         norm_consts = pd.read_csv(self.normalization_consts_path, index_col=None)
         norm_min_cols = [col for col in norm_consts if "_min" in col]
@@ -219,7 +254,12 @@ class DataModule():
         logging.info(f"Rank {rank}: Finished scanning dataset {self.train_ready_data_path}.")
 
         self.get_dataset_info(dataset)
-        split_files_exist = all(os.path.exists(self.train_ready_data_path.replace(".parquet", f"_{split}.pkl")) for split in splits)
+        split_files_exist = all(os.path.exists(self.get_split_file_path(split)) for split in splits)
+        logging.info(f"Rank {rank}: Split file check - context_length={self.context_length}, prediction_length={self.prediction_length}, split_files_exist={split_files_exist}")
+        for split in splits:
+            split_path = self.get_split_file_path(split)
+            exists = os.path.exists(split_path)
+            logging.info(f"Rank {rank}: Split file {split}: {split_path} (exists: {exists})")
 
         if rank == 0 and (reload or not split_files_exist):
             logging.info(f"Rank 0: Generating splits (reload={reload}, files_exist={split_files_exist}).")
@@ -341,13 +381,19 @@ class DataModule():
                 if verbose:
                     logging.info(f"Finished splitting datasets for all turbine case.")
             
+            # Log generated dataset sizes
+            for split in splits:
+                dataset = getattr(self, f"{split}_dataset")
+                dataset_size = len(dataset) if dataset else 0
+                logging.info(f"Rank 0: Generated {split} dataset size: {dataset_size} samples (context_length={self.context_length}, prediction_length={self.prediction_length})")
+            
             if save:
                 logging.info(f"Rank 0: Saving generated splits.")
                 for split in splits:
                     if self.as_lazyframe:
                         raise NotImplementedError("Saving LazyFrame splits not implemented.")
                     else:
-                        final_path = self.train_ready_data_path.replace(".parquet", f"_{split}.pkl")
+                        final_path = self.get_split_file_path(split)
                         temp_path = final_path + ".tmp"
                         logging.info(f"Rank 0: Saving {split} data to {temp_path}")
                         try:
@@ -375,7 +421,7 @@ class DataModule():
         if rank != 0 or (not reload and split_files_exist):
             logging.info(f"Rank {rank}: Loading saved split datasets.")
             for split in splits:
-                split_path = self.train_ready_data_path.replace(".parquet", f"_{split}.pkl")
+                split_path = self.get_split_file_path(split)
                 if not os.path.exists(split_path):
                      # This should ideally not happen after the barrier if rank 0 succeeded
                      logging.error(f"Rank {rank}: ERROR - Split file {split_path} not found after barrier!")
@@ -391,6 +437,14 @@ class DataModule():
                 except Exception as e:
                      logging.error(f"Rank {rank}: Error loading {split_path}: {e}")
                      raise
+
+            # Log dataset sizes and validate loaded splits for compatibility with current context_length
+            for split in splits:
+                dataset = getattr(self, f"{split}_dataset")
+                dataset_size = len(dataset) if dataset else 0
+                logging.info(f"Rank {rank}: Loaded {split} dataset size: {dataset_size} samples")
+            
+            self._validate_loaded_splits(splits, rank)
 
         # for split, datasets in [("train", self.train_dataset), ("val", self.val_dataset), ("test", self.test_dataset)]:
         #     for ds in iter(datasets):
@@ -470,8 +524,8 @@ class DataModule():
             # val_datasets.append(ds.slice(train_offset, val_offset))
             # test_datasets.append(ds.slice(train_offset + val_offset, test_offset))
             train_datasets += [d.slice(0, train_offset) for d in datasets]
-            val_datasets += [d.slice(train_offset, val_offset) for d in datasets]
-            test_datasets += [d.slice(train_offset + val_offset, test_offset) for d in datasets]
+            val_datasets += [d.slice(train_offset, val_offset) for d in datasets]  # val_offset is the length of validation data
+            test_datasets += [d.slice(train_offset + val_offset, test_offset) for d in datasets]  # test_offset is the length of test data
             
             # TODO doesn't work with iterable lazy frame
             # if self.verbose:
