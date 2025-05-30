@@ -99,7 +99,8 @@ dataset:
     prediction_length: 210 # in seconds
     target_turbine_ids: # or leave blank to capture all
     normalize: True 
-    batch_size: 64
+    # batch_size: 64
+    batch_size: 1024
     workers: 12
     overfit: False
     test_split: 0.20
@@ -158,13 +159,22 @@ model:
     gradient_clip_val_stage2: 1000.0
 
   informer:
-    # embedding_dimension: 32 # Determines dimension of the embedding space
-    num_encoder_layers: 2 # Number of transformer blocks stacked
-    num_decoder_layers: 1 # Number of transformer blocks stacked
-    n_heads: 8 # Number of heads for spatio-temporal attention
-    d_model: 512
-    dim_feedforward: 2048
-    activation: relu
+    embedding_dimension: 32 # Determines dimension of the embedding space
+    # num_encoder_layers: 2 # Number of transformer blocks stacked
+    # num_decoder_layers: 1 # Number of transformer blocks stacked
+    # n_heads: 8 # Number of heads for spatio-temporal attention
+    # d_model: 512
+    # dim_feedforward: 2048
+    # activation: relu
+    context_length_factor: 4
+    num_encoder_layers: 2
+    num_decoder_layers: 1
+    d_model: 128
+    n_heads: 4
+    factor: 3
+    lr: 7.415335679794799e-05
+    weight_decay: 1e-06
+    dropout: 0.18730411313466236
   autoformer:
     # embedding_dimension: 32 # Determines dimension of the embedding space
     num_encoder_layers: 2 # Number of transformer blocks stacked
