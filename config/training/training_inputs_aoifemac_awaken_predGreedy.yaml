@@ -170,12 +170,21 @@ model:
 
   informer:
     # embedding_dimension: 32 # Determines dimension of the embedding space
-    num_encoder_layers: 2 # Number of transformer blocks stacked
-    num_decoder_layers: 1 # Number of transformer blocks stacked
-    n_heads: 8 # Number of heads for spatio-temporal attention
-    d_model: 512
-    dim_feedforward: 2048
-    activation: relu
+    # num_encoder_layers: 2 # Number of transformer blocks stacked
+    # num_decoder_layers: 1 # Number of transformer blocks stacked
+    # n_heads: 8 # Number of heads for spatio-temporal attention
+    # d_model: 512
+    # dim_feedforward: 2048
+    # activation: relu
+    context_length_factor: 4
+    num_encoder_layers: 2
+    num_decoder_layers: 1
+    d_model: 128
+    n_heads: 4
+    factor: 3
+    lr: 7.415335679794799e-05
+    weight_decay: 1e-06
+    dropout: 0.18730411313466236
   autoformer:
     # embedding_dimension: 32 # Determines dimension of the embedding space
     num_encoder_layers: 2 # Number of transformer blocks stacked
@@ -224,14 +233,15 @@ callbacks:
       init_args:
         refresh_rate: 1  # every n steps
         leave: true
-    early_stopping:
-      class_path: lightning.pytorch.callbacks.EarlyStopping
-      init_args:
-        monitor: 'val_loss'
-        patience: 100 # Number of epochs to wait before stopping (val>epochs to disable)
-        min_delta: 0.01 # Minimum change to be considered an improvement
-        mode: 'min'
-        check_finite: true
+    # early_stopping:
+    #   class_path: lightning.pytorch.callbacks.EarlyStopping
+    #   init_args:
+    #     check_on_train_epoch_end: False
+    #     monitor: 'val_loss'
+    #     patience: 100 # Number of epochs to wait before stopping (val>epochs to disable)
+    #     min_delta: 0.01 # Minimum change to be considered an improvement
+    #     mode: 'min'
+    #     check_finite: true
     model_checkpoint:
       class_path: lightning.pytorch.callbacks.ModelCheckpoint
       init_args:

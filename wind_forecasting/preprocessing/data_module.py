@@ -76,7 +76,7 @@ class DataModule():
                 ".parquet", f"_train_ready_{self.freq}_{'per_turbine' if self.per_turbine_target else 'all_turbine'}_denormalize.parquet")
      
     def get_split_file_path(self, split):
-        """Generate split file path that includes context_length to ensure cache uniqueness."""
+        """Generate split file path that includes context_length and prediction_length to ensure cache uniqueness."""
         # Extract base name without .parquet extension
         if self.train_ready_data_path.endswith("_denormalize.parquet"):
             base_path = self.train_ready_data_path.replace("_denormalize.parquet", "")
@@ -86,7 +86,7 @@ class DataModule():
             suffix = ""
         
         # Include context_length in the filename to make cache files distinct
-        return f"{base_path}_ctx{self.context_length}_{split}{suffix}.pkl"
+        return f"{base_path}_ctx{self.context_length}_pred{self.prediction_length}_{split}{suffix}.pkl"
     
     def _validate_loaded_splits(self, splits, rank):
         """Validate that loaded splits are compatible with current context_length requirements."""
@@ -232,7 +232,7 @@ class DataModule():
             self.cardinality = None 
     
     # @profile # prints memory usage
-    def generate_splits(self, splits=None, save=False, reload=True, verbose=None):
+    def generate_splits(self, splits=None, save=False, reload=True, verbose=None, rank=None):
         if verbose is None:
             verbose = self.verbose
             
@@ -241,13 +241,16 @@ class DataModule():
         assert all(split in ["train", "val", "test"] for split in splits)
         assert os.path.exists(self.train_ready_data_path), f"Must run generate_datasets before generate_splits to produce {self.train_ready_data_path}."
 
-        rank = 0
-        world_size = 1
         is_distributed = dist.is_available() and dist.is_initialized()
-        if is_distributed:
-            rank = dist.get_rank()
-            world_size = dist.get_world_size()
-            logging.info(f"Rank {rank}/{world_size}: Entering generate_splits.")
+        if rank is None:
+            if is_distributed:
+                # TODO JUAN THIS IS NEVER BEING ENTERED
+                rank = dist.get_rank()
+                world_size = dist.get_world_size()
+                logging.info(f"Rank {rank}/{world_size}: Entering generate_splits.")
+            else:
+                rank = 0
+                world_size = 1
 
         logging.info(f"Rank {rank}: Scanning dataset {self.train_ready_data_path}.")
         dataset = IterableLazyFrame(data_path=self.train_ready_data_path, dtype=self.dtype)

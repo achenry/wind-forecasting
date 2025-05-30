@@ -381,19 +381,6 @@ def main():
     EstimatorClass = globals()[f"{args.model.capitalize()}Estimator"]
     DistrOutputClass = globals()[config["model"]["distr_output"]["class"]]
 
-    if rank_zero_only.rank == 0:
-        logging.info("Preparing data for tuning")
-        if args.reload_data or not os.path.exists(data_module.train_ready_data_path):
-            data_module.generate_datasets()
-            reload = True
-        else:
-            reload = False
-    else:
-        reload = False
-    
-    # other ranks should wait for this one 
-    data_module.generate_splits(save=True, reload=reload, splits=["train", "val", "test"])
-
     # data_module.train_dataset = [ds for ds in data_module.train_dataset if ds["item_id"].endswith("SPLIT0")]
     
     # %% DEFINE ESTIMATOR
@@ -487,6 +474,8 @@ def main():
                 found_tuned_params = False
         else:
             found_tuned_params = False 
+            
+        # TODO HIGH lr and weight_decay are not being set properly during tuning or training!!!
         
         if found_tuned_params:
             logging.info(f"Updating estimator {args.model.capitalize()} kwargs with tuned parameters {tuned_params}")
@@ -617,9 +606,17 @@ def main():
         
         if args.mode == "train" and args.checkpoint is not None:
             logging.info("Restarting training from checkpoint, updating max_epochs accordingly.")
-            capture = re.search("(?<=epoch=)\\d+", os.path.basename(checkpoint_path))
-            if capture:
-                config["trainer"]["max_epochs"] += int(capture.group()) # TODO doesn't work for last.ckpt, but this is probably just a symbolic link so could find the file it points to
+            if os.path.basename(checkpoint_path) == "last.ckpt":
+                if torch.cuda.is_available():
+                    device = None
+                else:
+                    device = "cpu"
+                checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
+                last_epoch = checkpoint.get("epoch", 0)
+            else:
+                last_epoch = int(re.search("(?<=epoch=)\\d+", os.path.basename(checkpoint_path)).group())
+            
+            config["trainer"]["max_epochs"] += last_epoch
         
         # --- Instantiate Callbacks ---
         # We need to do this BEFORE creating the estimator,
@@ -679,7 +676,21 @@ def main():
         logging.info(f"Assigned {len(instantiated_callbacks)} callbacks to config['trainer']['callbacks'].")
 
         # Prepare all arguments in a dictionary for the Estimator
+    
+    if rank_zero_only.rank == 0:
+        logging.info("Preparing data for tuning")
+        if args.reload_data or not os.path.exists(data_module.train_ready_data_path):
+            data_module.generate_datasets()
+            reload = True
+        else:
+            reload = False
+    else:
+        reload = False
         
+    data_module.generate_splits(save=True, reload=reload, splits=["train", "val", "test"],
+                                rank=rank_zero_only.rank)
+    
+    if args.mode in ["train", "test"]:
         estimator_kwargs = {
             "freq": data_module.freq,
             "prediction_length": data_module.prediction_length,
@@ -755,7 +766,7 @@ def main():
             if not hasattr(estimator, 'distr_output'):
                 raise AttributeError(f"Estimator for model '{args.model}' is missing 'distr_output' attribute needed for DistributionForecastGenerator.")
             forecast_generator = DistributionForecastGenerator(estimator.distr_output)
-
+    
     if args.mode == "tune":
         logging.info("Starting Optuna hyperparameter tuning...")
 
