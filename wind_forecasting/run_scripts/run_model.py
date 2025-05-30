@@ -547,6 +547,11 @@ def main():
                         except yaml.YAMLError:
                             value = value_str # Keep as string if parsing fails
 
+                        if keys[0] == "model":
+                            keys[1] = args.model # Ensure the first key is the model name
+                        
+                        key_path = '.'.join(keys)  # Reconstruct the key path for logging
+                        
                         # Navigate nested dictionary and set value
                         d = config
                         for key in keys[:-1]:
@@ -566,7 +571,10 @@ def main():
                         # Case 2: Only key provided - Revert to original YAML value
                         key_path = override_item
                         keys = key_path.split('.')
-
+                        if keys[0] == "model":
+                            keys[1] = args.model # Ensure the first key is the model name
+                        key_path = '.'.join(keys)  # Reconstruct the key path for logging
+                        
                         # Navigate original YAML config to get the value
                         original_d = original_yaml_config
                         found_original = True
