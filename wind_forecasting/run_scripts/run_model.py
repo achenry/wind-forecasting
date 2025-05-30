@@ -393,7 +393,8 @@ def main():
         reload = False
     
     # other ranks should wait for this one 
-    data_module.generate_splits(save=True, reload=reload, splits=["train", "val", "test"])
+    # Pass the rank determined at the beginning of main() to handle both tuning and training modes
+    data_module.generate_splits(save=True, reload=reload, splits=["train", "val", "test"], rank=rank)
 
     # data_module.train_dataset = [ds for ds in data_module.train_dataset if ds["item_id"].endswith("SPLIT0")]
     
