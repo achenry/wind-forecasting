@@ -235,7 +235,7 @@ callbacks:
     progress_bar:
       class_path: lightning.pytorch.callbacks.TQDMProgressBar
       init_args:
-        refresh_rate: 1000  # every n steps
+        refresh_rate: 512  # every n steps
         leave: false
     # early_stopping:
     #   class_path: lightning.pytorch.callbacks.EarlyStopping
