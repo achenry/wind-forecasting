@@ -16,7 +16,7 @@ from gluonts.dataset.field_names import FieldName
 from gluonts.dataset.util import to_pandas
 import pickle
 # from gluonts.dataset.common import FileDataset
-# from gluonts.dataset import Dataset
+# from gluonts.dataset = Dataset
 
 import polars as pl
 import polars.selectors as cs
@@ -57,22 +57,28 @@ class DataModule():
     workers: int = 4
     pin_memory: bool = True
     persistent_workers: bool = True
+    _base_raw_data_path: str = "" # To store the original data_path
     
     def __post_init__(self):
-        self.set_train_ready_path()
+        # Store the initial data_path provided at instantiation. This will be immutable.
+        self._base_raw_data_path = self.data_path
+        self.set_train_ready_path() # Still call this, but it will use _base_raw_data_path
             
-        # convert context and prediction length from seconds to time stesp based on freq
+        # convert context and prediction length from seconds to time steps based on freq
         self.context_length = int(pd.Timedelta(self.context_length, unit="s") / pd.Timedelta(self.freq))
         self.prediction_length = int(pd.Timedelta(self.prediction_length, unit="s") / pd.Timedelta(self.freq))
-        assert self.context_length > 0, "context_length must be provided in seconds, and must be greaterthan resample_freq."
-        assert self.prediction_length > 0, "prediction_length must be provided in seconds, and must be greaterthan resample_freq."
+        assert self.context_length > 0, "context_length must be provided in seconds, and must be greater than resample_freq."
+        assert self.prediction_length > 0, "prediction_length must be provided in seconds, and must be greater than resample_freq."
     
     def set_train_ready_path(self):
+        # Use _base_raw_data_path to ensure the path derivation is always based on the original raw data location
+        base_path = self._base_raw_data_path # Use the immutable original path
+        
         if self.normalized:
-            self.train_ready_data_path = self.data_path.replace(
+            self.train_ready_data_path = base_path.replace(
                 ".parquet", f"_train_ready_{self.freq}_{'per_turbine' if self.per_turbine_target else 'all_turbine'}.parquet")
         else:
-            self.train_ready_data_path = self.data_path.replace(
+            self.train_ready_data_path = base_path.replace(
                 ".parquet", f"_train_ready_{self.freq}_{'per_turbine' if self.per_turbine_target else 'all_turbine'}_denormalize.parquet")
      
     def compute_scaler_params(self):
@@ -146,19 +152,21 @@ class DataModule():
         # or multivariate=multivariate dictionary for all measurements, to explicity capture all correlations
         # or debug= to use electricity dataset
     
-    # @profile
+    # @profile # prints memory usage
     def get_dataset_info(self, dataset=None):
         # print(f"Number of nan/null vars = {dataset.select(pl.sum_horizontal((cs.numeric().is_null() | cs.numeric().is_nan()).sum())).collect().item()}") 
         if dataset is None:
-            dataset = IterableLazyFrame(data_path=self.train_ready_data_path, dtype=self.dtype) 
+            temp_dataset_lazy = IterableLazyFrame(data_path=self.train_ready_data_path, dtype=self.dtype)
+            dataset_for_info = temp_dataset_lazy.collect() # Ensure it's eager for consistent processing below
+        else:
+            dataset_for_info = dataset # Already an eager DataFrame from generate_splits
         
         if self.verbose:
             logging.info("Getting continuity groups.") 
             
         if self.continuity_groups is None:
-            if "continuity_group" in dataset.collect_schema().names():
-                # TODO this is giving floats??
-                self.continuity_groups = dataset.select(pl.col("continuity_group").unique()).collect().to_numpy().flatten()
+            if "continuity_group" in dataset_for_info.columns: # Check columns for eager DataFrame
+                self.continuity_groups = dataset_for_info.select(pl.col("continuity_group").unique()).to_numpy().flatten() # No .collect()
             else:
                 self.continuity_groups = [0]
                 
@@ -167,11 +175,11 @@ class DataModule():
             
             logging.info(f"Getting column names.") 
         if self.target_suffixes is None:
-            self.target_cols = dataset.select(*[cs.starts_with(pfx) for pfx in self.target_prefixes]).collect_schema().names()
+            self.target_cols = dataset_for_info.select(*[cs.starts_with(pfx) for pfx in self.target_prefixes]).columns # Use .columns for eager DF
             self.target_suffixes = sorted(list(set(col.split("_")[-1] for col in self.target_cols)), key=lambda col: int(re.search("\\d+", col).group()))
         else:
-            self.target_cols = [col for col in dataset.collect_schema().names() if any(prefix in col for prefix in self.target_prefixes)]
-        self.feat_dynamic_real_cols = [col for col in dataset.collect_schema().names() if any(prefix in col for prefix in self.feat_dynamic_real_prefixes)]
+            self.target_cols = [col for col in dataset_for_info.columns if any(prefix in col for prefix in self.target_prefixes)] # Use .columns for eager DF
+        self.feat_dynamic_real_cols = [col for col in dataset_for_info.columns if any(prefix in col for prefix in self.feat_dynamic_real_prefixes)] # Use .columns for eager DF
         
         if self.verbose:
             logging.info(f"Found column names target_cols={self.target_cols}, feat_dynamic_real_cols={self.feat_dynamic_real_cols}.") 
@@ -215,10 +223,15 @@ class DataModule():
             logging.info(f"Rank {rank}/{world_size}: Entering generate_splits.")
 
         logging.info(f"Rank {rank}: Scanning dataset {self.train_ready_data_path}.")
-        dataset = IterableLazyFrame(data_path=self.train_ready_data_path, dtype=self.dtype)
+        dataset_lazy = IterableLazyFrame(data_path=self.train_ready_data_path, dtype=self.dtype)
         logging.info(f"Rank {rank}: Finished scanning dataset {self.train_ready_data_path}.")
 
-        self.get_dataset_info(dataset)
+        # Materialize the entire dataset to an eager DataFrame here for efficient slicing
+        logging.info(f"Rank {rank}: Collecting full dataset from {self.train_ready_data_path} to eager DataFrame.")
+        dataset_eager = dataset_lazy.collect()
+        logging.info(f"Rank {rank}: Finished collecting full dataset.")
+
+        self.get_dataset_info(dataset_eager) # Pass eager dataset for info extraction
         split_files_exist = all(os.path.exists(self.train_ready_data_path.replace(".parquet", f"_{split}.pkl")) for split in splits)
 
         if rank == 0 and (reload or not split_files_exist):
@@ -226,15 +239,19 @@ class DataModule():
             if self.per_turbine_target:
                 if self.verbose:
                     logging.info(f"Rank 0: Splitting datasets for per turbine case.")
-                cg_counts = dataset.select("continuity_group").collect().to_series().value_counts().sort("continuity_group").select("count").to_numpy().flatten()
+                
+                # Operate on dataset_eager directly since it's already collected.
+                cg_counts = dataset_eager.select("continuity_group").to_series().value_counts().sort("continuity_group").select("count").to_numpy().flatten()
                 self.rows_per_split = [
-                    int(n_rows / self.n_splits) 
-                    for turbine_id in self.target_suffixes 
+                    int(n_rows / self.n_splits)
+                    for turbine_id in self.target_suffixes
                     for n_rows in cg_counts] # each element corresponds to each continuity group
                 del cg_counts
-                self.continuity_groups = dataset.select(pl.col("continuity_group").unique()).collect().to_numpy().flatten()
+                self.continuity_groups = dataset_eager.select(pl.col("continuity_group").unique()).to_numpy().flatten()
+                
+                # Crucial change: Explicitly pass eager DataFrames to split_dataset. No more .collect() here.
                 self.train_dataset, self.val_dataset, self.test_dataset = \
-                    self.split_dataset([dataset.filter(pl.col("continuity_group") == cg) for cg in self.continuity_groups]) 
+                    self.split_dataset([dataset_eager.filter(pl.col("continuity_group") == cg) for cg in self.continuity_groups])
                     
                 for split in splits:
                     ds = getattr(self, f"{split}_dataset")
@@ -258,7 +275,7 @@ class DataModule():
                                 PolarsDataset(ds, 
                                         target=self.target_prefixes, timestamp="time", freq=self.freq, 
                                         feat_dynamic_real=self.feat_dynamic_real_prefixes, static_features=self.static_features, 
-                                        assume_sorted=True, assume_resampled=True, unchecked=True))
+                                        assume_sorted=True, assume_resampled=True,unchecked=True))
                 else:
                     
                     # convert dictionary of item_id: lazyframe datasets into list of dictionaries with numpy arrays for data
@@ -269,33 +286,37 @@ class DataModule():
                             if verbose:
                                 logging.info(f"Transforming {split} dataset {item_id} into numpy form.")
                             ds = getattr(self, f"{split}_dataset")[item_id]
-                            start_time = pd.Period(ds.select(pl.col("time").first()).collect().item(), freq=self.freq)
-                            ds = ds.select(self.feat_dynamic_real_prefixes + self.target_prefixes).collect().to_numpy().T
+                            # Start time, end time and ds conversion should happen on eager DataFrames.
+                            # Removed .collect() as ds is already an eager DataFrame from get_df_by_turbine.
+                            dataset_item_eager = ds 
+                            start_time = pd.Period(dataset_item_eager.select(pl.col("time").first()).item(), freq=self.freq)
+                            dataset_item_eager = dataset_item_eager.select(self.feat_dynamic_real_cols + self.target_prefixes).to_numpy().T
                             datasets.append({
-                                "target": ds[-len(self.target_prefixes):, :],
+                                "target": dataset_item_eager[-len(self.target_prefixes):, :],
                                  "item_id": item_id,
                                  "start": start_time,
                                  "feat_static_cat": [self.target_suffixes.index(re.search("(?<=TURBINE)\\w+(?=_SPLIT)", item_id).group(0))],
-                                 "feat_dynamic_real": ds[:-len(self.target_prefixes), :]
+                                 "feat_dynamic_real": dataset_item_eager[:-len(self.target_prefixes), :]
                             })
                             del getattr(self, f"{split}_dataset")[item_id]
                         setattr(self, f"{split}_dataset", datasets)
-
                 if verbose:
                     logging.info(f"Finished splitting datasets for per turbine case.") 
-
+                
             else:
                 if verbose:
                     logging.info(f"Splitting datasets for all turbine case.") 
                 
-                cg_counts = dataset.select("continuity_group").collect().to_series().value_counts().sort("continuity_group").select("count").to_numpy().flatten()
+                # Operate on dataset_eager directly since it's already collected.
+                cg_counts = dataset_eager.select("continuity_group").to_series().value_counts().sort("continuity_group").select("count").to_numpy().flatten()
                 self.rows_per_split = [int(n_rows / self.n_splits) for n_rows in cg_counts] # each element corresponds to each continuity group
                 del cg_counts
-                self.continuity_groups = dataset.select(pl.col("continuity_group").unique()).collect().to_numpy().flatten()
-                # generate an iterablelazy frame for each continuity group and split within it
+                self.continuity_groups = dataset_eager.select(pl.col("continuity_group").unique()).to_numpy().flatten()
+                
+                # Crucial change: Explicitly pass eager DataFrames to split_dataset. No more .collect() here.
                 self.train_dataset, self.val_dataset, self.test_dataset = \
-                    self.split_dataset([dataset.filter(pl.col("continuity_group") == cg) for cg in self.continuity_groups])
-
+                    self.split_dataset([dataset_eager.filter(pl.col("continuity_group") == cg) for cg in self.continuity_groups]) # Removed .collect()
+                
                 # train_grouper = MultivariateGrouper(
                 #     max_target_dim=self.num_target_vars,
                 #     split_on="continuity_group" if len(self.continuity_groups) > 1 else None
@@ -311,12 +332,10 @@ class DataModule():
                 if self.as_lazyframe:
                     for split in splits:
                         setattr(self, f"{split}_dataset", 
-                                PolarsDataset(
-                                    getattr(self, f"{split}_dataset"), 
-                                    timestamp="time", freq=self.freq, 
-                                    target=self.target_cols, feat_dynamic_real=self.feat_dynamic_real_cols, static_features=self.static_features, 
-                                    assume_sorted=True, assume_resampled=True, unchecked=True
-                            ))
+                                PolarsDataset(ds, 
+                                        target=self.target_prefixes, timestamp="time", freq=self.freq, 
+                                        feat_dynamic_real=self.feat_dynamic_real_prefixes, static_features=self.static_features, 
+                                        assume_sorted=True, assume_resampled=True,unchecked=True))
                         
                 else:
                     
@@ -328,13 +347,16 @@ class DataModule():
                             if self.verbose:
                                 logging.info(f"Transforming {split} dataset {item_id} into numpy form.")
                             ds = getattr(self, f"{split}_dataset")[item_id]
-                            start_time = pd.Period(ds.select(pl.col("time").first()).collect().item(), freq=self.freq)
-                            ds = ds.select(self.feat_dynamic_real_cols + self.target_cols).collect().to_numpy().T
+                            # Start time, end time and ds conversion should happen on eager DataFrames.
+                            # Removed .collect() as ds is already an eager DataFrame from the split_dataset output.
+                            dataset_item_eager = ds 
+                            start_time = pd.Period(dataset_item_eager.select(pl.col("time").first()).item(), freq=self.freq)
+                            dataset_item_eager = dataset_item_eager.select(self.feat_dynamic_real_cols + self.target_cols).to_numpy().T
                             datasets.append({
-                                "target": ds[-len(self.target_cols):, :],
+                                "target": dataset_item_eager[-len(self.target_cols):, :],
                                  "item_id": item_id,
                                  "start": start_time,
-                                 "feat_dynamic_real": ds[:-len(self.target_cols), :]
+                                 "feat_dynamic_real": dataset_item_eager[:-len(self.target_cols), :]
                             })
                             del getattr(self, f"{split}_dataset")[item_id]
                         setattr(self, f"{split}_dataset", datasets)
@@ -366,7 +388,7 @@ class DataModule():
                                     os.remove(temp_path)
                                 except OSError as e:
                                      logging.error(f"Rank 0: Error removing temp file {temp_path}: {e}")
-
+ 
         if is_distributed:
             logging.info(f"Rank {rank}: Waiting at barrier before loading splits.")
             dist.barrier()
@@ -386,24 +408,24 @@ class DataModule():
                         setattr(self, f"{split}_dataset", data)
                     logging.info(f"Rank {rank}: Successfully loaded {split} dataset from {split_path}.")
                 except EOFError as e:
-                     logging.error(f"Rank {rank}: EOFError loading {split_path}. File might be corrupted. Error: {e}")
-                     raise
+                    logging.error(f"Rank {rank}: EOFError loading {split_path}. File might be corrupted. Error: {e}")
+                    raise
                 except Exception as e:
-                     logging.error(f"Rank {rank}: Error loading {split_path}: {e}")
-                     raise
-
+                    logging.error(f"Rank {rank}: Error loading {split_path}: {e}")
+                    raise
+ 
         # for split, datasets in [("train", self.train_dataset), ("val", self.val_dataset), ("test", self.test_dataset)]:
         #     for ds in iter(datasets):
         #         for key in ["target", "feat_dynamic_real"]:
         #             print(f"{split} {key} {ds['item_id']} dataset - num nan/nulls = {ds[key].select(pl.sum_horizontal((cs.numeric().is_null() | cs.numeric().is_nan()).sum())).collect().item()}")
-          
+           
         # return dataset
         
     def get_df_by_turbine(self, dataset, turbine_id):
         return dataset.select(pl.col("time"), *[col for col in (self.feat_dynamic_real_cols + self.target_cols) if turbine_id in col])\
                         .rename(mapping={**{f"{tgt_col}_{turbine_id}": tgt_col for tgt_col in self.target_prefixes},
                                         **{f"{feat_col}_{turbine_id}": feat_col for feat_col in self.feat_dynamic_real_prefixes}})
-
+ 
     def split_datasets_by_turbine(self, datasets):
          
         return [
@@ -412,7 +434,7 @@ class DataModule():
                                        + [pl.col(f"{feat_col}_{turbine_id}") for feat_col in self.feat_dynamic_real_prefixes]
                 ) for ds in datasets for turbine_id in self.target_suffixes
         ]
-
+ 
     # def denormalize(self, split):
     #     assert split in ["train", "test", "val"]
     #     ds = getattr(self, f"{split}_dataset")
@@ -423,72 +445,93 @@ class DataModule():
         val_datasets = []
         
         # TODO total past length may also have to supercede context_len + max(self.lags_seq)
-        for cg, ds in enumerate(dataset):
-            # TODO in this case should just add to training data anyway? 
-            if round(min(self.train_split, self.val_split, self.test_split) * self.rows_per_split[cg] * self.n_splits) < self.context_length + self.prediction_length:
-                logging.info(f"Can't split dataset corresponding to continuity group {cg} into training, validation, testing, the full dataset only has data points {round(self.rows_per_split[cg] * self.n_splits)}")
+        min_observation_length = self.context_length + self.prediction_length
+
+        for cg, df_cg in enumerate(dataset): # df_cg is an eager DataFrame per continuity group now as per generate_splits changes
+            
+            # TODO total past length may also have to supercede context_len + max(self.lags_seq)
+            # The previous check was a bit complex due to round() and self.rows_per_split
+            # Replaced with a direct check on the collected DataFrame's length
+            if len(df_cg) < min_observation_length:
+                logging.info(f"Can't split dataset corresponding to continuity group {cg} into training, validation, testing, the full dataset only has data points {len(df_cg)} (min needed: {min_observation_length}).")
                 
-                if self.train_split * self.rows_per_split[cg] * self.n_splits >= self.context_length + self.prediction_length:
-                    logging.info(f"Adding dataset corresponding to continuity group {cg} to training data, since it can't be split")
-                    train_datasets += [ds] 
-                
+                # If it's too short for splitting, add whole thing to train if long enough for an observation
+                if len(df_cg) >= min_observation_length:
+                    logging.info(f"Adding dataset corresponding to continuity group {cg} to training data, since it's too short to be split proportionally but can form observations.")
+                    train_datasets.append(df_cg.select(pl.exclude("continuity_group"))) # Exclude cg column here
+                else:
+                    logging.info(f"Continuity group {cg} (length {len(df_cg)}) is too short for any observation ({min_observation_length} needed). Skipping entirely.")
                 continue
             
-            # splitting each continuity group into subsections, a training/val/test dataset will then be generated from each subsection. 
+            # Splitting each continuity group into subsections, a training/val/test dataset will then be generated from each subsection.
             # We do this to get a coherent mix of training, val, test data that is more independent of trends over time
-            datasets = [] 
-            for split_idx in range(self.n_splits):
-                slc = slice(split_idx * self.rows_per_split[cg], (split_idx + 1) * self.rows_per_split[cg])
-                # check that each split is at least context_len + target_len long, otherwise don't split it
-                # if slc.stop - slc.start >= self.context_length + self.prediction_length:
-                
-                if round(min(self.train_split, self.val_split, self.test_split) * (slc.stop - slc.start)) >= self.context_length + self.prediction_length: 
-                    # split_dataset.append(slice_data_entry(ds, slice_=slc))
-                    # logging.info(f"full dataset cg {cg} split {split_idx} 
-                    #                 start time = {split_dataset[-1]['start']}, 
-                    #                 end time = {split_dataset[-1]['start'] + split_dataset[-1]['target'].shape[1]}, 
-                    #                 duration = {split_dataset[-1]['target'].shape[1] * pd.Timedelta(split_dataset[-1]['start'].freq)}")
+            segments = [] # Renamed from 'datasets' to avoid confusion with overall train/val/test_datasets
+            num_rows_in_cg = len(df_cg) # Length of the current entire continuity group DataFrame
+            
+            # Use self.n_splits to segment the current continuity group DataFrame
+            rows_per_split_segment = num_rows_in_cg // self.n_splits # Integer division for segment size
 
-                    datasets.append(ds.select(pl.exclude("continuity_group")).slice(slc.start, slc.stop - slc.start))
-                    start_time = datasets[-1].select(pl.col("time").first()).collect().item()
-                    end_time = datasets[-1].select(pl.col("time").last()).collect().item()
+            for split_idx in range(self.n_splits):
+                start_idx = split_idx * rows_per_split_segment
+                # For the last segment, take all remaining rows to avoid truncation
+                end_idx = (split_idx + 1) * rows_per_split_segment if split_idx < self.n_splits - 1 else num_rows_in_cg
+
+                current_segment = df_cg.slice(start_idx, end_idx - start_idx).select(pl.exclude("continuity_group"))
+                
+                # Only add if the segment itself is long enough for at least one observation
+                if len(current_segment) >= min_observation_length:
+                    segments.append(current_segment)
+                    # Log info about the segment
+                    start_time = current_segment.select(pl.col("time").first()).item()
+                    end_time = current_segment.select(pl.col("time").last()).item()
                     duration = end_time - start_time
                     logging.info(f"full dataset cg {cg} split {split_idx}, start time = {start_time}, end time = {end_time}, duration = {duration}")
                 else:
-                    logging.info(f"Can't split dataset {cg} into {self.n_splits} , not enough data points, returning whole.")
-                    # split_dataset = [ds]
-                    self.rows_per_split[cg] *= self.n_splits
-                    datasets.append(ds.select(pl.exclude("continuity_group")))
-                    break
+                    logging.warning(f"Segment from CG {cg} split {split_idx} (length {len(current_segment)}) too short for observation. Skipping this segment.")
             
-            train_offset = round(self.train_split * self.rows_per_split[cg])
-            val_offset = round(self.val_split * self.rows_per_split[cg])
-            test_offset = round(self.test_split * self.rows_per_split[cg])
+            if not segments:
+                logging.warning(f"No valid segments generated for continuity group {cg}. Skipping this group for proportional splitting.")
+                continue # Skip this continuity group if no valid segments could be formed
 
-            # TODO shouldn't test data include history, and just the labels be unseen by training data?
-            # train_datasets.append(ds.slice(0, train_offset))
-            # val_datasets.append(ds.slice(train_offset, val_offset))
-            # test_datasets.append(ds.slice(train_offset + val_offset, test_offset))
-            train_datasets += [d.slice(0, train_offset) for d in datasets]
-            val_datasets += [d.slice(train_offset, val_offset) for d in datasets]
-            test_datasets += [d.slice(train_offset + val_offset, test_offset) for d in datasets]
-            
-            # TODO doesn't work with iterable lazy frame
-            # if self.verbose:
-            #     for t, train_entry in enumerate(iter(train_datasets)):
-            #         logging.info(f"training dataset cg {cg}, split {t} start time = {train_entry['start']}, end time = {train_entry['start'] + train_entry['target'].shape[1]}, duration = {train_entry['target'].shape[1] * pd.Timedelta(train_entry['start'].freq)}\n")
-
-            #     for v, val_entry in enumerate(iter(val_datasets)):
-            #         logging.info(f"validation dataset cg {cg}, split {v} start time = {val_entry['start']}, end time = {val_entry['start'] + val_entry['target'].shape[1]}, duration = {val_entry['target'].shape[1] * pd.Timedelta(val_entry['start'].freq)}\n")
-
-            #     for t, test_entry in enumerate(iter(test_datasets)):
-            #         logging.info(f"test dataset cg {cg}, split {t} start time = {test_entry['start']}, end time = {test_entry['start'] + test_entry['target'].shape[1]}, duration = {test_entry['target'].shape[1] * pd.Timedelta(test_entry['start'].freq)}\n")
-            
-            # n_test_windows = int((self.test_split * self.rows_per_split[cg]) / self.prediction_length)
-            # test_dataset = test_gen.generate_instances(prediction_length=self.prediction_length, windows=n_test_windows)
+            # Process each sub-segment (which are now eager DataFrames)
+            for s in segments: # 's' is now an eager DataFrame segment
+                current_sub_segment_len = len(s) # Direct length of DataFrame
+                
+                # Calculate specific split points for this sub-segment based on its actual length
+                train_slice_len = int(current_sub_segment_len * self.train_split)
+                val_slice_len = int(current_sub_segment_len * self.val_split)
+                
+                # Ensure minimum length for slices
+                # Important: Slices must be at least min_observation_length to be useful for models
+                # The remaining part implicitly becomes the test slice
+                
+                temp_train_segment = s.slice(0, train_slice_len)
+                temp_val_segment = s.slice(train_slice_len, val_slice_len)
+                temp_test_segment = s.slice(train_slice_len + val_slice_len) # Slice from here to end
+                
+                # Add to respective lists only if the segment is long enough
+                if len(temp_train_segment) >= min_observation_length:
+                    train_datasets.append(temp_train_segment)
+                else:
+                    logging.warning(f"Train part of sub-segment from CG {cg} (len {len(temp_train_segment)}) too short, skipping from train_datasets.")
+                
+                if len(temp_val_segment) >= min_observation_length:
+                    val_datasets.append(temp_val_segment)
+                else:
+                    logging.warning(f"Validation part of sub-segment from CG {cg} (len {len(temp_val_segment)}) too short, skipping from val_datasets. This may lead to no validation samples.")
+                
+                if len(temp_test_segment) >= min_observation_length:
+                    test_datasets.append(temp_test_segment)
+                else:
+                    logging.warning(f"Test part of sub-segment from CG {cg} (len {len(temp_test_segment)}) too short, skipping from test_datasets.")
+                
+            logging.info(f"CG {cg} Sub-segment split details (Min {min_observation_length} needed): "
+                         f"Train: {len(temp_train_segment)}, " # Use final length of appended segment
+                         f"Val: {len(temp_val_segment)}, "
+                         f"Test: {len(temp_test_segment)}")
             
         return train_datasets, val_datasets, test_datasets
-
+ 
     def highlight_entry(self, entry, color, ax, vlines=None):
         start = entry["start"].to_timestamp()
         # end = entry["start"] + (entry["target"].shape[1] * entry["start"].freq.delta)
@@ -508,8 +551,12 @@ class DataModule():
                 # df = to_pandas(entry, is_multivariate=True).reset_index(names="time")
                 # pd.DataFrame(
                 #     data=entry[FieldName.TARGET].T,
-                #     index=period_index(entry, freq=freq),
-                # )
+                #     index=pd.period_range(
+                #         start=entry[FieldName.START],
+                #         periods=entry[FieldName.TARGET].select(pl.len()).collect().item(),
+                #         freq=entry[FieldName.START].freq,
+                #     )
+                # ).reset_index(names="time")
                 df = pd.DataFrame(
                     data=entry[FieldName.TARGET].collect().to_numpy(),
                     index=pd.period_range(
@@ -524,13 +571,13 @@ class DataModule():
                 for a in range(self.num_target_vars):
                     sns.lineplot(data=df, ax=axs[a], x="time", y=df.columns[a + 1])
                     self.highlight_entry(entry, colors[d], ax=axs[a], vlines=(0.0, 0.5))
-
+ 
         # for t, (test_input, test_label) in enumerate(self.test_dataset):
         #     for a in range(self.num_target_vars):
-        #         # self.highlight_entry(test_input, colors[2], axs[a])
-        #         self.highlight_entry(test_label, colors[3], axs[a])
-
-            # plt.legend(["sub dataset", "test input", "test label"], loc="upper left")
+        #         # self.highlight_entry
+        #         # self.highlight_entry(test_label, colors[3], axs[a])
+        
+        # plt.legend(["sub dataset", "test input", "test label"], loc="upper left")
         
         fig.show()
         
@@ -543,7 +590,7 @@ class DataModule():
             persistent_workers=self.persistent_workers,
             shuffle=True
         )
-
+ 
     def val_dataloader(self):
         return DataLoader(
             self.val_dataset,
@@ -553,7 +600,7 @@ class DataModule():
             persistent_workers=self.persistent_workers,
             shuffle=False
         )
-
+ 
     def test_dataloader(self):
         return DataLoader(
             self.test_dataset,

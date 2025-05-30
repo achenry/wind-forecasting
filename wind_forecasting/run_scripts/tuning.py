@@ -39,6 +39,7 @@ from wind_forecasting.utils.trial_utils import handle_trial_with_oom_protection
 
 import random
 import numpy as np
+import pickle
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -203,6 +204,172 @@ def _generate_optuna_dashboard_command(db_setup_params, final_study_name):
     """
     return example_command
 
+
+def extract_tunable_split_parameters(config):
+    """Extract all parameter combinations that affect data splits"""
+    # Use the new config key for context_length_factors_choices
+    context_length_factors = config["dataset"].get("context_length_factors_choices", [2, 3, 4, 5])
+    resample_freq_choices = config.get("optuna", {}).get("resample_freq_choices", [60])
+    return list(product(context_length_factors, resample_freq_choices))
+
+def get_split_cache_path(data_module, context_length_factor, resample_freq_seconds):
+    """Generate consistent cache path for split files"""
+    # Assuming data_module.data_path is the base path for raw data
+    base_file_dir = os.path.dirname(data_module.data_path)
+    # The cache directory will be alongside the original preprocessed data
+    cache_dir = os.path.join(base_file_dir, "cached_splits")
+    
+    # Create unique identifier including all relevant parameters
+    split_id = f"ctx{context_length_factor}_freq{resample_freq_seconds}s_per{data_module.per_turbine_target}_pred{data_module.prediction_length}"
+    
+    return {
+        'cache_dir': cache_dir,
+        'train_path': os.path.join(cache_dir, f"train_split_{split_id}.pkl"),
+        'val_path': os.path.join(cache_dir, f"val_split_{split_id}.pkl"),
+        'test_path': os.path.join(cache_dir, f"test_split_{split_id}.pkl")
+    }
+
+def precompute_all_data_splits(data_module, config, parameter_combinations, force_recompute: bool = False):
+    """Pre-compute all required data splits with aggressive memory management"""
+    logging.info(f"Starting pre-computation of {len(parameter_combinations)} split combinations")
+    
+    # Store original data_module state
+    original_data_path = data_module.data_path # Need this to reset set_train_ready_path correctly
+    original_freq = data_module.freq
+    original_per_turbine = data_module.per_turbine_target
+    original_prediction_length = data_module.prediction_length
+    original_context_length = data_module.context_length
+    
+    try:
+        for i, (context_length_factor, resample_freq_seconds) in enumerate(parameter_combinations):
+            logging.info(f"Pre-computing combination {i+1}/{len(parameter_combinations)}: "
+                        f"context_factor={context_length_factor}, freq={resample_freq_seconds}s")
+            
+            # Set data_module parameters for this combination
+            current_freq_str = f"{resample_freq_seconds}s"
+            data_module.freq = current_freq_str
+            data_module.per_turbine_target = config["dataset"].get("per_turbine_target", False)
+            
+            # Calculate derived parameters
+            original_prediction_len_seconds = config["dataset"]["prediction_length"]
+            current_prediction_len_timesteps = int(
+                pd.Timedelta(original_prediction_len_seconds, unit="s") /
+                pd.Timedelta(current_freq_str)
+            )
+            # Ensure context_length is converted to timesteps for DataModule init/methods
+            adjusted_context_length_seconds = config["dataset"]["context_length"]
+            tuned_model_context_len_timesteps = int(context_length_factor * current_prediction_len_timesteps) # Use prediction_length calculated from current freq
+            
+            data_module.prediction_length = current_prediction_len_timesteps
+            data_module.context_length = tuned_model_context_len_timesteps # Direct assignment in timesteps
+            
+            # Check if splits already exist
+            cache_info = get_split_cache_path(data_module, context_length_factor, resample_freq_seconds)
+            os.makedirs(cache_info['cache_dir'], exist_ok=True)
+            
+            if (not force_recompute and
+                os.path.exists(cache_info['train_path']) and
+                os.path.exists(cache_info['val_path'])):
+                logging.info(f"Splits already exist for this combination, skipping (use force_recompute=True to overwrite).")
+                continue
+            
+            # Ensure base resampled data exists
+            data_module.set_train_ready_path() # Update path based on current freq/per_turbine
+            if not os.path.exists(data_module.train_ready_data_path):
+                logging.info(f"Generating base resampled data: {data_module.train_ready_data_path}")
+                data_module.generate_datasets()
+            
+            # Generate splits for the current combination, without saving to default paths
+            logging.info(f"Generating splits for context_length={data_module.context_length}, pred_length={data_module.prediction_length}")
+            data_module.generate_splits(save=False, reload=False, splits=["train", "val"])
+            
+            # Save splits to cache
+            logging.info(f"Saving splits to cache: {cache_info['cache_dir']}")
+            
+            for split in ["train", "val"]: # Only save train and val for now
+                split_path = cache_info[f'{split}_path']
+                temp_path = split_path + ".tmp"
+                try:
+                    with open(temp_path, 'wb') as f:
+                        pickle.dump(getattr(data_module, f"{split}_dataset"), f)
+                    os.rename(temp_path, split_path)
+                    logging.info(f"Saved {split} split to {split_path}")
+                except Exception as e:
+                    logging.error(f"Error saving {split} split: {e}")
+                    if os.path.exists(temp_path):
+                        os.remove(temp_path)
+                    raise
+                
+            # Aggressive memory cleanup for current data_module datasets
+            data_module.train_dataset = None
+            data_module.val_dataset = None
+            data_module.test_dataset = None # Also clear test if it was set
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            
+            logging.info(f"Completed combination {i+1}/{len(parameter_combinations)}")
+            
+    finally:
+        # Restore original data_module state
+        data_module.data_path = original_data_path # Restore original data_path before calling set_train_ready_path
+        data_module.freq = original_freq
+        data_module.per_turbine_target = original_per_turbine
+        data_module.prediction_length = original_prediction_length
+        data_module.context_length = original_context_length # Restore original context_length in seconds
+        data_module.set_train_ready_path() # Reset train_ready_data_path to original state
+        
+        # Final cleanup after restoring original state
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+    
+    logging.info("Pre-computation of all data splits completed")
+
+
+def load_precomputed_splits(data_module, config, context_length_factor, resample_freq_seconds):
+    """Load pre-computed splits for specific parameters"""
+    # Temporarily set data_module attributes to generate correct cache path
+    original_freq = data_module.freq
+    original_prediction_length = data_module.prediction_length
+    original_context_length = data_module.context_length
+    original_per_turbine = data_module.per_turbine_target
+
+    # Update data_module attributes for path generation
+    current_freq_str = f"{resample_freq_seconds}s"
+    data_module.freq = current_freq_str
+    
+    original_prediction_len_seconds_from_config = config["dataset"]["prediction_length"] # Using config param
+    current_prediction_len_timesteps = int(
+        pd.Timedelta(original_prediction_len_seconds_from_config, unit="s") /
+        pd.Timedelta(current_freq_str)
+    )
+    tuned_model_context_len_timesteps = int(context_length_factor * current_prediction_len_timesteps)
+    
+    data_module.prediction_length = current_prediction_len_timesteps
+    data_module.context_length = tuned_model_context_len_timesteps
+    
+    cache_info = get_split_cache_path(data_module, context_length_factor, resample_freq_seconds)
+    
+    # Restore original data_module attributes before proceeding with loading
+    data_module.freq = original_freq
+    data_module.prediction_length = original_prediction_length
+    data_module.context_length = original_context_length
+    data_module.per_turbine_target = original_per_turbine
+
+    if not (os.path.exists(cache_info['train_path']) and os.path.exists(cache_info['val_path'])):
+        raise FileNotFoundError(f"Pre-computed splits not found for context_factor={context_length_factor}, "
+                               f"freq={resample_freq_seconds}s. Expected paths: train={cache_info['train_path']}, val={cache_info['val_path']}")
+    
+    logging.info(f"Loading pre-computed splits from: {cache_info['cache_dir']}")
+    
+    for split in ["train", "val"]:
+        split_path = cache_info[f'{split}_path']
+        with open(split_path, 'rb') as f:
+            setattr(data_module, f"{split}_dataset", pickle.load(f))
+    
+    logging.info(f"Successfully loaded pre-computed splits for context_length_factor={context_length_factor}, resample_freq={resample_freq_seconds}s")
+    
 # Wrapper class to safely pass the Optuna pruning callback to PyTorch Lightning
 class SafePruningCallback(pl.Callback):
     def __init__(self, trial: optuna.trial.Trial, monitor: str):
@@ -352,23 +519,39 @@ class MLTuningObjective:
             self.data_module.per_turbine_target = params["per_turbine"]
             needs_split_regeneration = True
 
-        # If any critical DataModule parameter changed that affects splitting, regenerate splits.
-        if needs_split_regeneration:
-            logging.info(f"Trial {trial.number}: DataModule parameters changed. Loading or generating splits.")
-            self.data_module.set_train_ready_path()
+        # If any critical DataModule parameter changed that affects splitting, load pre-computed or regenerate.
+        # Always attempt to load pre-computed splits, or regenerate if not found/corrupted/forced
+        logging.info(f"Trial {trial.number}: Attempting to load pre-computed splits for current parameters (ctx_factor={context_length_factor_trial}, freq={current_freq_val}s).")
+        try:
+            load_precomputed_splits(
+                self.data_module, self.config, context_length_factor_trial, current_freq_val
+            )
+            logging.info(f"Trial {trial.number}: Successfully loaded pre-computed splits.")
+        except FileNotFoundError as e:
+            logging.warning(f"Trial {trial.number}: Pre-computed splits not found or incomplete for this combination. Regeneration will occur: {e}. Path(s) checked: {e}")
+            # Fallback to regeneration if pre-computed splits are not found or corrupted
+            self.data_module.set_train_ready_path() # Ensure path is set for regeneration based on new params
 
             if not os.path.exists(self.data_module.train_ready_data_path):
-                logging.error(f"Trial {trial.number}: ERROR: Base resampled Parquet file {self.data_module.train_ready_data_path} does not exist. Pre-computation issue.")
-                raise FileNotFoundError(f"Missing pre-computed base Parquet file for freq {self.data_module.freq} and per_turbine {self.data_module.per_turbine_target}")
+                logging.error(f"Trial {trial.number}: ERROR: Base resampled Parquet file {self.data_module.train_ready_data_path} does not exist. Pre-computation issue or missing base data.")
+                raise FileNotFoundError(f"Missing base Parquet file for freq {self.data_module.freq} and per_turbine {self.data_module.per_turbine_target}")
 
-            logging.info(f"Trial {trial.number}: Calling generate_splits with reload=False. Path: {self.data_module.train_ready_data_path}")
+            logging.info(f"Trial {trial.number}: Calling generate_splits (regeneration) with reload=False. Path: {self.data_module.train_ready_data_path}")
             try:
-                self.data_module.generate_splits(save=True, reload=False, splits=["train", "val"])
-            except Exception as e:
-                logging.error(f"Trial {trial.number}: Error during data split generation: {e}", exc_info=True)
+                self.data_module.generate_splits(save=False, reload=False, splits=["train", "val"])
+                logging.info(f"Trial {trial.number}: Successfully regenerated data splits.")
+            except Exception as e_regen:
+                logging.error(f"Trial {trial.number}: Error during data split regeneration fallback: {e_regen}", exc_info=True)
                 raise
-        else:
-            logging.info(f"Trial {trial.number}: No DataModule parameter changes. Using existing splits.")
+        except Exception as e:
+            logging.error(f"Trial {trial.number}: Unexpected error during split loading/regeneration: {e}", exc_info=True)
+            raise
+
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            logging.info(f"Trial {trial.number}: Completed aggressive memory cleanup after data handling.")
+
         estimator_sig = inspect.signature(self.estimator_class.__init__)
         estimator_params = [param.name for param in estimator_sig.parameters.values()]
 
@@ -1417,43 +1600,34 @@ def tune_model(model, config, study_name, optuna_storage, lightning_module_class
     # Worker ID already fetched above for study creation/loading
     dynamic_params = None
 
-    if tuning_phase == 0 and worker_id == "0":
+    if worker_id == "0": # Pre-computation always happens on Rank 0
+        # Pre-computation of ALL data splits for all relevant combinations
+        # This occurs only on rank 0 at the very start of the tuning process.
+        logging.info("Rank 0: Starting pre-computation phase for all data splits.")
+        all_split_combinations = extract_tunable_split_parameters(config)
+        precompute_all_data_splits(data_module, config, all_split_combinations, force_recompute=restart_tuning)
+        logging.info("Rank 0: Pre-computation phase completed.")
+
+        # Set dynamic_params for Optuna to draw from the pre-computed ranges
         resample_freq_choices = config["optuna"].get("resample_freq_choices", [int(data_module.freq[:-1])])
-        fixed_per_turbine = config.get("dataset", {}).get("per_turbine_target", False)
-        logging.info(f"Rank 0: DataModule 'per_turbine_target' fixed to: {fixed_per_turbine} for pre-computation.")
+        context_length_factors_choices = config["dataset"].get("context_length_factors_choices", [3, 4, 5])
+        
+        dynamic_params = {
+            "resample_freq": resample_freq_choices,
+            "context_length_factor": context_length_factors_choices
+        }
+    else:
+        logging.info(f"Rank {worker_id}: Skipping pre-computation as not rank 0.")
+        # Ensure dynamic_params are set for Optuna to suggest the correct ranges
+        resample_freq_choices = config["optuna"].get("resample_freq_choices", [int(data_module.freq[:-1])])
+        context_length_factors_choices = config["dataset"].get("context_length_factors_choices", [3, 4, 5])
 
-        original_dm_freq = data_module.freq
-        original_dm_per_turbine = data_module.per_turbine_target
-        original_dm_pred_len = data_module.prediction_length
-        original_dm_ctx_len = data_module.context_length
+        dynamic_params = {
+            "resample_freq": resample_freq_choices,
+            "context_length_factor": context_length_factors_choices
+        }
 
-        logging.info("Rank 0: Starting pre-computation of base resampled Parquet files.")
-        for resample_freq_seconds in resample_freq_choices:
-            current_freq_str = f"{resample_freq_seconds}s"
-            logging.info(f"Rank 0: Checking/generating base resampled Parquet for freq={current_freq_str}, per_turbine={fixed_per_turbine}.")
-            
-            data_module.freq = current_freq_str
-            data_module.per_turbine_target = fixed_per_turbine
-            
-            original_prediction_len_seconds_config = config["dataset"]["prediction_length"]
-            data_module.prediction_length = int(pd.Timedelta(original_prediction_len_seconds_config, unit="s") / pd.Timedelta(data_module.freq))
-            
-            data_module.set_train_ready_path()
-
-            if not os.path.exists(data_module.train_ready_data_path):
-                logging.info(f"Rank 0: Base resampled Parquet {data_module.train_ready_data_path} not found. Calling DataModule.generate_datasets().")
-                data_module.generate_datasets()
-            else:
-                logging.info(f"Rank 0: Base resampled Parquet {data_module.train_ready_data_path} already exists.")
-
-        data_module.freq = original_dm_freq
-        data_module.per_turbine_target = original_dm_per_turbine
-        data_module.prediction_length = original_dm_pred_len
-        data_module.context_length = original_dm_ctx_len
-        data_module.set_train_ready_path()
-
-        logging.info("Rank 0: Finished pre-computation of base resampled Parquet files.")
-        dynamic_params = {"resample_freq": resample_freq_choices}
+    logging.info(f"Worker {worker_id}: Participating in Optuna study {final_study_name}")
 
     logging.info(f"Worker {worker_id}: Participating in Optuna study {final_study_name}")
 
