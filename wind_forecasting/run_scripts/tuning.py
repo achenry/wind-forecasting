@@ -1561,6 +1561,15 @@ def tune_model(model, config, study_name, optuna_storage, lightning_module_class
     elif not isinstance(optimize_callbacks, list):
         optimize_callbacks = [optimize_callbacks]
 
+    # Add sampler/pruner state checkpointing callback for crash recovery
+    # Save after every trial completion to preserve TPESampler algorithmic state
+    sampler_checkpoint_callback = sampler_pruner_persistence.create_trial_completion_callback(
+        worker_id=worker_id,
+        save_frequency=1  # Save after every trial - overhead is minimal compared to trial duration
+    )
+    optimize_callbacks.append(sampler_checkpoint_callback)
+    logging.info(f"Worker {worker_id}: Added sampler state checkpointing after every trial completion")
+
     try:
         n_trials_per_worker = config["optuna"].get("n_trials_per_worker", 10)
         total_study_trials_config = config["optuna"].get("total_study_trials")

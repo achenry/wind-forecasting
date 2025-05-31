@@ -7,6 +7,7 @@ import logging
 
 import optuna
 from optuna.samplers import TPESampler
+from optuna.trial import TrialState
 
 class OptunaSamplerPrunerPersistence:
     def __init__(self, config, seed):
@@ -217,6 +218,11 @@ class OptunaSamplerPrunerPersistence:
         sampler_path = os.path.join(pickle_dir, f"sampler_{final_study_name}.pkl")
         pruner_path = os.path.join(pickle_dir, f"pruner_{final_study_name}.pkl")
         
+        # Store paths for potential later use in callbacks
+        self._sampler_path = sampler_path
+        self._pruner_path = pruner_path
+        self._final_study_name = final_study_name
+        
         if worker_id == '0':
             # Worker 0 logic
             study_exists = False
@@ -266,3 +272,49 @@ class OptunaSamplerPrunerPersistence:
             # Non-Worker-0 logic
             logging.info(f"Worker {worker_id}: Waiting for sampler/pruner pickle files from worker 0")
             return self._wait_and_load_sampler_pruner(sampler_path, pruner_path)
+    
+    def create_trial_completion_callback(self, worker_id, save_frequency=10):
+        """
+        Create a callback function to save sampler/pruner state after trial completion.
+        This preserves the algorithmic state accumulated by TPESampler for crash recovery.
+        
+        Args:
+            worker_id: Worker ID string - only worker '0' will save to avoid race conditions
+            save_frequency: Save state every N completed trials (default: 10)
+            
+        Returns:
+            Callable: Optuna callback function that can be passed to study.optimize()
+        """
+        def sampler_state_checkpoint_callback(study, trial):
+            """
+            Callback to save sampler/pruner state after trial completion.
+            Called after ANY trial ending (COMPLETE, FAIL, PRUNED) to preserve learning.
+            Each worker saves state after completing their own trials.
+            """
+            # Save after ANY terminal state - TPESampler learns from all outcomes
+            if trial.state not in [TrialState.COMPLETE, 
+                                   TrialState.FAIL, 
+                                   TrialState.PRUNED]:
+                return
+                
+            # Save every N trials to balance I/O overhead vs recovery granularity
+            if trial.number % save_frequency == 0:
+                try:
+                    logging.info(f"Worker {worker_id} - Trial {trial.number} ({trial.state.name}): Checkpointing sampler/pruner state...")
+                    
+                    # Use atomic operations to prevent corruption during concurrent access
+                    # Multiple workers can safely write due to atomic file operations
+                    self._save_sampler_pruner_atomic(
+                        study.sampler, 
+                        study.pruner, 
+                        self._sampler_path, 
+                        self._pruner_path
+                    )
+                    
+                    logging.info(f"Worker {worker_id} - Trial {trial.number}: Sampler/pruner state checkpoint saved successfully")
+                    
+                except Exception as e:
+                    # Log warning but don't fail the trial - state saving is non-critical for current execution
+                    logging.warning(f"Worker {worker_id} - Trial {trial.number}: Failed to checkpoint sampler/pruner state: {e}")
+                    
+        return sampler_state_checkpoint_callback
