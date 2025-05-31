@@ -2,9 +2,9 @@ import os
 from collections import defaultdict
 import logging
 from memory_profiler import profile
+import inspect
 from glob import glob
-import re
-from torch import load as torch_load
+import torch
 from datetime import datetime
 
 import numpy as np
@@ -12,36 +12,17 @@ import pandas as pd
 import seaborn as sns
 from matplotlib import pyplot as plt
 
-from gluonts.torch.distributions import LowRankMultivariateNormalOutput
-from gluonts.model.forecast_generator import DistributionForecastGenerator
 from gluonts.evaluation import MultivariateEvaluator, make_evaluation_predictions
 
-from pytorch_transformer_ts.informer.lightning_module import InformerLightningModule
-from pytorch_transformer_ts.informer.estimator import InformerEstimator
-from pytorch_transformer_ts.autoformer.estimator import AutoformerEstimator
-from pytorch_transformer_ts.autoformer.lightning_module import AutoformerLightningModule
-from pytorch_transformer_ts.spacetimeformer.estimator import SpacetimeformerEstimator
-from pytorch_transformer_ts.spacetimeformer.lightning_module import SpacetimeformerLightningModule
-from wind_forecasting.preprocessing.data_module import DataModule
-from gluonts.time_feature._base import second_of_minute, minute_of_hour, hour_of_day, day_of_year
-from gluonts.transform import ExpectedNumInstanceSampler, ValidationSplitSampler, SequentialSampler
-from wind_forecasting.postprocessing.probabilistic_metrics import continuous_ranked_probability_score_gaussian, reliability, resolution, uncertainty, sharpness, pi_coverage_probability, pi_normalized_average_width, coverage_width_criterion 
+from wind_forecasting.postprocessing.probabilistic_metrics import continuous_ranked_probability_score_gaussian, pi_coverage_probability, pi_normalized_average_width, coverage_width_criterion 
 
 # Configure logging and matplotlib backend
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # if sys.platform == "darwin":
 #     matplotlib.use('TkAgg')
-    
-mpi_exists = False
-try:
-    from mpi4py import MPI
-    mpi_exists = True
-except:
-    print("No MPI available on system.")
 
-
-def test_model(*, data_module, checkpoint, lightning_module_class, normalization_consts_path, estimator):
+def test_model(*, data_module, checkpoint, lightning_module_class, normalization_consts_path, estimator, forecast_generator):
     
     normalization_consts = pd.read_csv(normalization_consts_path, index_col=None)
     if os.path.exists(checkpoint):
@@ -49,7 +30,7 @@ def test_model(*, data_module, checkpoint, lightning_module_class, normalization
         model = lightning_module_class.load_from_checkpoint(checkpoint)
         transformation = estimator.create_transformation(use_lazyframe=False)
         predictor = estimator.create_predictor(transformation, model, 
-                                                forecast_generator=DistributionForecastGenerator(estimator.distr_output))
+                                                forecast_generator=forecast_generator)
     else:
         raise TypeError("Must provide a --checkpoint argument to load from.")
 
@@ -198,35 +179,47 @@ def test_model(*, data_module, checkpoint, lightning_module_class, normalization
     print("here")
 
 def get_checkpoint(checkpoint, metric, mode, log_dir):
-    
+    # TODO look for 'last.ckpt' for latest
     if checkpoint is None:
         return None
     elif checkpoint in ["best", "latest"]:
-        checkpoint_paths = glob(os.path.join(log_dir, "*/*/*/*/*.ckpt"))
+        checkpoint_paths = glob(os.path.join(log_dir, "*/*.ckpt")) + glob(os.path.join(log_dir, "*/*/*.ckpt"))
         # version_dirs = glob(os.path.join(log_dir, "*"))
         if len(checkpoint_paths) == 0:
             logging.warning(f"There are no checkpoint files in {log_dir}, returning None.")
             return None
         
     elif not os.path.exists(checkpoint):
-        logging.warning(f"There is no checkpoint file at {checkpoint}, returning None.")
-        return None
-
+        raise FileNotFoundError(f"There is no checkpoint file at {checkpoint}, returning None.")
+    
     if checkpoint == "best":
         best_metric_value = float('inf') if mode == "min" else float('-inf')
         best_checkpoint_path = None
         for checkpoint_path in checkpoint_paths:
-            checkpoint = torch_load(checkpoint_path, weights_only=False)
+            if torch.cuda.is_available():
+                device = None # f"cuda:{int(os.environ['CUDA_VISIBLE_DEVICES'].split(",")[0])}"
+                # device = f"cuda:{assigned_gpu or 0}"
+                # logging.info(f"Loading checkpoint onto CUDA device {device}")
+            else:
+                device = "cpu"
+                logging.info(f"Loading checkpoint onto cpu core.")
+            checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
+            
             mc_callback = [cb_vals for cb_key, cb_vals in checkpoint["callbacks"].items() if "ModelCheckpoint" in cb_key][0]
+            if mc_callback["best_model_score"] is None:
+                continue
             if (mode == "min" and mc_callback["best_model_score"] < best_metric_value) or (mode == "max" and mc_callback["best_model_score"] > best_metric_value):
                 best_metric_value = mc_callback["best_model_score"]
-                best_checkpoint_path = mc_callback["best_model_path"]
+                best_checkpoint_path = checkpoint_path # mc_callback["best_model_path"]
             
         if best_checkpoint_path and os.path.exists(best_checkpoint_path):
             logging.info(f"Found best pretrained model: {best_checkpoint_path}")
         else:
             raise FileNotFoundError(f"Best checkpoint {best_checkpoint_path} does not exist.")
         
+        # if os.path.basename(best_checkpoint_path) == "last.ckpt":
+        #     checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
+            
         return best_checkpoint_path
     elif checkpoint == "latest":
         logging.info("Fetching latest pretrained model...")
@@ -237,6 +230,9 @@ def get_checkpoint(checkpoint, metric, mode, log_dir):
             logging.info(f"Found latest pretrained model: {latest_checkpoint_path}")
         else:
             raise FileNotFoundError(f"Latest checkpoint {latest_checkpoint_path} does not exist.")
+        
+        # if os.path.basename(latest_checkpoint_path) == "last.ckpt":
+        #     latest_checkpoint_path = os.readlink(latest_checkpoint_path)
         return latest_checkpoint_path
         
     else:
@@ -247,3 +243,115 @@ def get_checkpoint(checkpoint, metric, mode, log_dir):
         else:
             raise FileNotFoundError(f"Given checkpoint {checkpoint} does not exist.")
         return checkpoint_path
+
+def load_estimator_from_checkpoint(checkpoint_path, lightning_module_class, default_model_config, model_key):
+    if torch.cuda.is_available():
+        device = None # f"cuda:{int(os.environ['CUDA_VISIBLE_DEVICES'].split(",")[0])}"
+        # device = f"cuda:{assigned_gpu or 0}"
+        # logging.info(f"Loading checkpoint onto CUDA device {device}")
+        logging.info(f"Loading checkpoint onto cuda core.")
+    else:
+        device = "cpu"
+        logging.info(f"Loading checkpoint onto cpu core.")
+        
+    checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
+    
+    # Extract hyperparameters, handling potential key variations
+    try:
+        hparams = checkpoint.get('hyper_parameters', checkpoint.get('hparams'))
+        if hparams is None:
+            raise Exception(f"Hyperparameters not found in checkpoint: {checkpoint_path}. Cannot re-instantiate model.")
+
+        logging.debug(f"Loaded hparams from checkpoint: {hparams}")
+
+        # Explicitly extract model_config and other necessary args for LightningModule.__init__
+        # Use .get() with default None to avoid KeyError if a param wasn't saved (though it should be)
+        checkpoint_model_config = hparams.get('model_config')
+        if checkpoint_model_config is None:
+            raise Exception(f"Critical: 'model_config' dictionary not found within loaded hyperparameters in {checkpoint_path}. Check saving logic.")
+
+        # Get ALL required __init__ params for the specific LightningModule
+        module_sig = inspect.signature(lightning_module_class.__init__)
+        lightning_module_params = {
+            param for param in module_sig.parameters.values()
+            if param.name != 'self' # param.default == inspect.Parameter.empty and 
+        }
+
+        # Construct init_args primarily from hparams
+        init_args = {}
+        missing_from_hparams = []
+        critical_missing = False
+        for param in lightning_module_params:
+            param_name = param.name
+            if param_name in hparams:
+                init_args[param_name] = hparams[param_name]
+            elif param.default != inspect.Parameter.empty:
+                # Fallback logic (should ideally not be needed for core params)
+                # Check model-specific config first
+                fallback_value = default_model_config["model"].get(model_key, {}).get(param_name)
+                if fallback_value is not None:
+                    init_args[param_name] = fallback_value
+                    logging.warning(f"Hyperparameter '{param_name}' not found in checkpoint hparams, using fallback from current model config: {fallback_value}")
+                    missing_from_hparams.append(f"{param_name} (used model fallback)")
+                else:
+                    # Check trainer config next
+                    fallback_value_trainer = default_model_config["trainer"].get(param_name)
+                    if fallback_value_trainer is not None:
+                        init_args[param_name] = fallback_value_trainer
+                        logging.warning(f"Hyperparameter '{param_name}' not found in checkpoint hparams or model config, using fallback from current trainer config: {fallback_value_trainer}")
+                        missing_from_hparams.append(f"{param_name} (used trainer fallback)")
+                    else:
+                        # Check dataset config last (for things like context_length, prediction_length if not in hparams)
+                        fallback_value_dataset = default_model_config["dataset"].get(param_name)
+                        if fallback_value_dataset is not None:
+                            init_args[param_name] = fallback_value_dataset
+                            logging.warning(f"Hyperparameter '{param_name}' not found in checkpoint hparams, model, or trainer config, using fallback from current dataset config: {fallback_value_dataset}")
+                            missing_from_hparams.append(f"{param_name} (used dataset fallback)")
+                        else:
+                            missing_from_hparams.append(f"{param_name} (MISSING!)")
+                            critical_missing = True
+
+        if critical_missing:
+            logging.error(f"Critical hyperparameters missing from checkpoint hparams and no fallback found: {[item for item in missing_from_hparams if 'MISSING!' in item]}")
+            logging.error(f"Available hparams keys: {list(hparams.keys())}")
+            raise ValueError(f"Cannot instantiate model due to missing hyperparameters: {[item for item in missing_from_hparams if 'MISSING!' in item]}")
+        elif missing_from_hparams:
+            logging.warning(f"Used fallback values for some hyperparameters not found in checkpoint: {missing_from_hparams}")
+
+
+        # Ensure model_config is the one from the checkpoint's hparams
+        # (it should have been added in the loop above if it was required)
+        if 'model_config' not in init_args or init_args['model_config'] is None:
+            # If model_config wasn't required by __init__ but we need it later, get it from hparams
+            init_args['model_config'] = hparams.get('model_config')
+            if init_args['model_config'] is None:
+                raise ValueError("Critical: 'model_config' not found in checkpoint hparams.")
+
+        logging.info(f"Prepared init_args for {lightning_module_class.__name__} from hparams and fallbacks.")
+        logging.debug(f"Final init_args before stage setting: {init_args}")
+
+    except KeyError as e:
+        logging.error(f"Missing hyperparameter key during init_args construction: {str(e)}", exc_info=False)
+        raise e
+    except Exception as e:
+        logging.error(f"Error preparing hyperparameters for re-instantiation: {str(e)}", exc_info=True)
+        raise RuntimeError(f"Error preparing hyperparameters: {str(e)}") from e
+
+    # NOTE if ml method is tuned for given context length, we use that context length for that model
+
+    # Use the model_config loaded from the checkpoint hparams for consistency
+    checkpoint_model_config = init_args['model_config']
+    freq_str = checkpoint_model_config.get("freq", default_model_config["dataset"]["resample_freq"])
+    freq = pd.Timedelta(freq_str) # Convert freq string to Timedelta
+
+    # Ensure context/prediction lengths are sourced correctly (prefer hparams/init_args)
+    context_length_int = init_args.get("context_length", checkpoint_model_config.get("context_length"))
+    prediction_length_int = init_args.get("prediction_length", checkpoint_model_config.get("prediction_length"))
+
+    if context_length_int is None or prediction_length_int is None:
+        raise ValueError("Could not determine context_length or prediction_length from checkpoint hparams or config.")
+    
+    return {"checkpoint": checkpoint,
+            "freq_str": freq_str, "freq": freq, 
+            "init_args": init_args, 
+            "context_length_int": context_length_int, "prediction_length_int": prediction_length_int}

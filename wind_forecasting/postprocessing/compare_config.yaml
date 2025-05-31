@@ -1,0 +1,48 @@
+# Configuration for compare_ml_models.py
+
+# Directory where prediction files from different models are stored
+# Assumes subdirectories named after the model_key (e.g., informer, autoformer)
+# and prediction files within those directories.
+prediction_base_dir: /user/taed7566/wind-forecasting/predictions/
+
+# Pattern to find prediction files within each model's directory
+# Example assumes parquet files named test_predictions.parquet
+prediction_file_pattern: "test_predictions.parquet"
+
+# Path to the ground truth test data file (must contain the same time range as predictions)
+# Assumes a parquet file with columns like: time, turbine_id, feature, value
+true_data_path: /user/taed7566/wind-forecasting/examples/inputs/SMARTEOLE-WFC-open-dataset/processed/SMARTEOLE_WakeSteering_SCADA_test_set_long.parquet # Adjust this path!
+
+# Directory to save the generated plots and tables
+output_dir: /user/taed7566/wind-forecasting/postprocessing/comparison_output/
+
+# List of models to compare
+# The 'key' should match the subdirectory name in prediction_base_dir
+# The 'name' is used for display in plots/tables
+models_to_compare:
+  - key: informer
+    name: Informer
+  - key: autoformer
+    name: Autoformer
+  - key: spacetimeformer # Add other models as needed
+    name: Spacetimeformer
+  - key: tactis
+    name: TACTiS
+
+# List of deterministic metrics to calculate and plot
+# These names should correspond to function names in deterministic_metrics.py
+metrics:
+  - mean_absolute_error # Example metric name
+  - mean_squared_error  # Example metric name
+  - root_mean_squared_error # Example metric name
+  # Add other relevant deterministic metric function names here
+
+# Settings for Time Series plots
+# Define specific examples you want to visualize
+timeseries_plots:
+  - turbine_id: "T01" # Example Turbine ID
+    feature: "ws_horz" # Example feature (e.g., horizontal wind speed)
+    # Optional: Specify a time window tuple (start_str, end_str)
+    # time_window: ["2023-01-10 12:00:00", "2023-01-10 18:00:00"]
+  - turbine_id: "T04" # Another example
+    feature: "ws_vert" 

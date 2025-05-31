@@ -8,6 +8,7 @@ from typing import Callable, Optional
 from pathlib import Path
 import pandas as pd
 import re
+import numpy as np
 
 from itertools import cycle
 
@@ -508,10 +509,9 @@ class DataInspector:
         """
         if turbine_ids == "all":
             # Extract wind speed data
-            wind_speeds = df.select(cs.contains("wind_speed")).collect().to_numpy().flatten()
-            wind_speeds = wind_speeds[wind_speeds > 0]
-            wind_speeds = wind_speeds[np.isfinite(wind_speeds)]  # Remove non-finite values
-        
+            wind_speeds = df.select(cs.starts_with("wind_speed")).collect().to_numpy().flatten()
+            # wind_speeds = wind_speeds[(wind_speeds > 0) & (np.isfinite(wind_speeds))]
+            # wind_speeds = np.concatenate([wind_speeds[0:1], wind_speeds[1:][np.diff(wind_speeds) != 0]])
             if len(wind_speeds) == 0:
                 print("No valid wind speed data found after filtering")
                 return
@@ -525,14 +525,15 @@ class DataInspector:
 
             # Plot
             fig, ax = plt.subplots(1, 1, figsize=(10, 6))
-            sns.histplot(wind_speeds, stat='density', kde=True, color='skyblue', label='Observed', ax=ax)
+            sns.histplot(wind_speeds, stat='density', kde=False, color='skyblue', label='Observed', ax=ax)
             ax.plot(x, y, 'r-', lw=2, label=f'Weibull (k={shape:.2f}, λ={scale:.2f})')
             
             # ax.set_title('Wind Speed Distribution with Fitted Weibull', fontsize=16)
-            ax.set_xlabel('Wind Speed (m/s)')
+            ax.set_xlabel('Wind Magnitude (m/s)')
             ax.set_ylabel('Density')
             ax.legend()
             ax.grid(True, alpha=0.3)
+            ax.set_xlim((0.1, ax.get_xlim()[1]))
             sns.despine()
             plt.show()
             plt.tight_layout()
@@ -588,14 +589,15 @@ class DataInspector:
                        wind_speeds:list[float]|None=None, 
                        turbulence_intensities:list[float]|None=None,
                        turbine_groups:list[int]|None=None,
-                       turbine_group_colors:list[str|int]|None=None) -> None:
+                       turbine_group_colors:list[str|int]|None=None,
+                       turbine_labels:list[str|int]|None=None) -> None:
         """_summary_
 
         Returns:
             _type_: _description_
         """
         if wind_directions is None:
-            wind_directions = [180.0]
+            wind_directions = [140.0]
             
         if wind_speeds is None:
             wind_speeds = [10.0]
@@ -617,7 +619,7 @@ class DataInspector:
                    wind_directions=wind_directions, wind_speeds=wind_speeds, turbulence_intensities=turbulence_intensities)
         
         # Create the plot
-        fig, ax = plt.subplots(figsize=(10, 10))
+        fig, ax = plt.subplots(figsize=(10, 5.2))
         
         # Plot the turbine layout
         layoutviz.plot_turbine_points(
@@ -625,6 +627,34 @@ class DataInspector:
             highlight_turbine_groups=turbine_groups,
             highlight_colors=turbine_group_colors)
         
+        # Calculate and visualize the flow field
+        horizontal_plane = self.fmodel.calculate_horizontal_plane(height=self.fmodel.core.farm.hub_heights[0])
+        ax.set_xlim((horizontal_plane.df.x1.min(), horizontal_plane.df.x1.max()))
+        ax.set_ylim((horizontal_plane.df.x2.min(), horizontal_plane.df.x2.max()))
+        ax.set_ylim((-200, 10000))
+        visualize_cut_plane(horizontal_plane, ax=ax, min_speed=1, max_speed=10, color_bar=True)
+        
+        if turbine_labels:
+            # turbine_labels = list(turbine_labels)
+            turbine_indices = np.concatenate([tg for g, tg in enumerate(turbine_groups) if turbine_labels[g] is not None])
+            sort_idx = np.argsort(turbine_indices)
+            turbine_indices = list(turbine_indices[sort_idx])
+            turbine_labels = list(np.array([l for l in turbine_labels if l is not None])[sort_idx])
+            turbine_names = [turbine_labels[turbine_indices.index(t)] if (t in turbine_indices and turbine_labels[turbine_indices.index(t)] is not None) else None for t in range(self.fmodel.n_turbines)]
+
+            rotor_diameters = self.fmodel.core.farm.rotor_diameters.flatten()
+            r = rotor_diameters[0] / 2.0
+            label_offset = r / 8.0
+            
+            layoutviz.plot_turbine_labels(
+                self.fmodel, 
+                turbine_indices=turbine_indices,
+                ax=ax, 
+                turbine_names=turbine_names, 
+                show_bbox=False, bbox_dict={"facecolor": "white", "alpha": 0.5},
+                plotting_dict={"color": "white"},
+                label_offset=[(-150*label_offset, -200*label_offset), (-300*label_offset, -100*label_offset), (-300*label_offset, -200*label_offset)]
+            )
         # Add turbine labels
         # turbine_names = [f"T{i+1}" for i in range(self.fmodel.n_turbines)]
         # layoutviz.plot_turbine_labels(
@@ -641,22 +671,17 @@ class DataInspector:
         #         label_offset=label_offset
         #     )
         
-        # Calculate and visualize the flow field
-        horizontal_plane = self.fmodel.calculate_horizontal_plane(height=self.fmodel.core.farm.hub_heights[0])
-        visualize_cut_plane(horizontal_plane, ax=ax, min_speed=1, max_speed=10, color_bar=True)
-        
+
         # Plot turbine rotors
         # layoutviz.plot_turbine_rotors(self.fmodel, ax=ax)
         
-        ax.set_xlim((horizontal_plane.df.x1.min(), horizontal_plane.df.x1.max()))
-        ax.set_ylim((horizontal_plane.df.x2.min(), horizontal_plane.df.x2.max()))
         # ax.set_aspect("equal")
         # Set plot title and labels
         # ax.set_title('Wind Farm Layout', fontsize=16)
         ax.tick_params(axis='both', which='major', labelsize=20)
         ax.set_xlabel('X coordinate (m)', fontsize=20)
         ax.set_ylabel('Y coordinate (m)', fontsize=20)
-        fig.get_axes()[1].yaxis.label.set_text("Wind Speed (m/s)")
+        fig.get_axes()[1].yaxis.label.set_text("Wind Magnitude (m/s)")
          
         # Adjust layout and display the plot
         plt.tight_layout()
@@ -787,7 +812,7 @@ class DataInspector:
                 return pl.concat([
                     df.select(*[pl.col(id_var) for id_var in id_vars], f"^{feature_type}_{turbine_signature}$")\
                     .unpivot(index=id_vars, variable_name="feature", value_name=feature_type)\
-                    .with_columns(pl.col("feature").str.extract(turbine_signature, group_index=0).alias("turbine_id"))\
+                    .with_columns(pl.col("feature").str.extract(f"(_)({turbine_signature})$", group_index=2).alias("turbine_id"))\
                     .drop("feature") for feature_type in value_vars if len(df.select(cs.starts_with(f"{feature_type}_")).columns)], how="align")\
                     .group_by("turbine_id", *id_vars, maintain_order=True).agg(cs.numeric().drop_nulls().first()).sort("turbine_id", "time")
             else:

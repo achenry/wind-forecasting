@@ -1,0 +1,2 @@
+https://teleport.nrel.gov:3080/web/cluster/plv10telauth03.nrel.gov/console/session/ef8f5acd-a889-4fb3-af5e-b107c12d029c
+sudo mysql; show databases; use mysql; show tables;
