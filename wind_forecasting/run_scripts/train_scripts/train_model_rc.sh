@@ -2,10 +2,10 @@
 #SBATCH --partition=aa100
 #SBATCH --qos=normal
 #SBATCH --nodes=1 # this needs to match Trainer(num_nodes...)
-#SBATCH --gres=gpu:4
-#SBATCH --ntasks=4 # necessary for gpus on rc
-#SBATCH --ntasks-per-node=4 # this needs to match Trainer(devices=...)
-#SBATCH --mem-per-cpu=85G
+#SBATCH --gres=gpu:3
+#SBATCH --ntasks=3 # necessary for gpus on rc
+#SBATCH --ntasks-per-node=3 # this needs to match Trainer(devices=...)
+#SBATCH --mem-per-cpu=40G
 #SBATCH --time=36:00:00
 #SBATCH --output=%j-%x.log
 
