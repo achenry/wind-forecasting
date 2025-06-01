@@ -241,16 +241,37 @@ class DataModule():
         assert all(split in ["train", "val", "test"] for split in splits)
         assert os.path.exists(self.train_ready_data_path), f"Must run generate_datasets before generate_splits to produce {self.train_ready_data_path}."
 
-        is_distributed = dist.is_available() and dist.is_initialized()
+        # If rank is explicitly provided (e.g., from WORKER_RANK in tuning mode), use it
+        # Otherwise, check if PyTorch distributed is initialized (e.g., during DDP training)
         if rank is None:
+            rank = 0
+            world_size = 1
+            is_distributed = dist.is_available() and dist.is_initialized()
             if is_distributed:
-                # TODO JUAN THIS IS NEVER BEING ENTERED
+                # This path is only taken when PyTorch Lightning has initialized DDP
                 rank = dist.get_rank()
                 world_size = dist.get_world_size()
-                logging.info(f"Rank {rank}/{world_size}: Entering generate_splits.")
+                logging.info(f"Rank {rank}/{world_size}: Detected PyTorch distributed mode.")
             else:
-                rank = 0
-                world_size = 1
+                # Check for WORKER_RANK environment variable as fallback
+                # This handles tuning mode where workers are independent
+                worker_rank = os.environ.get('WORKER_RANK', None)
+                logging.info(f"WORKER_RANK environment variable: {worker_rank}")
+                logging.info(f"Process ID: {os.getpid()}")
+                
+                if worker_rank is not None:
+                    try:
+                        rank = int(worker_rank)
+                        logging.info(f"Rank {rank}: Using WORKER_RANK={worker_rank} from environment (independent worker mode).")
+                    except ValueError:
+                        logging.warning(f"Invalid WORKER_RANK value: '{worker_rank}', defaulting to rank 0")
+                        rank = 0
+                else:
+                    rank = 0
+                    logging.info("Rank 0: No WORKER_RANK found, no distributed mode detected, assuming single process.")
+        else:
+            # Rank was explicitly provided
+            logging.info(f"Rank {rank}: Using explicitly provided rank value.")
 
         logging.info(f"Rank {rank}: Scanning dataset {self.train_ready_data_path}.")
         dataset = IterableLazyFrame(data_path=self.train_ready_data_path, dtype=self.dtype)
@@ -397,29 +418,50 @@ class DataModule():
                         raise NotImplementedError("Saving LazyFrame splits not implemented.")
                     else:
                         final_path = self.get_split_file_path(split)
-                        temp_path = final_path + ".tmp"
+                        # Use process ID in temp filename to avoid collisions between workers
+                        temp_path = final_path + f".tmp.{os.getpid()}"
                         logging.info(f"Rank 0: Saving {split} data to {temp_path}")
                         try:
+                            # Write to temp file
                             with open(temp_path, 'wb') as fp:
                                 pickle.dump(getattr(self, f"{split}_dataset"), fp)
-                            logging.info(f"Rank 0: Automically moving {temp_path} to {final_path}")
-                            os.rename(temp_path, final_path)
+                            
+                            # Atomic rename - if file exists, this will overwrite it atomically
+                            logging.info(f"Rank 0: Atomically moving {temp_path} to {final_path}")
+                            os.replace(temp_path, final_path)  # os.replace is atomic on POSIX
+                            logging.info(f"Rank 0: Successfully saved {split} data to {final_path}")
                         except Exception as e:
                             logging.error(f"Rank 0: Error saving {split} data: {e}")
-                            if os.path.exists(temp_path):
-                                os.remove(temp_path)
-                            raise
-                        finally:
+                            # Clean up temp file if it still exists
                             if os.path.exists(temp_path):
                                 try:
                                     os.remove(temp_path)
-                                except OSError as e:
-                                     logging.error(f"Rank 0: Error removing temp file {temp_path}: {e}")
+                                    logging.info(f"Rank 0: Cleaned up temp file {temp_path}")
+                                except OSError as cleanup_error:
+                                    logging.error(f"Rank 0: Error removing temp file {temp_path}: {cleanup_error}")
 
+        # Only use barrier if PyTorch distributed is actually initialized
+        # In tuning mode with independent workers, we don't need/want a barrier
+        is_distributed = dist.is_available() and dist.is_initialized()
         if is_distributed:
-            logging.info(f"Rank {rank}: Waiting at barrier before loading splits.")
+            logging.info(f"Rank {rank}: Waiting at distributed barrier before loading splits.")
             dist.barrier()
-            logging.info(f"Rank {rank}: Passed barrier.")
+            logging.info(f"Rank {rank}: Passed distributed barrier.")
+        elif rank != 0:
+            # For independent workers (e.g., tuning mode), use file-based synchronization
+            # Wait for rank 0 to finish by checking if all split files exist
+            import time
+            max_wait_time = 300  # 5 minutes timeout
+            check_interval = 2   # Check every 2 seconds
+            start_time = time.time()
+            
+            while not all(os.path.exists(self.get_split_file_path(split)) for split in splits):
+                if time.time() - start_time > max_wait_time:
+                    raise TimeoutError(f"Rank {rank}: Timeout waiting for split files from rank 0")
+                logging.info(f"Rank {rank}: Waiting for rank 0 to generate split files...")
+                time.sleep(check_interval)
+            
+            logging.info(f"Rank {rank}: All split files detected, proceeding to load.")
         
         if rank != 0 or (not reload and split_files_exist):
             logging.info(f"Rank {rank}: Loading saved split datasets.")

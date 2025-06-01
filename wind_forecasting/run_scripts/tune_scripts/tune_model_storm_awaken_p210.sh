@@ -2,10 +2,10 @@
 
 #SBATCH --partition=all_gpu.p          # Partition for H100/A100 GPUs cfdg.p / all_gpu.p / mpcg.p(not allowed)
 #SBATCH --nodes=1
-#SBATCH --ntasks-per-node=4         # Match number of GPUs requested below
-#SBATCH --cpus-per-task=4           # CPUs per task (4 tasks * 32 = 128 CPUs total) [1 CPU/GPU more than enough]
-#SBATCH --mem-per-cpu=2048           # Memory per CPU (Total Mem = ntasks * cpus-per-task * mem-per-cpu) [flasc uses only ~4-5 GiB max]
-#SBATCH --gres=gpu:4            # Request 2 H100 GPUs
+#SBATCH --ntasks-per-node=1         # Match number of GPUs requested below
+#SBATCH --cpus-per-task=8           # CPUs per task (4 tasks * 32 = 128 CPUs total) [1 CPU/GPU more than enough]
+#SBATCH --mem-per-cpu=8016           # Memory per CPU (Total Mem = ntasks * cpus-per-task * mem-per-cpu) [flasc uses only ~4-5 GiB max]
+#SBATCH --gres=gpu:1            # Request 2 H100 GPUs
 #SBATCH --time=1-00:00                # Time limit (up to 1 day)
 #SBATCH --job-name=210awaken_tune_tactis
 #SBATCH --output=/dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/slurm_logs/awaken_tune_tactis210_%j.out
@@ -121,9 +121,9 @@ for i in $(seq 0 $((${NUM_GPUS}-1))); do
     CURRENT_WORKER_SEED=$((12 + i*100)) # Base seed + offset per worker (increased multiplier to avoid trials overlap on workers)
 
     echo "Starting worker ${i} on assigned GPU ${i} with seed ${CURRENT_WORKER_SEED}"
-    export WORKER_RANK=${i}          # Export rank for Python script
     # Launch worker in the background using nohup and a dedicated bash shell
-    nohup bash -c "
+    # Pass WORKER_RANK as environment variable to avoid substitution issues
+    WORKER_RANK=${i} CUDA_VISIBLE_DEVICES=${i} nohup bash -c "
         echo \"Worker ${i} starting environment setup...\"
         # --- Module loading ---
         module purge
@@ -140,12 +140,13 @@ for i in $(seq 0 $((${NUM_GPUS}-1))); do
         conda activate wf_env_storm
         echo \"Worker ${i}: Conda environment 'wf_env_storm' activated.\"
 
-        # --- Set Worker-Specific Environment ---
-        export CUDA_VISIBLE_DEVICES=${i} # Assign specific GPU based on loop index
+        # --- Worker-Specific Environment ---
+        # WORKER_RANK and CUDA_VISIBLE_DEVICES are already set via environment variables
+        # passed to nohup, so we don't need to export them again here
         
         # Note: PYTHONPATH and WANDB_DIR are inherited via export from parent script
 
-        echo \"Worker ${i}: Running python script with WORKER_RANK=${WORKER_RANK}...\"
+        echo \"Worker ${i}: Running python script with WORKER_RANK=\${WORKER_RANK}...\"
         # --- Run the tuning script ---
         # Workers connect to the already initialized study using the PG URL
         # Pass --restart_tuning flag from the main script environment
