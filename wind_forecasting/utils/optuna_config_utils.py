@@ -10,7 +10,7 @@ import os
 import logging
 from typing import Dict
 
-from wind_forecasting.tuning.utils.path_utils import resolve_path
+from wind_forecasting.utils.path_utils import resolve_path
 
 
 def generate_db_setup_params(model: str, model_config: Dict) -> Dict:

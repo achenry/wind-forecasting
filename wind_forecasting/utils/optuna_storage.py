@@ -102,7 +102,7 @@ def setup_postgresql_rank_zero(db_setup_params, restart_tuning=False, register_c
         # Filter db_setup_params to only include keys relevant for PostgreSQL setup
         pg_params = {
             k: v for k, v in db_setup_params.items() if k in [
-                "backend", "project_root", "pgdata_path", "study_name",
+                "backend", "project_root", "pgdata_path", "base_study_prefix",
                 "use_socket", "use_tcp", "db_host", "db_port", "db_name",
                 "db_user", "run_cmd_shell", "socket_dir_base", "sync_dir"
             ]
@@ -231,7 +231,7 @@ def setup_postgresql(db_setup_params, rank, restart_tuning):
             # Filter db_setup_params to only include relevant keys
             pg_params = {
                 k: v for k, v in db_setup_params.items() if k in [
-                    "backend", "project_root", "pgdata_path", "study_name",
+                    "backend", "project_root", "pgdata_path", "base_study_prefix",
                     "use_socket", "use_tcp", "db_host", "db_port", "db_name",
                     "db_user", "run_cmd_shell", "socket_dir_base", "sync_dir"
                 ]

@@ -457,7 +457,7 @@ def main():
             try:
                 logging.info(f"Getting tuned parameters.")
                 
-                tuned_params = get_tuned_params(optuna_storage, db_setup_params["study_name"])
+                tuned_params = get_tuned_params(optuna_storage, db_setup_params["base_study_prefix"])
                 
                 # tuned_params = {'context_length_factor': 3, 'batch_size': 256, 'num_encoder_layers': 2, 'num_decoder_layers': 2, 'dim_feedforward': 2048, 'n_heads': 6, 'factor': 1, 'moving_avg': 21, 'lr': 4.7651748046751395e-05, 'weight_decay': 0.0, 'dropout': 0.0982708428790269}
                 # tuned_params = {'context_length_factor': 2, 'batch_size': 128, 'num_encoder_layers': 2, 'num_decoder_layers': 3, 'd_model': 128, 'n_heads': 6}
@@ -795,7 +795,7 @@ def main():
 
         # Normal execution - pass the OOM protection wrapper and constructed storage URL
         tune_model(model=args.model, config=config, # Pass full config here for model/trainer params
-                   study_name=db_setup_params["study_name"],
+                   study_name=db_setup_params["base_study_prefix"],
                    optuna_storage=optuna_storage, # Pass the constructed storage object
                    lightning_module_class=LightningModuleClass,
                    estimator_class=EstimatorClass,

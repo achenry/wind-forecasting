@@ -329,7 +329,7 @@ def _generate_pg_config(*,
                         backend: str,
                         project_root: str, # Still needed? Maybe not if all paths are absolute
                         pgdata_path: str, # Now expects absolute path
-                        study_name: str,
+                        base_study_prefix: str,  # Received but not used - PostgreSQL instance is shared across studies
                         use_socket: bool = True,
                         use_tcp: bool = False,
                         db_host: str = "localhost",
