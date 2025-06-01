@@ -157,12 +157,21 @@ model:
 
   informer:
     # embedding_dimension: 32 # Determines dimension of the embedding space
-    num_encoder_layers: 2 # Number of transformer blocks stacked
-    num_decoder_layers: 1 # Number of transformer blocks stacked
-    n_heads: 8 # Number of heads for spatio-temporal attention
-    d_model: 512
-    dim_feedforward: 2048
-    activation: relu
+    # num_encoder_layers: 2 # Number of transformer blocks stacked
+    # num_decoder_layers: 1 # Number of transformer blocks stacked
+    # n_heads: 8 # Number of heads for spatio-temporal attention
+    # d_model: 512
+    # dim_feedforward: 2048
+    # activation: relu
+    context_length_factor: 2
+    num_encoder_layers: 2
+    num_decoder_layers: 2
+    d_model: 128
+    n_heads: 8
+    factor: 5
+    lr: 6.398379938945388e-05
+    weight_decay: 1e-08
+    dropout: 0.15697382123348755
   autoformer:
     # embedding_dimension: 32 # Determines dimension of the embedding space
     num_encoder_layers: 2 # Number of transformer blocks stacked
@@ -236,7 +245,7 @@ trainer:
     devices: auto
     # num_nodes: 1
     strategy: ddp
-    max_epochs: 100 # Maximum number of epochs to train 100
+    max_epochs: 200 # Maximum number of epochs to train 100
     limit_train_batches: #5000
     log_every_n_steps: 1 # For wandb logging
     deterministic: false

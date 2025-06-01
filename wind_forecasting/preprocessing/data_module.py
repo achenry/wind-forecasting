@@ -76,7 +76,7 @@ class DataModule():
                 ".parquet", f"_train_ready_{self.freq}_{'per_turbine' if self.per_turbine_target else 'all_turbine'}_denormalize.parquet")
      
     def get_split_file_path(self, split):
-        """Generate split file path that includes context_length to ensure cache uniqueness."""
+        """Generate split file path that includes context_length and prediction_length to ensure cache uniqueness."""
         # Extract base name without .parquet extension
         if self.train_ready_data_path.endswith("_denormalize.parquet"):
             base_path = self.train_ready_data_path.replace("_denormalize.parquet", "")
@@ -86,7 +86,7 @@ class DataModule():
             suffix = ""
         
         # Include context_length in the filename to make cache files distinct
-        return f"{base_path}_ctx{self.context_length}_{split}{suffix}.pkl"
+        return f"{base_path}_ctx{self.context_length}_pred{self.prediction_length}_{split}{suffix}.pkl"
     
     def _validate_loaded_splits(self, splits, rank):
         """Validate that loaded splits are compatible with current context_length requirements."""

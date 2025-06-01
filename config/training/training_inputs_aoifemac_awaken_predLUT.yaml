@@ -111,7 +111,7 @@ dataset:
     # normalization_consts_path: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/preprocessed_awaken_data/short_loaded_data_normalization_consts.csv
     data_path: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/awaken_data/awaken_processed_normalized.parquet
     normalization_consts_path: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/awaken_data/awaken_processed_normalization_consts.csv
-    context_length: 600 # in seconds
+    context_length: 1020 # in seconds
     prediction_length: 510 # in seconds
     target_turbine_ids:  # or leave blank to capture all
     normalize: False 
@@ -175,12 +175,21 @@ model:
 
   informer:
     # embedding_dimension: 32 # Determines dimension of the embedding space
-    num_encoder_layers: 2 # Number of transformer blocks stacked
-    num_decoder_layers: 1 # Number of transformer blocks stacked
-    n_heads: 8 # Number of heads for spatio-temporal attention
-    d_model: 512
-    dim_feedforward: 2048
-    activation: relu
+    # num_encoder_layers: 2 # Number of transformer blocks stacked
+    # num_decoder_layers: 1 # Number of transformer blocks stacked
+    # n_heads: 8 # Number of heads for spatio-temporal attention
+    # d_model: 512
+    # dim_feedforward: 2048
+    # activation: relu
+    context_length_factor: 2
+    num_encoder_layers: 2
+    num_decoder_layers: 2
+    d_model: 128
+    n_heads: 8
+    factor: 5
+    lr: 6.398379938945388e-05
+    weight_decay: 1e-08
+    dropout: 0.15697382123348755
   autoformer:
     # embedding_dimension: 32 # Determines dimension of the embedding space
     num_encoder_layers: 2 # Number of transformer blocks stacked
@@ -223,14 +232,15 @@ callbacks:
       init_args:
         refresh_rate: 50  # every n steps
         leave: true
-    early_stopping:
-      class_path: lightning.pytorch.callbacks.EarlyStopping
-      init_args:
-        monitor: 'val_loss'
-        patience: 100 # Number of epochs to wait before stopping (val>epochs to disable)
-        min_delta: 0.01 # Minimum change to be considered an improvement
-        mode: 'min'
-        check_finite: true
+    # early_stopping:
+    #   class_path: lightning.pytorch.callbacks.EarlyStopping
+    #   init_args:
+    #     check_on_train_epoch_end: False
+    #     monitor: 'val_loss'
+    #     patience: 100 # Number of epochs to wait before stopping (val>epochs to disable)
+    #     min_delta: 0.01 # Minimum change to be considered an improvement
+    #     mode: 'min'
+    #     check_finite: true
     model_checkpoint:
       class_path: lightning.pytorch.callbacks.ModelCheckpoint
       init_args:
