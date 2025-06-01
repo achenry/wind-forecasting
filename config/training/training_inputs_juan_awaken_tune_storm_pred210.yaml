@@ -19,8 +19,8 @@ logging:
 
 optuna:
   save_trial_code: false      # Default false
-  n_trials_per_worker: 25   # Replaced by total_study_trials for global trial limit
-  total_study_trials: 100     # Global maximum number of trials across all workers, takes precedence over n_trials_per_worker
+  n_trials_per_worker: 50   # Replaced by total_study_trials for global trial limit
+  total_study_trials: 200     # Global maximum number of trials across all workers, takes precedence over n_trials_per_worker
   max_epochs: 40              # epochs per trial
   sampler: "random"           # Options: "random" (ExpectedNumInstanceSampler), "sequential" (SequentialSampler)
   sampler_params:
@@ -39,7 +39,7 @@ optuna:
   pruning:
     enabled: true
     type: "successivehalving"
-    min_resource: 8
+    min_resource: 12
     reduction_factor: 2
     min_early_stopping_rate: 0
     bootstrap_count: 8
