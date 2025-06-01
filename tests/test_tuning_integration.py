@@ -20,12 +20,12 @@ import json
 sys.path.insert(0, '/fs/dss/home/taed7566/Forecasting/wind-forecasting')
 
 # Import both the refactored modules and the main tuning script
-from wind_forecasting.run_scripts.tuning import MLTuningObjective, tune_model
-from wind_forecasting.utils.path_utils import resolve_path, flatten_dict
-from wind_forecasting.utils.tuning_config_utils import generate_db_setup_params
-from wind_forecasting.utils.checkpoint_utils import load_checkpoint, parse_epoch_from_checkpoint_path
-from wind_forecasting.utils.metrics_utils import extract_metric_value
-from wind_forecasting.utils.tuning_helpers import (
+from wind_forecasting.tuning import MLTuningObjective, tune_model
+from wind_forecasting.tuning.path_utils import resolve_path, flatten_dict
+from wind_forecasting.tuning.config_utils import generate_db_setup_params
+from wind_forecasting.tuning.checkpoint_utils import parse_epoch_from_checkpoint_path
+from wind_forecasting.tuning.metrics_utils import extract_metric_value
+from wind_forecasting.tuning.helpers import (
     set_trial_seeds, update_data_module_params, calculate_dynamic_limit_train_batches
 )
 
@@ -236,7 +236,7 @@ class TestOriginalVsRefactoredBehavior:
     
     def test_optuna_dashboard_command_format(self):
         """Test Optuna dashboard command format matches original."""
-        from wind_forecasting.utils.tuning_config_utils import generate_optuna_dashboard_command
+        from wind_forecasting.tuning.config_utils import generate_optuna_dashboard_command
         
         db_params = {
             "backend": "postgresql",
@@ -383,7 +383,7 @@ class TestMLTuningObjectiveIntegrationReal:
             mock_estimator_class.return_value = mock_estimator
             
             # Mock checkpoint callback
-            with patch('wind_forecasting.utils.tuning_helpers.create_trial_checkpoint_callback') as mock_checkpoint:
+            with patch('wind_forecasting.tuning.helpers.create_trial_checkpoint_callback') as mock_checkpoint:
                 checkpoint_callback = Mock()
                 checkpoint_callback.best_model_path = "/tmp/test_checkpoint.ckpt"
                 checkpoint_callback.monitor = "val_loss"
@@ -391,7 +391,7 @@ class TestMLTuningObjectiveIntegrationReal:
                 mock_checkpoint.return_value = checkpoint_callback
                 
                 # Mock checkpoint loading
-                with patch('wind_forecasting.utils.checkpoint_utils.load_checkpoint') as mock_load:
+                with patch('wind_forecasting.tuning.checkpoint_utils.load_checkpoint') as mock_load:
                     mock_load.return_value = {
                         'state_dict': {'layer.weight': torch.tensor([1.0])},
                         'hyper_parameters': {
@@ -407,7 +407,7 @@ class TestMLTuningObjectiveIntegrationReal:
                         mock_lightning.return_value = mock_model
                         
                         # Mock evaluation
-                        with patch('wind_forecasting.utils.metrics_utils.compute_evaluation_metrics') as mock_eval:
+                        with patch('wind_forecasting.tuning.metrics_utils.compute_evaluation_metrics') as mock_eval:
                             mock_eval.return_value = {"val_loss": 0.5}
                             
                             try:
@@ -426,7 +426,7 @@ class TestProductionScenarios:
     
     def test_tactis_stage_determination_production_values(self):
         """Test TACTiS stage determination with production values."""
-        from wind_forecasting.utils.checkpoint_utils import determine_tactis_stage
+        from wind_forecasting.tuning.checkpoint_utils import determine_tactis_stage
         
         # Production scenario: stage2_start_epoch=5, various checkpoints
         production_cases = [

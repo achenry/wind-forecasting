@@ -24,25 +24,25 @@ def test_imports():
     
     try:
         # Test utility module imports
-        from wind_forecasting.utils.path_utils import resolve_path, flatten_dict
-        from wind_forecasting.utils.tuning_config_utils import generate_db_setup_params, generate_optuna_dashboard_command
-        from wind_forecasting.utils.checkpoint_utils import (
+        from wind_forecasting.tuning.path_utils import resolve_path, flatten_dict
+        from wind_forecasting.tuning.config_utils import generate_db_setup_params, generate_optuna_dashboard_command
+        from wind_forecasting.tuning.checkpoint_utils import (
             load_checkpoint, parse_epoch_from_checkpoint_path, determine_tactis_stage,
             extract_hyperparameters, prepare_model_init_args, load_model_state, set_tactis_stage
         )
-        from wind_forecasting.utils.metrics_utils import (
+        from wind_forecasting.tuning.metrics_utils import (
             extract_metric_value, compute_evaluation_metrics,
             update_metrics_with_checkpoint_score, validate_metrics_for_return
         )
-        from wind_forecasting.utils.tuning_helpers import (
+        from wind_forecasting.tuning.helpers import (
             set_trial_seeds, update_data_module_params, regenerate_data_splits,
             prepare_feedforward_params, calculate_dynamic_limit_train_batches,
             create_trial_checkpoint_callback, setup_trial_callbacks
         )
-        from wind_forecasting.utils.callbacks import SafePruningCallback
+        from wind_forecasting.tuning.callbacks import SafePruningCallback
         
         # Test main tuning module import
-        from wind_forecasting.run_scripts.tuning import MLTuningObjective, tune_model
+        from wind_forecasting.tuning import MLTuningObjective, tune_model
         
         logger.info("✓ All imports successful")
         return True
@@ -56,10 +56,10 @@ def test_basic_functionality():
     logger.info("Testing basic functionality...")
     
     try:
-        from wind_forecasting.utils.path_utils import resolve_path, flatten_dict
-        from wind_forecasting.utils.tuning_helpers import set_trial_seeds, calculate_dynamic_limit_train_batches
-        from wind_forecasting.utils.checkpoint_utils import parse_epoch_from_checkpoint_path, determine_tactis_stage
-        from wind_forecasting.utils.metrics_utils import extract_metric_value
+        from wind_forecasting.tuning.path_utils import resolve_path, flatten_dict
+        from wind_forecasting.tuning.helpers import set_trial_seeds, calculate_dynamic_limit_train_batches
+        from wind_forecasting.tuning.checkpoint_utils import parse_epoch_from_checkpoint_path, determine_tactis_stage
+        from wind_forecasting.tuning.metrics_utils import extract_metric_value
         
         # Test path utilities
         path_result = resolve_path("/base", "relative/path")
@@ -106,7 +106,7 @@ def test_config_generation():
     logger.info("Testing configuration generation...")
     
     try:
-        from wind_forecasting.utils.tuning_config_utils import generate_db_setup_params, generate_optuna_dashboard_command
+        from wind_forecasting.tuning.config_utils import generate_db_setup_params, generate_optuna_dashboard_command
         
         # Test database setup parameters
         config = {
@@ -167,7 +167,7 @@ def test_mltunin_objective_creation():
     logger.info("Testing MLTuningObjective creation...")
     
     try:
-        from wind_forecasting.run_scripts.tuning import MLTuningObjective
+        from wind_forecasting.tuning import MLTuningObjective
         from unittest.mock import Mock
         
         # Create minimal mock configuration
@@ -224,17 +224,27 @@ def test_file_structure():
     try:
         base_path = "/fs/dss/home/taed7566/Forecasting/wind-forecasting"
         
-        # Check main tuning file
-        main_file = os.path.join(base_path, "wind_forecasting/run_scripts/tuning.py")
-        assert os.path.exists(main_file), f"Main tuning file not found: {main_file}"
+        # Check main tuning subpackage files
+        tuning_files = [
+            "wind_forecasting/tuning/__init__.py",
+            "wind_forecasting/tuning/core.py",
+            "wind_forecasting/tuning/objective.py",
+            "wind_forecasting/tuning/utils.py"
+        ]
         
-        # Check utility modules
+        for tuning_file in tuning_files:
+            full_path = os.path.join(base_path, tuning_file)
+            assert os.path.exists(full_path), f"Tuning subpackage file not found: {full_path}"
+        
+        # Check remaining general utility modules (tuning-specific moved to tuning subpackage)
         util_files = [
-            "wind_forecasting/utils/path_utils.py",
-            "wind_forecasting/utils/tuning_config_utils.py",
-            "wind_forecasting/utils/checkpoint_utils.py",
-            "wind_forecasting/utils/metrics_utils.py",
-            "wind_forecasting/utils/tuning_helpers.py",
+            "wind_forecasting/tuning/path_utils.py",
+            "wind_forecasting/tuning/checkpoint_utils.py",
+            "wind_forecasting/tuning/metrics_utils.py", 
+            "wind_forecasting/tuning/storage.py",
+            "wind_forecasting/tuning/helpers.py",
+            "wind_forecasting/tuning/config_utils.py",
+            "wind_forecasting/tuning/trial_utils.py",
             "wind_forecasting/utils/callbacks.py"
         ]
         
@@ -243,9 +253,10 @@ def test_file_structure():
             assert os.path.exists(full_path), f"Utility file not found: {full_path}"
         
         # Check file sizes (should be non-empty)
-        for util_file in [main_file] + [os.path.join(base_path, f) for f in util_files]:
-            size = os.path.getsize(util_file)
-            assert size > 0, f"File is empty: {util_file}"
+        all_files = [os.path.join(base_path, f) for f in tuning_files + util_files]
+        for file_path in all_files:
+            size = os.path.getsize(file_path)
+            assert size > 0, f"File is empty: {file_path}"
         
         logger.info("✓ File structure test passed")
         return True

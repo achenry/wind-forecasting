@@ -22,8 +22,8 @@ import yaml
 from lightning.pytorch.strategies import DDPStrategy # Ensure import
 
 # Internal imports
-from wind_forecasting.utils.trial_utils import handle_trial_with_oom_protection
-from wind_forecasting.utils.optuna_db_utils import setup_optuna_storage
+from wind_forecasting.tuning.utils.trial_utils import handle_trial_with_oom_protection
+from wind_forecasting.utils.optuna_storage import setup_optuna_storage
 
 from gluonts.torch.distributions import LowRankMultivariateNormalOutput
 from gluonts.model.forecast_generator import DistributionForecastGenerator, SampleForecastGenerator
@@ -43,7 +43,8 @@ from pytorch_transformer_ts.tactis_2.estimator import TACTiS2Estimator as Tactis
 from pytorch_transformer_ts.tactis_2.lightning_module import TACTiS2LightningModule as TactisLightningModule
 from wind_forecasting.preprocessing.data_module import DataModule
 from wind_forecasting.run_scripts.testing import test_model, get_checkpoint, load_estimator_from_checkpoint
-from wind_forecasting.run_scripts.tuning import get_tuned_params, generate_df_setup_params
+from wind_forecasting.tuning import get_tuned_params
+from wind_forecasting.utils.optuna_config_utils import generate_db_setup_params
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -409,7 +410,7 @@ def main():
 
         # Generate DB setup parameters regardless of mode (needed for study name)
         logging.info("Generating Optuna DB setup parameters...")
-        db_setup_params = generate_df_setup_params(args.model, config)
+        db_setup_params = generate_db_setup_params(args.model, config)
 
         # Determine if restart_tuning should be overridden
         # We never want to restart/delete the study when just loading parameters
@@ -751,7 +752,7 @@ def main():
         logging.info("Starting Optuna hyperparameter tuning...")
 
         # %% TUNE MODEL WITH OPTUNA
-        from wind_forecasting.run_scripts.tuning import tune_model
+        from wind_forecasting.tuning import tune_model
         try:
             callbacks_config = config.get('callbacks', {})
             mc_config = callbacks_config.get('model_checkpoint', {})

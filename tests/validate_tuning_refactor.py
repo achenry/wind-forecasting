@@ -112,13 +112,13 @@ def validate_import_structure():
         # Test importing the main tuning module
         sys.path.insert(0, '/fs/dss/home/taed7566/Forecasting/wind-forecasting')
         
-        from wind_forecasting.run_scripts.tuning import MLTuningObjective, tune_model
-        from wind_forecasting.utils.path_utils import resolve_path, flatten_dict
-        from wind_forecasting.utils.tuning_config_utils import generate_db_setup_params
-        from wind_forecasting.utils.checkpoint_utils import load_checkpoint
-        from wind_forecasting.utils.metrics_utils import extract_metric_value
-        from wind_forecasting.utils.tuning_helpers import set_trial_seeds
-        from wind_forecasting.utils.callbacks import SafePruningCallback
+        from wind_forecasting.tuning import MLTuningObjective, tune_model
+        from wind_forecasting.tuning.path_utils import resolve_path, flatten_dict
+        from wind_forecasting.tuning.config_utils import generate_db_setup_params
+        from wind_forecasting.tuning.checkpoint_utils import load_checkpoint
+        from wind_forecasting.tuning.metrics_utils import extract_metric_value
+        from wind_forecasting.tuning.helpers import set_trial_seeds
+        from wind_forecasting.tuning.callbacks import SafePruningCallback
         
         logger.info("✓ All imports successful")
         return True
@@ -136,8 +136,8 @@ def validate_function_signatures():
     
     try:
         import inspect
-        from wind_forecasting.utils.path_utils import resolve_path, flatten_dict
-        from wind_forecasting.utils.tuning_config_utils import generate_db_setup_params
+        from wind_forecasting.tuning.path_utils import resolve_path, flatten_dict
+        from wind_forecasting.tuning.config_utils import generate_db_setup_params
         
         # Check key function signatures
         sig_resolve_path = inspect.signature(resolve_path)
@@ -167,8 +167,8 @@ def run_smoke_test():
     logger.info("Running smoke test...")
     
     try:
-        from wind_forecasting.utils.path_utils import resolve_path, flatten_dict
-        from wind_forecasting.utils.tuning_helpers import set_trial_seeds
+        from wind_forecasting.tuning.path_utils import resolve_path, flatten_dict
+        from wind_forecasting.tuning.helpers import set_trial_seeds
         
         # Test basic functionality
         path_result = resolve_path("/base", "relative")
@@ -196,11 +196,13 @@ def check_file_structure():
     
     expected_files = [
         "wind_forecasting/run_scripts/tuning.py",
-        "wind_forecasting/utils/path_utils.py",
-        "wind_forecasting/utils/tuning_config_utils.py",
-        "wind_forecasting/utils/checkpoint_utils.py",
-        "wind_forecasting/utils/metrics_utils.py",
-        "wind_forecasting/utils/tuning_helpers.py",
+        "wind_forecasting/tuning/path_utils.py",
+        "wind_forecasting/tuning/config_utils.py",
+        "wind_forecasting/tuning/checkpoint_utils.py",
+        "wind_forecasting/tuning/metrics_utils.py",
+        "wind_forecasting/tuning/helpers.py",
+        "wind_forecasting/tuning/storage.py",
+        "wind_forecasting/tuning/trial_utils.py",
         "wind_forecasting/utils/callbacks.py"
     ]
     

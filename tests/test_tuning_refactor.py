@@ -22,23 +22,23 @@ from pathlib import Path
 sys.path.insert(0, '/fs/dss/home/taed7566/Forecasting/wind-forecasting')
 
 # Import refactored modules
-from wind_forecasting.utils.path_utils import resolve_path, flatten_dict
-from wind_forecasting.utils.tuning_config_utils import generate_db_setup_params, generate_optuna_dashboard_command
-from wind_forecasting.utils.checkpoint_utils import (
+from wind_forecasting.tuning.utils.path_utils import resolve_path, flatten_dict
+from wind_forecasting.utils.optuna_config_utils import generate_db_setup_params, generate_optuna_dashboard_command
+from wind_forecasting.tuning.utils.checkpoint_utils import (
     load_checkpoint, parse_epoch_from_checkpoint_path, determine_tactis_stage,
     extract_hyperparameters, prepare_model_init_args, load_model_state, set_tactis_stage
 )
-from wind_forecasting.utils.metrics_utils import (
+from wind_forecasting.tuning.utils.metrics_utils import (
     extract_metric_value, compute_evaluation_metrics,
     update_metrics_with_checkpoint_score, validate_metrics_for_return
 )
-from wind_forecasting.utils.tuning_helpers import (
+from wind_forecasting.tuning.utils.helpers import (
     set_trial_seeds, update_data_module_params, regenerate_data_splits,
     prepare_feedforward_params, calculate_dynamic_limit_train_batches,
     create_trial_checkpoint_callback, setup_trial_callbacks
 )
-from wind_forecasting.utils.callbacks import SafePruningCallback
-from wind_forecasting.run_scripts.tuning import MLTuningObjective, tune_model
+from wind_forecasting.tuning.utils.callbacks import SafePruningCallback
+from wind_forecasting.tuning import MLTuningObjective, tune_model
 
 
 class TestPathUtils:
