@@ -19,8 +19,8 @@ logging:
 
 optuna:
   save_trial_code: false      # Default false
-  n_trials_per_worker: 20   # Replaced by total_study_trials for global trial limit
-  total_study_trials: 200     # Global maximum number of trials across all workers, takes precedence over n_trials_per_worker
+  n_trials_per_worker: 25   # Replaced by total_study_trials for global trial limit
+  total_study_trials: 100     # Global maximum number of trials across all workers, takes precedence over n_trials_per_worker
   max_epochs: 40              # epochs per trial
   sampler: "random"           # Options: "random" (ExpectedNumInstanceSampler), "sequential" (SequentialSampler)
   sampler_params:
@@ -38,14 +38,19 @@ optuna:
   # Pruning configuration
   pruning:
     enabled: true
-    type: "patient"
-    patience: 1               # Configure PatientPruner: number of steps to wait (epochs) before pruning
-    min_delta: 2.0            # Configure PatientPruner: tolerance for improvement (default 0.0)
-    wrapped_pruner:
-      type: "percentile"      # Set the wrapped pruner type
-      percentile: 50.0        # Configure PercentilePruner: prune trials below this percentile
-      n_startup_trials: 4     # Configure PercentilePruner: wait for this many trials before pruning
-      n_warmup_steps: 4      # Configure PercentilePruner: wait for this many steps (epochs) before pruning
+    type: "successivehalving"
+    min_resource: 8
+    reduction_factor: 2
+    min_early_stopping_rate: 0
+    bootstrap_count: 8
+    # type: "patient"
+    # patience: 1               # Configure PatientPruner: number of steps to wait (epochs) before pruning
+    # min_delta: 2.0            # Configure PatientPruner: tolerance for improvement (default 0.0)
+    # wrapped_pruner:
+    #   type: "percentile"      # Set the wrapped pruner type
+    #   percentile: 50.0        # Configure PercentilePruner: prune trials below this percentile
+    #   n_startup_trials: 4     # Configure PercentilePruner: wait for this many trials before pruning
+    #   n_warmup_steps: 4      # Configure PercentilePruner: wait for this many steps (epochs) before pruning
     # # type: "hyperband"
     #   type: "successivehalving"
     #   min_resource: 8             # Applies to SuccessiveHalving and Hyperband

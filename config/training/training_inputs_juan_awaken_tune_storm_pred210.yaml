@@ -38,14 +38,19 @@ optuna:
   # Pruning configuration
   pruning:
     enabled: true
-    type: "patient"
-    patience: 1               # Configure PatientPruner: number of steps to wait (epochs) before pruning
-    min_delta: 1.0            # Configure PatientPruner: tolerance for improvement (default 0.0)
-    wrapped_pruner:
-      type: "percentile"      # Set the wrapped pruner type
-      percentile: 50.0        # Configure PercentilePruner: prune trials below this percentile
-      n_startup_trials: 4     # Configure PercentilePruner: wait for this many trials before pruning
-      n_warmup_steps: 4      # Configure PercentilePruner: wait for this many steps (epochs) before pruning
+    type: "successivehalving"
+    min_resource: 8
+    reduction_factor: 2
+    min_early_stopping_rate: 0
+    bootstrap_count: 8
+    # type: "patient"
+    # patience: 1               # Configure PatientPruner: number of steps to wait (epochs) before pruning
+    # min_delta: 1.0            # Configure PatientPruner: tolerance for improvement (default 0.0)
+    # wrapped_pruner:
+    #   type: "percentile"      # Set the wrapped pruner type
+    #   percentile: 50.0        # Configure PercentilePruner: prune trials below this percentile
+    #   n_startup_trials: 4     # Configure PercentilePruner: wait for this many trials before pruning
+    #   n_warmup_steps: 4      # Configure PercentilePruner: wait for this many steps (epochs) before pruning
     # # type: "hyperband"
     #   type: "successivehalving"
     #   min_resource: 8             # Applies to SuccessiveHalving and Hyperband
