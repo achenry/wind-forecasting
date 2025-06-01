@@ -1,12 +1,12 @@
 #!/bin/bash
 
-#SBATCH --partition=all_gpu.p          # Partition for H100/A100 GPUs cfdg.p / all_gpu.p / mpcg.p(not allowed)
+#SBATCH --partition=cfdg.p          # Partition for H100/A100 GPUs cfdg.p / all_gpu.p / mpcg.p(not allowed)
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=4         # Match number of GPUs requested below
 #SBATCH --cpus-per-task=8           # CPUs per task (4 tasks * 32 = 128 CPUs total) [1 CPU/GPU more than enough]
 #SBATCH --mem-per-cpu=8016           # Memory per CPU (Total Mem = ntasks * cpus-per-task * mem-per-cpu) [flasc uses only ~4-5 GiB max]
-#SBATCH --gres=gpu:4            # Request 4 H100 GPUs
-#SBATCH --time=1-00:00                # Time limit (up to 1 day)
+#SBATCH --gres=gpu:4           # Request 4 H100 GPUs
+#SBATCH --time=7-00:00                # Time limit (up to 1 day)
 #SBATCH --job-name=210awaken_tune_tactis
 #SBATCH --output=/dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/slurm_logs/awaken_tune_tactis210_%j.out
 #SBATCH --error=/dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/slurm_logs/awaken_tune_tactis210_%j.err
