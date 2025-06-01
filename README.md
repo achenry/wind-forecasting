@@ -3,7 +3,7 @@
 <div align="center">
 
 ![Project Status](https://img.shields.io/badge/status-active%20development-green)
-![Last Updated](https://img.shields.io/badge/last%20updated-April%202025-blue)
+![Last Updated](https://img.shields.io/badge/last%20updated-June%202025-blue)
 ![Contributors](https://img.shields.io/badge/contributors-@achenry%20%7C%20@boujuan-orange)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
 
@@ -52,7 +52,7 @@ To provide a flexible and scalable platform for experimenting with and deploying
 
 ## 🛠️ Core Technologies
 
-This framework utilizes a modern stack for deep learning and time series analysis:
+This framework utilizes a modern stack for deep learning and time series analysis with a modular, domain-driven architecture:
 
 *   **🐍 Programming Language:** Python (v3.12+)
 *   **🧠 Deep Learning:**
@@ -73,6 +73,13 @@ This framework utilizes a modern stack for deep learning and time series analysi
     *   Polars / Pandas: Efficient data manipulation.
     *   Parquet: Recommended file format for storing processed time series data.
 
+### 🏗️ Architecture Highlights
+
+*   **Modular Design:** Clean separation between core functionality, tuning-specific utilities, and cross-mode components.
+*   **Domain-Driven Organization:** Hyperparameter tuning is encapsulated in the `wind_forecasting.tuning` subpackage with clear APIs.
+*   **Flexible Configuration:** YAML-based configuration system supporting multiple modes (tune/train/test) with shared utilities.
+*   **Scalable Infrastructure:** Supports both local development and distributed HPC execution with minimal configuration changes.
+
 ## 📂 Project Structure (`wind-forecasting/`)
 
 ```
@@ -81,9 +88,16 @@ wind-forecasting/
 │   └── training/
 ├── 📁 wind_forecasting/   # Core application source code
 │   ├── 📁 preprocessing/  # Data loading, processing, splitting (DataModule)
-│   ├── 📁 run_scripts/    # Main execution scripts (run_model.py, tuning.py, etc.)
-│   │   └── tune_scripts/ # Example Slurm scripts for tuning
-│   └── 📁 utils/          # Utility functions (Optuna DB, trial handling, etc.)
+│   ├── 📁 run_scripts/    # Main execution scripts (run_model.py, testing.py, etc.)
+│   │   └── tune_scripts/  # Example Slurm scripts for tuning
+│   ├── 📁 tuning/         # Hyperparameter optimization subpackage
+│   │   ├── core.py        # Main tune_model orchestration
+│   │   ├── objective.py   # MLTuningObjective class
+│   │   ├── scripts/       # Standalone tuning scripts
+│   │   └── utils/         # Tuning-specific utilities
+│   └── 📁 utils/          # General & cross-mode utilities
+│       ├── optuna_*.py    # Optuna utilities (storage, config, params) used across modes
+│       └── callbacks.py   # General PyTorch Lightning callbacks
 ├── 📁 logs/               # Default directory for runtime outputs (Slurm, WandB, Checkpoints)
 ├── 📁 optuna/             # Default directory for Optuna storage artifacts (DB data, sockets)
 ├── 📁 examples/           # Example scripts (data download) & input configurations
@@ -160,7 +174,9 @@ The typical workflow involves these stages:
 3. Write a training configuration file similar to `wind-forecasting/examples/inputs/training_inputs_kestrel_flasc.yaml`.
 4. Run `python wind-forecasting/wind_forecasting/run_scripts/load_data.py --config wind-forecasting/examples/inputs/training_inputs_aoifemac_flasc.yaml --reload`, or on a HPC by running `wind-forecasting/wind_forecasting/run_scripts/load_data_kestrel.sh`, to resample the data as needed, caterogize the variables, and generate train/test/val splits.
 
-### 2.1 Hyperparameter Tuning
+### 2. Hyperparameter Tuning (ML Models)
+
+The framework includes a comprehensive hyperparameter tuning system using Optuna for distributed optimization. The tuning functionality is organized in the `wind_forecasting/tuning/` subpackage for maintainability and modularity.
 
 + Tune a ML model on a local machine with `python wind-forecasting/wind_forecasting/run_scripts/run_model.py --config wind-forecasting/examples/inputs/training_inputs_aoifemac_flasc.yaml --mode tune --model informer`, or on a HPC by running `wind-forecasting/wind_forecasting/run_scripts/tune_model.sh`. 
 
@@ -236,6 +252,8 @@ python wind_forecasting/run_scripts/load_data.py --config examples/inputs/traini
 ```
 
 ### Tuning (HPC)
+
+The framework's modular tuning system supports distributed hyperparameter optimization with PostgreSQL backend and comprehensive monitoring.
 
 1.  **Configure:** Edit training YAML (`config/training/`) with Optuna settings.
 2.  **Submit Job:** Modify and submit Slurm script (e.g., `tune_model_storm.sh`), ensuring the correct `--model <model_name>` is targeted.
