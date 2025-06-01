@@ -109,7 +109,8 @@ def generate_db_setup_params(model: str, model_config: Dict) -> Dict:
     
     elif backend == "postgresql":
         # PostgreSQL specific configuration
-        optuna_db_name = storage_cfg.get("database_name", "optuna_study_db")
+        # Check both db_name and database_name for compatibility
+        optuna_db_name = storage_cfg.get("db_name", storage_cfg.get("database_name", "optuna_study_db"))
         socket_dir_instance = os.path.join(resolved_socket_dir_base, pgdata_instance_name)
         
         db_setup_params.update({
@@ -121,6 +122,18 @@ def generate_db_setup_params(model: str, model_config: Dict) -> Dict:
             "db_port": storage_cfg.get("db_port", 5432),
             "db_user": storage_cfg.get("db_user", "optuna_user"),
         })
+        
+        # Add SSL and authentication parameters for external PostgreSQL connections
+        ssl_auth_params = ["sslmode", "db_password_env_var"]
+        for param in ssl_auth_params:
+            if param in storage_cfg:
+                db_setup_params[param] = storage_cfg[param]
+        
+        # Handle SSL certificate path with resolution
+        if "sslrootcert_path" in storage_cfg:
+            sslrootcert_path = storage_cfg["sslrootcert_path"]
+            resolved_cert_path = resolve_path(project_root, sslrootcert_path)
+            db_setup_params["sslrootcert_path"] = resolved_cert_path
 
     return db_setup_params
 
