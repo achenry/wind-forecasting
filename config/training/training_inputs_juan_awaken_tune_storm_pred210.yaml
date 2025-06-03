@@ -175,6 +175,8 @@ model:
     weight_decay_stage2: 1e-5
     # Dropout & Clipping
     dropout_rate: 0.1
+    gradient_clip_val_stage1: 1000.0
+    gradient_clip_val_stage2: 1000.0
     ### VALUES FOR per_turbine_target = true ###
     # Learning Rate Scheduler for Stage 1
     warmup_steps_s1: 50000 # Warmup steps for Stage 1
@@ -240,7 +242,7 @@ callbacks:
     progress_bar:
       class_path: lightning.pytorch.callbacks.TQDMProgressBar
       init_args:
-        refresh_rate: 512  # every n steps
+        refresh_rate: 2048  # every n steps
         leave: false
     # early_stopping:
     #   class_path: lightning.pytorch.callbacks.EarlyStopping

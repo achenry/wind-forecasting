@@ -1,18 +1,28 @@
 #!/bin/bash
 
-#SBATCH --partition=all_gpu.p          # Partition for H100/A100 GPUs cfdg.p / all_gpu.p / mpcg.p(not allowed)
-#SBATCH --nodes=1
+#SBATCH --partition=all_gpu.p       # Partition for H100/A100 GPUs cfdg.p / all_gpu.p / mpcg.p(not allowed)
+#SBATCH --nodes=2                   # MULTI-NODE: Number of compute nodes (change to 3, 4, etc. as needed)
 #SBATCH --ntasks-per-node=4         # Match number of GPUs requested below (for DDP training)
-#SBATCH --cpus-per-task=32           # CPUs per task (adjust if needed for data loading)
+#SBATCH --cpus-per-task=1           # CPUs per task (adjust if needed for data loading)
 #SBATCH --mem-per-cpu=4096          # Memory per CPU
-#SBATCH --gres=gpu:H100:4           # Request 4 H100 GPUs
+#SBATCH --gres=gpu:H100:4           # Request 4 H100 GPUs per node
 #SBATCH --time=1-00:00              # Time limit (adjust as needed for training)
-#SBATCH --job-name=awaken_train_tactis_510      # Updated job name
-#SBATCH --output=/dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/slurm_logs/awaken_train_tactis_510_%j.out # Updated output log path
-#SBATCH --error=/dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/slurm_logs/awaken_train_tactis_510_%j.err  # Updated error log path
+#SBATCH --job-name=awaken_train_tactis_multinode  # Updated job name for multi-node
+#SBATCH --output=/dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/slurm_logs/awaken_train_tactis_multinode_210_%j.out
+#SBATCH --error=/dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/slurm_logs/awaken_train_tactis_multinode_210_%j.err
 #SBATCH --hint=nomultithread        # Disable hyperthreading
 #SBATCH --distribution=block:block  # Improve GPU-CPU affinity
 #SBATCH --gres-flags=enforce-binding # Enforce binding of GPUs to tasks
+
+# --- Multi-Node Communication Setup ---
+# CRITICAL: These environment variables enable NCCL communication between nodes
+export NCCL_DEBUG=INFO                    # Enable NCCL debugging (use WARN for production)
+export NCCL_IB_DISABLE=0                  # Enable InfiniBand if available (0=enabled, 1=disabled)
+export NCCL_SOCKET_IFNAME=ib0             # Primary: InfiniBand interface (try ib0, ib1)
+# export NCCL_SOCKET_IFNAME=eth0          # Alternative: Ethernet interface if no InfiniBand
+# export NCCL_SOCKET_IFNAME=^docker0,lo   # Alternative: Exclude interfaces if needed
+export NCCL_NET_GDR_LEVEL=3               # GPU Direct RDMA level (if available)
+export PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:512  # Help with memory fragmentation
 
 # --- Base Directories ---
 BASE_DIR="/user/taed7566/Forecasting/wind-forecasting" # Absolute path to the base directory
@@ -37,24 +47,35 @@ cd ${WORK_DIR} || exit 1 # Exit if cd fails
 export PYTHONPATH=${WORK_DIR}:${PYTHONPATH}
 export WANDB_DIR=${LOG_DIR} # WandB will create a 'wandb' subdirectory here automatically
 
-# --- Print Job Info ---
-echo "--- SLURM JOB INFO (Training) ---"
+# --- Print Multi-Node Job Info ---
+echo "=== SLURM MULTI-NODE JOB INFO (Training) ==="
 echo "JOB ID: ${SLURM_JOB_ID}"
 echo "JOB NAME: ${SLURM_JOB_NAME}"
 echo "PARTITION: ${SLURM_JOB_PARTITION}"
 echo "NODE LIST: ${SLURM_JOB_NODELIST}"
 echo "NUM NODES: ${SLURM_JOB_NUM_NODES}"
-echo "NUM TASKS PER NODE (GPUs for DDP): ${SLURM_NTASKS_PER_NODE}"
+echo "NUM TASKS PER NODE (GPUs): ${SLURM_NTASKS_PER_NODE}"
+echo "TOTAL GPUs ACROSS ALL NODES: $((${SLURM_JOB_NUM_NODES} * ${SLURM_NTASKS_PER_NODE}))"
 echo "CPUS PER TASK: ${SLURM_CPUS_PER_TASK}"
+
+# Show GPU info for current node
 GPU_TYPE=$(nvidia-smi --query-gpu=name --format=csv,noheader | uniq)
-echo "GPU TYPE: ${GPU_TYPE}"
-echo "------------------------"
+echo "GPU TYPE (this node): ${GPU_TYPE}"
+echo "CURRENT NODE: $(hostname)"
+
+# Show NCCL configuration
+echo "--- NCCL CONFIGURATION ---"
+echo "NCCL_DEBUG: ${NCCL_DEBUG}"
+echo "NCCL_SOCKET_IFNAME: ${NCCL_SOCKET_IFNAME}"
+echo "NCCL_IB_DISABLE: ${NCCL_IB_DISABLE}"
+
+echo "--- DIRECTORIES ---"
 echo "BASE_DIR: ${BASE_DIR}"
 echo "WORK_DIR: ${WORK_DIR}"
 echo "LOG_DIR: ${LOG_DIR}"
 echo "CONFIG_FILE: ${CONFIG_FILE}"
 echo "MODEL_NAME: ${MODEL_NAME}"
-echo "------------------------"
+echo "========================================"
 
 # --- Setup Main Environment ---
 echo "Setting up main environment..."
@@ -87,12 +108,17 @@ echo "CUDA_VISIBLE_DEVICES set to: $CUDA_VISIBLE_DEVICES"
 # echo "Found and exported POSTGRES_BIN_DIR: ${POSTGRES_BIN_DIR}"
 # --- End PostgreSQL Setup ---
 
-echo "=== STARTING MODEL TRAINING ==="
+echo "=== STARTING MULTI-NODE MODEL TRAINING ==="
+echo "Training will use ${SLURM_JOB_NUM_NODES} nodes with $((${SLURM_JOB_NUM_NODES} * ${SLURM_NTASKS_PER_NODE})) total GPUs"
 date +"%Y-%m-%d %H:%M:%S"
 
-# Use srun to launch the training script. PyTorch Lightning's SLURMEnvironment
-# should detect the environment variables set by srun for distributed training (DDP).
-srun python ${WORK_DIR}/run_scripts/run_model.py \
+# CRITICAL: Use srun with explicit multi-node parameters
+# PyTorch Lightning will automatically detect SLURM environment and configure DDP
+srun --nodes=${SLURM_JOB_NUM_NODES} \
+     --ntasks-per-node=${SLURM_NTASKS_PER_NODE} \
+     --cpus-per-task=${SLURM_CPUS_PER_TASK} \
+     --gres=gpu:H100:${SLURM_NTASKS_PER_NODE} \
+     python ${WORK_DIR}/run_scripts/run_model.py \
   --config ${CONFIG_FILE} \
   --model ${MODEL_NAME} \
   --mode train \
@@ -147,20 +173,20 @@ srun python ${WORK_DIR}/run_scripts/run_model.py \
   #   model.tactis.gradient_clip_val_stage1=1.0 \
   #   model.tactis.gradient_clip_val_stage2=1.0
   --override dataset.sampler=sequential \
-      trainer.max_epochs=10 \
+      trainer.max_epochs=30 \
       trainer.limit_train_batches=null \
       trainer.val_check_interval=1.0 \
       dataset.batch_size=64 \
       dataset.context_length_factor=5 \
-      model.tactis.lr_stage1=4.270656650991065e-06 \
-      model.tactis.lr_stage2=4.899249681991742e-06 \
+      model.tactis.lr_stage1=1.478e-05 \
+      model.tactis.lr_stage2=1.695e-05 \
       model.tactis.weight_decay_stage1=0.0 \
       model.tactis.weight_decay_stage2=5e-06 \
-      model.tactis.stage2_start_epoch=5 \
-      model.tactis.warmup_steps_s1=196345 \
-      model.tactis.warmup_steps_s2=196345 \
-      model.tactis.steps_to_decay_s1=589035 \
-      model.tactis.steps_to_decay_s2=589035 \
+      model.tactis.stage2_start_epoch=15 \
+      model.tactis.warmup_steps_s1=589035 \
+      model.tactis.warmup_steps_s2=589035 \
+      model.tactis.steps_to_decay_s1=1767105 \
+      model.tactis.steps_to_decay_s2=1767105 \
       model.tactis.eta_min_fraction_s1=0.0016799548032196548 \
       model.tactis.eta_min_fraction_s2=0.00013329608232447702 \
       model.tactis.flow_series_embedding_dim=64 \
@@ -192,7 +218,8 @@ srun python ${WORK_DIR}/run_scripts/run_model.py \
 
 TRAIN_EXIT_CODE=$?
 
-echo "=== TRAINING SCRIPT FINISHED WITH EXIT CODE: ${TRAIN_EXIT_CODE} ==="
+echo "=== MULTI-NODE TRAINING SCRIPT FINISHED WITH EXIT CODE: ${TRAIN_EXIT_CODE} ==="
+echo "Training completed using ${SLURM_JOB_NUM_NODES} nodes with $((${SLURM_JOB_NUM_NODES} * ${SLURM_NTASKS_PER_NODE})) total GPUs"
 date +"%Y-%m-%d %H:%M:%S"
 
 # --- Load HPARAMS manually logic ---
