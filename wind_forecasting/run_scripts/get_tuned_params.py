@@ -1,9 +1,6 @@
 import argparse
 import logging
 import os
-import torch
-import random
-import numpy as np
 import inspect
 
 from lightning.pytorch import Trainer
@@ -54,10 +51,8 @@ def main():
     # Use globals() to fetch the module and estimator classes dynamically
     LightningModuleClass = globals()[f"{args.model.capitalize()}LightningModule"]
     EstimatorClass = globals()[f"{args.model.capitalize()}Estimator"]
-    DistrOutputClass = globals()[config["model"]["distr_output"]["class"]]
 
     # %% SETUP OPTUNA STORAGE
-    
 
     # Generate DB setup parameters regardless of mode (needed for study name)
     logging.info("Generating Optuna DB setup parameters...")
