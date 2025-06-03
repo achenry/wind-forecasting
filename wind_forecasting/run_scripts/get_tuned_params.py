@@ -27,20 +27,12 @@ from gluonts.torch.distributions import LowRankMultivariateNormalOutput
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 def main():
-
-    # %% DETERMINE WORKER RANK (using WORKER_RANK set in Slurm script, fallback to 0)
-    try:
-        # Use the WORKER_RANK variable set explicitly in the Slurm script's nohup block
-        rank = int(os.environ.get('WORKER_RANK', '0'))
-    except ValueError:
-        logging.warning("Could not parse WORKER_RANK, assuming rank 0.")
-        rank = 0
-    logging.info(f"Determined worker rank from WORKER_RANK: {rank}")
+    rank = 0
 
     # %% PARSE ARGUMENTS
     parser = argparse.ArgumentParser(description="Run a model on a dataset")
     parser.add_argument("--config", type=str, help="Path to config file", default="examples/inputs/training_inputs_aoifemac_flasc.yaml")
-    parser.add_argument("-m", "--model", type=str, choices=["informer", "autoformer", "spacetimeformer", "tactis"], required=True, nargs="+")
+    parser.add_argument("-m", "--model", type=str, choices=["informer", "autoformer", "spacetimeformer", "tactis"], required=True)
     parser.add_argument("-chk", "--checkpoint", type=str, required=False, default=None,
                         help="Which checkpoint to use: can be equal to 'None' to start afresh with training mode, 'latest', 'best', or an existing checkpoint path.")
     args = parser.parse_args()
