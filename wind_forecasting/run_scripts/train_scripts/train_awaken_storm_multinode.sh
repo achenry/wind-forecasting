@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #SBATCH --partition=all_gpu.p       # Partition for H100/A100 GPUs cfdg.p / all_gpu.p / mpcg.p(not allowed)
-#SBATCH --nodes=2                   # MULTI-NODE: Number of compute nodes (2 nodes available)
+#SBATCH --nodes=4                   # MULTI-NODE: Number of compute nodes (2 nodes available)
 #SBATCH --ntasks-per-node=4         # Match number of GPUs requested below (for DDP training)
 #SBATCH --cpus-per-task=2           # CPUs per task (adjust if needed for data loading)
 #SBATCH --mem-per-cpu=4096          # Memory per CPU
@@ -175,20 +175,20 @@ srun --nodes=${SLURM_JOB_NUM_NODES} \
   #   model.tactis.gradient_clip_val_stage2=1.0
   # PR 210:
   --override dataset.sampler=sequential \
-      trainer.max_epochs=20 \
+      trainer.max_epochs=40 \
       trainer.limit_train_batches=null \
       trainer.val_check_interval=1.0 \
       dataset.batch_size=64 \
       dataset.context_length_factor=5 \
-      model.tactis.lr_stage1=1.478e-05 \
-      model.tactis.lr_stage2=1.695e-05 \
+      model.tactis.lr_stage1=8.54131330198213e-06 \
+      model.tactis.lr_stage2=9.798499363983485e-06 \
       model.tactis.weight_decay_stage1=0.0 \
       model.tactis.weight_decay_stage2=5e-06 \
-      model.tactis.stage2_start_epoch=10 \
-      model.tactis.warmup_steps_s1=392690 \
-      model.tactis.warmup_steps_s2=392690 \
-      model.tactis.steps_to_decay_s1=1178070 \
-      model.tactis.steps_to_decay_s2=1178070 \
+      model.tactis.stage2_start_epoch=20 \
+      model.tactis.warmup_steps_s1=785380 \
+      model.tactis.warmup_steps_s2=785380 \
+      model.tactis.steps_to_decay_s1=2356140 \
+      model.tactis.steps_to_decay_s2=2356140 \
       model.tactis.eta_min_fraction_s1=0.0016799548032196548 \
       model.tactis.eta_min_fraction_s2=0.00013329608232447702 \
       model.tactis.flow_series_embedding_dim=64 \
