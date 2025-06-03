@@ -37,12 +37,6 @@ def main():
                         help="Which checkpoint to use: can be equal to 'None' to start afresh with training mode, 'latest', 'best', or an existing checkpoint path.")
     args = parser.parse_args()
 
-    # %% SETUP SEED
-    logging.info(f"Setting random seed to {args.seed}")
-    torch.manual_seed(args.seed)
-    random.seed(args.seed)
-    np.random.seed(args.seed)
-
     # %% PARSE CONFIG
     logging.info(f"Parsing configuration from yaml and command line arguments")
     with open(args.config, "r") as file:
@@ -81,9 +75,9 @@ def main():
     )
     logging.info(f"Optuna storage setup complete. Storage type: {type(optuna_storage).__name__}")
     if db_connection_info:
-            logging.info("PostgreSQL connection info returned (likely tuning mode).")
+        logging.info("PostgreSQL connection info returned (likely tuning mode).")
     else:
-            logging.info("No connection info returned (likely SQLite or Journal mode).")
+        logging.info("No connection info returned (likely SQLite or Journal mode).")
         
     # get parameters expected by estimator and trainer
     estimator_sig = inspect.signature(EstimatorClass.__init__)
