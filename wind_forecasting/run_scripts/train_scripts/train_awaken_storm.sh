@@ -1,15 +1,15 @@
 #!/bin/bash
 
-#SBATCH --partition=all_gpu.p          # Partition for H100/A100 GPUs cfdg.p / all_gpu.p / mpcg.p(not allowed)
+#SBATCH --partition=cfdg.p          # Partition for H100/A100 GPUs cfdg.p / all_gpu.p / mpcg.p(not allowed)
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=4         # Match number of GPUs requested below (for DDP training)
 #SBATCH --cpus-per-task=32           # CPUs per task (adjust if needed for data loading)
 #SBATCH --mem-per-cpu=4096          # Memory per CPU
 #SBATCH --gres=gpu:H100:4           # Request 4 H100 GPUs
-#SBATCH --time=1-00:00              # Time limit (adjust as needed for training)
-#SBATCH --job-name=awaken_train      # Updated job name
-#SBATCH --output=/dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/slurm_logs/awaken_train_%j.out # Updated output log path
-#SBATCH --error=/dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/slurm_logs/awaken_train_%j.err  # Updated error log path
+#SBATCH --time=7-00:00              # Time limit (adjust as needed for training)
+#SBATCH --job-name=awaken_train_tactis_210      # Updated job name
+#SBATCH --output=/dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/slurm_logs/awaken_train_tactis_210_%j.out # Updated output log path
+#SBATCH --error=/dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/slurm_logs/awaken_train_tactis_210_%j.err  # Updated error log path
 #SBATCH --hint=nomultithread        # Disable hyperthreading
 #SBATCH --distribution=block:block  # Improve GPU-CPU affinity
 #SBATCH --gres-flags=enforce-binding # Enforce binding of GPUs to tasks
@@ -19,8 +19,8 @@ BASE_DIR="/user/taed7566/Forecasting/wind-forecasting" # Absolute path to the ba
 OUTPUT_DIR="/dss/work/taed7566/Forecasting_Outputs/wind-forecasting"
 export WORK_DIR="${BASE_DIR}/wind_forecasting"
 export LOG_DIR="${OUTPUT_DIR}/logs"
-export CONFIG_FILE="${BASE_DIR}/config/training/training_inputs_juan_awaken_storm.yaml"
-export MODEL_NAME="informer"
+export CONFIG_FILE="${BASE_DIR}/config/training/training_inputs_juan_awaken_tune_storm_pred210.yaml"
+export MODEL_NAME="tactis"
 export RESTART_TUNING_FLAG="" # "" Or "--restart_tuning"
 export AUTO_EXIT_WHEN_DONE="true"  # Set to "true" to exit script when all workers finish, "false" to keep running until timeout
 export NUMEXPR_MAX_THREADS=128
@@ -96,14 +96,65 @@ srun python ${WORK_DIR}/run_scripts/run_model.py \
   --config ${CONFIG_FILE} \
   --model ${MODEL_NAME} \
   --mode train \
-  --seed 666
-  # --use_tuned_parameters
-  # --override model.tactis.lr_stage1 model.tactis.lr_stage2 model.tactis.dropout_rate trainer.gradient_clip_val
+  --seed 666 \
+  --override dataset.sampler=sequential \
+      trainer.max_epochs=1 \
+      trainer.limit_train_batches=null \
+      trainer.val_check_interval=1.0 \
+      dataset.batch_size=64 \
+      dataset.context_length_factor=5 \
+      model.tactis.lr_stage1=4.270656650991065e-06 \
+      model.tactis.lr_stage2=4.899249681991742e-06 \
+      model.tactis.weight_decay_stage1=0.0 \
+      model.tactis.weight_decay_stage2=5e-06 \
+      model.tactis.stage2_start_epoch=50 \
+      model.tactis.warmup_steps_s1=5000 \
+      model.tactis.warmup_steps_s2=2500 \
+      model.tactis.steps_to_decay_s1=null \
+      model.tactis.steps_to_decay_s2=null \
+      model.tactis.eta_min_fraction_s1=0.0016799548032196548 \
+      model.tactis.eta_min_fraction_s2=0.00013329608232447702 \
+      model.tactis.flow_series_embedding_dim=64 \
+      model.tactis.copula_series_embedding_dim=64 \
+      model.tactis.flow_input_encoder_layers=4 \
+      model.tactis.copula_input_encoder_layers=2 \
+      model.tactis.marginal_embedding_dim_per_head=512 \
+      model.tactis.marginal_num_heads=3 \
+      model.tactis.marginal_num_layers=4 \
+      model.tactis.copula_embedding_dim_per_head=128 \
+      model.tactis.copula_num_heads=6 \
+      model.tactis.copula_num_layers=3 \
+      model.tactis.decoder_dsf_num_layers=4 \
+      model.tactis.decoder_dsf_hidden_dim=128 \
+      model.tactis.decoder_mlp_num_layers=3 \
+      model.tactis.decoder_mlp_hidden_dim=256 \
+      model.tactis.decoder_transformer_num_layers=4 \
+      model.tactis.decoder_transformer_embedding_dim_per_head=64 \
+      model.tactis.decoder_transformer_num_heads=4 \
+      model.tactis.decoder_num_bins=50 \
+      model.tactis.encoder_type=standard \
+      model.tactis.dropout_rate=0.007 \
+      model.tactis.ac_mlp_num_layers=3 \
+      model.tactis.ac_mlp_dim=128 \
+      model.tactis.stage1_activation_function=relu \
+      model.tactis.stage2_activation_function=relu \
+      model.tactis.gradient_clip_val_stage1=1.0 \
+      model.tactis.gradient_clip_val_stage2=1.0 \
 
 TRAIN_EXIT_CODE=$?
 
 echo "=== TRAINING SCRIPT FINISHED WITH EXIT CODE: ${TRAIN_EXIT_CODE} ==="
 date +"%Y-%m-%d %H:%M:%S"
+
+# --- Load HPARAMS manually logic ---
+# python -c "
+#   import torch
+#   checkpoint = torch.load('/dss/work/taed7566/Forecasting_Outputs/wind-forecasting/checkpoints/tactis_210/trial_190/trial_190_epoch=19-step=200000-val_loss=-29.71.ckpt', map_location='cpu')
+#   hparams = checkpoint.get('hyper_parameters', checkpoint.get('hparams'))
+#   print('Hyperparameters from checkpoint:')
+#   for k, v in hparams['model_config'].items():
+#       print(f'model.tactis.{k}={v}')
+#   "
 
 # --- Move main SLURM logs if needed (optional, SLURM might handle this) ---
 # Consider if you want to move the main .out/.err files after completion

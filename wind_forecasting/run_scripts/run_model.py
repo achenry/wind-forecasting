@@ -324,13 +324,30 @@ def main():
 
     # Add global gradient clipping for automatic optimization
     config.setdefault("trainer", {})
-    original_gcv = config["trainer"].get("gradient_clip_val")
-    effective_gcv = config["trainer"].setdefault("gradient_clip_val", 1.0)
     
-    if original_gcv is None:
-        logging.info(f"Gradient_clip_val not specified in config, defaulting to {effective_gcv} for automatic optimization.")
+    # Check if model has stage-specific gradient clipping (like TACTiS)
+    has_stage_specific_clipping = (
+        args.model == "tactis" and 
+        "tactis" in config.get("model", {}) and
+        any(k.startswith("gradient_clip_val_stage") for k in config["model"]["tactis"])
+    )
+    
+    if has_stage_specific_clipping:
+        # For models with stage-specific clipping, ensure no global gradient_clip_val interferes
+        if "gradient_clip_val" in config["trainer"]:
+            logging.info(f"Model {args.model} uses stage-specific gradient clipping. Removing trainer.gradient_clip_val={config['trainer']['gradient_clip_val']}")
+            del config["trainer"]["gradient_clip_val"]
+        else:
+            logging.info(f"Model {args.model} will use stage-specific gradient clipping")
     else:
-        logging.info(f"Using gradient_clip_val: {original_gcv} from configuration for automatic optimization.")
+        # For other models, use global gradient clipping
+        original_gcv = config["trainer"].get("gradient_clip_val")
+        effective_gcv = config["trainer"].setdefault("gradient_clip_val", 1.0)
+        
+        if original_gcv is None:
+            logging.info(f"Gradient_clip_val not specified in config, defaulting to {effective_gcv} for automatic optimization.")
+        else:
+            logging.info(f"Using gradient_clip_val: {original_gcv} from configuration for automatic optimization.")
 
     # %% CREATE DATASET
     # Dynamically set DataLoader workers based on SLURM_CPUS_PER_TASK
