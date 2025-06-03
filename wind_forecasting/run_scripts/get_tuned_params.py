@@ -64,9 +64,8 @@ def main():
     # Call setup_optuna_storage using config-derived params and effective restart flag
     optuna_storage, db_connection_info = setup_optuna_storage(
         db_setup_params=db_setup_params,
-        restart_tuning=False, # Use the potentially overridden flag
+        restart_tuning=False,
         rank=rank
-        # No force_sqlite_path argument anymore
     )
     logging.info(f"Optuna storage setup complete. Storage type: {type(optuna_storage).__name__}")
     if db_connection_info:
@@ -85,31 +84,27 @@ def main():
     model_hparams = config["model"].get(args.model, {})
     
     # get tuned params
-    found_tuned_params = True
-    if args.use_tuned_parameters:
-        try:
-            logging.info(f"Getting tuned parameters.")
-            
-            tuned_params = get_tuned_params(optuna_storage, db_setup_params["study_name"])
-            
-            config["model"]["distr_output"]["kwargs"].update({k: v for k, v in tuned_params.items() if k in config["model"]["distr_output"]["kwargs"]})
-            config["dataset"].update({k: v for k, v in tuned_params.items() if k in config["dataset"]})
-            
-            config["trainer"].update({k: v for k, v in tuned_params.items() if k in trainer_params})
-            
-            model_hparams.update(
-                {k: v for k, v in tuned_params.items() if k in estimator_params})
-            
-            context_length_factor = tuned_params.get('context_length_factor', config["dataset"].get("context_length_factor", None)) # Default to config or 2 if not in trial/config
-
-        except FileNotFoundError as e:
-            logging.warning(e)
-            found_tuned_params = False
-        except KeyError as e:
-            logging.warning(f"KeyError accessing Optuna config for tuned params: {e}. Using defaults.")
-            found_tuned_params = False
-    else:
-        found_tuned_params = False 
+    try:
+        logging.info(f"Getting tuned parameters.")
+        
+        tuned_params = get_tuned_params(optuna_storage, db_setup_params["study_name"])
+        
+        config["model"]["distr_output"]["kwargs"].update({k: v for k, v in tuned_params.items() if k in config["model"]["distr_output"]["kwargs"]})
+        config["dataset"].update({k: v for k, v in tuned_params.items() if k in config["dataset"]})
+        
+        config["trainer"].update({k: v for k, v in tuned_params.items() if k in trainer_params})
+        
+        model_hparams.update(
+            {k: v for k, v in tuned_params.items() if k in estimator_params})
+        
+        context_length_factor = tuned_params.get('context_length_factor', config["dataset"].get("context_length_factor", None)) # Default to config or 2 if not in trial/config
+        found_tuned_params = True
+    except FileNotFoundError as e:
+        logging.warning(e)
+        found_tuned_params = False
+    except KeyError as e:
+        logging.warning(f"KeyError accessing Optuna config for tuned params: {e}. Using defaults.")
+        found_tuned_params = False
     
     if found_tuned_params:
         logging.info(f"Updating estimator {args.model.capitalize()} kwargs with tuned parameters {tuned_params}")
