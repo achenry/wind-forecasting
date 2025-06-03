@@ -196,6 +196,14 @@ model:
     embed_method: spatio-temporal
     activation: gelu
     use_given: False
+  svr:
+    kernel: rbf
+    C: 1.0
+    degree: 3
+    gamma: auto
+    epsilon: 0.1
+    cache_size: 200
+    n_neighboring_turbines: 5
 
 callbacks:
     progress_bar:
