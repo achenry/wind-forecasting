@@ -685,6 +685,7 @@ def main():
 
         # Prepare all arguments in a dictionary for the Estimator
     
+    # wait until data_module attributes have been updated to generate splits
     if rank_zero_only.rank == 0:
         logging.info("Preparing data for tuning")
         if args.reload_data or not os.path.exists(data_module.train_ready_data_path):
@@ -692,11 +693,13 @@ def main():
             reload = True
         else:
             reload = False
+       
     else:
         reload = False
-        
-    data_module.generate_splits(save=True, reload=reload, splits=["train", "val", "test"],
-                                rank=rank_zero_only.rank)
+    
+    # other ranks should wait for this one 
+    # Pass the rank determined at the beginning of main() to handle both tuning and training modes
+    data_module.generate_splits(save=True, reload=reload, splits=["train", "val", "test"], rank=rank)
     
     if args.mode in ["train", "test"]:
         estimator_kwargs = {
