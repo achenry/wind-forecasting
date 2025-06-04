@@ -714,6 +714,7 @@ def main():
         # Prepare all arguments in a dictionary for the Estimator
     
     # wait until data_module attributes have been updated to generate splits
+    data_module.set_train_ready_path()
     if rank_zero_only.rank == 0:
         logging.info("Preparing data for tuning")
         if args.reload_data or not os.path.exists(data_module.train_ready_data_path):
