@@ -69,7 +69,7 @@ class DataModule():
         self.set_train_ready_path()
     
     def set_train_ready_path(self):
-        sfx = f"_ctx{self.context_length}_pred{self.prediction_length}"
+        sfx = f"ctx{self.context_length}_pred{self.prediction_length}"
         if self.normalized:
             self.train_ready_data_path = self.data_path.replace(
                 ".parquet", f"_train_ready_{self.freq}_{'per_turbine' if self.per_turbine_target else 'all_turbine'}_{sfx}.parquet")
