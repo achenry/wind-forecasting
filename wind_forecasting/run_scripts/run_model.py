@@ -22,8 +22,8 @@ import yaml
 from lightning.pytorch.strategies import DDPStrategy # Ensure import
 
 # Internal imports
-from wind_forecasting.utils.trial_utils import handle_trial_with_oom_protection
-from wind_forecasting.utils.optuna_db_utils import setup_optuna_storage
+from wind_forecasting.tuning.utils.trial_utils import handle_trial_with_oom_protection
+from wind_forecasting.utils.optuna_storage import setup_optuna_storage
 
 from gluonts.torch.distributions import LowRankMultivariateNormalOutput
 from gluonts.model.forecast_generator import DistributionForecastGenerator, SampleForecastGenerator
@@ -43,7 +43,8 @@ from pytorch_transformer_ts.tactis_2.estimator import TACTiS2Estimator as Tactis
 from pytorch_transformer_ts.tactis_2.lightning_module import TACTiS2LightningModule as TactisLightningModule
 from wind_forecasting.preprocessing.data_module import DataModule
 from wind_forecasting.run_scripts.testing import test_model, get_checkpoint, load_estimator_from_checkpoint
-from wind_forecasting.run_scripts.tuning import get_tuned_params, generate_df_setup_params
+from wind_forecasting.tuning import get_tuned_params
+from wind_forecasting.utils.optuna_config_utils import generate_db_setup_params
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -324,13 +325,30 @@ def main():
 
     # Add global gradient clipping for automatic optimization
     config.setdefault("trainer", {})
-    original_gcv = config["trainer"].get("gradient_clip_val")
-    effective_gcv = config["trainer"].setdefault("gradient_clip_val", 1.0)
     
-    if original_gcv is None:
-        logging.info(f"Gradient_clip_val not specified in config, defaulting to {effective_gcv} for automatic optimization.")
+    # Check if model has stage-specific gradient clipping (like TACTiS)
+    has_stage_specific_clipping = (
+        args.model == "tactis" and 
+        "tactis" in config.get("model", {}) and
+        any(k.startswith("gradient_clip_val_stage") for k in config["model"]["tactis"])
+    )
+    
+    if has_stage_specific_clipping:
+        # For models with stage-specific clipping, ensure no global gradient_clip_val interferes
+        if "gradient_clip_val" in config["trainer"]:
+            logging.info(f"Model {args.model} uses stage-specific gradient clipping. Removing trainer.gradient_clip_val={config['trainer']['gradient_clip_val']}")
+            del config["trainer"]["gradient_clip_val"]
+        else:
+            logging.info(f"Model {args.model} will use stage-specific gradient clipping")
     else:
-        logging.info(f"Using gradient_clip_val: {original_gcv} from configuration for automatic optimization.")
+        # For other models, use global gradient clipping
+        original_gcv = config["trainer"].get("gradient_clip_val")
+        effective_gcv = config["trainer"].setdefault("gradient_clip_val", 1.0)
+        
+        if original_gcv is None:
+            logging.info(f"Gradient_clip_val not specified in config, defaulting to {effective_gcv} for automatic optimization.")
+        else:
+            logging.info(f"Using gradient_clip_val: {original_gcv} from configuration for automatic optimization.")
 
     # %% CREATE DATASET
     # Dynamically set DataLoader workers based on SLURM_CPUS_PER_TASK
@@ -395,7 +413,7 @@ def main():
 
         # Generate DB setup parameters regardless of mode (needed for study name)
         logging.info("Generating Optuna DB setup parameters...")
-        db_setup_params = generate_df_setup_params(args.model, config)
+        db_setup_params = generate_db_setup_params(args.model, config)
 
         # Determine if restart_tuning should be overridden
         # We never want to restart/delete the study when just loading parameters
@@ -442,7 +460,7 @@ def main():
             try:
                 logging.info(f"Getting tuned parameters.")
                 
-                tuned_params = get_tuned_params(optuna_storage, db_setup_params["study_name"])
+                tuned_params = get_tuned_params(optuna_storage, db_setup_params["base_study_prefix"])
                 
                 # tuned_params = {'context_length_factor': 3, 'batch_size': 256, 'num_encoder_layers': 2, 'num_decoder_layers': 2, 'dim_feedforward': 2048, 'n_heads': 6, 'factor': 1, 'moving_avg': 21, 'lr': 4.7651748046751395e-05, 'weight_decay': 0.0, 'dropout': 0.0982708428790269}
                 # tuned_params = {'context_length_factor': 2, 'batch_size': 128, 'num_encoder_layers': 2, 'num_decoder_layers': 3, 'd_model': 128, 'n_heads': 6}
@@ -796,7 +814,7 @@ def main():
         logging.info("Starting Optuna hyperparameter tuning...")
 
         # %% TUNE MODEL WITH OPTUNA
-        from wind_forecasting.run_scripts.tuning import tune_model
+        from wind_forecasting.tuning import tune_model
         try:
             callbacks_config = config.get('callbacks', {})
             mc_config = callbacks_config.get('model_checkpoint', {})
@@ -839,7 +857,7 @@ def main():
 
         # Normal execution - pass the OOM protection wrapper and constructed storage URL
         tune_model(model=args.model, config=config, # Pass full config here for model/trainer params
-                   study_name=db_setup_params["study_name"],
+                   study_name=db_setup_params["base_study_prefix"],
                    optuna_storage=optuna_storage, # Pass the constructed storage object
                    lightning_module_class=LightningModuleClass,
                    estimator_class=EstimatorClass,

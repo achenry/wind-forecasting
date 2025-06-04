@@ -1,11 +1,11 @@
 experiment:
   username: jmb0507
-  project_name: tune_awaken_storm_2
-  run_name: tune_awaken_tactis_turb_pred210_ptt
+  project_name: train_awaken_storm_2
+  run_name: train_awaken_tactis_turb_pred210_ptt
   project_root: /user/taed7566/Forecasting/wind-forecasting
   log_dir: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/
-  notes: "Tuning AWAKEN with Tactis with per_turbine_target = true"
-  extra_tags: ["tune", "tactis", "turb", "greedy", "pred210", "ptt"] # By default already has GPU id and model name. LUT: 512, greedy: 210
+  notes: "Training AWAKEN with Tactis with per_turbine_target = true"
+  extra_tags: ["train", "tactis", "turb", "greedy", "pred210", "ptt"] # By default already has GPU id and model name. LUT: 512, greedy: 210
 
 logging:
   entity: jmb0507-cu-boulder # Wandb entity (group name)
@@ -19,8 +19,8 @@ logging:
 
 optuna:
   save_trial_code: false      # Default false
-  n_trials_per_worker: 25   # Replaced by total_study_trials for global trial limit
-  total_study_trials: 100     # Global maximum number of trials across all workers, takes precedence over n_trials_per_worker
+  n_trials_per_worker: 50   # Replaced by total_study_trials for global trial limit
+  total_study_trials: 200     # Global maximum number of trials across all workers, takes precedence over n_trials_per_worker
   max_epochs: 40              # epochs per trial
   sampler: "random"           # Options: "random" (ExpectedNumInstanceSampler), "sequential" (SequentialSampler)
   sampler_params:
@@ -38,14 +38,19 @@ optuna:
   # Pruning configuration
   pruning:
     enabled: true
-    type: "patient"
-    patience: 1               # Configure PatientPruner: number of steps to wait (epochs) before pruning
-    min_delta: 1.0            # Configure PatientPruner: tolerance for improvement (default 0.0)
-    wrapped_pruner:
-      type: "percentile"      # Set the wrapped pruner type
-      percentile: 50.0        # Configure PercentilePruner: prune trials below this percentile
-      n_startup_trials: 4     # Configure PercentilePruner: wait for this many trials before pruning
-      n_warmup_steps: 4      # Configure PercentilePruner: wait for this many steps (epochs) before pruning
+    type: "successivehalving"
+    min_resource: 12
+    reduction_factor: 2
+    min_early_stopping_rate: 0
+    bootstrap_count: 8
+    # type: "patient"
+    # patience: 1               # Configure PatientPruner: number of steps to wait (epochs) before pruning
+    # min_delta: 1.0            # Configure PatientPruner: tolerance for improvement (default 0.0)
+    # wrapped_pruner:
+    #   type: "percentile"      # Set the wrapped pruner type
+    #   percentile: 50.0        # Configure PercentilePruner: prune trials below this percentile
+    #   n_startup_trials: 4     # Configure PercentilePruner: wait for this many trials before pruning
+    #   n_warmup_steps: 4      # Configure PercentilePruner: wait for this many steps (epochs) before pruning
     # # type: "hyperband"
     #   type: "successivehalving"
     #   min_resource: 8             # Applies to SuccessiveHalving and Hyperband
@@ -170,6 +175,8 @@ model:
     weight_decay_stage2: 1e-5
     # Dropout & Clipping
     dropout_rate: 0.1
+    gradient_clip_val_stage1: 1000.0
+    gradient_clip_val_stage2: 1000.0
     ### VALUES FOR per_turbine_target = true ###
     # Learning Rate Scheduler for Stage 1
     warmup_steps_s1: 50000 # Warmup steps for Stage 1
@@ -235,7 +242,7 @@ callbacks:
     progress_bar:
       class_path: lightning.pytorch.callbacks.TQDMProgressBar
       init_args:
-        refresh_rate: 512  # every n steps
+        refresh_rate: 2048  # every n steps
         leave: false
     # early_stopping:
     #   class_path: lightning.pytorch.callbacks.EarlyStopping
@@ -263,10 +270,8 @@ callbacks:
     dead_neuron_monitor:
       enabled: false
 
-trainer: 
-    # grad_clip_norm: 0.0 # Prevents gradient explosion if > 0 
-    # limit_val_batches: 1.0 
-    val_check_interval: 5000
+trainer:
+    val_check_interval: 1.0
     accelerator: gpu
     devices: auto
     num_nodes: 1

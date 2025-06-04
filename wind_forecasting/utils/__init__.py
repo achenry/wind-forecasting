@@ -1,9 +1,12 @@
 """
 Utility modules for the wind_forecasting package.
+
+This package contains general-purpose utilities that can be used across
+different components of the wind forecasting system.
+
+Domain-specific utilities have been moved to their respective subpackages:
+- Tuning utilities: wind_forecasting.tuning.*
 """
 
-# Import modules to make them accessible when importing the package
-from wind_forecasting.utils import db_utils
-from wind_forecasting.utils import trial_utils
-from wind_forecasting.utils import optuna_db_utils
-from wind_forecasting.utils import optuna_visualization
+# All utility modules remain in their respective domain-specific packages
+# General utilities can be imported directly from their modules

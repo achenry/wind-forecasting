@@ -70,7 +70,10 @@ def _run_cmd(command, cwd=None, shell=False, check=True, env_override=None):
 def get_optuna_storage_url(pg_config):
     """Constructs the Optuna storage URL based on the pre-computed pg_config."""
     db_user = pg_config["db_user"]
-    db_name = pg_config["db_name"]
+    # Handle both db_name and optuna_db_name for compatibility
+    db_name = pg_config.get("db_name") or pg_config.get("optuna_db_name")
+    if not db_name:
+        raise ValueError("Neither 'db_name' nor 'optuna_db_name' found in pg_config")
 
     if pg_config["use_socket"]:
         socket_dir = pg_config["socket_dir"]
@@ -329,12 +332,12 @@ def _generate_pg_config(*,
                         backend: str,
                         project_root: str, # Still needed? Maybe not if all paths are absolute
                         pgdata_path: str, # Now expects absolute path
-                        study_name: str,
+                        base_study_prefix: str,  # Received but not used - PostgreSQL instance is shared across studies
                         use_socket: bool = True,
                         use_tcp: bool = False,
                         db_host: str = "localhost",
                         db_port: int = 5432,
-                        db_name: str = "optuna_study_db",
+                        optuna_db_name: str = "optuna_study_db",
                         db_user: str = "optuna_user",
                         run_cmd_shell: bool = False,
                         socket_dir_base: str, # Expects absolute path
@@ -415,7 +418,7 @@ def _generate_pg_config(*,
 
     pg_config = {
         "pgdata": str(pgdata_path_abs), # Use the resolved absolute path
-        "db_name": db_name,
+        "db_name": optuna_db_name,
         "db_user": db_user,
         "use_socket": use_socket,
         "socket_dir": socket_dir, # Will be None if use_tcp is True
