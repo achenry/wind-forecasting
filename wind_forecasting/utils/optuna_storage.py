@@ -504,14 +504,14 @@ def setup_mysql(db_setup_params, restart_tuning, rank):
             databases = [item[0] for item in cursor.fetchall()]
             logging.info(f"Rank 0: Available databases: {databases}")
             
-            cursor.execute("SHOW VARIABLES LIKE 'max_connections'")
-            logging.info(f"Rank 0: 'max_connections': {cursor.fetchall()}")
+            # cursor.execute("SHOW VARIABLES LIKE 'max_connections'")
+            # logging.info(f"Rank 0: 'max_connections': {cursor.fetchall()}")
             
-            cursor.execute("SHOW PROCESSLIST")
-            logging.info(f"Rank 0: 'processes': {cursor.fetchall()}")
+            # cursor.execute("SHOW PROCESSLIST")
+            # logging.info(f"Rank 0: 'processes': {cursor.fetchall()}")
             
-            cursor.execute(f"SELECT user, host FROM mysql.user WHERE user = '{db_user}'")
-            logging.info(f"Rank 0: 'user, host': {cursor.fetchall()}")
+            # cursor.execute(f"SELECT user, host FROM mysql.user WHERE user = '{db_user}'")
+            # logging.info(f"Rank 0: 'user, host': {cursor.fetchall()}")
             
             if db_name not in databases:
                 logging.info(f"Rank 0: Database '{db_name}' not found in list {databases}. Creating database.")
@@ -519,8 +519,8 @@ def setup_mysql(db_setup_params, restart_tuning, rank):
                 connection.commit()
                 logging.info(f"Rank 0: Database '{db_name}' created successfully.")
                 
-                cursor.execute("SHOW DATABASES")
-                logging.info(f"After create, Rank 0: Available databases: {cursor.fetchall()}")
+                # cursor.execute("SHOW DATABASES")
+                # logging.info(f"After create, Rank 0: Available databases: {cursor.fetchall()}")
                 
             # elif restart_tuning:
             #     # TODO HIGH this is not consistent with how post gres uses restart_tuning, this drops the entire db,
@@ -543,13 +543,14 @@ def setup_mysql(db_setup_params, restart_tuning, rank):
             #     databases = [item[0] for item in cursor.fetchall()]
             #     logging.info(f"After drop/create, Rank 0: Available databases: {databases}")
                 
-                # for table in tables:
-                #     logging.info(f"Rank 0: Attempting to remove table `{table}` from database `{db_name}`")
-                #     cursor.execute(f"DROP TABLE IF EXISTS `{table}`")
-                #     connection.commit()
+            # for table in tables:
+            #     logging.info(f"Rank 0: Attempting to remove table `{table}` from database `{db_name}`")
+            #     cursor.execute(f"DROP TABLE IF EXISTS `{table}`")
+            #     connection.commit()
             
-            cursor.execute(f"SHOW TABLES FROM {db_name}")
-            logging.info(f"Rank 0: Available tables in database {db_name}: {cursor.fetchall()}")
+            cursor.execute(f"USE {db_name}; SHOW TABLES")
+            tables = [item[0] for item in cursor.fetchall()]
+            logging.info(f"Rank 0: Available tables in database {db_name}: {tables}")
 
         except Exception as e:
             logging.error(f"Rank 0: Failed to connect to MySQL server or manage database '{db_name}': {e}", exc_info=True)
