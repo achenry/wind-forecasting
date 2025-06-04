@@ -166,18 +166,6 @@ def main():
             else:
                 logging.warning("CUDA_VISIBLE_DEVICES is not set, using default GPU assignment")
 
-            # Check if strategy needs special handling for TACTiS DDP
-            # Use .get() with default to avoid KeyError if 'strategy' not in config['trainer']
-            current_strategy_setting = config.get("trainer", {}).get("strategy", "auto")
-
-            if isinstance(current_strategy_setting, str) and current_strategy_setting.lower() == "ddp" and args.model in ["tactis", "spacetimeformer"]:
-                logging.warning("Instantiating DDPStrategy with find_unused_parameters=True for TACTiS-2.")
-                # Instantiate the strategy object with the flag
-                strategy_object = DDPStrategy(find_unused_parameters=True)
-                # Store the object back into the config dictionary
-                # Ensure config['trainer'] exists
-                if "trainer" not in config: config["trainer"] = {}
-                config["trainer"]["strategy"] = strategy_object
             # else:
                     # Keep the original strategy setting (e.g., 'auto', 'ddp_spawn', or maybe already an object)
                     # No change needed to config["trainer"]["strategy"]
@@ -209,6 +197,19 @@ def main():
         if "SLURM_NNODES" in os.environ:
             config["trainer"]["num_nodes"] = int(os.environ["SLURM_NNODES"])
 
+    # Check if strategy needs special handling for TACTiS DDP
+    # Use .get() with default to avoid KeyError if 'strategy' not in config['trainer']
+    current_strategy_setting = config.get("trainer", {}).get("strategy", "auto")
+
+    if isinstance(current_strategy_setting, str) and current_strategy_setting.lower() == "ddp" and args.model in ["tactis", "spacetimeformer"]:
+        logging.warning("Instantiating DDPStrategy with find_unused_parameters=True for TACTiS-2.")
+        # Instantiate the strategy object with the flag
+        strategy_object = DDPStrategy(find_unused_parameters=True)
+        # Store the object back into the config dictionary
+        # Ensure config['trainer'] exists
+        if "trainer" not in config: config["trainer"] = {}
+        config["trainer"]["strategy"] = strategy_object
+        
     # %% SETUP LOGGING
     logging.info("Setting up logging")
 
@@ -613,7 +614,7 @@ def main():
             
             if "context_length_factor" in config["dataset"]:
                 data_module.context_length = int(config["dataset"]["context_length_factor"] * data_module.prediction_length)
-                # data_module.context_length = int(2 * data_module.prediction_length)
+                data_module.context_length = int(2 * data_module.prediction_length)
         
             if "batch_size" in config["dataset"]:
                 data_module.batch_size = config["dataset"]["batch_size"]
