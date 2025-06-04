@@ -4,5 +4,6 @@ sbatch train_model_kestrel.sh autoformer $HOME/toolboxes/wind_forecasting_env/wi
 sbatch train_model_kestrel.sh autoformer $HOME/toolboxes/wind_forecasting_env/wind-forecasting/config/training/training_inputs_kestrel_awaken_predLUT.yaml
 sbatch train_model_kestrel.sh spacetimeformer $HOME/toolboxes/wind_forecasting_env/wind-forecasting/config/training/training_inputs_kestrel_awaken_predGreedy.yaml
 sbatch train_model_kestrel.sh spacetimeformer $HOME/toolboxes/wind_forecasting_env/wind-forecasting/config/training/training_inputs_kestrel_awaken_predLUT.yaml
-#sbatch train_model_kestrel.sh tactis $HOME/toolboxes/wind_forecasting_env/wind-forecasting/config/training/training_inputs_kestrel_awaken_predGreedy.yaml
-#sbatch train_model_kestrel.sh tactis $HOME/toolboxes/wind_forecasting_env/wind-forecasting/config/training/training_inputs_kestrel_awaken_predLUT.yaml
+
+sbatch train_tactis210_kestrel.sh tactis $HOME/toolboxes/wind_forecasting_env/wind-forecasting/config/training/training_inputs_kestrel_awaken_predGreedy.yaml
+sbatch train_tactis510_kestrel.sh tactis $HOME/toolboxes/wind_forecasting_env/wind-forecasting/config/training/training_inputs_kestrel_awaken_predLUT.yaml
