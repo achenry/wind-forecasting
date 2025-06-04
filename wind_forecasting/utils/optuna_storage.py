@@ -476,7 +476,7 @@ def setup_mysql(db_setup_params, restart_tuning, rank):
     Returns:
         tuple: (optuna.storages.RDBStorage, dict or None) - Returns connection info if needed.
     """
-    db_name = db_setup_params['study_name']
+    db_name = db_setup_params['base_study_prefix']
     db_host = db_setup_params["db_host"]
     db_user = db_setup_params["db_user"]
     db_password = db_setup_params.get("db_password") # Get password if provided
