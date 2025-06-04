@@ -612,8 +612,8 @@ def main():
                     logging.error(f"  - Error applying override '{override_item}': {e}", exc_info=True)
             
             if "context_length_factor" in config["dataset"]:
-                data_module.context_length = int(config["dataset"]["context_length_factor"] * data_module.prediction_length)
-                # data_module.context_length = int(2 * data_module.prediction_length)
+                # data_module.context_length = int(config["dataset"]["context_length_factor"] * data_module.prediction_length)
+                data_module.context_length = int(2 * data_module.prediction_length)
         
             if "batch_size" in config["dataset"]:
                 data_module.batch_size = config["dataset"]["batch_size"]
