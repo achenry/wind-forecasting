@@ -610,8 +610,17 @@ def main():
                      logging.warning(f"  - Skipping invalid override format: '{override_item}'.")
                 except Exception as e:
                     logging.error(f"  - Error applying override '{override_item}': {e}", exc_info=True)
-                    
+            
+            if "context_length_factor" in config["dataset"]:
+                # data_module.context_length = int(config["dataset"]["context_length_factor"] * data_module.prediction_length)
+                data_module.context_length = int(2 * data_module.prediction_length)
         
+            if "batch_size" in config["dataset"]:
+                data_module.batch_size = config["dataset"]["batch_size"]
+                
+            if "sampler" in config["dataset"]:
+                data_module.sampler = config["dataset"]["sampler"]
+                
         if args.mode == "train" and args.checkpoint is not None:
             logging.info("Restarting training from checkpoint, updating max_epochs accordingly.")
             if os.path.basename(checkpoint_path) == "last.ckpt":
