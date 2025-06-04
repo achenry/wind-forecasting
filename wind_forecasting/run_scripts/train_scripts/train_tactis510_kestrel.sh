@@ -7,11 +7,11 @@
 #SBATCH --gres=gpu:2
 #SBATCH --ntasks-per-node=2 # this needs to match Trainer(devices=...), and number of GPUs
 #SBATCH --mem-per-cpu=40G
-#SBATCH --time=48:00:00
-#SBATCH --nodes=2 # this needs to match Trainer(num_nodes...)
-#SBATCH --gres=gpu:4
-#SBATCH --ntasks-per-node=4 # this needs to match Trainer(devices=...), and number of GPUs
-#SBATCH --mem-per-cpu=85G
+##SBATCH --time=48:00:00
+##SBATCH --nodes=2 # this needs to match Trainer(num_nodes...)
+##SBATCH --gres=gpu:4
+##SBATCH --ntasks-per-node=4 # this needs to match Trainer(devices=...), and number of GPUs
+##SBATCH --mem-per-cpu=85G
 
 # salloc --account=ssc --time=01:00:00 --gpus=2 --ntasks-per-node=2 --partition=debug
 
