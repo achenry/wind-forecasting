@@ -479,7 +479,7 @@ def setup_mysql(db_setup_params, restart_tuning, rank):
     db_name = db_setup_params['base_study_prefix']
     db_host = db_setup_params["db_host"]
     db_user = db_setup_params["db_user"]
-    db_password = db_setup_params.get("db_password") # Get password if provided
+    db_password = db_setup_params.get("db_password", None) # Get password if provided
     db_port = db_setup_params.get("db_port", 3306) # Default MySQL port
 
     logging.info(f"Rank {rank}: Setting up MySQL connection to host={db_host}, user={db_user}, db={db_name}")
