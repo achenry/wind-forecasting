@@ -59,21 +59,23 @@ class DataModule():
     persistent_workers: bool = True
     
     def __post_init__(self):
-        self.set_train_ready_path()
             
         # convert context and prediction length from seconds to time stesp based on freq
         self.context_length = int(pd.Timedelta(self.context_length, unit="s") / pd.Timedelta(self.freq))
         self.prediction_length = int(pd.Timedelta(self.prediction_length, unit="s") / pd.Timedelta(self.freq))
         assert self.context_length > 0, "context_length must be provided in seconds, and must be greaterthan resample_freq."
         assert self.prediction_length > 0, "prediction_length must be provided in seconds, and must be greaterthan resample_freq."
+        
+        self.set_train_ready_path()
     
     def set_train_ready_path(self):
+        sfx = f"_ctx{self.context_length}_pred{self.prediction_length}"
         if self.normalized:
             self.train_ready_data_path = self.data_path.replace(
-                ".parquet", f"_train_ready_{self.freq}_{'per_turbine' if self.per_turbine_target else 'all_turbine'}.parquet")
+                ".parquet", f"_train_ready_{self.freq}_{'per_turbine' if self.per_turbine_target else 'all_turbine'}_{sfx}.parquet")
         else:
             self.train_ready_data_path = self.data_path.replace(
-                ".parquet", f"_train_ready_{self.freq}_{'per_turbine' if self.per_turbine_target else 'all_turbine'}_denormalize.parquet")
+                ".parquet", f"_train_ready_{self.freq}_{'per_turbine' if self.per_turbine_target else 'all_turbine'}_{sfx}_denormalize.parquet")
      
     def get_split_file_path(self, split):
         """Generate split file path that includes context_length and prediction_length to ensure cache uniqueness."""
@@ -86,7 +88,7 @@ class DataModule():
             suffix = ""
         
         # Include context_length in the filename to make cache files distinct
-        return f"{base_path}_ctx{self.context_length}_pred{self.prediction_length}_{split}{suffix}.pkl"
+        return f"{base_path}_{split}{suffix}.pkl"
     
     def _validate_loaded_splits(self, splits, rank):
         """Validate that loaded splits are compatible with current context_length requirements."""
