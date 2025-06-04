@@ -1,14 +1,17 @@
 #!/bin/bash
 #SBATCH --nodes=1
 #SBATCH --ntasks=48
+##SBATCH --ntasks=12
 #SBATCH --time=12:00:00
+##SBATCH --time=01:00:00
 #SBATCH --qos=mem
 #SBATCH --partition=amem
-#SBATCH --output=preprocess_data.out
+##SBATCH --partition=atesting
+#SBATCH --output=load_data.out
 
 module purge
 module load intel impi
-#module load miniforge
+module load miniforge
 #conda init
 mamba activate wind_forecasting_env
 echo $SLURM_NTASKS

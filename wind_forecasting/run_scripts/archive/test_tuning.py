@@ -22,20 +22,6 @@ if __name__ == "__main__":
     logging.info(f"Determined worker rank from WORKER_RANK: {rank}")
 
     logging.info(f"Rank {rank}: Setting up MySQL connection to host={db_host}, user={db_user}, db={db_name}")
-
-    # Construct the Optuna storage URL
-    # Format: mysql://[user[:password]@]host[:port]/database
-
-    # TODO HIGH this is not consistent with how post gres uses restart_tuning, this drops the entire db,
-    # Rank 0 handles database/study creation and restart
-    
-    # TODO doesn't work when new database is created
-    #  Check auto commit, X
-    #   check where each worker is going, 
-    #   check that rank 0 runs before others, 
-    #   check of rdbstorage creates databases, 
-    #   log existing databases and tables throughout 
-    
     # Add connect_args for timeout, etc. if needed
     engine_kwargs = {
             "pool_size": 4,

@@ -186,7 +186,8 @@ def get_checkpoint(checkpoint, metric, mode, log_dir):
         checkpoint_paths = glob(os.path.join(log_dir, "*/*.ckpt")) + glob(os.path.join(log_dir, "*/*/*.ckpt"))
         # version_dirs = glob(os.path.join(log_dir, "*"))
         if len(checkpoint_paths) == 0:
-            raise FileNotFoundError(f"There are no checkpoint files in {log_dir}, returning None.")
+            logging.warning(f"There are no checkpoint files in {log_dir}, returning None.")
+            return None
         
     elif not os.path.exists(checkpoint):
         raise FileNotFoundError(f"There is no checkpoint file at {checkpoint}, returning None.")
@@ -216,6 +217,9 @@ def get_checkpoint(checkpoint, metric, mode, log_dir):
         else:
             raise FileNotFoundError(f"Best checkpoint {best_checkpoint_path} does not exist.")
         
+        # if os.path.basename(best_checkpoint_path) == "last.ckpt":
+        #     checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
+            
         return best_checkpoint_path
     elif checkpoint == "latest":
         logging.info("Fetching latest pretrained model...")
@@ -226,6 +230,9 @@ def get_checkpoint(checkpoint, metric, mode, log_dir):
             logging.info(f"Found latest pretrained model: {latest_checkpoint_path}")
         else:
             raise FileNotFoundError(f"Latest checkpoint {latest_checkpoint_path} does not exist.")
+        
+        # if os.path.basename(latest_checkpoint_path) == "last.ckpt":
+        #     latest_checkpoint_path = os.readlink(latest_checkpoint_path)
         return latest_checkpoint_path
         
     else:
@@ -265,19 +272,20 @@ def load_estimator_from_checkpoint(checkpoint_path, lightning_module_class, defa
 
         # Get ALL required __init__ params for the specific LightningModule
         module_sig = inspect.signature(lightning_module_class.__init__)
-        required_params = {
-            param.name for param in module_sig.parameters.values()
-            if param.default == inspect.Parameter.empty and param.name != 'self'
+        lightning_module_params = {
+            param for param in module_sig.parameters.values()
+            if param.name != 'self' # param.default == inspect.Parameter.empty and 
         }
 
         # Construct init_args primarily from hparams
         init_args = {}
         missing_from_hparams = []
         critical_missing = False
-        for param_name in required_params:
+        for param in lightning_module_params:
+            param_name = param.name
             if param_name in hparams:
                 init_args[param_name] = hparams[param_name]
-            else:
+            elif param.default != inspect.Parameter.empty:
                 # Fallback logic (should ideally not be needed for core params)
                 # Check model-specific config first
                 fallback_value = default_model_config["model"].get(model_key, {}).get(param_name)

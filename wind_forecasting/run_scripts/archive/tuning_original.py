@@ -19,7 +19,7 @@ import re # Added for epoch parsing
 import pandas as pd # Added for pd.Timedelta
 # Imports for Optuna
 import optuna
-from optuna import create_study, load_study
+from optuna import create_study, load_study, delete_study
 from optuna.study import MaxTrialsCallback
 from optuna.samplers import TPESampler
 from optuna.pruners import HyperbandPruner, PercentilePruner, PatientPruner, SuccessiveHalvingPruner, NopPruner
@@ -603,7 +603,6 @@ class MLTuningObjective:
             dead_neuron_callback = DeadNeuronMonitor() # Default instantiation
             current_callbacks.append(dead_neuron_callback)
             logging.info(f"Trial {trial.number}: Added DeadNeuronMonitor callback (enabled by boolean flag).")
-
 
         final_callbacks = general_instantiated_callbacks + current_callbacks
 
@@ -1334,6 +1333,15 @@ def tune_model(model, config, study_name, optuna_storage, lightning_module_class
     study = None # Initialize study variable
     try:
         if worker_id == '0':
+            if restart_tuning:
+                try:
+                    # Attempt to delete the existing study if it exists
+                    logging.info(f"Rank 0: Attempting to delete existing study '{final_study_name}'")
+                    delete_study(study_name=final_study_name, storage=optuna_storage)
+                    logging.info(f"Rank 0: Study '{final_study_name}' deleted successfully.")
+                except KeyError as e: 
+                    logging.info(f"Rank 0: Study '{final_study_name}' does not exist.")
+            
             logging.info(f"Rank 0: Creating/loading Optuna study '{final_study_name}' with pruner: {type(pruner_for_study).__name__}")
             study = create_study(
                 study_name=final_study_name,

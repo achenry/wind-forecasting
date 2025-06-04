@@ -92,7 +92,7 @@ optuna:
 dataset: 
     data_path: /projects/ssc/ahenry/wind_forecasting/awaken_data/awaken_processed_normalized.parquet
     normalization_consts_path: /projects/ssc/ahenry/wind_forecasting/awaken_data/awaken_processed_normalization_consts.csv
-    context_length: 600 # in seconds
+    context_length: 1020 # in seconds
     prediction_length: 510 # in seconds
     target_turbine_ids: # or leave blank to capture all
     normalize: True 
@@ -157,12 +157,21 @@ model:
 
   informer:
     # embedding_dimension: 32 # Determines dimension of the embedding space
-    num_encoder_layers: 2 # Number of transformer blocks stacked
-    num_decoder_layers: 1 # Number of transformer blocks stacked
-    n_heads: 8 # Number of heads for spatio-temporal attention
-    d_model: 512
-    dim_feedforward: 2048
-    activation: relu
+    # num_encoder_layers: 2 # Number of transformer blocks stacked
+    # num_decoder_layers: 1 # Number of transformer blocks stacked
+    # n_heads: 8 # Number of heads for spatio-temporal attention
+    # d_model: 512
+    # dim_feedforward: 2048
+    # activation: relu
+    context_length_factor: 2
+    num_encoder_layers: 2
+    num_decoder_layers: 2
+    d_model: 128
+    n_heads: 8
+    factor: 5
+    lr: 6.398379938945388e-05
+    weight_decay: 1e-08
+    dropout: 0.15697382123348755
   autoformer:
     # embedding_dimension: 32 # Determines dimension of the embedding space
     num_encoder_layers: 2 # Number of transformer blocks stacked
@@ -194,6 +203,14 @@ model:
     embed_method: spatio-temporal
     activation: gelu
     use_given: False
+  svr:
+    kernel: rbf
+    C: 1.0
+    degree: 3
+    gamma: auto
+    epsilon: 0.1
+    cache_size: 200
+    n_neighboring_turbines: 5
 
 callbacks:
     progress_bar:
@@ -236,7 +253,7 @@ trainer:
     devices: auto
     # num_nodes: 1
     strategy: ddp
-    max_epochs: 100 # Maximum number of epochs to train 100
+    max_epochs: 200 # Maximum number of epochs to train 100
     limit_train_batches: #5000
     log_every_n_steps: 1 # For wandb logging
     deterministic: false

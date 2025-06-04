@@ -3,9 +3,9 @@
 experiment:
   username: aoife-henry
   project_name: wind_forecasting_awaken_pred210
-  run_name: kestrel_awaken_pred210
-  log_dir: /projects/ssc/ahenry/wind_forecasting/logging/
-  project_root: /projects/ssc/ahenry/wind_forecasting/
+  run_name: rc_awaken_pred210
+  log_dir: /pl/active/paolab/wind_forecasting/logging/
+  project_root: /pl/active/paolab/wind_forecasting/
   notes: "Tuning AWAKEN with Informer+"
   extra_tags: ["awaken", "pred210"] # By default already has GPU id, model and mode.
 
@@ -13,16 +13,16 @@ logging:
   entity: jmb0507-cu-boulder # Wandb entity (group name)
   wandb_mode: online
   save_code: true # Save code to wandb
-  wandb_dir: /projects/ssc/ahenry/wind_forecasting/logging/ # WandB will create a 'wandb' subdirectory here automatically
-  optuna_dir: /projects/ssc/ahenry/wind_forecasting/logging/optuna/
-  checkpoint_dir: /projects/ssc/ahenry/wind_forecasting/logging/checkpoints/
-  slurm_output_dir: /projects/ssc/ahenry/wind_forecasting/logging/slurm_logs/
+  wandb_dir: /pl/active/paolab/wind_forecasting/logging/ # WandB will create a 'wandb' subdirectory here automatically
+  optuna_dir: /pl/active/paolab/wind_forecasting/logging/optuna/
+  checkpoint_dir: /pl/active/paolab/wind_forecasting/logging/checkpoints/
+  slurm_output_dir: /pl/active/paolab/wind_forecasting/logging/slurm_logs/
 
 optuna:
   save_trial_code: false      # Default false
   n_trials_per_worker: 100     # Test a total of 4*12=48 trials
   total_study_trials:
-  max_epochs: 10              # epochs per trial
+  max_epochs: 20              # epochs per trial
   sampler: "random"           # Options: "random" (ExpectedNumInstanceSampler), "sequential" (SequentialSampler)
   sampler_params:
     tpe:
@@ -93,13 +93,14 @@ optuna:
 
 
 dataset: 
-    data_path: /projects/ssc/ahenry/wind_forecasting/awaken_data/awaken_processed_normalized.parquet
-    normalization_consts_path: /projects/ssc/ahenry/wind_forecasting/awaken_data/awaken_processed_normalization_consts.csv
-    context_length: 600 # in seconds
+    data_path: /pl/active/paolab/wind_forecasting/awaken_data/awaken_processed_normalized.parquet
+    normalization_consts_path: /pl/active/paolab/wind_forecasting/awaken_data/awaken_processed_normalization_consts.csv
+    context_length: 420 # in seconds
     prediction_length: 210 # in seconds
     target_turbine_ids: # or leave blank to capture all
     normalize: True 
-    batch_size: 64
+    # batch_size: 64
+    batch_size: 1024
     workers: 12
     overfit: False
     test_split: 0.20
@@ -158,13 +159,22 @@ model:
     gradient_clip_val_stage2: 1000.0
 
   informer:
-    # embedding_dimension: 32 # Determines dimension of the embedding space
-    num_encoder_layers: 2 # Number of transformer blocks stacked
-    num_decoder_layers: 1 # Number of transformer blocks stacked
-    n_heads: 8 # Number of heads for spatio-temporal attention
-    d_model: 512
-    dim_feedforward: 2048
-    activation: relu
+    embedding_dimension: 32 # Determines dimension of the embedding space
+    # num_encoder_layers: 2 # Number of transformer blocks stacked
+    # num_decoder_layers: 1 # Number of transformer blocks stacked
+    # n_heads: 8 # Number of heads for spatio-temporal attention
+    # d_model: 512
+    # dim_feedforward: 2048
+    # activation: relu
+    context_length_factor: 4
+    num_encoder_layers: 2
+    num_decoder_layers: 1
+    d_model: 128
+    n_heads: 4
+    factor: 3
+    lr: 7.415335679794799e-05
+    weight_decay: 1e-06
+    dropout: 0.18730411313466236
   autoformer:
     # embedding_dimension: 32 # Determines dimension of the embedding space
     num_encoder_layers: 2 # Number of transformer blocks stacked
@@ -196,14 +206,6 @@ model:
     embed_method: spatio-temporal
     activation: gelu
     use_given: False
-  svr:
-    kernel: rbf
-    C: 1.0
-    degree: 3
-    gamma: auto
-    epsilon: 0.1
-    cache_size: 200
-    n_neighboring_turbines: 5
 
 callbacks:
     progress_bar:
@@ -211,14 +213,14 @@ callbacks:
       init_args:
         refresh_rate: 1  # every n steps
         leave: true
-    early_stopping:
-      class_path: lightning.pytorch.callbacks.EarlyStopping
-      init_args:
-        monitor: 'val_loss'
-        patience: 100 # Number of epochs to wait before stopping (val>epochs to disable)
-        min_delta: 0.01 # Minimum change to be considered an improvement
-        mode: 'min'
-        check_finite: true
+    # early_stopping:
+    #   class_path: lightning.pytorch.callbacks.EarlyStopping
+    #   init_args:
+    #     monitor: 'val_loss'
+    #     patience: 100 # Number of epochs to wait before stopping (val>epochs to disable)
+    #     min_delta: 0.01 # Minimum change to be considered an improvement
+    #     mode: 'min'
+    #     check_finite: true
     model_checkpoint:
       class_path: lightning.pytorch.callbacks.ModelCheckpoint
       init_args:
@@ -249,7 +251,7 @@ trainer:
     # n_workers: auto
     # debug: False 
     # accumulate: 1.0
-    max_epochs: 100 # Maximum number of epochs to train 100
+    max_epochs: 200 # Maximum number of epochs to train 100
     limit_train_batches: # None
     # default_root_dir: /projects/ssc/ahenry/wind_forecasting/checkpoints
     # precision: 32-true # 16-mixed enables mixed precision training 32-true is full precision

@@ -2,7 +2,7 @@
 
 experiment:
   run_name: rc_awaken
-  log_dir: /pl/active/paolab/wind_forecasting/logging/
+  log_dir: /projects/aohe7145/toolboxes/wind_forecasting_env/wind-forecasting/examples/logging/
   project_root: /projects/aohe7145/toolboxes/wind_forecasting_env/wind-forecasting/
 
 # logging:
@@ -12,6 +12,7 @@ experiment:
 #   slurm_output_dir: /pl/active/paolab/wind_forecasting/logging/slurm_logs/
 
 optuna:
+  storage_dir: /projects/aohe7145/toolboxes/wind_forecasting_env/wind-forecasting/examples/optuna_storage
   # storage_dir: /scratch/alpine/aohe7145/optuna
   n_trials: 100
   metric: val_loss

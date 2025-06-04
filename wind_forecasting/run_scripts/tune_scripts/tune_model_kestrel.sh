@@ -108,18 +108,17 @@ echo "Launching ${NUM_GPUS} tuning workers..."
 # Launch multiple workers per GPU
 for i in $(seq 0 $((${NUM_GPUS}-1))); do
       # Create a unique seed for this worker
-      export CURRENT_WORKER_SEED=$((12 + i*100)) # Base seed + offset per worker (increased multiplier to avoid trials overlap on workers)
+      export WORKER_SEED=$((12 + i*100)) # Base seed + offset per worker (increased multiplier to avoid trials overlap on workers)
       
       echo "Saving output for worker ${i} to '${LOG_DIR}/slurm_logs/${SLURM_JOB_ID}/worker_${i}_${SLURM_JOB_ID}.log'"
-      echo "Starting worker ${i} on assigned GPU ${i} with seed ${CURRENT_WORKER_SEED}"
-      export WORKER_RANK=${i}          # Export rank for Python script
+      echo "Starting worker ${i} on assigned GPU ${i} with seed ${WORKER_SEED}"
       # Launch worker in the background using nohup and a dedicated bash shell
       
       # Launch worker with environment settings
       # CUDA_VISIBLE_DEVICES ensures each worker sees only one GPU
       # The worker ID (SLURM_PROCID) helps Optuna identify workers
       #srun --exclusive -n 1 --export=ALL,CUDA_VISIBLE_DEVICES=$i,SLURM_PROCID=${WORKER_INDEX},WANDB_DIR=${WANDB_DIR} \
-      nohup bash -c "
+      WORKER_RANK=${i} CUDA_VISIBLE_DEVICES=${i} nohup bash -c "
       echo \"Worker ${i} starting environment setup...\"
       # --- Module loading ---
       module purge
@@ -132,9 +131,6 @@ for i in $(seq 0 $((${NUM_GPUS}-1))); do
       eval \"\$(conda shell.bash hook)\"
       conda activate wind_forecasting_env
       echo \"Worker ${i}: Conda environment 'wind_forecasting_env' activated.\"
-
-      # --- Set Worker-Specific Environment ---
-      export CUDA_VISIBLE_DEVICES=${i} # Assign specific GPU based on loop index
     
       # Note: PYTHONPATH and WANDB_DIR are inherited via export from parent script
 
@@ -147,7 +143,7 @@ for i in $(seq 0 $((${NUM_GPUS}-1))); do
         --config ${CONFIG_FILE} \
         --model ${MODEL_NAME} \
         --mode tune \
-        --seed ${CURRENT_WORKER_SEED} \
+        --seed ${WORKER_SEED} \
         ${RESTART_TUNING_FLAG} \
         --single_gpu # Crucial for making Lightning use only the assigned GPU
 

@@ -167,18 +167,6 @@ def main():
             else:
                 logging.warning("CUDA_VISIBLE_DEVICES is not set, using default GPU assignment")
 
-            # Check if strategy needs special handling for TACTiS DDP
-            # Use .get() with default to avoid KeyError if 'strategy' not in config['trainer']
-            current_strategy_setting = config.get("trainer", {}).get("strategy", "auto")
-
-            if isinstance(current_strategy_setting, str) and current_strategy_setting.lower() == "ddp" and args.model in ["tactis", "spacetimeformer"]:
-                logging.warning("Instantiating DDPStrategy with find_unused_parameters=True for TACTiS-2.")
-                # Instantiate the strategy object with the flag
-                strategy_object = DDPStrategy(find_unused_parameters=True)
-                # Store the object back into the config dictionary
-                # Ensure config['trainer'] exists
-                if "trainer" not in config: config["trainer"] = {}
-                config["trainer"]["strategy"] = strategy_object
             # else:
                     # Keep the original strategy setting (e.g., 'auto', 'ddp_spawn', or maybe already an object)
                     # No change needed to config["trainer"]["strategy"]
@@ -210,6 +198,19 @@ def main():
         if "SLURM_NNODES" in os.environ:
             config["trainer"]["num_nodes"] = int(os.environ["SLURM_NNODES"])
 
+    # Check if strategy needs special handling for TACTiS DDP
+    # Use .get() with default to avoid KeyError if 'strategy' not in config['trainer']
+    current_strategy_setting = config.get("trainer", {}).get("strategy", "auto")
+
+    if isinstance(current_strategy_setting, str) and current_strategy_setting.lower() == "ddp" and args.model in ["tactis", "spacetimeformer"]:
+        logging.warning("Instantiating DDPStrategy with find_unused_parameters=True for TACTiS-2.")
+        # Instantiate the strategy object with the flag
+        strategy_object = DDPStrategy(find_unused_parameters=True)
+        # Store the object back into the config dictionary
+        # Ensure config['trainer'] exists
+        if "trainer" not in config: config["trainer"] = {}
+        config["trainer"]["strategy"] = strategy_object
+        
     # %% SETUP LOGGING
     logging.info("Setting up logging")
 
@@ -399,21 +400,6 @@ def main():
     EstimatorClass = globals()[f"{args.model.capitalize()}Estimator"]
     DistrOutputClass = globals()[config["model"]["distr_output"]["class"]]
 
-    if rank_zero_only.rank == 0:
-        logging.info("Preparing data for tuning")
-        if args.reload_data or not os.path.exists(data_module.train_ready_data_path):
-            data_module.generate_datasets()
-            reload = True
-        else:
-            reload = False
-       
-    else:
-        reload = False
-    
-    # other ranks should wait for this one 
-    # Pass the rank determined at the beginning of main() to handle both tuning and training modes
-    data_module.generate_splits(save=True, reload=reload, splits=["train", "val", "test"], rank=rank)
-
     # data_module.train_dataset = [ds for ds in data_module.train_dataset if ds["item_id"].endswith("SPLIT0")]
     
     # %% DEFINE ESTIMATOR
@@ -468,7 +454,7 @@ def main():
         # get default params
         model_hparams = config["model"].get(args.model, {})
         
-         # get tuned params
+        # get tuned params
         found_tuned_params = True
         if args.use_tuned_parameters:
             try:
@@ -507,6 +493,8 @@ def main():
                 found_tuned_params = False
         else:
             found_tuned_params = False 
+            
+        # TODO HIGH lr and weight_decay are not being set properly during tuning or training!!!
         
         if found_tuned_params:
             logging.info(f"Updating estimator {args.model.capitalize()} kwargs with tuned parameters {tuned_params}")
@@ -517,6 +505,7 @@ def main():
                 del config["model"][args.model]["context_length_factor"]
             
         # Use the get_checkpoint function to handle checkpoint finding
+        # TODO can we grab the checkpoint from the winning hyperparameter trial?
         if args.checkpoint:
             # Set up parameters for checkpoint finding
             metric = config.get("trainer", {}).get("monitor_metric", "val_loss")
@@ -538,20 +527,24 @@ def main():
             data_module.freq = checkpoint_hparams["freq_str"]
             
             # check if any new hyperparameters are incompatible with data_module
-            core_data_module_params = ["num_feat_dynamic_real", "num_feat_static_real", "num_feat_static_cat",
-                                  "cardinality", "embedding_dimension", "input_size"]
+            # core_data_module_params = ["num_feat_dynamic_real", "num_feat_static_real", "num_feat_static_cat",
+            #                       "cardinality", "embedding_dimension"]
             # data_module_sig = inspect.signature(DataModule.__init__)
             # data_module_params = [param.name for param in data_module_sig.parameters.values()]
-            incompatible_params = []
-            for param in core_data_module_params:
-                if ((param in checkpoint_hparams["init_args"]["model_config"]) 
-                    and (checkpoint_hparams["init_args"]["model_config"][param] is not None)
-                    and (getattr(data_module, param) is not None) 
-                    and (checkpoint_hparams["init_args"]["model_config"][param] != getattr(data_module, param))):
-                    incompatible_params.append(param)
             
-            if incompatible_params:
-                raise TypeError(f"Checkpoint parameters and data module parameters {incompatible_params} are incompatible.")
+            # TODO JUAN we don't expect these to be equal, num_feat_dynamic_real is changed internally in estimator.py:create_lightning_module, 
+            # num_feat_static_real and num_feat_static_cat are set to the max of the data_module value and 1,
+            # cardinality is a list and a tuple, so this needs to be handled differently.
+            # incompatible_params = []
+            # for param in core_data_module_params:
+            #     if ((param in checkpoint_hparams["init_args"]["model_config"]) 
+            #         and (checkpoint_hparams["init_args"]["model_config"][param] is not None)
+            #         and (getattr(data_module, param) is not None) 
+            #         and (checkpoint_hparams["init_args"]["model_config"][param] != getattr(data_module, param))):
+            #         incompatible_params.append((param, checkpoint_hparams["init_args"]["model_config"][param], getattr(data_module, param)))
+            
+            # if incompatible_params:
+            #     raise TypeError(f"Checkpoint parameters and data module parameters {incompatible_params} are incompatible.")
             
             logging.info(f"Updating estimator {args.model.capitalize()} kwargs with checkpoint parameters {checkpoint_hparams['init_args']['model_config']}.")
         else:
@@ -573,6 +566,11 @@ def main():
                         except yaml.YAMLError:
                             value = value_str # Keep as string if parsing fails
 
+                        if keys[0] == "model":
+                            keys[1] = args.model # Ensure the first key is the model name
+                        
+                        key_path = '.'.join(keys)  # Reconstruct the key path for logging
+                        
                         # Navigate nested dictionary and set value
                         d = config
                         for key in keys[:-1]:
@@ -592,7 +590,10 @@ def main():
                         # Case 2: Only key provided - Revert to original YAML value
                         key_path = override_item
                         keys = key_path.split('.')
-
+                        if keys[0] == "model":
+                            keys[1] = args.model # Ensure the first key is the model name
+                        key_path = '.'.join(keys)  # Reconstruct the key path for logging
+                        
                         # Navigate original YAML config to get the value
                         original_d = original_yaml_config
                         found_original = True
@@ -628,11 +629,30 @@ def main():
                      logging.warning(f"  - Skipping invalid override format: '{override_item}'.")
                 except Exception as e:
                     logging.error(f"  - Error applying override '{override_item}': {e}", exc_info=True)
-                    
+            
+            if "context_length_factor" in config["dataset"]:
+                data_module.context_length = int(config["dataset"]["context_length_factor"] * data_module.prediction_length)
+                data_module.context_length = int(2 * data_module.prediction_length)
         
+            if "batch_size" in config["dataset"]:
+                data_module.batch_size = config["dataset"]["batch_size"]
+                
+            if "sampler" in config["dataset"]:
+                data_module.sampler = config["dataset"]["sampler"]
+                
         if args.mode == "train" and args.checkpoint is not None:
             logging.info("Restarting training from checkpoint, updating max_epochs accordingly.")
-            config["trainer"]["max_epochs"] += int(re.search("(?<=epoch=)\\d+", os.path.basename(checkpoint_path)).group())
+            if os.path.basename(checkpoint_path) == "last.ckpt":
+                if torch.cuda.is_available():
+                    device = None
+                else:
+                    device = "cpu"
+                checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
+                last_epoch = checkpoint.get("epoch", 0)
+            else:
+                last_epoch = int(re.search("(?<=epoch=)\\d+", os.path.basename(checkpoint_path)).group())
+            
+            config["trainer"]["max_epochs"] += last_epoch
         
         # --- Instantiate Callbacks ---
         # We need to do this BEFORE creating the estimator,
@@ -692,7 +712,24 @@ def main():
         logging.info(f"Assigned {len(instantiated_callbacks)} callbacks to config['trainer']['callbacks'].")
 
         # Prepare all arguments in a dictionary for the Estimator
-        
+    
+    # wait until data_module attributes have been updated to generate splits
+    if rank_zero_only.rank == 0:
+        logging.info("Preparing data for tuning")
+        if args.reload_data or not os.path.exists(data_module.train_ready_data_path):
+            data_module.generate_datasets()
+            reload = True
+        else:
+            reload = False
+       
+    else:
+        reload = False
+    
+    # other ranks should wait for this one 
+    # Pass the rank determined at the beginning of main() to handle both tuning and training modes
+    data_module.generate_splits(save=True, reload=reload, splits=["train", "val", "test"], rank=rank)
+    
+    if args.mode in ["train", "test"]:
         estimator_kwargs = {
             "freq": data_module.freq,
             "prediction_length": data_module.prediction_length,
@@ -723,6 +760,9 @@ def main():
         assert estimator_kwargs["num_batches_per_epoch"] is None or isinstance(estimator_kwargs["num_batches_per_epoch"], int)
         if estimator_kwargs["num_batches_per_epoch"] is not None:
             n_training_steps = min(n_training_steps, estimator_kwargs["num_batches_per_epoch"])
+        
+        # TODO JUAN PATCH FOR TACTIS
+        estimator_kwargs["num_batches_per_epoch"] = n_training_steps
             
         # Log warning if using random sampler with null limit_train_batches
         if (config["dataset"].get("sampler", "sequential") == "random" and
@@ -745,8 +785,12 @@ def main():
         # Add distr_output only if the model is NOT tactis
         if args.model != 'tactis' and "distr_output" not in estimator_kwargs:
             estimator_kwargs["distr_output"] = DistrOutputClass(dim=data_module.num_target_vars, **config["model"]["distr_output"]["kwargs"]) # TODO or checkpoint_hparams["model_config"]["distr_output"]
-        elif 'distr_output' in estimator_kwargs:
-             del estimator_kwargs['distr_output']
+        elif args.model == "spacetimeformer":
+            for k in estimator_kwargs["distr_output"].args_dim:
+                estimator_kwargs["distr_output"].args_dim[k] *= estimator_kwargs["input_size"]
+            
+        # elif 'distr_output' in estimator_kwargs:
+        #      del estimator_kwargs['distr_output']
         
         logging.info(f"Using final estimator_kwargs:\n {estimator_kwargs}")
         estimator = EstimatorClass(**estimator_kwargs)
@@ -764,7 +808,7 @@ def main():
             if not hasattr(estimator, 'distr_output'):
                 raise AttributeError(f"Estimator for model '{args.model}' is missing 'distr_output' attribute needed for DistributionForecastGenerator.")
             forecast_generator = DistributionForecastGenerator(estimator.distr_output)
-
+    
     if args.mode == "tune":
         logging.info("Starting Optuna hyperparameter tuning...")
 

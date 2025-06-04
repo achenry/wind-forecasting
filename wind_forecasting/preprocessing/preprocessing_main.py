@@ -286,22 +286,22 @@ def main():
                 turbine_group_colors=["darkorange", "royalblue", "lime"],
                 turbine_labels=[None, "LUT us", "LUT ds", "G"])
         
-        # from datetime import datetime
+        from datetime import datetime
         # # plotting_interval = pl.datetime_range(start=datetime(2024, 2, 20), end=datetime(2024, 12, 19)).alias("time")
-        # df_query = df_query.with_columns(
-        #     file_set_idx=pl.when(pl.col("time").is_between(
-        #         lower_bound=datetime(year=2024, month=2, day=20), 
-        #         upper_bound=datetime(year=2024, month=12, day=20))).then(pl.lit(1)).otherwise(pl.lit(0)))
+        df_query = df_query.with_columns(
+            file_set_idx=pl.when(pl.col("time").is_between(
+                lower_bound=datetime(year=2024, month=2, day=20), 
+                upper_bound=datetime(year=2024, month=12, day=20))).then(pl.lit(1)).otherwise(pl.lit(0)))
         # file_set_idx=0 (2022/01/01 to 2023/06/30), file_set_idx=1 (2024/02/20 to 2024/12/19)
         if "file_set_idx" in df_query.collect_schema().names():
             file_set_indices = df_query.select("file_set_idx").unique().collect().to_numpy().flatten()
             df_query2 = df_query.with_columns(pl.col("time").dt.round(f"{1}m").alias("time"))\
                         .group_by("time", "file_set_idx").agg(cs.numeric().mean()).sort("time")\
-                        .filter(pl.all_horizontal((cs.starts_with("wind_speed") >= 3) & (cs.starts_with("wind_speed") <= 25)))
+                        .filter(pl.all_horizontal((cs.starts_with("wind_speed") >= 0) & (cs.starts_with("wind_speed") <= 25)))
         
             
             # data_inspector.plot_wind_rose(df_query2, feature_type="wind_direction", turbine_ids="all", fig_label=f"wind_rose_awaken")
-            data_inspector.plot_wind_speed_weibull(df_query2.filter(pl.col("file_set_idx") == 1), turbine_ids="all", fig_label=file_set_idx) 
+            data_inspector.plot_wind_speed_weibull(df_query2.filter(pl.col("file_set_idx") == 1), turbine_ids="all", fig_label=file_set_idx)
             
             for file_set_idx in file_set_indices:
                 data_inspector.plot_wind_rose(df_query2.filter(pl.col("file_set_idx") == file_set_idx).slice(0, ROW_LIMIT), 
@@ -761,6 +761,7 @@ def main():
                 )
                 axs.tick_params(axis="x", labelsize=12*1.5)
                 axs.tick_params(axis="y", labelsize=12*1.5)
+                axs.set_xlabel("Wind Magnitude (m/s)")
                 axs.xaxis.label.set_size(15*1.5)
                 axs.yaxis.label.set_size(15*1.5)
                 for t in axs.legend_.get_texts():
