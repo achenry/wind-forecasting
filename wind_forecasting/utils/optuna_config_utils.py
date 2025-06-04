@@ -135,6 +135,12 @@ def generate_db_setup_params(model: str, model_config: Dict) -> Dict:
             resolved_cert_path = resolve_path(project_root, sslrootcert_path)
             db_setup_params["sslrootcert_path"] = resolved_cert_path
 
+    elif backend == "mysql":
+        db_setup_params.update({
+            "db_host": storage_cfg.get("db_host", "localhost"),
+            "db_port": storage_cfg.get("db_port", 3306),
+            "db_user": storage_cfg.get("db_user", "optuna_user"),
+        })
     return db_setup_params
 
 
