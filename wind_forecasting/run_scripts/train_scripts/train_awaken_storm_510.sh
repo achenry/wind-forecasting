@@ -2,10 +2,10 @@
 
 #SBATCH --partition=cfdg.p          # Partition for H100/A100 GPUs cfdg.p / all_gpu.p / mpcg.p(not allowed)
 #SBATCH --nodes=1
-#SBATCH --ntasks-per-node=1         # Match number of GPUs requested below (for DDP training)
+#SBATCH --ntasks-per-node=4         # Match number of GPUs requested below (for DDP training)
 #SBATCH --cpus-per-task=8           # CPUs per task (adjust if needed for data loading)
 #SBATCH --mem-per-cpu=8192          # Memory per CPU
-#SBATCH --gres=gpu:H100:1           # Request 4 H100 GPUs
+#SBATCH --gres=gpu:H100:4           # Request 4 H100 GPUs
 #SBATCH --time=7-00:00              # Time limit (adjust as needed for training)
 #SBATCH --job-name=awaken_train_tactis_510      # Updated job name
 #SBATCH --output=/dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/slurm_logs/awaken_train_tactis_510_%j.out # Updated output log path
@@ -109,10 +109,10 @@ srun python ${WORK_DIR}/run_scripts/run_model.py \
       model.tactis.weight_decay_stage2=5e-06 \
       model.tactis.stage=1 \
       model.tactis.stage2_start_epoch=20 \
-      model.tactis.warmup_steps_s1=392690 \
-      model.tactis.warmup_steps_s2=392690 \
-      model.tactis.steps_to_decay_s1=2748830 \
-      model.tactis.steps_to_decay_s2=2748830 \
+      model.tactis.warmup_steps_s1=0.15 \
+      model.tactis.warmup_steps_s2=0.85 \
+      model.tactis.steps_to_decay_s1=0.15 \
+      model.tactis.steps_to_decay_s2=0.85 \
       model.tactis.stage1_activation_function=relu \
       model.tactis.stage2_activation_function=relu \
       model.tactis.eta_min_fraction_s1=0.0035969620681086476 \
