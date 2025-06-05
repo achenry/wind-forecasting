@@ -762,7 +762,8 @@ def main():
         if estimator_kwargs["num_batches_per_epoch"] is not None:
             n_training_steps = min(n_training_steps, estimator_kwargs["num_batches_per_epoch"])
         
-        # TODO JUAN PATCH FOR TACTIS
+        # Note: For distributed training, GluonTS as_stacked_batches will automatically
+        # divide num_batches_per_epoch by world_size, so we set the total here
         estimator_kwargs["num_batches_per_epoch"] = n_training_steps
             
         # Log warning if using random sampler with null limit_train_batches
