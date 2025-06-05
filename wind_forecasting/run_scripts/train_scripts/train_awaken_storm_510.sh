@@ -102,9 +102,9 @@ srun python ${WORK_DIR}/run_scripts/run_model.py \
       trainer.limit_train_batches=null \
       trainer.val_check_interval=1.0 \
       # model.tactis.lr_stage1=4.559298934473364e-06 \
-      model.tactis.lr_stage1=6.447822388045433e-06 \
+      model.tactis.lr_stage1=4.559298934473364e-06 \
       # model.tactis.lr_stage2=4.805723253254209e-06 \
-      model.tactis.lr_stage2=6.7963190017638546e-06 \
+      model.tactis.lr_stage2=4.805723253254209e-06 \
       model.tactis.weight_decay_stage1=0.0 \
       model.tactis.weight_decay_stage2=5e-06 \
       model.tactis.stage=1 \
