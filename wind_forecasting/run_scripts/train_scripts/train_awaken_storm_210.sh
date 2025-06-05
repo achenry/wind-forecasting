@@ -2,10 +2,10 @@
 
 #SBATCH --partition=cfdg.p          # Partition for H100/A100 GPUs cfdg.p / all_gpu.p / mpcg.p(not allowed)
 #SBATCH --nodes=1
-#SBATCH --ntasks-per-node=8         # Match number of GPUs requested below (for DDP training)
-#SBATCH --cpus-per-task=16           # CPUs per task (adjust if needed for data loading)
-#SBATCH --mem-per-cpu=4096          # Memory per CPU
-#SBATCH --gres=gpu:8           # Request 4 H100 GPUs
+#SBATCH --ntasks-per-node=7         # Match number of GPUs requested below (for DDP training)
+#SBATCH --cpus-per-task=8           # CPUs per task (adjust if needed for data loading)
+#SBATCH --mem-per-cpu=8192          # Memory per CPU
+#SBATCH --gres=gpu:7           # Request 4 H100 GPUs
 #SBATCH --time=7-00:00              # Time limit (adjust as needed for training)
 #SBATCH --job-name=awaken_train_tactis_210      # Updated job name
 #SBATCH --output=/dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/slurm_logs/awaken_train_tactis_210_%j.out # Updated output log path
@@ -92,6 +92,10 @@ date +"%Y-%m-%d %H:%M:%S"
 
 # Use srun to launch the training script. PyTorch Lightning's SLURMEnvironment
 # should detect the environment variables set by srun for distributed training (DDP).
+
+# model.tactis.lr_stage1=4.270656650991065e-06 \
+# model.tactis.lr_stage2=4.899249681991742e-06 \
+
 srun python ${WORK_DIR}/run_scripts/run_model.py \
   --config ${CONFIG_FILE} \
   --model ${MODEL_NAME} \
@@ -100,12 +104,10 @@ srun python ${WORK_DIR}/run_scripts/run_model.py \
   --override dataset.sampler=sequential \
       trainer.max_epochs=40 \
       trainer.limit_train_batches=null \
-      trainer.val_check_interval=0.5 \
+      trainer.val_check_interval=1.0 \
       dataset.batch_size=64 \
       dataset.context_length_factor=5 \
-      # model.tactis.lr_stage1=4.270656650991065e-06 \
       model.tactis.lr_stage1=6.039620556070426e-06 \
-      # model.tactis.lr_stage2=4.899249681991742e-06 \
       model.tactis.lr_stage2=6.928585345724796e-06 \
       model.tactis.weight_decay_stage1=0.0 \
       model.tactis.weight_decay_stage2=5e-06 \

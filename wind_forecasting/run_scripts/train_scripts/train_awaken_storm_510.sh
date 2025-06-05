@@ -100,7 +100,7 @@ srun python ${WORK_DIR}/run_scripts/run_model.py \
   --override dataset.sampler=sequential \
       trainer.max_epochs=40 \
       trainer.limit_train_batches=null \
-      trainer.val_check_interval=0.5 \
+      trainer.val_check_interval=1.0 \
       # model.tactis.lr_stage1=4.559298934473364e-06 \
       model.tactis.lr_stage1=6.447822388045433e-06 \
       # model.tactis.lr_stage2=4.805723253254209e-06 \
