@@ -112,10 +112,10 @@ srun python ${WORK_DIR}/run_scripts/run_model.py \
       model.tactis.weight_decay_stage1=0.0 \
       model.tactis.weight_decay_stage2=5e-06 \
       model.tactis.stage2_start_epoch=20 \
-      model.tactis.warmup_steps_s1=0.15 \
-      model.tactis.warmup_steps_s2=0.85 \
-      model.tactis.steps_to_decay_s1=0.15 \
-      model.tactis.steps_to_decay_s2=0.85 \
+      model.tactis.warmup_steps_s1=0.10 \
+      model.tactis.warmup_steps_s2=0.10 \
+      model.tactis.steps_to_decay_s1=0.90 \
+      model.tactis.steps_to_decay_s2=0.90 \
       model.tactis.eta_min_fraction_s1=0.0016799548032196548 \
       model.tactis.eta_min_fraction_s2=0.00013329608232447702 \
       model.tactis.flow_series_embedding_dim=64 \
