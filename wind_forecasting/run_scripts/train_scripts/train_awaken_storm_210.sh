@@ -1,12 +1,12 @@
 #!/bin/bash
 
-#SBATCH --partition=all_gpu.p          # Partition for H100/A100 GPUs cfdg.p / all_gpu.p / mpcg.p(not allowed)
+#SBATCH --partition=cfdg.p          # Partition for H100/A100 GPUs cfdg.p / all_gpu.p / mpcg.p(not allowed)
 #SBATCH --nodes=1
-#SBATCH --ntasks-per-node=4         # Match number of GPUs requested below (for DDP training)
-#SBATCH --cpus-per-task=32           # CPUs per task (adjust if needed for data loading)
+#SBATCH --ntasks-per-node=8         # Match number of GPUs requested below (for DDP training)
+#SBATCH --cpus-per-task=16           # CPUs per task (adjust if needed for data loading)
 #SBATCH --mem-per-cpu=4096          # Memory per CPU
-#SBATCH --gres=gpu:H100:4           # Request 4 H100 GPUs
-#SBATCH --time=1-00:00              # Time limit (adjust as needed for training)
+#SBATCH --gres=gpu:8           # Request 4 H100 GPUs
+#SBATCH --time=7-00:00              # Time limit (adjust as needed for training)
 #SBATCH --job-name=awaken_train_tactis_210      # Updated job name
 #SBATCH --output=/dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/slurm_logs/awaken_train_tactis_210_%j.out # Updated output log path
 #SBATCH --error=/dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/slurm_logs/awaken_train_tactis_210_%j.err  # Updated error log path
@@ -100,18 +100,20 @@ srun python ${WORK_DIR}/run_scripts/run_model.py \
   --override dataset.sampler=sequential \
       trainer.max_epochs=40 \
       trainer.limit_train_batches=null \
-      trainer.val_check_interval=1.0 \
+      trainer.val_check_interval=0.5 \
       dataset.batch_size=64 \
       dataset.context_length_factor=5 \
-      model.tactis.lr_stage1=4.270656650991065e-06 \
-      model.tactis.lr_stage2=4.899249681991742e-06 \
+      # model.tactis.lr_stage1=4.270656650991065e-06 \
+      model.tactis.lr_stage1=6.039620556070426e-06 \
+      # model.tactis.lr_stage2=4.899249681991742e-06 \
+      model.tactis.lr_stage2=6.928585345724796e-06 \
       model.tactis.weight_decay_stage1=0.0 \
       model.tactis.weight_decay_stage2=5e-06 \
       model.tactis.stage2_start_epoch=20 \
-      model.tactis.warmup_steps_s1=785380 \
-      model.tactis.warmup_steps_s2=785380 \
-      model.tactis.steps_to_decay_s1=2356140 \
-      model.tactis.steps_to_decay_s2=2356140 \
+      model.tactis.warmup_steps_s1=392690 \
+      model.tactis.warmup_steps_s2=392690 \
+      model.tactis.steps_to_decay_s1=2748830 \
+      model.tactis.steps_to_decay_s2=2748830 \
       model.tactis.eta_min_fraction_s1=0.0016799548032196548 \
       model.tactis.eta_min_fraction_s2=0.00013329608232447702 \
       model.tactis.flow_series_embedding_dim=64 \
