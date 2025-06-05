@@ -37,4 +37,4 @@ echo "SLURM_GPUS_ON_NODE=${SLURM_GPUS_ON_NODE}"
 echo "SLURM_JOB_GPUS=${SLURM_JOB_GPUS}"
 echo "SLURM_JOB_GRES=${SLURM_JOB_GRES}"
 
-srun python ../run_model.py --config $MODEL_CONFIG_FILE --mode train --model $MODEL --checkpoint best --override model.x.lr=1.0e-4 model.x.weight_decay=1.0e-8 #--use_tuned_parameters
+srun python ../run_model.py --config $MODEL_CONFIG_FILE --mode train --model $MODEL --checkpoint best --use_tuned_parameters --override model.x.lr=1.0e-4 model.x.weight_decay=1.0e-8 #--use_tuned_parameters

@@ -632,7 +632,7 @@ def main():
             
             if "context_length_factor" in config["dataset"]:
                 data_module.context_length = int(config["dataset"]["context_length_factor"] * data_module.prediction_length)
-                data_module.context_length = int(2 * data_module.prediction_length)
+                # data_module.context_length = int(2 * data_module.prediction_length)
         
             if "batch_size" in config["dataset"]:
                 data_module.batch_size = config["dataset"]["batch_size"]
@@ -714,6 +714,7 @@ def main():
         # Prepare all arguments in a dictionary for the Estimator
     
     # wait until data_module attributes have been updated to generate splits
+    data_module.set_train_ready_path()
     if rank_zero_only.rank == 0:
         logging.info("Preparing data for tuning")
         if args.reload_data or not os.path.exists(data_module.train_ready_data_path):
