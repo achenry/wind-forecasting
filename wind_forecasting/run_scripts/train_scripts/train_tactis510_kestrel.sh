@@ -1,17 +1,17 @@
 #!/bin/bash 
 #SBATCH --account=ssc
 #SBATCH --output=%j-%x.out
-#SBATCH --partition=debug
-#SBATCH --time=01:00:00
-#SBATCH --nodes=1 # this needs to match Trainer(num_nodes...)
-#SBATCH --gres=gpu:2
-#SBATCH --ntasks-per-node=2 # this needs to match Trainer(devices=...), and number of GPUs
-#SBATCH --mem-per-cpu=40G
-##SBATCH --time=48:00:00
-##SBATCH --nodes=2 # this needs to match Trainer(num_nodes...)
-##SBATCH --gres=gpu:4
-##SBATCH --ntasks-per-node=4 # this needs to match Trainer(devices=...), and number of GPUs
-##SBATCH --mem-per-cpu=85G
+##SBATCH --partition=debug
+##SBATCH --time=01:00:00
+##SBATCH --nodes=1 # this needs to match Trainer(num_nodes...)
+##SBATCH --gres=gpu:2
+##SBATCH --ntasks-per-node=2 # this needs to match Trainer(devices=...), and number of GPUs
+##SBATCH --mem-per-cpu=40G
+#SBATCH --time=48:00:00
+#SBATCH --nodes=2 # this needs to match Trainer(num_nodes...)
+#SBATCH --gres=gpu:4
+#SBATCH --ntasks-per-node=4 # this needs to match Trainer(devices=...), and number of GPUs
+#SBATCH --mem-per-cpu=85G
 
 # salloc --account=ssc --time=01:00:00 --gpus=2 --ntasks-per-node=2 --partition=debug
 
@@ -45,24 +45,22 @@ srun python ../run_model.py --config $MODEL_CONFIG_FILE --mode train --model $MO
       trainer.max_epochs=40 \
       trainer.limit_train_batches=null \
       trainer.val_check_interval=1.0 \
-      #model.tactis.lr_stage1=4.559298934473364e-06 \
       model.tactis.lr_stage1=6.383018508262709e-06 \
-      #model.tactis.lr_stage2=4.805723253254209e-06 \
       model.tactis.lr_stage2=6.728012554555892e-06 \
       model.tactis.weight_decay_stage1=0.0 \
       model.tactis.weight_decay_stage2=5e-06 \
       model.tactis.stage=1 \
       model.tactis.stage2_start_epoch=20 \
-      model.tactis.warmup_steps_s1=785380 \
-      model.tactis.warmup_steps_s2=785380 \
-      model.tactis.steps_to_decay_s1=2356140 \
-      model.tactis.steps_to_decay_s2=2356140 \
+      model.tactis.warmup_steps_s1=392690 \
+      model.tactis.warmup_steps_s2=392690 \
+      model.tactis.steps_to_decay_s1=2748830 \
+      model.tactis.steps_to_decay_s2=2748830 \
       model.tactis.stage1_activation_function=relu \
       model.tactis.stage2_activation_function=relu \
       model.tactis.eta_min_fraction_s1=0.0035969620681086476 \
       model.tactis.eta_min_fraction_s2=0.00015866914804312245 \
       dataset.batch_size=64 \
-      dataset.context_length_factor=5.0 \
+      dataset.context_length_factor=5 \
       model.tactis.context_length=85 \
       model.tactis.prediction_length=17 \
       model.tactis.flow_series_embedding_dim=5 \
@@ -91,4 +89,6 @@ srun python ../run_model.py --config $MODEL_CONFIG_FILE --mode train --model $MO
       model.tactis.ac_mlp_num_layers=3 \
       model.tactis.ac_mlp_dim=64 \
       model.tactis.gradient_clip_val_stage1=1.0 \
-      model.tactis.gradient_clip_val_stage2=1.0
+      model.tactis.gradient_clip_val_stage2=1.0 \
+      model.tactis.scaling=std \    
+      model.tactis.loss_normalization=both
