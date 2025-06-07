@@ -312,10 +312,15 @@ class DataModule():
                     ds = getattr(self, f"{split}_dataset")
                     if self.verbose:
                         logging.info(f"Setting {split}_dataset attribute.")
-                    setattr(self, f"{split}_dataset", 
-                            {f"TURBINE{turbine_id}_SPLIT{cg}": 
-                            self.get_df_by_turbine(ds[cg], turbine_id, cg) 
-                            for turbine_id in self.target_suffixes for cg in range(len(ds))})
+                    
+                    temp_ds = {}
+                    for cg in range(len(ds)):
+                        for turbine_id in self.target_suffixes:
+                            if self.verbose:
+                                logging.info(f"Getting dataset for turbine_id={turbine_id}, cg={cg} of {len(ds)}.")
+                            temp_ds[f"TURBINE{turbine_id}_SPLIT{cg}"] = self.get_df_by_turbine(ds[cg], turbine_id)
+                    
+                    setattr(self, f"{split}_dataset", temp_ds)
                 
                 if self.as_lazyframe:
                     static_index = [f"TURBINE{turbine_id}_SPLIT{split}" for turbine_id in self.target_suffixes for cg in range(len(self.train_dataset))]
@@ -508,12 +513,11 @@ class DataModule():
           
         # return dataset
         
-    def get_df_by_turbine(self, dataset, turbine_id, continuity_group):
-        if self.verbose:
-            logging.info(f"Getting dataset for turbine_id={turbine_id}, cg={continuity_group}.")
-        return dataset.select(pl.col("time"), *[col for col in (self.feat_dynamic_real_cols + self.target_cols) if turbine_id in col])\
+    def get_df_by_turbine(self, dataset, turbine_id):
+        ds = dataset.select(pl.col("time"), *[col for col in (self.feat_dynamic_real_cols + self.target_cols) if turbine_id in col])\
                         .rename(mapping={**{f"{tgt_col}_{turbine_id}": tgt_col for tgt_col in self.target_prefixes},
                                         **{f"{feat_col}_{turbine_id}": feat_col for feat_col in self.feat_dynamic_real_prefixes}})
+        return ds
 
     def split_datasets_by_turbine(self, datasets):
          
