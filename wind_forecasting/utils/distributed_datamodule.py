@@ -178,10 +178,20 @@ class DistributedWindForecastingDataModule(LightningDataModule):
                         tensor_value = torch.from_numpy(value)
                     else:
                         try:
+                            # Try to convert to tensor
                             tensor_value = torch.tensor(value)
-                        except (TypeError, ValueError):
-                            # Some fields might not be convertible (e.g., strings)
-                            tensor_value = value
+                        except (TypeError, ValueError, RuntimeError) as e:
+                            # Handle special cases that can't be converted to tensors
+                            if hasattr(value, '__class__') and 'Period' in str(value.__class__):
+                                # Skip pandas Period objects - they're not needed for training
+                                continue
+                            elif isinstance(value, str):
+                                # Keep strings as-is
+                                tensor_value = value
+                            else:
+                                # Log warning for debugging and keep original value
+                                logger.warning(f"Could not convert field '{field_name}' to tensor: {e}. Keeping original value.")
+                                tensor_value = value
                 else:
                     tensor_value = value
                 
