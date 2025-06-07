@@ -41,16 +41,18 @@ class WindForecastingDataset(Dataset):
         context_length: int,
         prediction_length: int,
         time_features: Optional[List] = None,
+        sampler: Optional[Any] = None,  # GluonTS sampler instance
     ):
         self.context_length = context_length
         self.prediction_length = prediction_length
         self.time_features = time_features or []
+        self.sampler = sampler
         
         # Load data from pickle
         logger.info(f"Loading dataset from {data_path}")
         with open(data_path, 'rb') as f:
             self.data = pickle.load(f)
-        logger.info(f"Loaded {len(self.data)} samples")
+        logger.info(f"Loaded {len(self.data)} time series")
         
         # Validate data format
         if len(self.data) > 0:
@@ -58,8 +60,27 @@ class WindForecastingDataset(Dataset):
             assert 'target' in sample, "Dataset must contain 'target' field"
             assert 'start' in sample, "Dataset must contain 'start' field"
             
+        # If sampler provided, pre-compute all windows using it
+        if self.sampler is not None:
+            self.windows = []
+            for ts_idx, sample in enumerate(self.data):
+                target = sample['target']
+                # Get indices from sampler (like SequentialSampler which returns all valid indices)
+                indices = self.sampler(target)
+                # Store (time_series_index, time_index) pairs
+                for t in indices:
+                    self.windows.append((ts_idx, t))
+            logger.info(f"Sampler created {len(self.windows)} training windows from {len(self.data)} time series")
+        else:
+            # Fallback: one random window per time series (original behavior)
+            self.windows = None
+            logger.info(f"No sampler provided, will use random sampling (1 window per time series)")
+            
     def __len__(self) -> int:
-        return len(self.data)
+        if self.windows is not None:
+            return len(self.windows)
+        else:
+            return len(self.data)
     
     def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:
         """
@@ -77,27 +98,30 @@ class WindForecastingDataset(Dataset):
             - feat_static_cat: (num_static_cat,)
             - feat_static_real: (num_static_real,)
         """
-        sample = self.data[idx]
+        if self.windows is not None:
+            # Use pre-computed window from sampler
+            ts_idx, t = self.windows[idx]
+            sample = self.data[ts_idx]
+        else:
+            # Fallback: random sampling (original behavior)
+            sample = self.data[idx]
+            target = sample['target']
+            _, ts_length = target.shape
+            
+            # Sample a time point for splitting past/future
+            min_time = self.context_length
+            max_time = ts_length - self.prediction_length
+            
+            if max_time <= min_time:
+                raise ValueError(f"Time series too short: length={ts_length}, "
+                               f"required={self.context_length + self.prediction_length}")
+            
+            t = np.random.randint(min_time, max_time + 1)
         
         # Extract data
         target = sample['target']  # Shape: (num_series, time_steps)
         start_period = sample['start']
-        
-        # Get time series length
         _, ts_length = target.shape
-        
-        # Sample a time point for splitting past/future
-        # During training, we want to sample different windows
-        min_time = self.context_length
-        max_time = ts_length - self.prediction_length
-        
-        if max_time <= min_time:
-            # Not enough data for this sample
-            raise ValueError(f"Time series too short: length={ts_length}, "
-                           f"required={self.context_length + self.prediction_length}")
-        
-        # Random sampling for training diversity
-        t = np.random.randint(min_time, max_time + 1)
         
         # Split into past and future windows
         past_target = target[:, t - self.context_length:t]
