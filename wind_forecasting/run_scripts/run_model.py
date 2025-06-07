@@ -28,6 +28,12 @@ from wind_forecasting.utils.distributed_utils import (
     detect_training_environment, 
     should_enable_distributed_optimizations
 )
+from wind_forecasting.utils.gpu_optimizations import (
+    detect_gpu_capabilities,
+    apply_trainer_optimizations,
+    setup_distributed_environment,
+    log_optimization_summary
+)
 
 from gluonts.torch.distributions import LowRankMultivariateNormalOutput
 from gluonts.model.forecast_generator import DistributionForecastGenerator, SampleForecastGenerator
@@ -220,11 +226,31 @@ def main():
     training_env = detect_training_environment()
     use_distributed_optimizations = should_enable_distributed_optimizations(config, args)
 
+    # %% DETECT GPU CAPABILITIES AND APPLY OPTIMIZATIONS
+    logging.info("Detecting GPU capabilities...")
+    gpu_capabilities = detect_gpu_capabilities()
+    
+    # Apply GPU optimizations if distributed training is enabled
+    if use_distributed_optimizations:
+        # Setup optimal distributed environment
+        setup_distributed_environment()
+        
+        # Apply trainer optimizations based on GPU capabilities
+        config["trainer"] = apply_trainer_optimizations(
+            trainer_kwargs=config["trainer"],
+            gpu_capabilities=gpu_capabilities,
+            config=config
+        )
+        
+        # Log optimization summary
+        log_optimization_summary(gpu_capabilities)
+
     # Store in config for later use
     config["_runtime"] = {
         "training_environment": training_env,
         "use_distributed_optimizations": use_distributed_optimizations,
         "original_batch_size": config["dataset"]["batch_size"],  # Store original
+        "gpu_capabilities": gpu_capabilities,  # Store GPU info for estimator
     }
 
     logging.info(f"Distributed optimizations: {'ENABLED' if use_distributed_optimizations else 'DISABLED'}")

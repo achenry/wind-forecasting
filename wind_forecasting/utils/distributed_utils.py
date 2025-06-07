@@ -4,7 +4,7 @@ Distributed training utilities for wind forecasting framework.
 import logging
 import os
 import torch
-from typing import Tuple, Dict, Any
+from typing import Tuple, Dict, Any, Optional
 from lightning.pytorch.strategies import DDPStrategy
 
 logger = logging.getLogger(__name__)
@@ -104,7 +104,8 @@ def should_enable_distributed_optimizations(config: Dict[str, Any], args) -> boo
 def calculate_optimal_batch_configuration(
     tuned_batch_size: int, 
     world_size: int,
-    min_batch_per_gpu: int = 16
+    min_batch_per_gpu: int = 16,
+    gpu_capabilities: Optional[Dict[str, Any]] = None
 ) -> Tuple[int, int]:
     """
     Calculate optimal per-GPU batch size and gradient accumulation.
@@ -117,6 +118,8 @@ def calculate_optimal_batch_configuration(
         Number of processes in distributed training
     min_batch_per_gpu : int
         Minimum batch size per GPU for training stability
+    gpu_capabilities : Optional[Dict[str, Any]]
+        GPU capabilities from detect_gpu_capabilities()
         
     Returns
     -------
@@ -126,14 +129,23 @@ def calculate_optimal_batch_configuration(
     if world_size <= 1:
         return tuned_batch_size, 1
     
+    # Apply GPU-specific batch size optimizations if available
+    if gpu_capabilities and gpu_capabilities.get('has_gpu', False):
+        optimizations = gpu_capabilities.get('optimizations', {})
+        batch_multiplier = optimizations.get('batch_size_multiplier', 1.0)
+        adjusted_batch_size = int(tuned_batch_size * batch_multiplier)
+        logger.info(f"Applied GPU batch multiplier {batch_multiplier:.1f}x: {tuned_batch_size} -> {adjusted_batch_size}")
+    else:
+        adjusted_batch_size = tuned_batch_size
+    
     # Simple division if possible
-    if tuned_batch_size >= min_batch_per_gpu * world_size:
-        per_gpu_batch = tuned_batch_size // world_size
+    if adjusted_batch_size >= min_batch_per_gpu * world_size:
+        per_gpu_batch = adjusted_batch_size // world_size
         accumulate_batches = 1
     else:
         # Use gradient accumulation to maintain effective batch size
         per_gpu_batch = min_batch_per_gpu
-        total_desired = tuned_batch_size * world_size
+        total_desired = adjusted_batch_size
         total_per_step = per_gpu_batch * world_size
         accumulate_batches = max(1, total_desired // total_per_step)
     
