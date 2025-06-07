@@ -292,7 +292,7 @@ class DataModule():
             logging.info(f"Rank 0: Generating splits (reload={reload}, files_exist={split_files_exist}).")
             if self.per_turbine_target:
                 if self.verbose:
-                    logging.info(f"Rank 0: Splitting datasets for per turbine case.")
+                    logging.info(f"Rank 0: Splitting datasets for per turbine case into train/val/test={self.train_split/self.val_split/self.test_split}.")
                 
                 cg_counts = dataset.select("continuity_group").collect().to_series().value_counts().sort("continuity_group").select("count").to_numpy().flatten()
                 
@@ -365,7 +365,7 @@ class DataModule():
 
             else:
                 if verbose:
-                    logging.info(f"Splitting datasets for all turbine case.") 
+                    logging.info(f"Splitting datasets for all turbine case into train/val/test={self.train_split/self.val_split/self.test_split}.") 
                 
                 cg_counts = dataset.select("continuity_group").collect().to_series().value_counts().sort("continuity_group").select("count").to_numpy().flatten()
                 self.rows_per_split = [int(n_rows / self.n_splits) for n_rows in cg_counts] # each element corresponds to each continuity group
