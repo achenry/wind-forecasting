@@ -66,6 +66,26 @@ def main():
         logging.warning("Could not parse WORKER_RANK, assuming rank 0.")
         rank = 0
     logging.info(f"Determined worker rank from WORKER_RANK: {rank}")
+    
+    # %% DETECT DISTRIBUTED TRAINING MODE
+    # Detect distributed training mode for proper logging setup
+    is_distributed_training = False
+    ddp_rank = 0
+    ddp_world_size = 1
+    
+    if "SLURM_NTASKS" in os.environ and "SLURM_PROCID" in os.environ:
+        try:
+            slurm_ntasks = int(os.environ["SLURM_NTASKS"])
+            slurm_procid = int(os.environ["SLURM_PROCID"])
+            
+            if slurm_ntasks > 1 and "WORKER_RANK" not in os.environ:
+                # This is cooperative DDP training, not independent tuning workers
+                is_distributed_training = True
+                ddp_rank = slurm_procid
+                ddp_world_size = slurm_ntasks
+                logging.info(f"DDP training detected: rank={ddp_rank}, world_size={ddp_world_size}")
+        except (ValueError, KeyError):
+            pass
 
     # %% PARSE ARGUMENTS
     parser = argparse.ArgumentParser(description="Run a model on a dataset")
@@ -131,9 +151,28 @@ def main():
             device = torch.cuda.current_device()
             logging.info(f"Using GPU {device}: {torch.cuda.get_device_name(device)}")
 
-            # Check if CUDA_VISIBLE_DEVICES is set and contains only a single GPU
-            if "CUDA_VISIBLE_DEVICES" in os.environ:
-                cuda_devices = os.environ["CUDA_VISIBLE_DEVICES"] # Note: must 'export' variable within nohup to find on Kestrel
+            # CRITICAL: Check SLURM environment FIRST to detect distributed training
+            # SLURM automatically sets CUDA_VISIBLE_DEVICES per process, so we must check SLURM before CUDA
+            is_slurm_distributed = False
+            if "SLURM_NTASKS" in os.environ and "SLURM_PROCID" in os.environ:
+                try:
+                    slurm_ntasks = int(os.environ["SLURM_NTASKS"])
+                    slurm_procid = int(os.environ["SLURM_PROCID"])
+                    
+                    # Check if this is distributed training (multiple tasks) vs single task
+                    if slurm_ntasks > 1:
+                        is_slurm_distributed = True
+                        logging.info(f"SLURM distributed training detected: {slurm_ntasks} tasks, current process rank {slurm_procid}")
+                        logging.info("Keeping devices=auto and strategy=ddp for SLURM distributed training")
+                        # Do NOT override devices/strategy - let SLURM handle GPU assignment
+                    else:
+                        logging.info(f"SLURM single task detected: NTASKS={slurm_ntasks}")
+                except (ValueError, KeyError) as e:
+                    logging.warning(f"Failed to parse SLURM environment: {e}")
+
+            # Only check CUDA_VISIBLE_DEVICES if NOT in SLURM distributed mode
+            if not is_slurm_distributed and "CUDA_VISIBLE_DEVICES" in os.environ:
+                cuda_devices = os.environ["CUDA_VISIBLE_DEVICES"]
                 logging.info(f"CUDA_VISIBLE_DEVICES is set to: '{cuda_devices}'")
                 try:
                     # Count the number of GPUs specified in CUDA_VISIBLE_DEVICES
@@ -141,15 +180,18 @@ def main():
                     num_visible_gpus = len(visible_gpus)
 
                     if num_visible_gpus > 0:
-                        # Only override if the current configuration doesn't match
-                        if config["trainer"]["devices"] != num_visible_gpus:
+                        # For single GPU scenarios, force single GPU configuration
+                        if num_visible_gpus == 1:
+                            logging.warning(f"Single GPU detected. Overriding trainer config: devices='auto' -> 1, strategy='{config['trainer']['strategy']}' -> 'auto'")
+                            config["trainer"]["devices"] = 1
+                            config["trainer"]["strategy"] = "auto"
+                        
+                        # For multi-GPU scenarios, ensure devices matches visible GPUs
+                        elif config["trainer"]["devices"] == "auto":
+                            logging.info(f"Multi-GPU training: {num_visible_gpus} GPUs visible, keeping devices=auto and strategy=ddp")
+                        elif isinstance(config["trainer"]["devices"], int) and config["trainer"]["devices"] != num_visible_gpus:
                             logging.warning(f"Adjusting trainer.devices from {config['trainer']['devices']} to {num_visible_gpus} based on CUDA_VISIBLE_DEVICES")
                             config["trainer"]["devices"] = num_visible_gpus
-
-                            # If only one GPU is visible, use auto strategy instead of distributed
-                            if num_visible_gpus == 1 and config["trainer"]["strategy"] != "auto":
-                                logging.warning("Setting strategy to 'auto' since only one GPU is visible")
-                                config["trainer"]["strategy"] = "auto"
 
                         # Log actual GPU mapping information
                         if num_visible_gpus == 1:
@@ -164,7 +206,7 @@ def main():
                         logging.warning("CUDA_VISIBLE_DEVICES is set but no valid GPU indices found")
                 except Exception as e:
                     logging.warning(f"Error parsing CUDA_VISIBLE_DEVICES: {e}")
-            else:
+            elif not is_slurm_distributed:
                 logging.warning("CUDA_VISIBLE_DEVICES is not set, using default GPU assignment")
 
             # else:
@@ -192,11 +234,12 @@ def main():
 
         gc.collect()
 
-        # Multi-GPU configuration from SLURM environment variables (if not overridden above)
-        if "SLURM_NTASKS_PER_NODE" in os.environ:
-            config["trainer"]["devices"] = int(os.environ["SLURM_NTASKS_PER_NODE"])
+        # Handle multi-node SLURM configuration if needed
         if "SLURM_NNODES" in os.environ:
-            config["trainer"]["num_nodes"] = int(os.environ["SLURM_NNODES"])
+            slurm_nodes = int(os.environ["SLURM_NNODES"])
+            if slurm_nodes > 1:
+                config["trainer"]["num_nodes"] = slurm_nodes
+                logging.info(f"Multi-node training: {slurm_nodes} nodes")
 
     # Check if strategy needs special handling for TACTiS DDP
     # Use .get() with default to avoid KeyError if 'strategy' not in config['trainer']
@@ -296,29 +339,57 @@ def main():
         **dynamic_info,
         "git_info": git_info
     }
-    checkpoint_dir = os.path.join(log_dir, project_name, unique_id)
-    # Create WandB logger only for train/test modes
-    if args.mode in ["train", "test"]:
-        wandb_logger = WandbLogger(
-            project=project_name, # Project name in WandB, set in config
-            entity=config['logging'].get('entity'),
-            group=config['experiment']['run_name'],   # Group all workers under the same experiment
-            name=run_name, # Unique name for the run, can also take config for hyperparameters. Keep brief
-            save_dir=wandb_dir, # Directory for saving logs and metadata
-            log_model=False,
-            job_type=args.mode,
-            mode=config['logging'].get('wandb_mode', 'online'), # Configurable wandb mode
-            id=unique_id,
-            tags=[f"gpu_{gpu_id}", args.model, args.mode] + config['experiment'].get('extra_tags', []),
-            config=logger_config,
-            save_code=config['logging'].get('save_code', False)
-        )
-        config["trainer"]["logger"] = wandb_logger
+    # Configure checkpoint directory and logging based on DDP mode
+    if is_distributed_training:
+        # In DDP mode, use shared checkpoint directory but only rank 0 saves
+        shared_unique_id = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_ddp_world{ddp_world_size}"
+        checkpoint_dir = os.path.join(log_dir, project_name, shared_unique_id)
+        
+        # Only rank 0 should create WandB logger and handle checkpoints in DDP
+        if ddp_rank == 0 and args.mode in ["train", "test"]:
+            logging.info("Rank 0: Setting up WandB logger for DDP training")
+            wandb_logger = WandbLogger(
+                project=project_name,
+                entity=config['logging'].get('entity'),
+                group=config['experiment']['run_name'],
+                name=f"{config['experiment']['username']}_{args.model}_{args.mode}_ddp",
+                save_dir=wandb_dir,
+                log_model=False,
+                job_type=args.mode,
+                mode=config['logging'].get('wandb_mode', 'online'),
+                id=shared_unique_id,
+                tags=[f"ddp_world{ddp_world_size}", args.model, args.mode] + config['experiment'].get('extra_tags', []),
+                config=logger_config,
+                save_code=config['logging'].get('save_code', False)
+            )
+            config["trainer"]["logger"] = wandb_logger
+        else:
+            # Non-rank-0 processes in DDP should not create loggers
+            config["trainer"]["logger"] = None
+            if args.mode in ["train", "test"]:
+                logging.info(f"Rank {ddp_rank}: Disabling WandB logger (only rank 0 logs in DDP)")
     else:
-        # For tuning mode, set logger to None
-        config["trainer"]["logger"] = None
-
-    # Explicitly resolve any variable references in trainer config
+        # Single GPU or independent workers - use individual checkpoint dirs and loggers
+        checkpoint_dir = os.path.join(log_dir, project_name, unique_id)
+        
+        if args.mode in ["train", "test"]:
+            wandb_logger = WandbLogger(
+                project=project_name,
+                entity=config['logging'].get('entity'),
+                group=config['experiment']['run_name'],
+                name=run_name,
+                save_dir=wandb_dir,
+                log_model=False,
+                job_type=args.mode,
+                mode=config['logging'].get('wandb_mode', 'online'),
+                id=unique_id,
+                tags=[f"gpu_{gpu_id}", args.model, args.mode] + config['experiment'].get('extra_tags', []),
+                config=logger_config,
+                save_code=config['logging'].get('save_code', False)
+            )
+            config["trainer"]["logger"] = wandb_logger
+        else:
+            config["trainer"]["logger"] = None
 
     # Ensure default_root_dir exists and is set correctly
     config["trainer"]["default_root_dir"] = checkpoint_dir
@@ -715,7 +786,11 @@ def main():
     
     # wait until data_module attributes have been updated to generate splits
     data_module.set_train_ready_path()
-    if rank_zero_only.rank == 0:
+    
+    # Use proper rank detection for data preparation
+    actual_rank = ddp_rank if is_distributed_training else rank
+    
+    if actual_rank == 0:
         logging.info("Preparing data for tuning")
         if args.reload_data or not os.path.exists(data_module.train_ready_data_path):
             data_module.generate_datasets()
@@ -727,8 +802,8 @@ def main():
         reload = False
     
     # other ranks should wait for this one 
-    # Pass the rank determined at the beginning of main() to handle both tuning and training modes
-    data_module.generate_splits(save=True, reload=reload, splits=["train", "val", "test"], rank=rank)
+    # Pass the actual rank to handle both tuning and training modes
+    data_module.generate_splits(save=True, reload=reload, splits=["train", "val", "test"], rank=actual_rank)
     
     if args.mode in ["train", "test"]:
         estimator_kwargs = {
