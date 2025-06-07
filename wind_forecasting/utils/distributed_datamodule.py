@@ -4,12 +4,24 @@ Distributed Lightning DataModule for wind forecasting.
 import logging
 import os
 import torch
+import numpy as np
 from torch.utils.data import DataLoader
 from lightning.pytorch import LightningDataModule
 from typing import Optional, Dict, Any
 
 from wind_forecasting.utils.dataset_adapters import create_torch_dataset_from_gluonts
 from pytorch_transformer_ts.tactis_2.estimator import TRAINING_INPUT_NAMES, PREDICTION_INPUT_NAMES
+
+class SimpleDataset:
+    """Simple dataset wrapper for list of samples."""
+    def __init__(self, samples):
+        self.samples = samples
+    
+    def __len__(self):
+        return len(self.samples)
+    
+    def __getitem__(self, idx):
+        return self.samples[idx]
 
 logger = logging.getLogger(__name__)
 
@@ -128,28 +140,60 @@ class DistributedWindForecastingDataModule(LightningDataModule):
         if stage == "fit" or stage is None:
             logger.info("Setting up training and validation datasets...")
             
-            # Create PyTorch datasets from GluonTS datasets
-            # Use map-style dataset for DistributedSampler compatibility
-            self.train_torch_dataset = create_torch_dataset_from_gluonts(
-                gluonts_dataset=self.original_train_dataset,
-                estimator=self.estimator,
-                field_names=TRAINING_INPUT_NAMES,
-                is_train=True,
-                use_iterable=False,  # Use map-style for distributed sampling
+            # Convert already-transformed GluonTS datasets to PyTorch format
+            # The data is already transformed by the estimator, so we just need to convert formats
+            self.train_torch_dataset = self._convert_transformed_dataset_to_torch(
+                self.original_train_dataset
             )
             
-            self.val_torch_dataset = create_torch_dataset_from_gluonts(
-                gluonts_dataset=self.original_val_dataset,
-                estimator=self.estimator,
-                field_names=TRAINING_INPUT_NAMES,
-                is_train=True,  # Use same transformation for validation
-                use_iterable=False,  # Use map-style for distributed sampling
-            )
+            if self.original_val_dataset is not None:
+                self.val_torch_dataset = self._convert_transformed_dataset_to_torch(
+                    self.original_val_dataset
+                )
+            else:
+                self.val_torch_dataset = None
             
             logger.info(
                 f"Setup complete: train={len(self.train_torch_dataset)}, "
-                f"val={len(self.val_torch_dataset)} samples"
+                f"val={len(self.val_torch_dataset) if self.val_torch_dataset else 0} samples"
             )
+    
+    def _convert_transformed_dataset_to_torch(self, transformed_dataset):
+        """
+        Convert already-transformed GluonTS dataset to PyTorch dataset.
+        
+        This is simpler than the general adapters since the data is already 
+        transformed and we just need to convert to PyTorch tensors.
+        """
+        logger.info("Converting transformed GluonTS dataset to PyTorch format...")
+        samples = []
+        
+        for sample in transformed_dataset:
+            processed_sample = {}
+            
+            # Convert all fields to tensors
+            for field_name, value in sample.items():
+                if not isinstance(value, torch.Tensor):
+                    if isinstance(value, np.ndarray):
+                        tensor_value = torch.from_numpy(value)
+                    else:
+                        try:
+                            tensor_value = torch.tensor(value)
+                        except (TypeError, ValueError):
+                            # Some fields might not be convertible (e.g., strings)
+                            tensor_value = value
+                else:
+                    tensor_value = value
+                
+                processed_sample[field_name] = tensor_value
+            
+            samples.append(processed_sample)
+        
+        logger.info(f"Converted {len(samples)} samples to PyTorch format")
+        if samples:
+            logger.info(f"Sample fields: {list(samples[0].keys())}")
+        
+        return SimpleDataset(samples)
     
     def train_dataloader(self) -> DataLoader:
         """

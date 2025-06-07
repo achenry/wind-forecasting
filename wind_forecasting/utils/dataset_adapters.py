@@ -65,22 +65,29 @@ class GluonTSIterableDataset(IterableDataset):
         for raw_sample in transformed_iter:
             processed_sample = {}
             
-            for field_name in self.field_names:
-                if field_name in raw_sample:
-                    value = raw_sample[field_name]
-                    
-                    # Convert to tensor if not already
-                    if not isinstance(value, torch.Tensor):
-                        if isinstance(value, np.ndarray):
-                            tensor_value = torch.from_numpy(value)
-                        else:
-                            tensor_value = torch.tensor(value)
+            # Process ALL fields in the sample, not just field_names
+            # This ensures we don't lose required fields like 'feat_dynamic_real'
+            for field_name, value in raw_sample.items():
+                # Convert to tensor if not already
+                if not isinstance(value, torch.Tensor):
+                    if isinstance(value, np.ndarray):
+                        tensor_value = torch.from_numpy(value)
                     else:
-                        tensor_value = value
-                    
-                    processed_sample[field_name] = tensor_value
+                        try:
+                            tensor_value = torch.tensor(value)
+                        except (TypeError, ValueError):
+                            # Some fields might not be convertible to tensors (e.g., strings)
+                            # Keep them as-is
+                            tensor_value = value
                 else:
-                    logger.warning(f"Field '{field_name}' not found in sample")
+                    tensor_value = value
+                
+                processed_sample[field_name] = tensor_value
+            
+            # Log missing critical fields for debugging
+            if not any(field in processed_sample for field in self.field_names):
+                logger.warning(f"None of the expected fields {self.field_names} found in sample. "
+                             f"Available fields: {list(processed_sample.keys())}")
             
             yield processed_sample
 
@@ -128,20 +135,24 @@ class GluonTSMapDataset(Dataset):
         for raw_sample in transformed_iter:
             processed_sample = {}
             
-            for field_name in self.field_names:
-                if field_name in raw_sample:
-                    value = raw_sample[field_name]
-                    
-                    # Convert to tensor if not already
-                    if not isinstance(value, torch.Tensor):
-                        if isinstance(value, np.ndarray):
-                            tensor_value = torch.from_numpy(value)
-                        else:
-                            tensor_value = torch.tensor(value)
+            # Process ALL fields in the sample, not just field_names
+            # This ensures we don't lose required fields like 'feat_dynamic_real'
+            for field_name, value in raw_sample.items():
+                # Convert to tensor if not already
+                if not isinstance(value, torch.Tensor):
+                    if isinstance(value, np.ndarray):
+                        tensor_value = torch.from_numpy(value)
                     else:
-                        tensor_value = value
-                    
-                    processed_sample[field_name] = tensor_value
+                        try:
+                            tensor_value = torch.tensor(value)
+                        except (TypeError, ValueError):
+                            # Some fields might not be convertible to tensors (e.g., strings)
+                            # Keep them as-is
+                            tensor_value = value
+                else:
+                    tensor_value = value
+                
+                processed_sample[field_name] = tensor_value
             
             samples.append(processed_sample)
         
