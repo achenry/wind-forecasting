@@ -791,7 +791,8 @@ def main():
                 if config["dataset"].get("sampler", "sequential") == "sequential"
                 else ExpectedNumInstanceSampler(num_instances=1.0, min_past=data_module.context_length, min_future=data_module.prediction_length),
             "validation_sampler": ValidationSplitSampler(min_past=data_module.context_length, min_future=data_module.prediction_length),
-            "trainer_kwargs": config["trainer"],
+            "trainer_kwargs": {k: v for k, v in config["trainer"].items() 
+                             if k not in ['enable_distributed_optimizations']},
             # Pass runtime configuration for distributed training detection
             "_runtime_config": {
                 "use_distributed_optimizations": use_distributed_optimizations,
