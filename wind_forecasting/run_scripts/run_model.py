@@ -681,6 +681,12 @@ def main():
                  if isinstance(cb_config, dict) and 'class_path' in cb_config:
                     try:
                         module_path, class_name = cb_config['class_path'].rsplit('.', 1)
+                        
+                        # Skip ModelCheckpoint if enable_checkpointing=False
+                        if class_name == "ModelCheckpoint" and config.get("trainer", {}).get("enable_checkpointing", True) is False:
+                            logging.info(f"Skipping ModelCheckpoint callback because enable_checkpointing=False")
+                            continue
+                        
                         CallbackClass = getattr(importlib.import_module(module_path), class_name)
                         init_args = cb_config.get('init_args', {})
 
