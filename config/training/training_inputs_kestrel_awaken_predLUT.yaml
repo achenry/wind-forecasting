@@ -105,7 +105,7 @@ dataset:
     batch_size: 128
     workers: 12
     overfit: False
-    test_split: 0.20
+    test_split: 0.10
     val_split: 0.1
     resample_freq: 30s
     n_splits: 1 # how many divisions of each continuity group to make which is further subdivided into training test and validation data
@@ -176,7 +176,7 @@ model:
 
 
   informer:
-    # embedding_dimension: 32 # Determines dimension of the embedding space
+    # embedding_dimension: [32] # Determines dimension of the embedding space
     # num_encoder_layers: 2 # Number of transformer blocks stacked
     # num_decoder_layers: 1 # Number of transformer blocks stacked
     # n_heads: 8 # Number of heads for spatio-temporal attention
@@ -193,7 +193,7 @@ model:
     weight_decay: 1e-08
     dropout: 0.15697382123348755
   autoformer:
-    # embedding_dimension: 32 # Determines dimension of the embedding space
+    # embedding_dimension: [32] # Determines dimension of the embedding space
     num_encoder_layers: 2 # Number of transformer blocks stacked
     num_decoder_layers: 1 # Number of transformer blocks stacked
     n_heads: 8 # Number of heads for spatio-temporal attention
