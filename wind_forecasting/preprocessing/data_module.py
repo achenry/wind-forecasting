@@ -293,21 +293,28 @@ class DataModule():
             if self.per_turbine_target:
                 if self.verbose:
                     logging.info(f"Rank 0: Splitting datasets for per turbine case.")
+                
                 cg_counts = dataset.select("continuity_group").collect().to_series().value_counts().sort("continuity_group").select("count").to_numpy().flatten()
+                
                 self.rows_per_split = [
                     int(n_rows / self.n_splits) 
                     for turbine_id in self.target_suffixes 
                     for n_rows in cg_counts] # each element corresponds to each continuity group
+                
                 del cg_counts
+                
                 self.continuity_groups = dataset.select(pl.col("continuity_group").unique()).collect().to_numpy().flatten()
+                
                 self.train_dataset, self.val_dataset, self.test_dataset = \
                     self.split_dataset([dataset.filter(pl.col("continuity_group") == cg) for cg in self.continuity_groups]) 
                     
                 for split in splits:
                     ds = getattr(self, f"{split}_dataset")
+                    if self.verbose:
+                        logging.info(f"Setting {split}_dataset attribute.")
                     setattr(self, f"{split}_dataset", 
                             {f"TURBINE{turbine_id}_SPLIT{cg}": 
-                            self.get_df_by_turbine(ds[cg], turbine_id) 
+                            self.get_df_by_turbine(ds[cg], turbine_id, cg) 
                             for turbine_id in self.target_suffixes for cg in range(len(ds))})
                 
                 if self.as_lazyframe:
@@ -501,7 +508,9 @@ class DataModule():
           
         # return dataset
         
-    def get_df_by_turbine(self, dataset, turbine_id):
+    def get_df_by_turbine(self, dataset, turbine_id, continuity_group):
+        if self.verbose:
+            logging.info(f"Getting dataset for turbine_id={turbine_id}, cg={continuity_group}.")
         return dataset.select(pl.col("time"), *[col for col in (self.feat_dynamic_real_cols + self.target_cols) if turbine_id in col])\
                         .rename(mapping={**{f"{tgt_col}_{turbine_id}": tgt_col for tgt_col in self.target_prefixes},
                                         **{f"{feat_col}_{turbine_id}": feat_col for feat_col in self.feat_dynamic_real_prefixes}})
@@ -588,7 +597,9 @@ class DataModule():
             
             # n_test_windows = int((self.test_split * self.rows_per_split[cg]) / self.prediction_length)
             # test_dataset = test_gen.generate_instances(prediction_length=self.prediction_length, windows=n_test_windows)
-            
+        
+        if self.verbose:
+            logging.info("Returning train/val/test datasets.")
         return train_datasets, val_datasets, test_datasets
 
     def highlight_entry(self, entry, color, ax, vlines=None):
