@@ -125,6 +125,13 @@ dataset:
     per_turbine_target: true
     # context_length_factor: 2  # INFO: Takes precedence over context_length when use_tuned_parameters is true
 
+# DataLoader configuration for distributed training optimizations
+dataloader:
+    num_workers: null         # Auto-detect from SLURM_CPUS_PER_TASK (defaults to 4 if not available)
+    pin_memory: true         # Use pinned memory for faster GPU transfers
+    persistent_workers: true # Keep workers alive between epochs to reduce overhead
+    prefetch_factor: 2       # Number of batches to prefetch per worker
+
 model:
   distr_output: 
     class: LowRankMultivariateNormalOutput
