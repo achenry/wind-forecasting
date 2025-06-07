@@ -888,13 +888,38 @@ def main():
         # %% TRAIN MODEL
         # Callbacks are now instantiated and added to estimator_kwargs above
         logging.info(f"Training model with a total of {n_training_steps} training steps.")
-        estimator.train(
-            training_data=data_module.train_dataset,
-            validation_data=data_module.val_dataset,
-            forecast_generator=forecast_generator,
-            ckpt_path=checkpoint_path
-            # shuffle_buffer_length=1024
-        )
+        
+        # Check if we should use PyTorch dataloaders
+        use_pytorch_dataloader = config["dataset"].get("use_pytorch_dataloader", False)
+        
+        if use_pytorch_dataloader:
+            # For PyTorch dataloaders, pass file paths instead of datasets
+            train_data_path = data_module.get_split_file_path("train")
+            val_data_path = data_module.get_split_file_path("val")
+            
+            logging.info(f"Using PyTorch DataLoader with file paths:")
+            logging.info(f"  Training data: {train_data_path}")
+            logging.info(f"  Validation data: {val_data_path}")
+            
+            estimator.train(
+                training_data=train_data_path,
+                validation_data=val_data_path,
+                forecast_generator=forecast_generator,
+                ckpt_path=checkpoint_path,
+                # Pass additional kwargs that might be needed for PyTorch dataloaders
+                num_workers=num_workers,
+                pin_memory=True,
+                persistent_workers=True
+            )
+        else:
+            # Original GluonTS data loading
+            estimator.train(
+                training_data=data_module.train_dataset,
+                validation_data=data_module.val_dataset,
+                forecast_generator=forecast_generator,
+                ckpt_path=checkpoint_path
+                # shuffle_buffer_length=1024
+            )
         # train_output.trainer.checkpoint_callback.best_model_path
         logging.info("Model training completed.")
     elif args.mode == "test":
