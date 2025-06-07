@@ -233,6 +233,19 @@ def main():
     logging.info(f"WandB will create logs in {wandb_dir}")
     logging.info(f"Optuna will create logs in {optuna_dir}")
     # logging.info(f"Checkpoints will be saved in {checkpoint_dir}")
+    
+    # TODO resolve all keys that end in _dir or _path with recursion
+    # for k0 in config:
+    #     if k0
+    
+    if config["optuna"]["visualization"]["enabled"] and "output_dir" in config["optuna"]["visualization"]:
+        if cap := re.search(r"(?<=\${).*(?=})", config["optuna"]["visualization"]["output_dir"]):
+            cap = cap.group(0)
+            key_list = cap.split(".")
+            v = config[key_list[0]]
+            for k in key_list[1:]:
+                v = v[k]
+            config["optuna"]["visualization"]["output_dir"] = re.sub(r"\${.*}", v, config["optuna"]["visualization"]["output_dir"])
 
     # Get worker info from environment variables
     worker_id = os.environ.get('SLURM_PROCID', '0')

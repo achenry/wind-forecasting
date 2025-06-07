@@ -38,9 +38,9 @@ pip install --target $LARGE_STORAGE/ahenry/wind_forecasting_env/bin floris polar
 # rm -rf /home/ahenry/.conda-pkgs/cache
 # FOR PREPROCESSING AND RUNNING MODEL
 
+ml PrgEnv-intel mamba
+MPICC=`which mpicc` pip install --no-cache-dir mpi4py
 
-module load PrgEnv-intel
-mamba install mpi4py 
 pip install plotly memory_profiler optuna optuna-integration optuna-dashboard filterpy # openmpi impi_rt opencv-python 
 mamba install conda-forge::cuda-version=12.4 nvidia/label/cuda-12.4.0::cuda-toolkit performer-pytorch pytorch torchvision torchaudio torchmetrics pytorch-cuda=12.4 lightning -c pytorch -c nvidia
 mamba install mysqlclient mysql-connector-python polars windrose statsmodels scikit-learn nb_conda_kernels pyyaml matplotlib numpy seaborn netcdf4 scipy h5pyd pyarrow wandb einops # opt_einsum

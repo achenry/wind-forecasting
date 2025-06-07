@@ -12,7 +12,7 @@ experiment:
 logging:
   entity: jmb0507-cu-boulder # Wandb entity (group name)
   wandb_mode: online
-  save_code: true # Save code to wandb
+  save_code: false # Save code to wandb
   wandb_dir: /projects/ssc/ahenry/wind_forecasting/logging/ # WandB will create a 'wandb' subdirectory here automatically
   optuna_dir: /projects/ssc/ahenry/wind_forecasting/logging/optuna/
   checkpoint_dir: /projects/ssc/ahenry/wind_forecasting/logging/checkpoints/
@@ -20,33 +20,38 @@ logging:
 
 optuna:
   save_trial_code: false      # Default false
-  n_trials_per_worker: 100     # Test a total of 4*12=48 trials
-  total_study_trials:
-  max_epochs: 20              # epochs per trial
+  n_trials_per_worker: 50   # Replaced by total_study_trials for global trial limit
+  total_study_trials: 200     # Global maximum number of trials across all workers, takes precedence over n_trials_per_worker
+  max_epochs: 40              # epochs per trial
   sampler: "random"           # Options: "random" (ExpectedNumInstanceSampler), "sequential" (SequentialSampler)
   sampler_params:
     tpe:
-      n_startup_trials: 16
+      n_startup_trials: 8
       multivariate: true
       constant_liar: true
       group: false
-  limit_train_batches: 5000    # batches per epoch - INFO: For "random" sampler, use explicit integer value
+  base_limit_train_batches: 5000    # base batches per epoch - will be scaled based on batch_size ratio
   metric: "val_loss"          # The metric to optimize (NLL)
-  direction: "minimize"  
+  direction: "minimize"       # Whether to minimize or maximize the metric
 
   resample_freq_choices: [15, 30, 45, 60] # Resample frequency in seconds
   
   # Pruning configuration
   pruning:
     enabled: true
-    type: "patient"
-    patience: 2               # Configure PatientPruner: number of steps to wait (epochs) before pruning
-    min_delta: 0.0            # Configure PatientPruner: tolerance for improvement (default 0.0)
-    wrapped_pruner:
-      type: "percentile"      # Set the wrapped pruner type
-      percentile: 50.0        # Configure PercentilePruner: prune trials below this percentile
-      n_startup_trials: 4     # Configure PercentilePruner: wait for this many trials before pruning
-      n_warmup_steps: 4      # Configure PercentilePruner: wait for this many steps (epochs) before pruning
+    type: "successivehalving"
+    min_resource: 12 # Applies to SuccessiveHalving and Hyperband
+    reduction_factor: 2
+    min_early_stopping_rate: 0 # Applies to SuccessiveHalving and Hyperband
+    bootstrap_count: 8 # Number of trials to complete before pruning
+    # type: "patient"
+    # patience: 2               # Configure PatientPruner: number of steps to wait (epochs) before pruning
+    # min_delta: 0.0            # Configure PatientPruner: tolerance for improvement (default 0.0)
+    # wrapped_pruner:
+    #   type: "percentile"      # Set the wrapped pruner type
+    #   percentile: 50.0        # Configure PercentilePruner: prune trials below this percentile
+    #   n_startup_trials: 4     # Configure PercentilePruner: wait for this many trials before pruning
+    #   n_warmup_steps: 4      # Configure PercentilePruner: wait for this many steps (epochs) before pruning
     # type: "hyperband"
       # type: "successivehalving"
       # min_resource: 8             # Applies to SuccessiveHalving and Hyperband
@@ -121,12 +126,17 @@ model:
   tactis:
     # General TACTiS settings
     initial_stage: 1
-    stage2_start_epoch: 10
+    stage2_start_epoch: 20 # Epoch to start stage 2 (copula training)
+    ac_mlp_num_layers: 2 # MLP layers for attention copula
+    ac_mlp_dim: 128      # Dimension of AC's internal MLP layers
+    stage1_activation_function: "relu" # Activation for Stage 1 encoders (e.g., "relu", "gelu", "leaky_relu")
+    stage2_activation_function: "relu" # Activation for Stage 2 encoders (e.g., "relu", "gelu", "leaky_relu")
     input_encoding_normalization: true
-    loss_normalization: "std" # Options: "series", "timesteps", "both", "none"
+    scaling: "std" # Options: "mean", "std", null
+    loss_normalization: "both" # Options: "series", "timesteps", "both", "none"
     encoder_type: "standard" # Options: "standard", "temporal"
-    bagging_size: null # Optional, defaults to None in estimator
-    num_parallel_samples: 100 # Num of parallel samples for probabilistic prediction
+    bagging_size: null
+    num_parallel_samples: 200 # Inference only setting
     # Marginal CDF Encoder
     marginal_embedding_dim_per_head: 8
     marginal_num_heads: 5
@@ -149,14 +159,23 @@ model:
     decoder_transformer_num_heads: 6
     decoder_num_bins: 50
     # Optimizer Params
-    lr_stage1: 0.0018
-    lr_stage2: 0.0007
-    weight_decay_stage1: 0.0
-    weight_decay_stage2: 0.0
+    lr_stage1: 5e-6
+    lr_stage2: 2e-6
+    weight_decay_stage1: 1e-5
+    weight_decay_stage2: 1e-5
     # Dropout & Clipping
     dropout_rate: 0.1
     gradient_clip_val_stage1: 1000.0
     gradient_clip_val_stage2: 1000.0
+    ### VALUES FOR per_turbine_target = true ###
+    # Learning Rate Scheduler for Stage 1
+    warmup_steps_s1: 50000 # Warmup steps for Stage 1
+    steps_to_decay_s1: 50000 # T_max = (steps_per_epoch [282] * epochs_in_stage [30]) - warmup_steps
+    eta_min_fraction_s1: 0.01  # Fraction of initial LR for eta_min in Stage 1 cosine decay
+    # Learning Rate Scheduler for Stage 2
+    warmup_steps_s2: 50000 # Warmup steps for Stage 2
+    steps_to_decay_s2: 50000 # T_max = (steps_per_epoch [282] * epochs_in_stage [100-30]) - warmup_steps ~ 47940 - warmup_steps    
+    eta_min_fraction_s2: 0.01  # Fraction of initial LR for eta_min in Stage 2 cosine decay    
 
   informer:
     embedding_dimension: 32 # Determines dimension of the embedding space

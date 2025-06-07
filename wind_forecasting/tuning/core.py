@@ -619,15 +619,15 @@ def tune_model(model, config, study_name, optuna_storage, lightning_module_class
             try:
                 from wind_forecasting.tuning.utils.optuna_utils import generate_visualizations
                 # Import the path resolution helper from db_utils or optuna_db_utils
-                from wind_forecasting.tuning.utils.db_utils import _resolve_path
+                # from wind_forecasting.tuning.utils.db_utils import _resolve_path
 
                 vis_config = config["optuna"]["visualization"]
 
                 # Resolve the output directory using the helper function and full config
                 default_vis_path = os.path.join(config.get("logging", {}).get("optuna_dir", "logging/optuna"), "visualizations")
                 # Pass vis_config as the dict containing 'output_dir', key 'output_dir', and the full 'config'
-                visualization_dir = _resolve_path(vis_config, "output_dir", full_config=config, default=default_vis_path)
-
+                # visualization_dir = _resolve_path(vis_config, "output_dir", full_config=config, default=default_vis_path)
+                visualization_dir = vis_config.get("output_dir", default_vis_path)
                 if not visualization_dir:
                      logging.error("Rank 0: Could not determine visualization output directory. Skipping visualization.")
                 else:

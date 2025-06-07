@@ -187,6 +187,7 @@ class DataModule():
     def get_dataset_info(self, dataset=None):
         # print(f"Number of nan/null vars = {dataset.select(pl.sum_horizontal((cs.numeric().is_null() | cs.numeric().is_nan()).sum())).collect().item()}") 
         if dataset is None:
+            assert os.path.exists(self.train_ready_data_path), "train_ready_data_path doesn't exist! Should be generated for training."
             dataset = IterableLazyFrame(data_path=self.train_ready_data_path, dtype=self.dtype) 
         
         if self.verbose:
