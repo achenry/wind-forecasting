@@ -124,6 +124,7 @@ dataset:
     n_splits: 1 # how many divisions of each continuity group to make which is further subdivided into training test and validation data
     per_turbine_target: true
     # context_length_factor: 2  # INFO: Takes precedence over context_length when use_tuned_parameters is true
+    use_pytorch_dataloader: true # Use PyTorch DataLoader for training and validation
 
 model:
   distr_output: 
