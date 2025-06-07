@@ -24,6 +24,10 @@ from lightning.pytorch.strategies import DDPStrategy # Ensure import
 # Internal imports
 from wind_forecasting.tuning.utils.trial_utils import handle_trial_with_oom_protection
 from wind_forecasting.utils.optuna_storage import setup_optuna_storage
+from wind_forecasting.utils.distributed_utils import (
+    detect_training_environment, 
+    should_enable_distributed_optimizations
+)
 
 from gluonts.torch.distributions import LowRankMultivariateNormalOutput
 from gluonts.model.forecast_generator import DistributionForecastGenerator, SampleForecastGenerator
@@ -211,6 +215,20 @@ def main():
         if "trainer" not in config: config["trainer"] = {}
         config["trainer"]["strategy"] = strategy_object
         
+    # %% DETECT DISTRIBUTED TRAINING ENVIRONMENT
+    logging.info("Detecting training environment...")
+    training_env = detect_training_environment()
+    use_distributed_optimizations = should_enable_distributed_optimizations(config, args)
+
+    # Store in config for later use
+    config["_runtime"] = {
+        "training_environment": training_env,
+        "use_distributed_optimizations": use_distributed_optimizations,
+        "original_batch_size": config["dataset"]["batch_size"],  # Store original
+    }
+
+    logging.info(f"Distributed optimizations: {'ENABLED' if use_distributed_optimizations else 'DISABLED'}")
+    
     # %% SETUP LOGGING
     logging.info("Setting up logging")
 

@@ -278,3 +278,4 @@ trainer:
     strategy: ddp
     max_epochs: 100 # Maximum number of epochs to train 100
     limit_train_batches: 5000
+    enable_distributed_optimizations: true  # Set to false to disable new features
