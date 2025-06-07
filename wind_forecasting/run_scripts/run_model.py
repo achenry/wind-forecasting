@@ -766,6 +766,13 @@ def main():
                 else ExpectedNumInstanceSampler(num_instances=1.0, min_past=data_module.context_length, min_future=data_module.prediction_length),
             "validation_sampler": ValidationSplitSampler(min_past=data_module.context_length, min_future=data_module.prediction_length),
             "trainer_kwargs": config["trainer"],
+            # Pass runtime configuration for distributed training detection
+            "_runtime_config": {
+                "use_distributed_optimizations": use_distributed_optimizations,
+                "training_environment": training_env,
+                "original_batch_size": config["_runtime"]["original_batch_size"],
+                "full_config": config,  # Pass full config for DataLoader settings
+            },
         }
         
         n_training_samples = 0
