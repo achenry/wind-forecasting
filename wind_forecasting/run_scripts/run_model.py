@@ -493,8 +493,6 @@ def main():
                 found_tuned_params = False
         else:
             found_tuned_params = False 
-            
-        # TODO HIGH lr and weight_decay are not being set properly during tuning or training!!!
         
         if found_tuned_params:
             logging.info(f"Updating estimator {args.model.capitalize()} kwargs with tuned parameters {tuned_params}")
