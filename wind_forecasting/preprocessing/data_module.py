@@ -516,7 +516,7 @@ class DataModule():
     def get_df_by_turbine(self, dataset, turbine_id):
         ds = dataset.select(pl.col("time"), *[col for col in (self.feat_dynamic_real_cols + self.target_cols) if turbine_id in col])\
                         .rename(mapping={**{f"{tgt_col}_{turbine_id}": tgt_col for tgt_col in self.target_prefixes},
-                                        **{f"{feat_col}_{turbine_id}": feat_col for feat_col in self.feat_dynamic_real_prefixes}})
+                                        **{f"{feat_col}_{turbine_id}": feat_col for feat_col in self.feat_dynamic_real_prefixes}}).collect(_eager=True).lazy()
         return ds
 
     def split_datasets_by_turbine(self, datasets):
