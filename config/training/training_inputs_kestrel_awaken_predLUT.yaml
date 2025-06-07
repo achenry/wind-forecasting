@@ -105,7 +105,7 @@ dataset:
     batch_size: 128
     workers: 12
     overfit: False
-    test_split: 0.10
+    test_split: 0.1
     val_split: 0.1
     resample_freq: 30s
     n_splits: 1 # how many divisions of each continuity group to make which is further subdivided into training test and validation data

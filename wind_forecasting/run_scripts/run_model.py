@@ -70,7 +70,7 @@ def main():
     # %% PARSE ARGUMENTS
     parser = argparse.ArgumentParser(description="Run a model on a dataset")
     parser.add_argument("--config", type=str, help="Path to config file", default="examples/inputs/training_inputs_aoifemac_flasc.yaml")
-    parser.add_argument("-md", "--mode", choices=["tune", "train", "test"], required=True,
+    parser.add_argument("-md", "--mode", choices=["tune", "train", "test"], default=None,
                         help="Mode to run: 'tune' for hyperparameter optimization with Optuna, 'train' to train a model, 'test' to evaluate a model")
     parser.add_argument("-chk", "--checkpoint", type=str, required=False, default=None,
                         help="Which checkpoint to use: can be equal to 'None' to start afresh with training mode, 'latest', 'best', or an existing checkpoint path.")

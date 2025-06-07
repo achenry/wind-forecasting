@@ -361,7 +361,7 @@ def tune_model(model, config, study_name, optuna_storage, lightning_module_class
 
     # Worker ID already fetched above for study creation/loading
     dynamic_params = None
-
+    
     if tuning_phase == 0 and worker_id == "0":
         resample_freq_choices = config["optuna"].get("resample_freq_choices", [int(data_module.freq[:-1])])
         fixed_per_turbine = config.get("dataset", {}).get("per_turbine_target", False)
