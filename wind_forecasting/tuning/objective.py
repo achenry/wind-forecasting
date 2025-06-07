@@ -249,7 +249,7 @@ class MLTuningObjective:
 
             cleaned_params["optuna_trial_number"] = trial.number
 
-            project_name = f"{self.config['experiment'].get('project_name', 'wind_forecasting')}_{self.model}"
+            project_name = f"tune_{self.config['experiment'].get('project_name', 'wind_forecasting')}_{self.model}"
             group_name = self.config['experiment']['run_name']
             # Construct unique run name and tags
             run_name = f"{self.config['experiment']['run_name']}_rank_{os.environ.get('WORKER_RANK', '0')}_trial_{trial.number}"

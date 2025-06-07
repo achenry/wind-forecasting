@@ -313,7 +313,7 @@ def main():
     # Create WandB logger only for train/test modes
     if args.mode in ["train", "test"]:
         wandb_logger = WandbLogger(
-            project=project_name, # Project name in WandB, set in config
+            project=f"train_{project_name}", # Project name in WandB, set in config
             entity=config['logging'].get('entity'),
             group=config['experiment']['run_name'],   # Group all workers under the same experiment
             name=run_name, # Unique name for the run, can also take config for hyperparameters. Keep brief
