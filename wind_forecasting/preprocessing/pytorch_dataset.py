@@ -308,7 +308,19 @@ class WindForecastingInferenceDataset(WindForecastingDataset):
     
     def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:
         """Get a specific window for inference."""
-        data_idx, t = self.windows[idx]
+        if dist.is_initialized():
+            # Map global index to local index for distributed inference
+            world_size = dist.get_world_size()
+            local_idx = idx // world_size
+            window = self.windows[local_idx]
+            data_idx = int(window['ts_idx'])
+            t = int(window['t'])
+        else:
+            # Non-distributed case
+            window = self.windows[idx]
+            data_idx = int(window['ts_idx'])
+            t = int(window['t'])
+        
         sample = self.data[data_idx]
         
         # Same processing as parent class but with fixed time point
