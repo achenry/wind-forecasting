@@ -569,6 +569,8 @@ def main():
             #     raise TypeError(f"Checkpoint parameters and data module parameters {incompatible_params} are incompatible.")
             
             logging.info(f"Updating estimator {args.model.capitalize()} kwargs with checkpoint parameters {checkpoint_hparams['init_args']['model_config']}.")
+        else:
+            checkpoint_path = None
             
         # Apply command-line overrides AFTER potentially loading tuned params
         if args.override:
