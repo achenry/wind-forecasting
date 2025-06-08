@@ -108,10 +108,8 @@ class WindForecastingDataset(Dataset):
             logger.info(f"No sampler provided, will use random sampling (1 window per time series)")
             
     def __len__(self) -> int:
-        if self.windows is not None:
-            return len(self.windows)
-        else:
-            return len(self.data)
+        # Always return total windows count for DistributedSampler compatibility
+        return self.total_windows
     
     def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:
         """
@@ -131,7 +129,19 @@ class WindForecastingDataset(Dataset):
         """
         if self.windows is not None:
             # Use pre-computed window from sampler
-            ts_idx, t = self.windows[idx]
+            if dist.is_initialized():
+                # Map global index to local index for distributed training
+                world_size = dist.get_world_size()
+                local_idx = idx // world_size
+                # Access numpy structured array
+                window = self.windows[local_idx]
+                ts_idx = int(window['ts_idx'])
+                t = int(window['t'])
+            else:
+                # Non-distributed case
+                window = self.windows[idx]
+                ts_idx = int(window['ts_idx'])
+                t = int(window['t'])
             sample = self.data[ts_idx]
         else:
             # Fallback: random sampling (original behavior)
