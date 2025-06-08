@@ -334,7 +334,7 @@ class DataModule():
                         for turbine_id in self.target_suffixes:
                             if self.verbose:
                                 logging.info(f"Getting dataset for turbine_id={turbine_id}, cg={cg} of {len(ds)}.")
-                            temp_ds[f"TURBINE{turbine_id}_SPLIT{cg}"] = self.get_df_by_turbine(df, turbine_id)#.lazy()
+                            temp_ds[f"TURBINE{turbine_id}_SPLIT{cg}"] = self.get_df_by_turbine(ds[cg], turbine_id)#.lazy()
                     
                     setattr(self, f"{split}_dataset", temp_ds)
                 
