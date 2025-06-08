@@ -86,9 +86,20 @@ def main():
     parser.add_argument("--single_gpu", action="store_true", help="Force using only a single GPU (the one specified by CUDA_VISIBLE_DEVICES)")
     parser.add_argument("-or", "--override", nargs="*", help="List of hyperparameters to override from YAML config instead of using tuned values", default=[])
     parser.add_argument("-rl", "--reload_data", action="store_true", help="Whether to reload train/test/val datasets from preprocessed parquets or not.")
+    parser.add_argument("-ehc", "--extract_hparams_from_checkpoint", type=str, default=None,
+                        help="Extract hyperparameters from checkpoint without loading training state. Can be 'latest', 'best', or a checkpoint path. Starts fresh training with extracted parameters.")
 
 
     args = parser.parse_args()
+    
+    # Validate checkpoint arguments
+    if args.checkpoint and args.extract_hparams_from_checkpoint:
+        raise ValueError("Cannot use both --checkpoint and --extract_hparams_from_checkpoint simultaneously. "
+                         "Use --checkpoint to resume training from a checkpoint, or "
+                         "--extract_hparams_from_checkpoint to start fresh training with extracted hyperparameters.")
+    
+    if args.extract_hparams_from_checkpoint and args.mode != "train":
+        raise ValueError("--extract_hparams_from_checkpoint can only be used with --mode train")
 
     # %% SETUP SEED
     logging.info(f"Setting random seed to {args.seed}")
@@ -506,7 +517,7 @@ def main():
             
         # Use the get_checkpoint function to handle checkpoint finding
         # TODO can we grab the checkpoint from the winning hyperparameter trial?
-        if args.checkpoint:
+        if args.checkpoint or args.extract_hparams_from_checkpoint:
             # Set up parameters for checkpoint finding
             metric = config.get("trainer", {}).get("monitor_metric", "val_loss")
             mode = config.get("optuna", {}).get("direction", "minimize")
@@ -516,8 +527,10 @@ def main():
             base_checkpoint_dir = os.path.join(log_dir, project_name)
             logging.info(f"Checkpoint selection: Monitoring metric '{metric}' with mode '{mode}' in directory '{base_checkpoint_dir}'")
         
-            checkpoint_path = get_checkpoint(args.checkpoint, metric, mode, base_checkpoint_dir)
-            checkpoint_hparams = load_estimator_from_checkpoint(checkpoint_path, LightningModuleClass, config, args.model)
+            # Get checkpoint path based on which argument was used
+            checkpoint_arg = args.checkpoint if args.checkpoint else args.extract_hparams_from_checkpoint
+            found_checkpoint_path = get_checkpoint(checkpoint_arg, metric, mode, base_checkpoint_dir)
+            checkpoint_hparams = load_estimator_from_checkpoint(found_checkpoint_path, LightningModuleClass, config, args.model)
             
             model_hparams.update(checkpoint_hparams["init_args"]["model_config"])
             
@@ -525,6 +538,15 @@ def main():
             data_module.prediction_length = checkpoint_hparams["prediction_length_int"]
             data_module.context_length = checkpoint_hparams["context_length_int"]
             data_module.freq = checkpoint_hparams["freq_str"]
+            
+            # Set checkpoint_path for training continuation only if using --checkpoint
+            if args.checkpoint:
+                checkpoint_path = found_checkpoint_path
+                logging.info(f"Will resume training from checkpoint: {checkpoint_path}")
+            else:
+                checkpoint_path = None
+                logging.info(f"Extracted hyperparameters from checkpoint: {found_checkpoint_path}")
+                logging.info("Will start fresh training with extracted hyperparameters.")
             
             # check if any new hyperparameters are incompatible with data_module
             # core_data_module_params = ["num_feat_dynamic_real", "num_feat_static_real", "num_feat_static_cat",
@@ -547,8 +569,6 @@ def main():
             #     raise TypeError(f"Checkpoint parameters and data module parameters {incompatible_params} are incompatible.")
             
             logging.info(f"Updating estimator {args.model.capitalize()} kwargs with checkpoint parameters {checkpoint_hparams['init_args']['model_config']}.")
-        else:
-            checkpoint_path = None
             
         # Apply command-line overrides AFTER potentially loading tuned params
         if args.override:
