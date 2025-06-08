@@ -255,8 +255,22 @@ class WindForecastingInferenceDataset(WindForecastingDataset):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         
-        # Pre-compute all valid windows
-        self.windows = []
+        # Override parent's window computation with exhaustive window generation
+        # First pass: count total windows
+        total_windows = 0
+        for sample in self.data:
+            _, ts_length = sample['target'].shape
+            min_time = self.context_length
+            max_time = ts_length - self.prediction_length
+            if max_time >= min_time:
+                total_windows += (max_time - min_time + 1)
+        
+        # Allocate numpy array
+        window_dtype = np.dtype([('ts_idx', np.int32), ('t', np.int32)])
+        all_windows = np.empty(total_windows, dtype=window_dtype)
+        
+        # Second pass: fill array
+        window_idx = 0
         for data_idx, sample in enumerate(self.data):
             target = sample['target']
             _, ts_length = target.shape
@@ -266,13 +280,31 @@ class WindForecastingInferenceDataset(WindForecastingDataset):
             max_time = ts_length - self.prediction_length
             
             if max_time >= min_time:
-                for t in range(min_time, max_time + 1):
-                    self.windows.append((data_idx, t))
-                    
-        logger.info(f"Created {len(self.windows)} inference windows from {len(self.data)} time series")
+                n_windows = max_time - min_time + 1
+                # Fill ts_idx
+                all_windows['ts_idx'][window_idx:window_idx + n_windows] = data_idx
+                # Fill time indices
+                all_windows['t'][window_idx:window_idx + n_windows] = np.arange(min_time, max_time + 1)
+                window_idx += n_windows
+        
+        self.total_windows = total_windows
+        
+        # Handle distributed sharding for validation too
+        if dist.is_initialized():
+            rank = dist.get_rank()
+            world_size = dist.get_world_size()
+            # Keep only this worker's windows using slicing
+            self.windows = all_windows[rank::world_size].copy()
+            logger.info(f"Worker {rank}/{world_size}: Using {len(self.windows):,} inference windows "
+                       f"(from {total_windows:,} total, {len(self.windows) * 8 / 1e6:.1f} MB)")
+        else:
+            self.windows = all_windows
+            logger.info(f"Created {len(self.windows):,} inference windows from {len(self.data)} time series "
+                       f"({len(self.windows) * 8 / 1e6:.1f} MB)")
     
     def __len__(self) -> int:
-        return len(self.windows)
+        # Return total windows for DistributedSampler compatibility
+        return self.total_windows
     
     def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:
         """Get a specific window for inference."""
