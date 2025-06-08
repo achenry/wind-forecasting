@@ -2,10 +2,10 @@
 
 #SBATCH --partition=all_gpu.p          # Partition for H100/A100 GPUs cfdg.p / all_gpu.p / mpcg.p(not allowed)
 #SBATCH --nodes=1
-#SBATCH --ntasks-per-node=2         # Match number of GPUs requested below (for DDP training)
+#SBATCH --ntasks-per-node=4         # Match number of GPUs requested below (for DDP training)
 #SBATCH --cpus-per-task=8           # CPUs per task (adjust if needed for data loading)
 #SBATCH --mem-per-cpu=8192          # Memory per CPU
-#SBATCH --gres=gpu:2           # Request 4 H100 GPUs
+#SBATCH --gres=gpu:4           # Request 4 H100 GPUs
 #SBATCH --time=1-00:00              # Time limit (adjust as needed for training)
 #SBATCH --job-name=awaken_train_tactis_210      # Updated job name
 #SBATCH --output=/dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/slurm_logs/awaken_train_tactis_210_%j.out # Updated output log path

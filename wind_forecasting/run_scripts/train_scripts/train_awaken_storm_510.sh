@@ -6,7 +6,7 @@
 #SBATCH --cpus-per-task=8           # CPUs per task (adjust if needed for data loading)
 #SBATCH --mem-per-cpu=8192          # Memory per CPU
 #SBATCH --gres=gpu:4           # Request 4 H100 GPUs
-#SBATCH --time=7-00:00              # Time limit (adjust as needed for training)
+#SBATCH --time=1-00:00              # Time limit (adjust as needed for training)
 #SBATCH --job-name=awaken_train_tactis_510      # Updated job name
 #SBATCH --output=/dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/slurm_logs/awaken_train_tactis_510_%j.out # Updated output log path
 #SBATCH --error=/dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/slurm_logs/awaken_train_tactis_510_%j.err  # Updated error log path
@@ -105,7 +105,6 @@ srun python ${WORK_DIR}/run_scripts/run_model.py \
       model.tactis.lr_stage2=4.805723253254209e-06 \
       model.tactis.weight_decay_stage1=0.0 \
       model.tactis.weight_decay_stage2=5e-06 \
-      model.tactis.stage=1 \
       model.tactis.stage2_start_epoch=20 \
       model.tactis.warmup_steps_s1=0.10 \
       model.tactis.warmup_steps_s2=0.10 \
@@ -117,8 +116,6 @@ srun python ${WORK_DIR}/run_scripts/run_model.py \
       model.tactis.eta_min_fraction_s2=0.00015866914804312245 \
       dataset.batch_size=64 \
       dataset.context_length_factor=5.0 \
-      model.tactis.context_length=85 \
-      model.tactis.prediction_length=17 \
       model.tactis.flow_series_embedding_dim=5 \
       model.tactis.copula_series_embedding_dim=256 \
       model.tactis.flow_input_encoder_layers=4 \
