@@ -12,7 +12,6 @@ import numpy as np
 import pandas as pd
 import torch
 from torch.utils.data import Dataset
-import torch.distributed as dist
 
 logger = logging.getLogger(__name__)
 
@@ -63,48 +62,18 @@ class WindForecastingDataset(Dataset):
             
         # If sampler provided, pre-compute all windows using it
         if self.sampler is not None:
-            # First pass: count total windows for efficient allocation
-            total_windows = 0
-            for sample in self.data:
-                indices = self.sampler(sample['target'])
-                total_windows += len(indices)
-            
-            # Allocate numpy array with structured dtype for efficiency
-            window_dtype = np.dtype([('ts_idx', np.int32), ('t', np.int32)])
-            all_windows = np.empty(total_windows, dtype=window_dtype)
-            
-            # Second pass: fill the array
-            window_idx = 0
+            self.windows = []
             for ts_idx, sample in enumerate(self.data):
                 target = sample['target']
+                # Get indices from sampler (like SequentialSampler which returns all valid indices)
                 indices = self.sampler(target)
-                n_indices = len(indices)
-                if n_indices > 0:
-                    # Fill ts_idx for all windows of this time series
-                    all_windows['ts_idx'][window_idx:window_idx + n_indices] = ts_idx
-                    # Fill time indices
-                    all_windows['t'][window_idx:window_idx + n_indices] = indices
-                    window_idx += n_indices
-            
-            # Store total count for __len__ method
-            self.total_windows = total_windows
-            
-            # Handle distributed sharding
-            if dist.is_initialized():
-                rank = dist.get_rank()
-                world_size = dist.get_world_size()
-                # Keep only this worker's windows using slicing
-                self.windows = all_windows[rank::world_size].copy()
-                logger.info(f"Worker {rank}/{world_size}: Using {len(self.windows):,} windows "
-                           f"(from {total_windows:,} total, {len(self.windows) * 8 / 1e6:.1f} MB)")
-            else:
-                self.windows = all_windows
-                logger.info(f"Created {len(self.windows):,} training windows from {len(self.data)} time series "
-                           f"({len(self.windows) * 8 / 1e6:.1f} MB)")
+                # Store (time_series_index, time_index) pairs
+                for t in indices:
+                    self.windows.append((ts_idx, t))
+            logger.info(f"Sampler created {len(self.windows)} training windows from {len(self.data)} time series")
         else:
             # Fallback: one random window per time series (original behavior)
             self.windows = None
-            self.total_windows = len(self.data)  # One window per time series
             logger.info(f"No sampler provided, will use random sampling (1 window per time series)")
             
     def __len__(self) -> int:

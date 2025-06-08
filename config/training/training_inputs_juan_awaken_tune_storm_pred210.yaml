@@ -243,7 +243,7 @@ callbacks:
     progress_bar:
       class_path: lightning.pytorch.callbacks.TQDMProgressBar
       init_args:
-        refresh_rate: 2048  # every n steps
+        refresh_rate: 200  # every n steps
         leave: false
     # early_stopping:
     #   class_path: lightning.pytorch.callbacks.EarlyStopping
@@ -279,3 +279,4 @@ trainer:
     strategy: ddp
     max_epochs: 100 # Maximum number of epochs to train 100
     limit_train_batches: 5000
+    log_every_n_steps: 100
