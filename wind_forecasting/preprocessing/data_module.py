@@ -310,7 +310,11 @@ class DataModule():
                     
                 self.train_dataset.collect().write_parquet(self.train_ready_data_path.replace(".parquet", "_train_tmp.parquet"))
                 self.val_dataset.collect().write_parquet(self.train_ready_data_path.replace(".parquet", "_val_tmp.parquet")) 
-                self.test_dataset.collect().write_parquet(self.train_ready_data_path.replace(".parquet", "_test_tmp.parquet"))  
+                self.test_dataset.collect().write_parquet(self.train_ready_data_path.replace(".parquet", "_test_tmp.parquet"))
+                
+                self.train_dataset = pl.scan_parquet(self.train_ready_data_path.replace(".parquet", "_train_tmp.parquet"))
+                self.val_dataset = pl.scan_parquet(self.train_ready_data_path.replace(".parquet", "_val_tmp.parquet"))
+                self.test_dataset = pl.scan_parquet(self.train_ready_data_path.replace(".parquet", "_test_tmp.parquet"))
                     
                 for split in splits:
                     ds = getattr(self, f"{split}_dataset")
@@ -382,7 +386,11 @@ class DataModule():
 
                 self.train_dataset.collect().write_parquet(self.train_ready_data_path.replace(".parquet", "_train_tmp.parquet"))
                 self.val_dataset.collect().write_parquet(self.train_ready_data_path.replace(".parquet", "_val_tmp.parquet")) 
-                self.test_dataset.collect().write_parquet(self.train_ready_data_path.replace(".parquet", "_test_tmp.parquet"))  
+                self.test_dataset.collect().write_parquet(self.train_ready_data_path.replace(".parquet", "_test_tmp.parquet"))
+                
+                self.train_dataset = pl.scan_parquet(self.train_ready_data_path.replace(".parquet", "_train_tmp.parquet"))
+                self.val_dataset = pl.scan_parquet(self.train_ready_data_path.replace(".parquet", "_val_tmp.parquet"))
+                self.test_dataset = pl.scan_parquet(self.train_ready_data_path.replace(".parquet", "_test_tmp.parquet")) 
                 
                 # train_grouper = MultivariateGrouper(
                 #     max_target_dim=self.num_target_vars,
