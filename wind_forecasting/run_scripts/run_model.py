@@ -731,6 +731,7 @@ def main():
         # Prepare all arguments in a dictionary for the Estimator
     
     if args.mode == "dataset":
+        # TODO this won't consider varying context length factors or resample frequencies
         dm_params = []
         for cnf_path, mdl in zip(args.config, args.config):
             with open(cnf_path, "r") as file:

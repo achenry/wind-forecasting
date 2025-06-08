@@ -315,10 +315,11 @@ class DataModule():
                     
                     temp_ds = {}
                     for cg in range(len(ds)):
+                        df = ds[cg].collect(_eager=True)
                         for turbine_id in self.target_suffixes:
                             if self.verbose:
                                 logging.info(f"Getting dataset for turbine_id={turbine_id}, cg={cg} of {len(ds)}.")
-                            temp_ds[f"TURBINE{turbine_id}_SPLIT{cg}"] = self.get_df_by_turbine(ds[cg], turbine_id)
+                            temp_ds[f"TURBINE{turbine_id}_SPLIT{cg}"] = self.get_df_by_turbine(df, turbine_id).lazy()
                     
                     setattr(self, f"{split}_dataset", temp_ds)
                 
@@ -514,10 +515,9 @@ class DataModule():
         # return dataset
         
     def get_df_by_turbine(self, dataset, turbine_id):
-        ds = dataset.select(pl.col("time"), *[col for col in (self.feat_dynamic_real_cols + self.target_cols) if turbine_id in col])\
+        return dataset.select(pl.col("time"), *[col for col in (self.feat_dynamic_real_cols + self.target_cols) if turbine_id in col])\
                         .rename(mapping={**{f"{tgt_col}_{turbine_id}": tgt_col for tgt_col in self.target_prefixes},
-                                        **{f"{feat_col}_{turbine_id}": feat_col for feat_col in self.feat_dynamic_real_prefixes}}).collect(_eager=True).lazy()
-        return ds
+                                        **{f"{feat_col}_{turbine_id}": feat_col for feat_col in self.feat_dynamic_real_prefixes}})
 
     def split_datasets_by_turbine(self, datasets):
          
