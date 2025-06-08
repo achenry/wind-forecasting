@@ -308,13 +308,20 @@ class DataModule():
                 self.train_dataset, self.val_dataset, self.test_dataset = \
                     self.split_dataset([dataset.filter(pl.col("continuity_group") == cg) for cg in self.continuity_groups]) 
                     
-                self.train_dataset.collect().write_parquet(self.train_ready_data_path.replace(".parquet", "_train_tmp.parquet"))
-                self.val_dataset.collect().write_parquet(self.train_ready_data_path.replace(".parquet", "_val_tmp.parquet")) 
-                self.test_dataset.collect().write_parquet(self.train_ready_data_path.replace(".parquet", "_test_tmp.parquet"))
-                
-                self.train_dataset = pl.scan_parquet(self.train_ready_data_path.replace(".parquet", "_train_tmp.parquet"))
-                self.val_dataset = pl.scan_parquet(self.train_ready_data_path.replace(".parquet", "_val_tmp.parquet"))
-                self.test_dataset = pl.scan_parquet(self.train_ready_data_path.replace(".parquet", "_test_tmp.parquet"))
+                for d, ds in enumerate(self.train_dataset):
+                    fp = self.train_ready_data_path.replace(".parquet", f"_train_{d}_tmp.parquet")
+                    self.train_dataset[d].collect().write_parquet(fp)
+                    self.train_dataset[d] = pl.scan_parquet(fp)
+                    
+                for d, ds in enumerate(self.val_dataset):
+                    fp = self.train_ready_data_path.replace(".parquet", f"_val_{d}_tmp.parquet")
+                    self.val_dataset[d].collect().write_parquet(fp)
+                    self.val_dataset[d] = pl.scan_parquet(fp)
+                    
+                for d, ds in enumerate(self.test_dataset):
+                    fp = self.train_ready_data_path.replace(".parquet", f"_test_{d}_tmp.parquet")
+                    self.test_dataset[d].collect().write_parquet(fp)
+                    self.test_dataset[d] = pl.scan_parquet(fp)
                     
                 for split in splits:
                     ds = getattr(self, f"{split}_dataset")
@@ -383,15 +390,22 @@ class DataModule():
                 # generate an iterablelazy frame for each continuity group and split within it
                 self.train_dataset, self.val_dataset, self.test_dataset = \
                     self.split_dataset([dataset.filter(pl.col("continuity_group") == cg) for cg in self.continuity_groups])
-
-                self.train_dataset.collect().write_parquet(self.train_ready_data_path.replace(".parquet", "_train_tmp.parquet"))
-                self.val_dataset.collect().write_parquet(self.train_ready_data_path.replace(".parquet", "_val_tmp.parquet")) 
-                self.test_dataset.collect().write_parquet(self.train_ready_data_path.replace(".parquet", "_test_tmp.parquet"))
                 
-                self.train_dataset = pl.scan_parquet(self.train_ready_data_path.replace(".parquet", "_train_tmp.parquet"))
-                self.val_dataset = pl.scan_parquet(self.train_ready_data_path.replace(".parquet", "_val_tmp.parquet"))
-                self.test_dataset = pl.scan_parquet(self.train_ready_data_path.replace(".parquet", "_test_tmp.parquet")) 
-                
+                for d, ds in enumerate(self.train_dataset):
+                    fp = self.train_ready_data_path.replace(".parquet", f"_train_{d}_tmp.parquet")
+                    self.train_dataset[d].collect().write_parquet(fp)
+                    self.train_dataset[d] = pl.scan_parquet(fp)
+                    
+                for d, ds in enumerate(self.val_dataset):
+                    fp = self.train_ready_data_path.replace(".parquet", f"_val_{d}_tmp.parquet")
+                    self.val_dataset[d].collect().write_parquet(fp)
+                    self.val_dataset[d] = pl.scan_parquet(fp)
+                    
+                for d, ds in enumerate(self.test_dataset):
+                    fp = self.train_ready_data_path.replace(".parquet", f"_test_{d}_tmp.parquet")
+                    self.test_dataset[d].collect().write_parquet(fp)
+                    self.test_dataset[d] = pl.scan_parquet(fp)
+                    
                 # train_grouper = MultivariateGrouper(
                 #     max_target_dim=self.num_target_vars,
                 #     split_on="continuity_group" if len(self.continuity_groups) > 1 else None
