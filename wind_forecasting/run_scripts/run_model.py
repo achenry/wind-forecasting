@@ -412,18 +412,18 @@ def main():
             else:
                 logging.info(f"Using gradient_clip_val: {original_gcv} from configuration for automatic optimization.")
 
-    # data_module.train_dataset = [ds for ds in data_module.train_dataset if ds["item_id"].endswith("SPLIT0")]
-    
-    # %% DEFINE ESTIMATOR
-    # Initialize storage and connection info variables
-    optuna_storage = None
-    db_connection_info = None # Will hold pg_config if PostgreSQL is used
-    db_setup_params = None # Initialize
-    
-        # Use globals() to fetch the module and estimator classes dynamically
-    LightningModuleClass = globals()[f"{args.model.capitalize()}LightningModule"]
-    EstimatorClass = globals()[f"{args.model.capitalize()}Estimator"]
-    DistrOutputClass = globals()[config["model"]["distr_output"]["class"]]
+        # data_module.train_dataset = [ds for ds in data_module.train_dataset if ds["item_id"].endswith("SPLIT0")]
+        
+        # %% DEFINE ESTIMATOR
+        # Initialize storage and connection info variables
+        optuna_storage = None
+        db_connection_info = None # Will hold pg_config if PostgreSQL is used
+        db_setup_params = None # Initialize
+        
+            # Use globals() to fetch the module and estimator classes dynamically
+        LightningModuleClass = globals()[f"{args.model.capitalize()}LightningModule"]
+        EstimatorClass = globals()[f"{args.model.capitalize()}Estimator"]
+        DistrOutputClass = globals()[config["model"]["distr_output"]["class"]]
 
     if args.mode == "tune" or (args.mode == "train" and args.use_tuned_parameters) or (args.mode == "test" and args.use_tuned_parameters):
         # %% SETUP OPTUNA STORAGE (PostgreSQL for tuning, SQLite for loading tuned params)
