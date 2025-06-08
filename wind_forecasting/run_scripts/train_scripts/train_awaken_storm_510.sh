@@ -134,7 +134,7 @@ srun python ${WORK_DIR}/run_scripts/run_model.py \
       model.tactis.decoder_transformer_embedding_dim_per_head=32 \
       model.tactis.decoder_transformer_num_heads=4 \
       model.tactis.decoder_num_bins=200 \
-      model.tactis.bagging_size=None \
+      model.tactis.bagging_size=null \
       model.tactis.input_encoding_normalization=True \
       model.tactis.loss_normalization=both \
       model.tactis.encoder_type=standard \
