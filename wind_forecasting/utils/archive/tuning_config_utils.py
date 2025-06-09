@@ -116,6 +116,17 @@ def generate_db_setup_params(model: str, model_config: Dict) -> Dict:
             "db_port": storage_cfg.get("db_port", 5432),
             "db_user": storage_cfg.get("db_user", "optuna_user"),
         })
+        
+    elif backend == "mysql":
+        # PostgreSQL specific configuration
+        optuna_db_name = storage_cfg.get("database_name", "optuna_study_db")
+        socket_dir_instance = os.path.join(resolved_socket_dir_base, pgdata_instance_name)
+        
+        db_setup_params.update({
+            "db_host": storage_cfg.get("db_host", "localhost"),
+            "db_port": storage_cfg.get("db_port", 3306),
+            "db_user": storage_cfg.get("db_user", "optuna_user"),
+        })
 
     return db_setup_params
 

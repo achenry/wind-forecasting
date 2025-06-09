@@ -1,15 +1,18 @@
 #!/bin/bash 
 #SBATCH --account=ssc
-#SBATCH --time=48:00:00
 #SBATCH --output=%j-%x.out
 ##SBATCH --partition=debug
 ##SBATCH --time=01:00:00
+##SBATCH --nodes=1 # this needs to match Trainer(num_nodes...)
+##SBATCH --gres=gpu:2
+##SBATCH --ntasks-per-node=2 # this needs to match Trainer(devices=...), and number of GPUs
+##SBATCH --mem-per-cpu=40G
+#SBATCH --time=48:00:00
 #SBATCH --nodes=2 # this needs to match Trainer(num_nodes...)
 #SBATCH --gres=gpu:4
 #SBATCH --ntasks-per-node=4 # this needs to match Trainer(devices=...), and number of GPUs
 #SBATCH --mem-per-cpu=85G
-##SBATCH --mem=0 # refers to CPU (not GPU) memory, automatically given all GPU memory in a SLURM job, 85G
-##SBATCH --ntasks=1
+
 
 # salloc --account=ssc --time=01:00:00 --gpus=2 --ntasks-per-node=2 --partition=debug
 
@@ -40,28 +43,20 @@ echo "SLURM_JOB_GRES=${SLURM_JOB_GRES}"
 srun python ../run_model.py --config $MODEL_CONFIG_FILE --mode train --model $MODEL \
   --seed 666 \
   --override dataset.sampler=sequential \
-      #trainer.max_epochs=20 \
       trainer.max_epochs=40 \
       trainer.limit_train_batches=null \
       trainer.val_check_interval=1.0 \
       dataset.batch_size=64 \
       dataset.context_length_factor=5 \
-      #model.tactis.lr_stage1=1.478e-05 \
       model.tactis.lr_stage1=2.0692e-05 \
-      #model.tactis.lr_stage2=1.695e-05 \
       model.tactis.lr_stage2=2.373e-05 \
       model.tactis.weight_decay_stage1=0.0 \
       model.tactis.weight_decay_stage2=5e-06 \
-      #model.tactis.stage2_start_epoch=10 \
       model.tactis.stage2_start_epoch=20 \
-      #model.tactis.warmup_steps_s1=392690 \
-      model.tactis.warmup_steps_s1=785380 \
-      #model.tactis.warmup_steps_s2=392690 \
-      model.tactis.warmup_steps_s2=785380 \
-      #model.tactis.steps_to_decay_s1=1178070 \
-      model.tactis.steps_to_decay_s1=2356140 \
-      #model.tactis.steps_to_decay_s2=1178070 \
-      model.tactis.steps_to_decay_s2=2356140 \
+      model.tactis.warmup_steps_s1=392690 \
+      model.tactis.warmup_steps_s2=392690 \
+      model.tactis.steps_to_decay_s1=2748830 \
+      model.tactis.steps_to_decay_s2=2748830 \
       model.tactis.eta_min_fraction_s1=0.0016799548032196548 \
       model.tactis.eta_min_fraction_s2=0.00013329608232447702 \
       model.tactis.flow_series_embedding_dim=64 \
@@ -89,4 +84,6 @@ srun python ../run_model.py --config $MODEL_CONFIG_FILE --mode train --model $MO
       model.tactis.stage1_activation_function=relu \
       model.tactis.stage2_activation_function=relu \
       model.tactis.gradient_clip_val_stage1=1.0 \
-      model.tactis.gradient_clip_val_stage2=1.0
+      model.tactis.gradient_clip_val_stage2=1.0 \
+      model.tactis.scaling=std \
+      model.tactis.loss_normalization=both

@@ -28,6 +28,7 @@ def get_tuned_params(storage, study_name: str) -> Dict[str, Any]:
     logging.info(f"Getting storage for Optuna prefix study name {study_name}.")
     
     available_studies = [study.study_name for study in storage.get_all_studies()]
+    logging.info(f"Found studies {available_studies}. Looking for those containing {study_name}.")
     if study_name in available_studies:
         full_study_name = study_name
     else:

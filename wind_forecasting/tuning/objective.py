@@ -249,7 +249,7 @@ class MLTuningObjective:
 
             cleaned_params["optuna_trial_number"] = trial.number
 
-            project_name = f"{self.config['experiment'].get('project_name', 'wind_forecasting')}_{self.model}"
+            project_name = f"tune_{self.config['experiment'].get('project_name', 'wind_forecasting')}_{self.model}"
             group_name = self.config['experiment']['run_name']
             # Construct unique run name and tags
             run_name = f"{self.config['experiment']['run_name']}_rank_{os.environ.get('WORKER_RANK', '0')}_trial_{trial.number}"
@@ -320,8 +320,6 @@ class MLTuningObjective:
             "use_lazyframe": False,
             "batch_size": current_batch_size,  # Use the current batch size from params, not config
             "num_batches_per_epoch": trial_trainer_kwargs["limit_train_batches"], # Use value from trial_trainer_kwargs
-            "base_batch_size_for_scheduler_steps": self.config["dataset"].get("base_batch_size", 512), # Use base_batch_size from config
-            "base_limit_train_batches": self.base_limit_train_batches, # Pass base_limit_train_batches for conditional scaling
             "train_sampler": SequentialSampler(min_past=context_length, min_future=self.data_module.prediction_length)
                 if self.config["optuna"].get("sampler", "random") == "sequential"
                 else ExpectedNumInstanceSampler(num_instances=1.0, min_past=context_length, min_future=self.data_module.prediction_length),
@@ -332,6 +330,11 @@ class MLTuningObjective:
             "trainer_kwargs": trial_trainer_kwargs, # Pass the trial-specific kwargs
             "num_parallel_samples": self.config["model"][self.model].get("num_parallel_samples", 100) if self.model == 'tactis' else 100, # Default 100 if not specified
         }
+        
+        # TODO add these back to estimator_kwargs for learning rate cosine annealing with other models
+        if self.model == "tactis":
+            estimator_kwargs["base_batch_size_for_scheduler_steps"] = self.config["dataset"].get("base_batch_size", 512), # Use base_batch_size from config
+            estimator_kwargs["base_limit_train_batches"] = self.base_limit_train_batches, # Pass base_limit_train_batches for conditional scaling
         
         # Debug logging for epoch calculation issue
         logging.info(f"Trial {trial.number}: Critical DataLoader parameters:")
@@ -358,7 +361,13 @@ class MLTuningObjective:
         # Add model-specific arguments from the default config YAML
         # CRITICAL: Preserve the dynamically calculated num_batches_per_epoch
         dynamic_num_batches = estimator_kwargs["num_batches_per_epoch"]
-        estimator_kwargs.update(self.config["model"][self.model])
+        
+        # Extract estimator parameters from the class signature
+        estimator_sig = inspect.signature(self.estimator_class.__init__)
+        estimator_params = [param.name for param in estimator_sig.parameters.values()]
+        valid_estimator_params = set(estimator_params)
+        
+        estimator_kwargs.update({k: v for k, v in self.config["model"][self.model].items() if k in valid_estimator_params})
         estimator_kwargs["num_batches_per_epoch"] = dynamic_num_batches  # Restore dynamic value
         
         if "num_batches_per_epoch" not in self.config["model"][self.model]:
@@ -368,13 +377,10 @@ class MLTuningObjective:
             logging.warning(f"Trial {trial.number}: Overriding config num_batches_per_epoch={self.config['model'][self.model].get('num_batches_per_epoch')} with dynamic value={dynamic_num_batches}")
 
         # Add model-specific tunable hyperparameters suggested by Optuna trial
-        # Extract estimator parameters from the class signature
-        estimator_sig = inspect.signature(self.estimator_class.__init__)
-        estimator_params = [param.name for param in estimator_sig.parameters.values()]
-        valid_estimator_params = set(estimator_params)
+
         filtered_params = {
             k: v for k, v in params.items()
-            if k in valid_estimator_params and k != 'context_length_factor'
+            if k in valid_estimator_params
         }
         logging.info(f"Trial {trial.number}: Updating estimator_kwargs with filtered params: {list(filtered_params.keys())}")
         estimator_kwargs.update(filtered_params)

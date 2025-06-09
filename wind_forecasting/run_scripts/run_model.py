@@ -69,12 +69,12 @@ def main():
 
     # %% PARSE ARGUMENTS
     parser = argparse.ArgumentParser(description="Run a model on a dataset")
-    parser.add_argument("--config", type=str, help="Path to config file", default="examples/inputs/training_inputs_aoifemac_flasc.yaml")
-    parser.add_argument("-md", "--mode", choices=["tune", "train", "test"], required=True,
+    parser.add_argument("--config", type=str, nargs="+", help="Path to config file", default="examples/inputs/training_inputs_aoifemac_flasc.yaml")
+    parser.add_argument("-m", "--model", type=str, nargs="+", choices=["informer", "autoformer", "spacetimeformer", "tactis"], required=True)
+    parser.add_argument("-md", "--mode", choices=["tune", "train", "test", "dataset"], required=True,
                         help="Mode to run: 'tune' for hyperparameter optimization with Optuna, 'train' to train a model, 'test' to evaluate a model")
     parser.add_argument("-chk", "--checkpoint", type=str, required=False, default=None,
                         help="Which checkpoint to use: can be equal to 'None' to start afresh with training mode, 'latest', 'best', or an existing checkpoint path.")
-    parser.add_argument("-m", "--model", type=str, choices=["informer", "autoformer", "spacetimeformer", "tactis"], required=True)
     parser.add_argument("-rt", "--restart_tuning", action="store_true")
     parser.add_argument("-utp", "--use_tuned_parameters", action="store_true", help="Use parameters tuned from Optuna optimization, otherwise use defaults set in Module class.")
     parser.add_argument("-tp", "--tuning_phase", type=int, default=1, help="Index of tuning phase to use, gets passed to get_params estimator class methods. For tuning with multiple phases.")
@@ -88,7 +88,6 @@ def main():
     parser.add_argument("-rl", "--reload_data", action="store_true", help="Whether to reload train/test/val datasets from preprocessed parquets or not.")
     parser.add_argument("-ehc", "--extract_hparams_from_checkpoint", type=str, default=None,
                         help="Extract hyperparameters from checkpoint without loading training state. Can be 'latest', 'best', or a checkpoint path. Starts fresh training with extracted parameters.")
-
 
     args = parser.parse_args()
     
@@ -109,15 +108,18 @@ def main():
 
     # %% PARSE CONFIG
     logging.info(f"Parsing configuration from yaml and command line arguments")
-    with open(args.config, "r") as file:
+
+    
+    with open(args.config[0], "r") as file:
         config = yaml.safe_load(file)
-
-    # Store the original YAML config to access original values later if needed for overrides
-    original_yaml_config = yaml.safe_load(open(args.config, "r")) # Keep this if needed for the --use_tuned_params logic below
-    # if (type(config["dataset"]["target_turbine_ids"]) is str) and (
-    #     (config["dataset"]["target_turbine_ids"].lower() == "none") or (config["dataset"]["target_turbine_ids"].lower() == "all")):
-    #     config["dataset"]["target_turbine_ids"] = None # select all turbines
-
+        
+    if args.mode != "dataset":
+        assert len(args.model) == len(args.config) == 1, "Other then with mode 'dataset' for generating datasets, only one model and config should be provided."
+        args.model = args.model[0]
+        
+        # Store the original YAML config to access original values later if needed for overrides
+        original_yaml_config = yaml.safe_load(open(args.config[0], "r")) # Keep this if needed for the --use_tuned_params logic below
+    
     assert args.checkpoint is None or args.checkpoint in ["best", "latest"] or os.path.exists(args.checkpoint), "Checkpoint argument, if provided, must equal 'best', 'latest', or an existing checkpoint path."
     assert (args.mode == "test" and args.checkpoint is not None) or args.mode != "test", "Must provide a checkpoint path, 'latest', or 'best' for checkpoint argument when mode argument=test."
     # %% Modify configuration for single GPU mode vs. multi-GPU mode
@@ -222,146 +224,7 @@ def main():
         if "trainer" not in config: config["trainer"] = {}
         config["trainer"]["strategy"] = strategy_object
         
-    # %% SETUP LOGGING
-    logging.info("Setting up logging")
-
-    if "logging" not in config:
-        config["logging"] = {}
-
-    # Set up logging directory - use absolute path, rename logging dirs to group checkpoints and logs by data source and model
-    log_dir = config["experiment"]["log_dir"]
-    # Set up wandb, optuna, checkpoint directories - use absolute paths
-
-    wandb_dir = config["logging"]["wandb_dir"] = config["logging"].get("wandb_dir", log_dir)
-    optuna_dir = config["logging"]["optuna_dir"] = config["logging"].get("optuna_dir", os.path.join(log_dir, "optuna"))
-    # TODO: do we need this, checkpoints are saved by Model Checkpoint callback in loggers save_dir (wandb_dir)
-    # config["trainer"]["default_root_dir"] = checkpoint_dir = config["logging"]["checkpoint_dir"] = config["logging"].get("checkpoint_dir", os.path.join(log_dir, "checkpoints"))
-
-    os.makedirs(wandb_dir, exist_ok=True)
-    os.makedirs(optuna_dir, exist_ok=True)
-    # os.makedirs(checkpoint_dir, exist_ok=True)
-
-    logging.info(f"WandB will create logs in {wandb_dir}")
-    logging.info(f"Optuna will create logs in {optuna_dir}")
-    # logging.info(f"Checkpoints will be saved in {checkpoint_dir}")
-
-    # Get worker info from environment variables
-    worker_id = os.environ.get('SLURM_PROCID', '0')
-    gpu_id = os.environ.get('CUDA_VISIBLE_DEVICES', '0')
-
-    # Create a unique run name for each worker
-    project_name = f"{config['experiment'].get('project_name', 'wind_forecasting')}_{args.model}"
-    run_name = f"{config['experiment']['username']}_{args.model}_{args.mode}_{gpu_id}"
-
-    # Set an explicit run directory to avoid nesting issues
-    unique_id = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{worker_id}_{gpu_id}"
-    run_dir = os.path.join(wandb_dir, "wandb", f"run_{unique_id}")
-
-    # Configure WandB to use the correct checkpoint location
-    # This ensures artifacts are saved in the correct checkpoint directory
-    os.environ["WANDB_RUN_DIR"] = run_dir
-    # os.environ["WANDB_ARTIFACT_DIR"] = os.environ["WANDB_CHECKPOINT_PATH"] = checkpoint_dir
-    os.environ["WANDB_DIR"] = wandb_dir
-
-    # Fetch GitHub repo URL and current commit and set WandB environment variables
-    project_root = config['experiment'].get('project_root', os.getcwd())
-    git_info = {}
-    try:
-        remote_url_bytes = subprocess.check_output(['git', 'config', '--get', 'remote.origin.url'], cwd=project_root, stderr=subprocess.STDOUT).strip()
-        remote_url = remote_url_bytes.decode('utf-8')
-        # Convert SSH URL to HTTPS if necessary
-        if remote_url.startswith("git@"):
-            remote_url = remote_url.replace(":", "/").replace("git@", "https://")
-        if remote_url.endswith(".git"):
-            remote_url = remote_url[:-4]
-
-        commit_hash_bytes = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=project_root, stderr=subprocess.STDOUT).strip()
-        commit_hash = commit_hash_bytes.decode('utf-8')
-
-        git_info = {"url": remote_url, "commit": commit_hash}
-        logging.info(f"Fetched Git Info - URL: {remote_url}, Commit: {commit_hash}")
-
-    except subprocess.CalledProcessError as e:
-        logging.warning(f"Could not get Git info: {e.output.decode('utf-8').strip()}. Git info might not be logged in WandB.")
-    except FileNotFoundError:
-        logging.warning("'git' command not found. Cannot log Git info.")
-    except Exception as e:
-        logging.warning(f"An unexpected error occurred while fetching Git info: {e}. Git info might not be logged in WandB.", exc_info=True)
-
-    # Prepare logger config with only relevant model and dynamic info
-    model_config = config['model'].get(args.model, {})
-    dynamic_info = {
-        'seed': args.seed,
-        'rank': rank,
-        'gpu_id': gpu_id,
-        'devices': config['trainer'].get('devices'),
-        'strategy': config['trainer'].get('strategy'),
-        'torch_version': torch.__version__,
-        'python_version': platform.python_version(),
-    }
-    logger_config = {
-        'experiment': config.get('experiment', {}),
-        'dataset': config.get('dataset', {}),
-        'trainer': config.get('trainer', {}),
-        'model': model_config,
-        **dynamic_info,
-        "git_info": git_info
-    }
-    checkpoint_dir = os.path.join(log_dir, project_name, unique_id)
-    # Create WandB logger only for train/test modes
-    if args.mode in ["train", "test"]:
-        wandb_logger = WandbLogger(
-            project=project_name, # Project name in WandB, set in config
-            entity=config['logging'].get('entity'),
-            group=config['experiment']['run_name'],   # Group all workers under the same experiment
-            name=run_name, # Unique name for the run, can also take config for hyperparameters. Keep brief
-            save_dir=wandb_dir, # Directory for saving logs and metadata
-            log_model=False,
-            job_type=args.mode,
-            mode=config['logging'].get('wandb_mode', 'online'), # Configurable wandb mode
-            id=unique_id,
-            tags=[f"gpu_{gpu_id}", args.model, args.mode] + config['experiment'].get('extra_tags', []),
-            config=logger_config,
-            save_code=config['logging'].get('save_code', False)
-        )
-        config["trainer"]["logger"] = wandb_logger
-    else:
-        # For tuning mode, set logger to None
-        config["trainer"]["logger"] = None
-
-    # Explicitly resolve any variable references in trainer config
-
-    # Ensure default_root_dir exists and is set correctly
-    config["trainer"]["default_root_dir"] = checkpoint_dir
-
-    # Add global gradient clipping for automatic optimization
-    config.setdefault("trainer", {})
     
-    # Check if model has stage-specific gradient clipping (like TACTiS)
-    has_stage_specific_clipping = (
-        args.model == "tactis" and 
-        "tactis" in config.get("model", {}) and
-        any(k.startswith("gradient_clip_val_stage") for k in config["model"]["tactis"])
-    )
-    
-    if has_stage_specific_clipping:
-        # For models with stage-specific clipping, ensure no global gradient_clip_val interferes
-        if "gradient_clip_val" in config["trainer"]:
-            logging.info(f"Model {args.model} uses stage-specific gradient clipping. Removing trainer.gradient_clip_val={config['trainer']['gradient_clip_val']}")
-            del config["trainer"]["gradient_clip_val"]
-        else:
-            logging.info(f"Model {args.model} will use stage-specific gradient clipping")
-    else:
-        # For other models, use global gradient clipping
-        original_gcv = config["trainer"].get("gradient_clip_val")
-        effective_gcv = config["trainer"].setdefault("gradient_clip_val", 1.0)
-        
-        if original_gcv is None:
-            logging.info(f"Gradient_clip_val not specified in config, defaulting to {effective_gcv} for automatic optimization.")
-        else:
-            logging.info(f"Using gradient_clip_val: {original_gcv} from configuration for automatic optimization.")
-
-    # %% CREATE DATASET
     # Dynamically set DataLoader workers based on SLURM_CPUS_PER_TASK
     cpus_per_task_str = os.environ.get('SLURM_CPUS_PER_TASK', '1') # Default to 1 CPU if var not set
     try:
@@ -375,49 +238,203 @@ def main():
 
     num_workers = max(0, cpus_per_task - 1)
 
-    # Set DataLoader parameters within the trainer config
+    # Set DataLoader parameters within the trainer config TODO JUAN why is num_workers=1
     logging.info(f"Determined SLURM_CPUS_PER_TASK={cpus_per_task}. Setting num_workers = {num_workers}.")
-
-    logging.info("Creating datasets")
-    use_normalization = False if args.model == "tactis" else config["dataset"].get("normalize", True)
-    logging.info(f"Instantiating DataModule with normalized={use_normalization} (Forced False for TACTiS-2 which requires denormalized input)")
-    data_module = DataModule(
-        data_path=config["dataset"]["data_path"],
-        n_splits=config["dataset"]["n_splits"],
-        continuity_groups=None,
-        train_split=(1.0 - config["dataset"]["val_split"] - config["dataset"]["test_split"]),
-        val_split=config["dataset"]["val_split"],
-        test_split=config["dataset"]["test_split"],
-        prediction_length=config["dataset"]["prediction_length"],
-        context_length=config["dataset"]["context_length"],
-        target_prefixes=["ws_horz", "ws_vert"],
-        feat_dynamic_real_prefixes=["nd_cos", "nd_sin"],
-        freq=config["dataset"]["resample_freq"],
-        target_suffixes=config["dataset"]["target_turbine_ids"],
-        per_turbine_target=config["dataset"]["per_turbine_target"],
-        as_lazyframe=False,
-        dtype=pl.Float32,
-        normalized=use_normalization,  # TACTiS-2 requires denormalized input for internal scaling
-        normalization_consts_path=config["dataset"]["normalization_consts_path"], # Needed for denormalization
-        batch_size=config["dataset"].get("batch_size", 128),
-        workers=num_workers,
-        pin_memory=True,
-        persistent_workers=True,
-        verbose=True
-    )
     
-    # Use globals() to fetch the module and estimator classes dynamically
-    LightningModuleClass = globals()[f"{args.model.capitalize()}LightningModule"]
-    EstimatorClass = globals()[f"{args.model.capitalize()}Estimator"]
-    DistrOutputClass = globals()[config["model"]["distr_output"]["class"]]
-
-    # data_module.train_dataset = [ds for ds in data_module.train_dataset if ds["item_id"].endswith("SPLIT0")]
+    if args.mode != "dataset":
+        # %% CREATE DATASET
+        logging.info("Creating datasets")
+        use_normalization = False if args.model == "tactis" else config["dataset"].get("normalize", True)
+        logging.info(f"Instantiating DataModule with normalized={use_normalization} (Forced False for TACTiS-2 which requires denormalized input)")
+        data_module = DataModule(
+            data_path=config["dataset"]["data_path"],
+            n_splits=config["dataset"]["n_splits"],
+            continuity_groups=None,
+            train_split=(1.0 - config["dataset"]["val_split"] - config["dataset"]["test_split"]),
+            val_split=config["dataset"]["val_split"],
+            test_split=config["dataset"]["test_split"],
+            prediction_length=config["dataset"]["prediction_length"],
+            context_length=config["dataset"]["context_length"],
+            target_prefixes=["ws_horz", "ws_vert"],
+            feat_dynamic_real_prefixes=["nd_cos", "nd_sin"],
+            freq=config["dataset"]["resample_freq"],
+            target_suffixes=config["dataset"]["target_turbine_ids"],
+            per_turbine_target=config["dataset"]["per_turbine_target"],
+            as_lazyframe=False,
+            dtype=pl.Float32,
+            normalized=use_normalization,  # TACTiS-2 requires denormalized input for internal scaling
+            normalization_consts_path=config["dataset"]["normalization_consts_path"], # Needed for denormalization
+            batch_size=config["dataset"].get("batch_size", 128),
+            workers=num_workers,
+            pin_memory=True,
+            persistent_workers=True,
+            verbose=True
+        )
     
-    # %% DEFINE ESTIMATOR
-    # Initialize storage and connection info variables
-    optuna_storage = None
-    db_connection_info = None # Will hold pg_config if PostgreSQL is used
-    db_setup_params = None # Initialize
+        # %% SETUP LOGGING
+        logging.info("Setting up logging")
+
+        if "logging" not in config:
+            config["logging"] = {}
+
+        # Set up logging directory - use absolute path, rename logging dirs to group checkpoints and logs by data source and model
+        log_dir = config["experiment"]["log_dir"]
+        # Set up wandb, optuna, checkpoint directories - use absolute paths
+
+        wandb_dir = config["logging"]["wandb_dir"] = config["logging"].get("wandb_dir", log_dir)
+        optuna_dir = config["logging"]["optuna_dir"] = config["logging"].get("optuna_dir", os.path.join(log_dir, "optuna"))
+        # TODO: do we need this, checkpoints are saved by Model Checkpoint callback in loggers save_dir (wandb_dir)
+        # config["trainer"]["default_root_dir"] = checkpoint_dir = config["logging"]["checkpoint_dir"] = config["logging"].get("checkpoint_dir", os.path.join(log_dir, "checkpoints"))
+
+        os.makedirs(wandb_dir, exist_ok=True)
+        os.makedirs(optuna_dir, exist_ok=True)
+        # os.makedirs(checkpoint_dir, exist_ok=True)
+
+        logging.info(f"WandB will create logs in {wandb_dir}")
+        logging.info(f"Optuna will create logs in {optuna_dir}")
+        # logging.info(f"Checkpoints will be saved in {checkpoint_dir}")
+        
+        # TODO resolve all keys that end in _dir or _path with recursion
+        # for k0 in config:
+        #     if k0
+        
+        if config["optuna"]["visualization"]["enabled"] and "output_dir" in config["optuna"]["visualization"]:
+            if cap := re.search(r"(?<=\${).*(?=})", config["optuna"]["visualization"]["output_dir"]):
+                cap = cap.group(0)
+                key_list = cap.split(".")
+                v = config[key_list[0]]
+                for k in key_list[1:]:
+                    v = v[k]
+                config["optuna"]["visualization"]["output_dir"] = re.sub(r"\${.*}", v, config["optuna"]["visualization"]["output_dir"])
+
+        # Get worker info from environment variables
+        worker_id = os.environ.get('SLURM_PROCID', '0')
+        gpu_id = os.environ.get('CUDA_VISIBLE_DEVICES', '0')
+
+        # Create a unique run name for each worker
+        project_name = f"{config['experiment'].get('project_name', 'wind_forecasting')}_{args.model}"
+        run_name = f"{config['experiment']['username']}_{args.model}_{args.mode}_{gpu_id}"
+
+        # Set an explicit run directory to avoid nesting issues
+        unique_id = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{worker_id}_{gpu_id}"
+        run_dir = os.path.join(wandb_dir, "wandb", f"run_{unique_id}")
+
+        # Configure WandB to use the correct checkpoint location
+        # This ensures artifacts are saved in the correct checkpoint directory
+        os.environ["WANDB_RUN_DIR"] = run_dir
+        # os.environ["WANDB_ARTIFACT_DIR"] = os.environ["WANDB_CHECKPOINT_PATH"] = checkpoint_dir
+        os.environ["WANDB_DIR"] = wandb_dir
+
+        # Fetch GitHub repo URL and current commit and set WandB environment variables
+        project_root = config['experiment'].get('project_root', os.getcwd())
+        git_info = {}
+        try:
+            remote_url_bytes = subprocess.check_output(['git', 'config', '--get', 'remote.origin.url'], cwd=project_root, stderr=subprocess.STDOUT).strip()
+            remote_url = remote_url_bytes.decode('utf-8')
+            # Convert SSH URL to HTTPS if necessary
+            if remote_url.startswith("git@"):
+                remote_url = remote_url.replace(":", "/").replace("git@", "https://")
+            if remote_url.endswith(".git"):
+                remote_url = remote_url[:-4]
+
+            commit_hash_bytes = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=project_root, stderr=subprocess.STDOUT).strip()
+            commit_hash = commit_hash_bytes.decode('utf-8')
+
+            git_info = {"url": remote_url, "commit": commit_hash}
+            logging.info(f"Fetched Git Info - URL: {remote_url}, Commit: {commit_hash}")
+
+        except subprocess.CalledProcessError as e:
+            logging.warning(f"Could not get Git info: {e.output.decode('utf-8').strip()}. Git info might not be logged in WandB.")
+        except FileNotFoundError:
+            logging.warning("'git' command not found. Cannot log Git info.")
+        except Exception as e:
+            logging.warning(f"An unexpected error occurred while fetching Git info: {e}. Git info might not be logged in WandB.", exc_info=True)
+
+        # Prepare logger config with only relevant model and dynamic info
+        model_config = config['model'].get(args.model, {})
+        dynamic_info = {
+            'seed': args.seed,
+            'rank': rank,
+            'gpu_id': gpu_id,
+            'devices': config['trainer'].get('devices'),
+            'strategy': config['trainer'].get('strategy'),
+            'torch_version': torch.__version__,
+            'python_version': platform.python_version(),
+        }
+        logger_config = {
+            'experiment': config.get('experiment', {}),
+            'dataset': config.get('dataset', {}),
+            'trainer': config.get('trainer', {}),
+            'model': model_config,
+            **dynamic_info,
+            "git_info": git_info
+        }
+        checkpoint_dir = os.path.join(log_dir, project_name, unique_id)
+        # Create WandB logger only for train/test modes
+        if args.mode in ["train", "test"]:
+            wandb_logger = WandbLogger(
+                project=f"train_{project_name}", # Project name in WandB, set in config
+                entity=config['logging'].get('entity'),
+                group=config['experiment']['run_name'],   # Group all workers under the same experiment
+                name=run_name, # Unique name for the run, can also take config for hyperparameters. Keep brief
+                save_dir=wandb_dir, # Directory for saving logs and metadata
+                log_model=False,
+                job_type=args.mode,
+                mode=config['logging'].get('wandb_mode', 'online'), # Configurable wandb mode
+                id=unique_id,
+                tags=[f"gpu_{gpu_id}", args.model, args.mode] + config['experiment'].get('extra_tags', []),
+                config=logger_config,
+                save_code=config['logging'].get('save_code', False)
+            )
+            config["trainer"]["logger"] = wandb_logger
+        else:
+            # For tuning mode, set logger to None
+            config["trainer"]["logger"] = None
+
+        # Explicitly resolve any variable references in trainer config
+
+        # Ensure default_root_dir exists and is set correctly
+        config["trainer"]["default_root_dir"] = checkpoint_dir
+
+        # Add global gradient clipping for automatic optimization
+        config.setdefault("trainer", {})
+        
+        # Check if model has stage-specific gradient clipping (like TACTiS)
+        has_stage_specific_clipping = (
+            args.model == "tactis" and 
+            "tactis" in config.get("model", {}) and
+            any(k.startswith("gradient_clip_val_stage") for k in config["model"]["tactis"])
+        )
+        
+        if has_stage_specific_clipping:
+            # For models with stage-specific clipping, ensure no global gradient_clip_val interferes
+            if "gradient_clip_val" in config["trainer"]:
+                logging.info(f"Model {args.model} uses stage-specific gradient clipping. Removing trainer.gradient_clip_val={config['trainer']['gradient_clip_val']}")
+                del config["trainer"]["gradient_clip_val"]
+            else:
+                logging.info(f"Model {args.model} will use stage-specific gradient clipping")
+        else:
+            # For other models, use global gradient clipping
+            original_gcv = config["trainer"].get("gradient_clip_val")
+            effective_gcv = config["trainer"].setdefault("gradient_clip_val", 1.0)
+            
+            if original_gcv is None:
+                logging.info(f"Gradient_clip_val not specified in config, defaulting to {effective_gcv} for automatic optimization.")
+            else:
+                logging.info(f"Using gradient_clip_val: {original_gcv} from configuration for automatic optimization.")
+
+        # data_module.train_dataset = [ds for ds in data_module.train_dataset if ds["item_id"].endswith("SPLIT0")]
+        
+        # %% DEFINE ESTIMATOR
+        # Initialize storage and connection info variables
+        optuna_storage = None
+        db_connection_info = None # Will hold pg_config if PostgreSQL is used
+        db_setup_params = None # Initialize
+        
+            # Use globals() to fetch the module and estimator classes dynamically
+        LightningModuleClass = globals()[f"{args.model.capitalize()}LightningModule"]
+        EstimatorClass = globals()[f"{args.model.capitalize()}Estimator"]
+        DistrOutputClass = globals()[config["model"]["distr_output"]["class"]]
 
     if args.mode == "tune" or (args.mode == "train" and args.use_tuned_parameters) or (args.mode == "test" and args.use_tuned_parameters):
         # %% SETUP OPTUNA STORAGE (PostgreSQL for tuning, SQLite for loading tuned params)
@@ -741,22 +758,89 @@ def main():
 
         # Prepare all arguments in a dictionary for the Estimator
     
-    # wait until data_module attributes have been updated to generate splits
-    data_module.set_train_ready_path()
-    if rank_zero_only.rank == 0:
-        logging.info("Preparing data for tuning")
-        if args.reload_data or not os.path.exists(data_module.train_ready_data_path):
-            data_module.generate_datasets()
-            reload = True
+    if args.mode == "dataset":
+        # TODO this won't consider varying context length factors or resample frequencies
+        dm_params = []
+        for cnf_path, mdl in zip(args.config, args.config):
+            with open(cnf_path, "r") as file:
+                cnf = yaml.safe_load(file)
+            dm_normalized = False if mdl == "tactis" else cnf["dataset"].get("normalize", True)
+            dm_param_set = (cnf["dataset"]["data_path"], 
+                            cnf["dataset"]["n_splits"], 
+                              cnf["dataset"]["val_split"],
+                              cnf["dataset"]["test_split"],
+                              cnf["dataset"]["prediction_length"], 
+                              cnf["dataset"]["context_length"],
+                              cnf["dataset"]["resample_freq"], 
+                              cnf["dataset"]["target_turbine_ids"],
+                              cnf["dataset"]["per_turbine_target"], 
+                              dm_normalized,
+                              cnf["dataset"]["normalization_consts_path"])
+            
+            if dm_param_set in dm_params:
+                continue
+            
+            dm_params.append(dm_param_set)
+            
+            dm = DataModule(
+                data_path=cnf["dataset"]["data_path"],
+                n_splits=cnf["dataset"]["n_splits"],
+                continuity_groups=None,
+                train_split=(1.0 - cnf["dataset"]["val_split"] - cnf["dataset"]["test_split"]),
+                val_split=cnf["dataset"]["val_split"],
+                test_split=cnf["dataset"]["test_split"],
+                prediction_length=cnf["dataset"]["prediction_length"],
+                context_length=cnf["dataset"]["context_length"],
+                target_prefixes=["ws_horz", "ws_vert"],
+                feat_dynamic_real_prefixes=["nd_cos", "nd_sin"],
+                freq=cnf["dataset"]["resample_freq"],
+                target_suffixes=cnf["dataset"]["target_turbine_ids"],
+                per_turbine_target=cnf["dataset"]["per_turbine_target"],
+                as_lazyframe=False,
+                dtype=pl.Float32,
+                normalized=dm_normalized,  # TACTiS-2 requires denormalized input for internal scaling
+                normalization_consts_path=cnf["dataset"]["normalization_consts_path"], # Needed for denormalization
+                batch_size=cnf["dataset"].get("batch_size", 128),
+                workers=num_workers,
+                pin_memory=True,
+                persistent_workers=True,
+                verbose=True
+            )
+            
+            # wait until data_module attributes have been updated to generate splits
+            dm.set_train_ready_path()
+            if rank_zero_only.rank == 0:
+                logging.info("Preparing data for tuning")
+                if args.reload_data or not os.path.exists(dm.train_ready_data_path):
+                    dm.generate_datasets()
+                    reload = True
+                else:
+                    reload = False
+            
+            else:
+                reload = False
+        
+            # other ranks should wait for this one 
+            # Pass the rank determined at the beginning of main() to handle both tuning and training modes
+            dm.generate_splits(save=True, reload=reload, splits=["train", "val", "test"], rank=rank)
+            
+    else:
+        # wait until data_module attributes have been updated to generate splits
+        data_module.set_train_ready_path()
+        if rank_zero_only.rank == 0:
+            logging.info("Preparing data for tuning")
+            if args.reload_data or not os.path.exists(data_module.train_ready_data_path):
+                data_module.generate_datasets()
+                reload = True
+            else:
+                reload = False
+      
         else:
             reload = False
-       
-    else:
-        reload = False
     
-    # other ranks should wait for this one 
-    # Pass the rank determined at the beginning of main() to handle both tuning and training modes
-    data_module.generate_splits(save=True, reload=reload, splits=["train", "val", "test"], rank=rank)
+        # other ranks should wait for this one 
+        # Pass the rank determined at the beginning of main() to handle both tuning and training modes
+        data_module.generate_splits(save=True, reload=reload, splits=["train", "val", "test"], rank=rank)
     
     if args.mode in ["train", "test"]:
         estimator_kwargs = {
@@ -767,8 +851,8 @@ def main():
             "cardinality": data_module.cardinality,
             "num_feat_static_real": data_module.num_feat_static_real,
             "input_size": data_module.num_target_vars,
-            "scaling": "False", #if model_hparams.get("scaling", "True") == "True" else False, # TODO back to std, ALLOW US TO SPECIFY SCALING, ALSO WHY STRING NOT B00L Scaling handled externally or internally by TACTiS
-            "lags_seq": [0], #model_hparams.get("lags_seq", [0]), #TODOconfig["model"][args.model]["lags_seq"], # TACTiS doesn't typically use lags
+            "scaling": config["model"][args.model].get("scaling", "False"), #if model_hparams.get("scaling", "True") == "True" else False, # TODO back to std, ALLOW US TO SPECIFY SCALING, ALSO WHY STRING NOT B00L Scaling handled externally or internally by TACTiS
+            "lags_seq": config["model"][args.model].get("lags_seq", [0]), 
             "time_features": [second_of_minute, minute_of_hour, hour_of_day, day_of_year],
             "batch_size": data_module.batch_size,
             "num_batches_per_epoch": config["trainer"].get("limit_train_batches", 1000),

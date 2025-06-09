@@ -69,7 +69,7 @@ class DataModule():
         self.set_train_ready_path()
     
     def set_train_ready_path(self):
-        sfx = f"_ctx{self.context_length}_pred{self.prediction_length}"
+        sfx = f"ctx{self.context_length}_pred{self.prediction_length}"
         if self.normalized:
             self.train_ready_data_path = self.data_path.replace(
                 ".parquet", f"_train_ready_{self.freq}_{'per_turbine' if self.per_turbine_target else 'all_turbine'}_{sfx}.parquet")
@@ -187,6 +187,7 @@ class DataModule():
     def get_dataset_info(self, dataset=None):
         # print(f"Number of nan/null vars = {dataset.select(pl.sum_horizontal((cs.numeric().is_null() | cs.numeric().is_nan()).sum())).collect().item()}") 
         if dataset is None:
+            assert os.path.exists(self.train_ready_data_path), "train_ready_data_path doesn't exist! Should be generated for training."
             dataset = IterableLazyFrame(data_path=self.train_ready_data_path, dtype=self.dtype) 
         
         if self.verbose:
@@ -291,23 +292,51 @@ class DataModule():
             logging.info(f"Rank 0: Generating splits (reload={reload}, files_exist={split_files_exist}).")
             if self.per_turbine_target:
                 if self.verbose:
-                    logging.info(f"Rank 0: Splitting datasets for per turbine case.")
+                    logging.info(f"Rank 0: Splitting datasets for per turbine case into train/val/test={self.train_split}/{self.val_split}/{self.test_split}.")
+                
                 cg_counts = dataset.select("continuity_group").collect().to_series().value_counts().sort("continuity_group").select("count").to_numpy().flatten()
+                
                 self.rows_per_split = [
                     int(n_rows / self.n_splits) 
                     for turbine_id in self.target_suffixes 
                     for n_rows in cg_counts] # each element corresponds to each continuity group
+                
                 del cg_counts
+                
                 self.continuity_groups = dataset.select(pl.col("continuity_group").unique()).collect().to_numpy().flatten()
+                
                 self.train_dataset, self.val_dataset, self.test_dataset = \
                     self.split_dataset([dataset.filter(pl.col("continuity_group") == cg) for cg in self.continuity_groups]) 
                     
+                for d, ds in enumerate(self.train_dataset):
+                    fp = self.train_ready_data_path.replace(".parquet", f"_train_{d}_tmp.parquet")
+                    self.train_dataset[d].collect().write_parquet(fp)
+                    self.train_dataset[d] = pl.scan_parquet(fp)
+                    
+                for d, ds in enumerate(self.val_dataset):
+                    fp = self.train_ready_data_path.replace(".parquet", f"_val_{d}_tmp.parquet")
+                    self.val_dataset[d].collect().write_parquet(fp)
+                    self.val_dataset[d] = pl.scan_parquet(fp)
+                    
+                for d, ds in enumerate(self.test_dataset):
+                    fp = self.train_ready_data_path.replace(".parquet", f"_test_{d}_tmp.parquet")
+                    self.test_dataset[d].collect().write_parquet(fp)
+                    self.test_dataset[d] = pl.scan_parquet(fp)
+                    
                 for split in splits:
                     ds = getattr(self, f"{split}_dataset")
-                    setattr(self, f"{split}_dataset", 
-                            {f"TURBINE{turbine_id}_SPLIT{cg}": 
-                            self.get_df_by_turbine(ds[cg], turbine_id) 
-                            for turbine_id in self.target_suffixes for cg in range(len(ds))})
+                    if self.verbose:
+                        logging.info(f"Setting {split}_dataset attribute.")
+                    
+                    temp_ds = {}
+                    for cg in range(len(ds)):
+                        # df = ds[cg].collect(_eager=True)
+                        for turbine_id in self.target_suffixes:
+                            if self.verbose:
+                                logging.info(f"Getting dataset for turbine_id={turbine_id}, cg={cg} of {len(ds)}.")
+                            temp_ds[f"TURBINE{turbine_id}_SPLIT{cg}"] = self.get_df_by_turbine(ds[cg], turbine_id)#.lazy()
+                    
+                    setattr(self, f"{split}_dataset", temp_ds)
                 
                 if self.as_lazyframe:
                     static_index = [f"TURBINE{turbine_id}_SPLIT{split}" for turbine_id in self.target_suffixes for cg in range(len(self.train_dataset))]
@@ -352,7 +381,7 @@ class DataModule():
 
             else:
                 if verbose:
-                    logging.info(f"Splitting datasets for all turbine case.") 
+                    logging.info(f"Splitting datasets for all turbine case into train/val/test={self.train_split}/{self.val_split}/{self.test_split}.") 
                 
                 cg_counts = dataset.select("continuity_group").collect().to_series().value_counts().sort("continuity_group").select("count").to_numpy().flatten()
                 self.rows_per_split = [int(n_rows / self.n_splits) for n_rows in cg_counts] # each element corresponds to each continuity group
@@ -361,7 +390,22 @@ class DataModule():
                 # generate an iterablelazy frame for each continuity group and split within it
                 self.train_dataset, self.val_dataset, self.test_dataset = \
                     self.split_dataset([dataset.filter(pl.col("continuity_group") == cg) for cg in self.continuity_groups])
-
+                
+                for d, ds in enumerate(self.train_dataset):
+                    fp = self.train_ready_data_path.replace(".parquet", f"_train_{d}_tmp.parquet")
+                    self.train_dataset[d].collect().write_parquet(fp)
+                    self.train_dataset[d] = pl.scan_parquet(fp)
+                    
+                for d, ds in enumerate(self.val_dataset):
+                    fp = self.train_ready_data_path.replace(".parquet", f"_val_{d}_tmp.parquet")
+                    self.val_dataset[d].collect().write_parquet(fp)
+                    self.val_dataset[d] = pl.scan_parquet(fp)
+                    
+                for d, ds in enumerate(self.test_dataset):
+                    fp = self.train_ready_data_path.replace(".parquet", f"_test_{d}_tmp.parquet")
+                    self.test_dataset[d].collect().write_parquet(fp)
+                    self.test_dataset[d] = pl.scan_parquet(fp)
+                    
                 # train_grouper = MultivariateGrouper(
                 #     max_target_dim=self.num_target_vars,
                 #     split_on="continuity_group" if len(self.continuity_groups) > 1 else None
@@ -587,7 +631,9 @@ class DataModule():
             
             # n_test_windows = int((self.test_split * self.rows_per_split[cg]) / self.prediction_length)
             # test_dataset = test_gen.generate_instances(prediction_length=self.prediction_length, windows=n_test_windows)
-            
+        
+        if self.verbose:
+            logging.info("Returning train/val/test datasets.")
         return train_datasets, val_datasets, test_datasets
 
     def highlight_entry(self, entry, color, ax, vlines=None):
