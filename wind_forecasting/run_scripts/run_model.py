@@ -86,9 +86,20 @@ def main():
     parser.add_argument("--single_gpu", action="store_true", help="Force using only a single GPU (the one specified by CUDA_VISIBLE_DEVICES)")
     parser.add_argument("-or", "--override", nargs="*", help="List of hyperparameters to override from YAML config instead of using tuned values", default=[])
     parser.add_argument("-rl", "--reload_data", action="store_true", help="Whether to reload train/test/val datasets from preprocessed parquets or not.")
+    parser.add_argument("-ehc", "--extract_hparams_from_checkpoint", type=str, default=None,
+                        help="Extract hyperparameters from checkpoint without loading training state. Can be 'latest', 'best', or a checkpoint path. Starts fresh training with extracted parameters.")
 
 
     args = parser.parse_args()
+    
+    # Validate checkpoint arguments
+    if args.checkpoint and args.extract_hparams_from_checkpoint:
+        raise ValueError("Cannot use both --checkpoint and --extract_hparams_from_checkpoint simultaneously. "
+                         "Use --checkpoint to resume training from a checkpoint, or "
+                         "--extract_hparams_from_checkpoint to start fresh training with extracted hyperparameters.")
+    
+    if args.extract_hparams_from_checkpoint and args.mode != "train":
+        raise ValueError("--extract_hparams_from_checkpoint can only be used with --mode train")
 
     # %% SETUP SEED
     logging.info(f"Setting random seed to {args.seed}")
@@ -506,7 +517,7 @@ def main():
             
         # Use the get_checkpoint function to handle checkpoint finding
         # TODO can we grab the checkpoint from the winning hyperparameter trial?
-        if args.checkpoint:
+        if args.checkpoint or args.extract_hparams_from_checkpoint:
             # Set up parameters for checkpoint finding
             metric = config.get("trainer", {}).get("monitor_metric", "val_loss")
             mode = config.get("optuna", {}).get("direction", "minimize")
@@ -516,8 +527,10 @@ def main():
             base_checkpoint_dir = os.path.join(log_dir, project_name)
             logging.info(f"Checkpoint selection: Monitoring metric '{metric}' with mode '{mode}' in directory '{base_checkpoint_dir}'")
         
-            checkpoint_path = get_checkpoint(args.checkpoint, metric, mode, base_checkpoint_dir)
-            checkpoint_hparams = load_estimator_from_checkpoint(checkpoint_path, LightningModuleClass, config, args.model)
+            # Get checkpoint path based on which argument was used
+            checkpoint_arg = args.checkpoint if args.checkpoint else args.extract_hparams_from_checkpoint
+            found_checkpoint_path = get_checkpoint(checkpoint_arg, metric, mode, base_checkpoint_dir)
+            checkpoint_hparams = load_estimator_from_checkpoint(found_checkpoint_path, LightningModuleClass, config, args.model)
             
             model_hparams.update(checkpoint_hparams["init_args"]["model_config"])
             
@@ -525,6 +538,15 @@ def main():
             data_module.prediction_length = checkpoint_hparams["prediction_length_int"]
             data_module.context_length = checkpoint_hparams["context_length_int"]
             data_module.freq = checkpoint_hparams["freq_str"]
+            
+            # Set checkpoint_path for training continuation only if using --checkpoint
+            if args.checkpoint:
+                checkpoint_path = found_checkpoint_path
+                logging.info(f"Will resume training from checkpoint: {checkpoint_path}")
+            else:
+                checkpoint_path = None
+                logging.info(f"Extracted hyperparameters from checkpoint: {found_checkpoint_path}")
+                logging.info("Will start fresh training with extracted hyperparameters.")
             
             # check if any new hyperparameters are incompatible with data_module
             # core_data_module_params = ["num_feat_dynamic_real", "num_feat_static_real", "num_feat_static_cat",
@@ -681,6 +703,12 @@ def main():
                  if isinstance(cb_config, dict) and 'class_path' in cb_config:
                     try:
                         module_path, class_name = cb_config['class_path'].rsplit('.', 1)
+                        
+                        # Skip ModelCheckpoint if enable_checkpointing=False
+                        if class_name == "ModelCheckpoint" and config.get("trainer", {}).get("enable_checkpointing", True) is False:
+                            logging.info(f"Skipping ModelCheckpoint callback because enable_checkpointing=False")
+                            continue
+                        
                         CallbackClass = getattr(importlib.import_module(module_path), class_name)
                         init_args = cb_config.get('init_args', {})
 
@@ -793,6 +821,11 @@ def main():
         # elif 'distr_output' in estimator_kwargs:
         #      del estimator_kwargs['distr_output']
         
+        # Add use_pytorch_dataloader flag if specified in dataset config
+        if "use_pytorch_dataloader" in config["dataset"]:
+            estimator_kwargs["use_pytorch_dataloader"] = config["dataset"]["use_pytorch_dataloader"]
+            logging.info(f"Setting use_pytorch_dataloader={config['dataset']['use_pytorch_dataloader']} from config")
+        
         logging.info(f"Using final estimator_kwargs:\n {estimator_kwargs}")
         estimator = EstimatorClass(**estimator_kwargs)
 
@@ -883,13 +916,38 @@ def main():
         # %% TRAIN MODEL
         # Callbacks are now instantiated and added to estimator_kwargs above
         logging.info(f"Training model with a total of {n_training_steps} training steps.")
-        estimator.train(
-            training_data=data_module.train_dataset,
-            validation_data=data_module.val_dataset,
-            forecast_generator=forecast_generator,
-            ckpt_path=checkpoint_path
-            # shuffle_buffer_length=1024
-        )
+        
+        # Check if we should use PyTorch dataloaders
+        use_pytorch_dataloader = config["dataset"].get("use_pytorch_dataloader", False)
+        
+        if use_pytorch_dataloader:
+            # For PyTorch dataloaders, pass file paths instead of datasets
+            train_data_path = data_module.get_split_file_path("train")
+            val_data_path = data_module.get_split_file_path("val")
+            
+            logging.info(f"Using PyTorch DataLoader with file paths:")
+            logging.info(f"  Training data: {train_data_path}")
+            logging.info(f"  Validation data: {val_data_path}")
+            
+            estimator.train(
+                training_data=train_data_path,
+                validation_data=val_data_path,
+                forecast_generator=forecast_generator,
+                ckpt_path=checkpoint_path,
+                # Pass additional kwargs that might be needed for PyTorch dataloaders
+                num_workers=num_workers,
+                pin_memory=True,
+                persistent_workers=True
+            )
+        else:
+            # Original GluonTS data loading
+            estimator.train(
+                training_data=data_module.train_dataset,
+                validation_data=data_module.val_dataset,
+                forecast_generator=forecast_generator,
+                ckpt_path=checkpoint_path
+                # shuffle_buffer_length=1024
+            )
         # train_output.trainer.checkpoint_callback.best_model_path
         logging.info("Model training completed.")
     elif args.mode == "test":
