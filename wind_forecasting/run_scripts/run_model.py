@@ -761,7 +761,7 @@ def main():
     if args.mode == "dataset":
         # TODO this won't consider varying context length factors or resample frequencies
         dm_params = []
-        for cnf_path, mdl in zip(args.config, args.config):
+        for cnf_path, mdl in zip(args.config, args.model):
             with open(cnf_path, "r") as file:
                 cnf = yaml.safe_load(file)
             dm_normalized = False if mdl == "tactis" else cnf["dataset"].get("normalize", True)
