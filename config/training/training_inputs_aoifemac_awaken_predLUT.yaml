@@ -113,6 +113,7 @@ dataset:
     target_turbine_ids:  # or leave blank to capture all
     normalize: True 
     batch_size: 128
+    base_batch_size: 128  # Base batch size for scaling calculations
     workers: 12
     overfit: False
     test_split: 0.10
