@@ -31,7 +31,7 @@ optuna:
       multivariate: true
       constant_liar: true
       group: false
-  limit_train_batches: 5000    # batches per epoch - INFO: For "random" sampler, use explicit integer value
+  base_limit_train_batches: 5000    # base batches per epoch - will be scaled based on batch_size ratio
   metric: "val_loss"          # The metric to optimize (NLL)
   direction: "minimize"  
 
@@ -183,6 +183,9 @@ model:
     lr: 7.415335679794799e-05
     weight_decay: 1e-06
     dropout: 0.18730411313466236
+    warmup_steps: 50000 # Warmup steps
+    steps_to_decay: 50000 # T_max = (steps_per_epoch [282] * epochs_in_stage [30]) - warmup_steps
+    eta_min_fraction: 0.01  # Fraction of initial LR for eta_min cosine decay
   autoformer:
     # embedding_dimension: 32 # Determines dimension of the embedding space
     num_encoder_layers: 2 # Number of transformer blocks stacked
@@ -196,6 +199,9 @@ model:
     # dim_feedforward: 2048
     # activation: gelu
     # context_length_factor: 3
+    warmup_steps: 50000 # Warmup steps
+    steps_to_decay: 50000 # T_max = (steps_per_epoch [282] * epochs_in_stage [30]) - warmup_steps
+    eta_min_fraction: 0.01  # Fraction of initial LR for eta_min cosine decay
   spacetimeformer:
     # embedding_dimension: 32 # Determines dimension of the embedding space
     num_encoder_layers: 3 # Number of transformer blocks stacked
@@ -224,6 +230,9 @@ model:
     embed_method: spatio-temporal
     activation: gelu
     use_given: False # value in original paper is True
+    warmup_steps: 50000 # Warmup steps
+    steps_to_decay: 50000 # T_max = (steps_per_epoch [282] * epochs_in_stage [30]) - warmup_steps
+    eta_min_fraction: 0.01  # Fraction of initial LR for eta_min cosine decay
   svr:
     kernel: rbf
     C: 1.0
@@ -267,22 +276,11 @@ callbacks:
       enabled: false
 
 trainer: 
-    # grad_clip_norm: 0.0 # Prevents gradient explosion if > 0 
-    limit_val_batches: 100
-    # val_check_interval: 1.0
-    accelerator: cpu
+    val_check_interval: 1.0
+    accelerator: gpu
     devices: auto
     num_nodes: 1
     strategy: ddp
-    # n_workers: auto
-    # debug: False 
-    # accumulate: 1.0
-    max_epochs: 3 # Maximum number of epochs to train 100
-    limit_train_batches: 100 # 100
-    default_root_dir: /Users/ahenry/Documents/toolboxes/wind_forecasting/logging/wind_forecasting
-    # precision: 32-true # 16-mixed enables mixed precision training 32-true is full precision
-    # batch_size: 32 # larger = more stable gradients
-    # lr: 0.0001 # Step size
-    # dropout: 0.1 # Regularization parameter (prevents overfitting)
-    # patience: 50 # Number of epochs to wait before early stopping
-    # accumulate_grad_batches: 2 # Simulates a larger batch size
+    max_epochs: 100 # Maximum number of epochs to train 100
+    limit_train_batches: 5000
+    log_every_n_steps: 100

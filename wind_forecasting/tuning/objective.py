@@ -115,6 +115,7 @@ class MLTuningObjective:
         params = self.estimator_class.get_params(trial, self.tuning_phase,
                                                  dynamic_kwargs=self.dynamic_params)
 
+        # TODO this has been updated to not change splits for different context_length_factors, for consistency, may cause issues for longer context_length_factors
         # Update DataModule parameters based on trial tuned parameters
         needs_split_regeneration = update_data_module_params(
             self.data_module, params, self.config, trial.number
@@ -304,7 +305,17 @@ class MLTuningObjective:
 
         context_length_factor = params.get('context_length_factor', self.config["dataset"].get("context_length_factor", 2)) # Default to config or 2 if not in trial/config
         context_length = int(context_length_factor * self.data_module.prediction_length)
-
+        
+        # Extract estimator parameters from the class signature
+        estimator_sig = inspect.signature(self.estimator_class.__init__)
+        estimator_params = [param.name for param in estimator_sig.parameters.values()]
+        valid_estimator_params = set(estimator_params)
+        
+        if any("gradient_clip_val" in k for k in trial_trainer_kwargs) and any("gradient_clip_val" in k for k in valid_estimator_params):
+            gc_keys = [k for k in trial_trainer_kwargs if "gradient_clip_val" in k]
+            for k in gc_keys:
+                del trial_trainer_kwargs[k]
+        
         # Estimator Arguments to handle difference between models
         estimator_kwargs = {
             "freq": self.data_module.freq,
@@ -320,6 +331,8 @@ class MLTuningObjective:
             "use_lazyframe": False,
             "batch_size": current_batch_size,  # Use the current batch size from params, not config
             "num_batches_per_epoch": trial_trainer_kwargs["limit_train_batches"], # Use value from trial_trainer_kwargs
+            "base_batch_size_for_scheduler_steps": self.config["dataset"].get("base_batch_size", 512), # Use base_batch_size from config
+            "base_limit_train_batches": self.base_limit_train_batches, # Pass base_limit_train_batches for conditional scaling
             "train_sampler": SequentialSampler(min_past=context_length, min_future=self.data_module.prediction_length)
                 if self.config["optuna"].get("sampler", "random") == "sequential"
                 else ExpectedNumInstanceSampler(num_instances=1.0, min_past=context_length, min_future=self.data_module.prediction_length),
@@ -330,11 +343,6 @@ class MLTuningObjective:
             "trainer_kwargs": trial_trainer_kwargs, # Pass the trial-specific kwargs
             "num_parallel_samples": self.config["model"][self.model].get("num_parallel_samples", 100) if self.model == 'tactis' else 100, # Default 100 if not specified
         }
-        
-        # TODO add these back to estimator_kwargs for learning rate cosine annealing with other models
-        if self.model == "tactis":
-            estimator_kwargs["base_batch_size_for_scheduler_steps"] = self.config["dataset"].get("base_batch_size", 512), # Use base_batch_size from config
-            estimator_kwargs["base_limit_train_batches"] = self.base_limit_train_batches, # Pass base_limit_train_batches for conditional scaling
         
         # Debug logging for epoch calculation issue
         logging.info(f"Trial {trial.number}: Critical DataLoader parameters:")
@@ -362,10 +370,6 @@ class MLTuningObjective:
         # CRITICAL: Preserve the dynamically calculated num_batches_per_epoch
         dynamic_num_batches = estimator_kwargs["num_batches_per_epoch"]
         
-        # Extract estimator parameters from the class signature
-        estimator_sig = inspect.signature(self.estimator_class.__init__)
-        estimator_params = [param.name for param in estimator_sig.parameters.values()]
-        valid_estimator_params = set(estimator_params)
         
         estimator_kwargs.update({k: v for k, v in self.config["model"][self.model].items() if k in valid_estimator_params})
         estimator_kwargs["num_batches_per_epoch"] = dynamic_num_batches  # Restore dynamic value

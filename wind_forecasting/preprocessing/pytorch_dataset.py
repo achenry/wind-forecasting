@@ -65,27 +65,31 @@ class WindForecastingDataset(Dataset):
         if self.sampler is not None:
             # First pass: count total windows for efficient allocation
             total_windows = 0
-            for sample in self.data:
-                indices = self.sampler(sample['target'])
-                total_windows += len(indices)
+            # for sample in self.data:
+            #     indices = self.sampler(sample['target'])
+            #     total_windows += len(indices)
             
             # Allocate numpy array with structured dtype for efficiency
             window_dtype = np.dtype([('ts_idx', np.int32), ('t', np.int32)])
-            all_windows = np.empty(total_windows, dtype=window_dtype)
+            # all_windows = np.empty(total_windows, dtype=window_dtype)
+            all_windows = []
             
             # Second pass: fill the array
-            window_idx = 0
+            # window_idx = 0
             for ts_idx, sample in enumerate(self.data):
                 target = sample['target']
                 indices = self.sampler(target)
                 n_indices = len(indices)
-                if n_indices > 0:
+                if n_indices:
                     # Fill ts_idx for all windows of this time series
-                    all_windows['ts_idx'][window_idx:window_idx + n_indices] = ts_idx
+                    # all_windows['ts_idx'][window_idx:window_idx + n_indices] = ts_idx
                     # Fill time indices
-                    all_windows['t'][window_idx:window_idx + n_indices] = indices
-                    window_idx += n_indices
+                    # all_windows['t'][window_idx:window_idx + n_indices] = indices
+                    all_windows += [(ts_idx, i) for i in indices]
+                    # window_idx += n_indices
+                    total_windows += len(indices)
             
+            all_windows = np.array(all_windows, dtype=window_dtype)
             # Store total count for __len__ method
             self.total_windows = total_windows
             

@@ -244,7 +244,7 @@ def get_checkpoint(checkpoint, metric, mode, log_dir):
             raise FileNotFoundError(f"Given checkpoint {checkpoint} does not exist.")
         return checkpoint_path
 
-def load_estimator_from_checkpoint(checkpoint_path, lightning_module_class, default_model_config, model_key):
+def load_estimator_from_checkpoint(checkpoint_path, lightning_module_class, default_model_config, model_key, train=False):
     if torch.cuda.is_available():
         device = None # f"cuda:{int(os.environ['CUDA_VISIBLE_DEVICES'].split(",")[0])}"
         # device = f"cuda:{assigned_gpu or 0}"
@@ -311,7 +311,7 @@ def load_estimator_from_checkpoint(checkpoint_path, lightning_module_class, defa
                             missing_from_hparams.append(f"{param_name} (MISSING!)")
                             critical_missing = True
 
-        if critical_missing:
+        if critical_missing and train:
             logging.error(f"Critical hyperparameters missing from checkpoint hparams and no fallback found: {[item for item in missing_from_hparams if 'MISSING!' in item]}")
             logging.error(f"Available hparams keys: {list(hparams.keys())}")
             raise ValueError(f"Cannot instantiate model due to missing hyperparameters: {[item for item in missing_from_hparams if 'MISSING!' in item]}")

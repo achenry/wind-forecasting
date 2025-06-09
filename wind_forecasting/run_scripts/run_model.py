@@ -254,7 +254,7 @@ def main():
             val_split=config["dataset"]["val_split"],
             test_split=config["dataset"]["test_split"],
             prediction_length=config["dataset"]["prediction_length"],
-            context_length=config["dataset"]["context_length"],
+            context_length=original_yaml_config["dataset"]["context_length"], # don't want different train/val/test splits for models predicting same prediction length
             target_prefixes=["ws_horz", "ws_vert"],
             feat_dynamic_real_prefixes=["nd_cos", "nd_sin"],
             freq=config["dataset"]["resample_freq"],
@@ -843,6 +843,12 @@ def main():
         data_module.generate_splits(save=True, reload=reload, splits=["train", "val", "test"], rank=rank)
     
     if args.mode in ["train", "test"]:
+        
+        if any("gradient_clip_val" in k for k in config["trainer"]) and any("gradient_clip_val" in k for k in estimator_params):
+            gc_keys = [k for k in config["trainer"] if "gradient_clip_val" in k]
+            for k in gc_keys:
+                del config["trainer"][k]
+        
         estimator_kwargs = {
             "freq": data_module.freq,
             "prediction_length": data_module.prediction_length,
@@ -874,7 +880,7 @@ def main():
         if estimator_kwargs["num_batches_per_epoch"] is not None:
             n_training_steps = min(n_training_steps, estimator_kwargs["num_batches_per_epoch"])
         
-        # TODO JUAN PATCH FOR TACTIS
+        # TODO JUAN PATCH
         estimator_kwargs["num_batches_per_epoch"] = n_training_steps
             
         # Log warning if using random sampler with null limit_train_batches
@@ -893,7 +899,7 @@ def main():
             logging.info(f"Updating estimator {args.model.capitalize()} dim_feedforward with 4x estimator default d_model = {model_hparams['dim_feedforward']}")
 
         # Add model-specific arguments. Note that some params, such as num_feat_dynamic_real, are changed within Model, and so can't be used for estimator class
-        estimator_kwargs.update({k: v for k, v in model_hparams.items() if k in estimator_params and not hasattr(data_module, k) })
+        estimator_kwargs.update({k: v for k, v in model_hparams.items() if k in estimator_params and not hasattr(data_module, k)})
         
         # Add distr_output only if the model is NOT tactis
         if args.model != 'tactis' and "distr_output" not in estimator_kwargs:

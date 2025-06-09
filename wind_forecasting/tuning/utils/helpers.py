@@ -95,7 +95,7 @@ def update_data_module_params(
                     f"{data_module.context_length} to {tuned_model_context_len_timesteps} "
                     f"(factor: {context_length_factor_trial})")
         data_module.context_length = tuned_model_context_len_timesteps
-        needs_split_regeneration = True
+        # needs_split_regeneration = True # NOTE don't change data used for different context length factors
     
     # Update per_turbine_target if tuned
     if "per_turbine" in params and data_module.per_turbine_target != params["per_turbine"]:
