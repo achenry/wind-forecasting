@@ -146,7 +146,11 @@ class MLTuningObjective:
             # Scale val_check_interval proportionally with limit_train_batches to maintain same validation frequency
             base_val_check_interval = self.config["trainer"].get("val_check_interval", 5000)
             scaling_factor = self.base_batch_size / current_batch_size
-            dynamic_val_check_interval = max(1, round(base_val_check_interval * scaling_factor))
+            # BUGFIX Preserve float type for epoch validation
+            if isinstance(base_val_check_interval, float) and base_val_check_interval <= 1.0:
+                dynamic_val_check_interval = base_val_check_interval
+            else:
+                dynamic_val_check_interval = max(1, round(base_val_check_interval * scaling_factor))
             
             # Ensure val_check_interval doesn't exceed limit_train_batches
             if dynamic_val_check_interval > dynamic_limit_train_batches:
