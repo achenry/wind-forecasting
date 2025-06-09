@@ -115,6 +115,7 @@ class MLTuningObjective:
         params = self.estimator_class.get_params(trial, self.tuning_phase,
                                                  dynamic_kwargs=self.dynamic_params)
 
+        # TODO this has been updated to not change splits for different context_length_factors, for consistency, may cause issues for longer context_length_factors
         # Update DataModule parameters based on trial tuned parameters
         needs_split_regeneration = update_data_module_params(
             self.data_module, params, self.config, trial.number
