@@ -485,6 +485,10 @@ class DataModule():
                                     logging.info(f"Rank 0: Cleaned up temp file {temp_path}")
                                 except OSError as cleanup_error:
                                     logging.error(f"Rank 0: Error removing temp file {temp_path}: {cleanup_error}")
+                                    
+            for temp_path in glob.glob(self.train_ready_data_path.replace(".parquet", f"_{split}_*_tmp.parquet")):
+                os.remove(temp_path)
+                    
 
         # Only use barrier if PyTorch distributed is actually initialized
         # In tuning mode with independent workers, we don't need/want a barrier

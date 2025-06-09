@@ -276,22 +276,11 @@ callbacks:
       enabled: false
 
 trainer: 
-    # grad_clip_norm: 0.0 # Prevents gradient explosion if > 0 
-    limit_val_batches: 100
-    # val_check_interval: 1.0
-    accelerator: cpu
+    val_check_interval: 1.0
+    accelerator: gpu
     devices: auto
     num_nodes: 1
     strategy: ddp
-    # n_workers: auto
-    # debug: False 
-    # accumulate: 1.0
-    max_epochs: 3 # Maximum number of epochs to train 100
-    limit_train_batches: 100 # 100
-    default_root_dir: /Users/ahenry/Documents/toolboxes/wind_forecasting/logging/wind_forecasting
-    # precision: 32-true # 16-mixed enables mixed precision training 32-true is full precision
-    # batch_size: 32 # larger = more stable gradients
-    # lr: 0.0001 # Step size
-    # dropout: 0.1 # Regularization parameter (prevents overfitting)
-    # patience: 50 # Number of epochs to wait before early stopping
-    # accumulate_grad_batches: 2 # Simulates a larger batch size
+    max_epochs: 100 # Maximum number of epochs to train 100
+    limit_train_batches: 5000
+    log_every_n_steps: 100
