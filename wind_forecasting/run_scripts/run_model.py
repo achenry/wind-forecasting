@@ -254,7 +254,7 @@ def main():
             val_split=config["dataset"]["val_split"],
             test_split=config["dataset"]["test_split"],
             prediction_length=config["dataset"]["prediction_length"],
-            context_length=config["dataset"]["context_length"],
+            context_length=original_yaml_config["dataset"]["context_length"], # don't want different train/val/test splits for models predicting same prediction length
             target_prefixes=["ws_horz", "ws_vert"],
             feat_dynamic_real_prefixes=["nd_cos", "nd_sin"],
             freq=config["dataset"]["resample_freq"],
