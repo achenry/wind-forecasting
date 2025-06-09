@@ -1,14 +1,18 @@
 #!/bin/bash 
 #SBATCH --account=ssc
-#SBATCH --time=96:00:00
-##SBATCH --time=01:00:00
 #SBATCH --output=%j-%x.out
-##SBATCH --partition=debug
+#SBATCH --partition=debug
+#SBATCH --time=01:00:00
 #SBATCH --nodes=1 # this needs to match Trainer(num_nodes...)
-#SBATCH --gres=gpu:4
-#SBATCH --ntasks-per-node=4 # this needs to match Trainer(devices=...)
-##SBATCH --mem-per-cpu=240G
-#SBATCH --mem-per-cpu=85G
+#SBATCH --ntasks-per-node=104 # this needs to match Trainer(devices=...)
+##SBATCH --gres=gpu:2
+##SBATCH --ntasks-per-node=2 # this needs to match Trainer(devices=...)
+#SBATCH --mem-per-cpu=40G
+#SBATCH --nodes=1 # this needs to match Trainer(num_nodes...)
+##SBATCH --time=96:00:00
+##SBATCH --gres=gpu:4
+##SBATCH --ntasks-per-node=4 # this needs to match Trainer(devices=...)
+##SBATCH --mem-per-cpu=85G
 
 # salloc --account=ssc --time=01:00:00 --gpus=2 --ntasks-per-node=2 --partition=debug
 
@@ -118,7 +122,10 @@ for i in $(seq 0 $((${NUM_GPUS}-1))); do
       # CUDA_VISIBLE_DEVICES ensures each worker sees only one GPU
       # The worker ID (SLURM_PROCID) helps Optuna identify workers
       #srun --exclusive -n 1 --export=ALL,CUDA_VISIBLE_DEVICES=$i,SLURM_PROCID=${WORKER_INDEX},WANDB_DIR=${WANDB_DIR} \
-      WORKER_RANK=${i} CUDA_VISIBLE_DEVICES=${i} nohup bash -c "
+      export WORKER_RANK=${i} 
+      export CUDA_VISIBLE_DEVICES=${i} 
+      
+      nohup bash -c "
       echo \"Worker ${i} starting environment setup...\"
       # --- Module loading ---
       module purge
