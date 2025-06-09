@@ -205,6 +205,9 @@ model:
     d_model: 512
     dim_feedforward: 2048
     activation: relu
+    warmup_steps: 50000 # Warmup steps
+    steps_to_decay: 50000 # T_max = (steps_per_epoch [282] * epochs_in_stage [30]) - warmup_steps
+    eta_min_fraction: 0.01  # Fraction of initial LR for eta_min cosine decay
   autoformer:
     # embedding_dimension: 32 # Determines dimension of the embedding space
     num_encoder_layers: 2 # Number of transformer blocks stacked
@@ -212,6 +215,9 @@ model:
     n_heads: 8 # Number of heads for spatio-temporal attention
     dim_feedforward: 2048
     activation: gelu
+    warmup_steps: 50000 # Warmup steps
+    steps_to_decay: 50000 # T_max = (steps_per_epoch [282] * epochs_in_stage [30]) - warmup_steps
+    eta_min_fraction: 0.01  # Fraction of initial LR for eta_min cosine decay
   spacetimeformer:
     # embedding_dimension: 32 # Determines dimension of the embedding space
     num_encoder_layers: 3 # Number of transformer blocks stacked
@@ -236,6 +242,9 @@ model:
     embed_method: spatio-temporal
     activation: gelu
     use_given: False
+    warmup_steps: 50000 # Warmup steps
+    steps_to_decay: 50000 # T_max = (steps_per_epoch [282] * epochs_in_stage [30]) - warmup_steps
+    eta_min_fraction: 0.01  # Fraction of initial LR for eta_min cosine decay
 ########### END OF MODEL-SPECIFIC PARAMETERS ###########
 
 callbacks:
