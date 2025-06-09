@@ -388,6 +388,11 @@ class MLTuningObjective:
         # TACTiS manages its own distribution output internally, remove if present
         if self.model == 'tactis' and 'distr_output' in estimator_kwargs:
             estimator_kwargs.pop('distr_output')
+        
+        # Add use_pytorch_dataloader flag if specified in dataset config
+        if "use_pytorch_dataloader" in self.config["dataset"]:
+            estimator_kwargs["use_pytorch_dataloader"] = self.config["dataset"]["use_pytorch_dataloader"]
+            logging.info(f"Trial {trial.number}: Setting use_pytorch_dataloader={self.config['dataset']['use_pytorch_dataloader']} from config")
 
         # Get the metric key from config
         metric_to_return = self.config.get("trainer", {}).get("monitor_metric", "val_loss") # Default to val_loss
@@ -444,11 +449,34 @@ class MLTuningObjective:
 
             # Train Model
             try:
-                estimator.train(
-                    training_data=self.data_module.train_dataset,
-                    validation_data=self.data_module.val_dataset,
-                    forecast_generator=forecast_generator
-                )
+                # Check if we should use PyTorch dataloaders
+                use_pytorch_dataloader = self.config["dataset"].get("use_pytorch_dataloader", False)
+                
+                if use_pytorch_dataloader:
+                    # For PyTorch dataloaders, pass file paths instead of datasets
+                    train_data_path = self.data_module.get_split_file_path("train")
+                    val_data_path = self.data_module.get_split_file_path("val")
+                    
+                    logging.info(f"Trial {trial.number}: Using PyTorch DataLoader with file paths:")
+                    logging.info(f"  Training data: {train_data_path}")
+                    logging.info(f"  Validation data: {val_data_path}")
+                    
+                    estimator.train(
+                        training_data=train_data_path,
+                        validation_data=val_data_path,
+                        forecast_generator=forecast_generator,
+                        # Pass additional kwargs that might be needed for PyTorch dataloaders
+                        num_workers=4,
+                        pin_memory=True,
+                        persistent_workers=True
+                    )
+                else:
+                    # Original GluonTS data loading
+                    estimator.train(
+                        training_data=self.data_module.train_dataset,
+                        validation_data=self.data_module.val_dataset,
+                        forecast_generator=forecast_generator
+                    )
             except optuna.exceptions.TrialPruned as e:
                 logging.info(f"Trial {trial.number} pruned by Optuna callback during training: {str(e)}")
                 raise

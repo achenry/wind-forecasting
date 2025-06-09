@@ -13,6 +13,7 @@
 #SBATCH --ntasks-per-node=4 # this needs to match Trainer(devices=...), and number of GPUs
 #SBATCH --mem-per-cpu=85G
 
+
 # salloc --account=ssc --time=01:00:00 --gpus=2 --ntasks-per-node=2 --partition=debug
 
 module purge

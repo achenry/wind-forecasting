@@ -1,12 +1,12 @@
 #!/bin/bash
 
-#SBATCH --partition=all_gpu.p          # Partition for H100/A100 GPUs cfdg.p / all_gpu.p / mpcg.p(not allowed)
+#SBATCH --partition=cfdg.p          # Partition for H100/A100 GPUs cfdg.p / all_gpu.p / mpcg.p(not allowed)
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=4         # Match number of GPUs requested below (for DDP training)
-#SBATCH --cpus-per-task=32           # CPUs per task (adjust if needed for data loading)
-#SBATCH --mem-per-cpu=4096          # Memory per CPU
-#SBATCH --gres=gpu:H100:4           # Request 4 H100 GPUs
-#SBATCH --time=1-00:00              # Time limit (adjust as needed for training)
+#SBATCH --cpus-per-task=8           # CPUs per task (adjust if needed for data loading)
+#SBATCH --mem-per-cpu=8192          # Memory per CPU
+#SBATCH --gres=gpu:4
+#SBATCH --time=5-00:00              # Time limit (adjust as needed for training)
 #SBATCH --job-name=awaken_train_tactis_510      # Updated job name
 #SBATCH --output=/dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/slurm_logs/awaken_train_tactis_510_%j.out # Updated output log path
 #SBATCH --error=/dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/slurm_logs/awaken_train_tactis_510_%j.err  # Updated error log path
@@ -24,6 +24,7 @@ export MODEL_NAME="tactis"
 export RESTART_TUNING_FLAG="" # "" Or "--restart_tuning"
 export AUTO_EXIT_WHEN_DONE="true"  # Set to "true" to exit script when all workers finish, "false" to keep running until timeout
 export NUMEXPR_MAX_THREADS=128
+# export NCCL_DEBUG=INFO # Enable verbose logging for the NCCL backend for debugging
 
 # --- Create Logging Directories ---
 # Create the main SLURM log directory if it doesn't exist
@@ -105,20 +106,17 @@ srun python ${WORK_DIR}/run_scripts/run_model.py \
       model.tactis.lr_stage2=4.805723253254209e-06 \
       model.tactis.weight_decay_stage1=0.0 \
       model.tactis.weight_decay_stage2=5e-06 \
-      model.tactis.stage=1 \
       model.tactis.stage2_start_epoch=20 \
-      model.tactis.warmup_steps_s1=785380 \
-      model.tactis.warmup_steps_s2=785380 \
-      model.tactis.steps_to_decay_s1=2356140 \
-      model.tactis.steps_to_decay_s2=2356140 \
+      model.tactis.warmup_steps_s1=0.10 \
+      model.tactis.warmup_steps_s2=0.10 \
+      model.tactis.steps_to_decay_s1=0.90 \
+      model.tactis.steps_to_decay_s2=0.90 \
       model.tactis.stage1_activation_function=relu \
       model.tactis.stage2_activation_function=relu \
       model.tactis.eta_min_fraction_s1=0.0035969620681086476 \
       model.tactis.eta_min_fraction_s2=0.00015866914804312245 \
       dataset.batch_size=64 \
       dataset.context_length_factor=5.0 \
-      model.tactis.context_length=85 \
-      model.tactis.prediction_length=17 \
       model.tactis.flow_series_embedding_dim=5 \
       model.tactis.copula_series_embedding_dim=256 \
       model.tactis.flow_input_encoder_layers=4 \
@@ -137,7 +135,7 @@ srun python ${WORK_DIR}/run_scripts/run_model.py \
       model.tactis.decoder_transformer_embedding_dim_per_head=32 \
       model.tactis.decoder_transformer_num_heads=4 \
       model.tactis.decoder_num_bins=200 \
-      model.tactis.bagging_size=None \
+      model.tactis.bagging_size=null \
       model.tactis.input_encoding_normalization=True \
       model.tactis.loss_normalization=both \
       model.tactis.encoder_type=standard \

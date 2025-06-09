@@ -124,6 +124,7 @@ dataset:
     n_splits: 1 # how many divisions of each continuity group to make which is further subdivided into training test and validation data
     per_turbine_target: true
     # context_length_factor: 2  # INFO: Takes precedence over context_length when use_tuned_parameters is true
+    use_pytorch_dataloader: true
 
 model:
   distr_output: 
@@ -179,12 +180,12 @@ model:
     gradient_clip_val_stage2: 1000.0
     ### VALUES FOR per_turbine_target = true ###
     # Learning Rate Scheduler for Stage 1
-    warmup_steps_s1: 50000 # Warmup steps for Stage 1
-    steps_to_decay_s1: 50000 # T_max = (steps_per_epoch [282] * epochs_in_stage [30]) - warmup_steps
+    warmup_steps_s1: 0.10 # Warmup steps for Stage 1
+    steps_to_decay_s1: 0.90 # T_max = (steps_per_epoch [282] * epochs_in_stage [30]) - warmup_steps
     eta_min_fraction_s1: 0.01  # Fraction of initial LR for eta_min in Stage 1 cosine decay
     # Learning Rate Scheduler for Stage 2
-    warmup_steps_s2: 50000 # Warmup steps for Stage 2
-    steps_to_decay_s2: 50000 # T_max = (steps_per_epoch [282] * epochs_in_stage [100-30]) - warmup_steps ~ 47940 - warmup_steps    
+    warmup_steps_s2: 0.10 # Warmup steps for Stage 2
+    steps_to_decay_s2: 0.90 # T_max = (steps_per_epoch [282] * epochs_in_stage [100-30]) - warmup_steps ~ 47940 - warmup_steps    
     eta_min_fraction_s2: 0.01  # Fraction of initial LR for eta_min in Stage 2 cosine decay    
     ### VALUES FOR per_turbine_target = false ###
     # # Learning Rate Scheduler for Stage 1
