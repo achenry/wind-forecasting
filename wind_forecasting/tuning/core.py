@@ -277,37 +277,38 @@ def tune_model(model, config, study_name, optuna_storage, lightning_module_class
         "dataset_test_split": config["dataset"].get("test_split"),
         "dataset_val_split": config["dataset"].get("val_split")
     }
+    
+    # Adjust scheduler parameters based on dataset and training settings
+    per_turbine_target = config["dataset"].get("per_turbine_target", False)
+    # Use base_limit_train_batches if available, otherwise fallback to limit_train_batches
+    limit_train_batches = config["optuna"].get("base_limit_train_batches") or config["optuna"].get("limit_train_batches")
+    num_turbines = 1 # Default to 1 in case target_suffixes is not available or per_turbine_target is True
+    if not data_module.per_turbine_target and data_module.target_suffixes is not None:
+        try:
+            num_turbines = len(data_module.target_suffixes)
+            if num_turbines == 0:
+                    logging.warning("data_module.target_suffixes is empty, defaulting num_turbines to 1 for adjustment.")
+                    num_turbines = 1
+        except TypeError:
+                logging.warning("data_module.target_suffixes is not a sequence, defaulting num_turbines to 1 for adjustment.")
+                num_turbines = 1
+    elif data_module.per_turbine_target:
+            num_turbines = 1
+    else:
+            logging.warning("data_module.target_suffixes is None, defaulting num_turbines to 1 for adjustment.")
+            num_turbines = 1
+
+    if num_turbines <= 0:
+            logging.error(f"Calculated num_turbines is invalid ({num_turbines}). Defaulting to 1 for adjustment.")
+            num_turbines = 1
 
     # Add TACTiS-specific parameters if model is TACTiS
     if model == 'tactis':
-        # Adjust TACTiS scheduler parameters based on dataset and training settings
-        per_turbine_target = config["dataset"].get("per_turbine_target", False)
-        # Use base_limit_train_batches if available, otherwise fallback to limit_train_batches
-        limit_train_batches = config["optuna"].get("base_limit_train_batches") or config["optuna"].get("limit_train_batches")
-        num_turbines = 1 # Default to 1 in case target_suffixes is not available or per_turbine_target is True
-        if not data_module.per_turbine_target and data_module.target_suffixes is not None:
-            try:
-                num_turbines = len(data_module.target_suffixes)
-                if num_turbines == 0:
-                     logging.warning("data_module.target_suffixes is empty, defaulting num_turbines to 1 for adjustment.")
-                     num_turbines = 1
-            except TypeError:
-                 logging.warning("data_module.target_suffixes is not a sequence, defaulting num_turbines to 1 for adjustment.")
-                 num_turbines = 1
-        elif data_module.per_turbine_target:
-             num_turbines = 1
-        else:
-             logging.warning("data_module.target_suffixes is None, defaulting num_turbines to 1 for adjustment.")
-             num_turbines = 1
 
-        if num_turbines <= 0:
-             logging.error(f"Calculated num_turbines is invalid ({num_turbines}). Defaulting to 1 for adjustment.")
-             num_turbines = 1
-
-        base_warmup_s1 = config["model"]["tactis"].get("warmup_steps_s1")
-        base_decay_s1 = config["model"]["tactis"].get("steps_to_decay_s1")
-        base_warmup_s2 = config["model"]["tactis"].get("warmup_steps_s2")
-        base_decay_s2 = config["model"]["tactis"].get("steps_to_decay_s2")
+        base_warmup_s1 = config["model"][model].get("warmup_steps_s1")
+        base_decay_s1 = config["model"][model].get("steps_to_decay_s1")
+        base_warmup_s2 = config["model"][model].get("warmup_steps_s2")
+        base_decay_s2 = config["model"][model].get("steps_to_decay_s2")
 
         adj_warmup_s1 = base_warmup_s1
         adj_decay_s1 = base_decay_s1
@@ -315,7 +316,7 @@ def tune_model(model, config, study_name, optuna_storage, lightning_module_class
         adj_decay_s2 = base_decay_s2
 
         if not per_turbine_target and limit_train_batches is None:
-            logging.info(f"Adjusting TACTiS scheduler params: per_turbine_target={per_turbine_target}, limit_train_batches={limit_train_batches}. Dividing by num_turbines={num_turbines}.")
+            logging.info(f"Adjusting {model} scheduler params: per_turbine_target={per_turbine_target}, limit_train_batches={limit_train_batches}. Dividing by num_turbines={num_turbines}.")
             if base_warmup_s1 is not None:
                 adj_warmup_s1 = round(base_warmup_s1 / num_turbines)
             if base_decay_s1 is not None:
@@ -326,26 +327,54 @@ def tune_model(model, config, study_name, optuna_storage, lightning_module_class
                 adj_decay_s2 = round(base_decay_s2 / num_turbines)
             
             # Update the config itself so MLTuningObjective uses these adjusted values
-            config["model"]["tactis"]["warmup_steps_s1"] = adj_warmup_s1
-            config["model"]["tactis"]["steps_to_decay_s1"] = adj_decay_s1
-            config["model"]["tactis"]["warmup_steps_s2"] = adj_warmup_s2
-            config["model"]["tactis"]["steps_to_decay_s2"] = adj_decay_s2
-            logging.info(f"Adjusted TACTiS scheduler params: warmup_s1={adj_warmup_s1}, decay_s1={adj_decay_s1}, warmup_s2={adj_warmup_s2}, decay_s2={adj_decay_s2}")
+            config["model"][model]["warmup_steps_s1"] = adj_warmup_s1
+            config["model"][model]["steps_to_decay_s1"] = adj_decay_s1
+            config["model"][model]["warmup_steps_s2"] = adj_warmup_s2
+            config["model"][model]["steps_to_decay_s2"] = adj_decay_s2
+            logging.info(f"Adjusted {model} scheduler params: warmup_s1={adj_warmup_s1}, decay_s1={adj_decay_s1}, warmup_s2={adj_warmup_s2}, decay_s2={adj_decay_s2}")
         else:
-            logging.info(f"Using base TACTiS scheduler params: per_turbine_target={per_turbine_target}, limit_train_batches={limit_train_batches}.")
+            logging.info(f"Using base {model} scheduler params: per_turbine_target={per_turbine_target}, limit_train_batches={limit_train_batches}.")
 
         # These will now pick up the potentially adjusted values from the config
         tactis_params_for_logging = {
-            "model_tactis_stage2_start_epoch": config["model"][model].get("stage2_start_epoch"), # Unchanged by this logic
-            "model_tactis_warmup_steps_s1": config["model"][model].get("warmup_steps_s1"),
-            "model_tactis_warmup_steps_s2": config["model"][model].get("warmup_steps_s2"),
-            "model_tactis_steps_to_decay_s1": config["model"][model].get("steps_to_decay_s1"),
-            "model_tactis_steps_to_decay_s2": config["model"][model].get("steps_to_decay_s2"),
-            "model_tactis_eta_min_fraction_s1": config["model"][model].get("eta_min_fraction_s1"),
-            "model_tactis_eta_min_fraction_s2": config["model"][model].get("eta_min_fraction_s2")
+            f"model_{model}_stage2_start_epoch": config["model"][model].get("stage2_start_epoch"), # Unchanged by this logic
+            f"model_{model}_warmup_steps_s1": config["model"][model].get("warmup_steps_s1"),
+            f"model_{model}_warmup_steps_s2": config["model"][model].get("warmup_steps_s2"),
+            f"model_{model}_steps_to_decay_s1": config["model"][model].get("steps_to_decay_s1"),
+            f"model_{model}_steps_to_decay_s2": config["model"][model].get("steps_to_decay_s2"),
+            f"model_{model}_eta_min_fraction_s1": config["model"][model].get("eta_min_fraction_s1"),
+            f"model_{model}_eta_min_fraction_s2": config["model"][model].get("eta_min_fraction_s2")
         }
         study_config_params.update(tactis_params_for_logging)
+    else:
+        base_warmup = config["model"][model].get("warmup_steps")
+        base_decay = config["model"][model].get("steps_to_decay")
 
+        adj_warmup = base_warmup
+        adj_decay = base_decay
+
+        if not per_turbine_target and limit_train_batches is None:
+            logging.info(f"Adjusting {model} scheduler params: per_turbine_target={per_turbine_target}, limit_train_batches={limit_train_batches}. Dividing by num_turbines={num_turbines}.")
+            if base_warmup is not None:
+                adj_warmup = round(base_warmup / num_turbines)
+            if base_decay is not None:
+                adj_decay = round(base_decay / num_turbines)
+            
+            # Update the config itself so MLTuningObjective uses these adjusted values
+            config["model"][model]["warmup_steps"] = adj_warmup
+            config["model"][model]["steps_to_decay"] = adj_decay
+            logging.info(f"Adjusted {model} scheduler params: warmup={adj_warmup}, decay={adj_decay}")
+        else:
+            logging.info(f"Using base {model} scheduler params: per_turbine_target={per_turbine_target}, limit_train_batches={limit_train_batches}.")
+
+        # These will now pick up the potentially adjusted values from the config
+        params_for_logging = {
+            f"model_{model}_warmup_steps": config["model"][model].get("warmup_steps"),
+            f"model_{model}_steps_to_decay": config["model"][model].get("steps_to_decay"),
+            f"model_{model}_eta_min_fraction": config["model"][model].get("eta_min_fraction"),
+        }
+        study_config_params.update(params_for_logging)   
+        
     # Set study user attributes from config (only on rank 0)
     if worker_id == '0':
         for key, value in study_config_params.items():
