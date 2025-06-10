@@ -282,4 +282,4 @@ trainer:
     strategy: auto
     max_epochs: 100 # Maximum number of epochs to train 100
     limit_train_batches: 5000
-    log_every_n_steps: 100
+    log_every_n_steps: 1
