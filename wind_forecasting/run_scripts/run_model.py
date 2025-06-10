@@ -816,7 +816,6 @@ def main():
                     reload = True
                 else:
                     reload = False
-            
             else:
                 reload = False
         
@@ -834,7 +833,6 @@ def main():
                 reload = True
             else:
                 reload = False
-      
         else:
             reload = False
     
