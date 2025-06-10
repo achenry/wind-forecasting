@@ -530,7 +530,7 @@ class WindForecastingInferenceDataset(WindForecastingDataset):
             if dist.is_initialized():
                 rank = dist.get_rank()
                 world_size = dist.get_world_size()
-                logger.info(f"rank={rank}, world_size={world_size}")
+                # logger.info(f"rank={rank}, world_size={world_size}")
                 return islice(self._base_iter(), rank, None, world_size)
             else:
                 return self._base_iter()
@@ -547,7 +547,7 @@ class WindForecastingInferenceDataset(WindForecastingDataset):
             
             global_num_workers = num_workers * world_size
             global_worker_id = rank * num_workers + worker_id
-            logger.info(f"global_worker_id={global_worker_id}, global_num_workers={global_num_workers}")
+            # logger.info(f"global_worker_id={global_worker_id}, global_num_workers={global_num_workers}")
 
             return islice(self._base_iter(), global_worker_id, None, global_num_workers)
     
