@@ -150,7 +150,7 @@ class MLTuningObjective:
             if isinstance(base_val_check_interval, float) and base_val_check_interval <= 1.0:
                 dynamic_val_check_interval = base_val_check_interval
             else:
-                dynamic_val_check_interval = max(1, round(base_val_check_interval * scaling_factor))
+                dynamic_val_check_interval = max(1.0, round(base_val_check_interval * scaling_factor))
             
             # Ensure val_check_interval doesn't exceed limit_train_batches
             if dynamic_val_check_interval > dynamic_limit_train_batches:
@@ -469,6 +469,7 @@ class MLTuningObjective:
                     logging.info(f"  Training data: {train_data_path}")
                     logging.info(f"  Validation data: {val_data_path}")
                     
+
                     estimator.train(
                         training_data=train_data_path,
                         validation_data=val_data_path,
