@@ -681,32 +681,32 @@ class DataModule():
         
         fig.show()
         
-    def train_dataloader(self):
-        return DataLoader(
-            self.train_dataset,
-            batch_size=self.batch_size,
-            num_workers=self.workers,
-            pin_memory=self.pin_memory,
-            persistent_workers=self.persistent_workers,
-            shuffle=True
-        )
+    # def train_dataloader(self):
+    #     return DataLoader(
+    #         self.train_dataset,
+    #         batch_size=self.batch_size,
+    #         num_workers=self.workers,
+    #         pin_memory=self.pin_memory,
+    #         persistent_workers=self.persistent_workers,
+    #         shuffle=True
+    #     )
 
-    def val_dataloader(self):
-        return DataLoader(
-            self.val_dataset,
-            batch_size=self.batch_size,
-            num_workers=self.workers,
-            pin_memory=self.pin_memory,
-            persistent_workers=self.persistent_workers,
-            shuffle=False
-        )
+    # def val_dataloader(self):
+    #     return DataLoader(
+    #         self.val_dataset,
+    #         batch_size=self.batch_size,
+    #         num_workers=self.workers,
+    #         pin_memory=self.pin_memory,
+    #         persistent_workers=self.persistent_workers,
+    #         shuffle=False
+    #     )
 
-    def test_dataloader(self):
-        return DataLoader(
-            self.test_dataset,
-            batch_size=self.batch_size,
-            num_workers=self.workers,
-            pin_memory=self.pin_memory,
-            persistent_workers=self.persistent_workers,
-            shuffle=False
-        )
+    # def test_dataloader(self):
+    #     return DataLoader(
+    #         self.test_dataset,
+    #         batch_size=self.batch_size,
+    #         num_workers=self.workers,
+    #         pin_memory=self.pin_memory,
+    #         persistent_workers=self.persistent_workers,
+    #         shuffle=False
+    #     )
