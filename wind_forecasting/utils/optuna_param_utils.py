@@ -42,4 +42,8 @@ def get_tuned_params(storage, study_name: str) -> Dict[str, Any]:
     # self.model[output].set_params(**storage.get_best_trial(study_id).params)
     # storage.get_all_studies()[0]._study_id
     # estimato = self.create_model(**storage.get_best_trial(study_id).params)
-    return storage.get_best_trial(study_id).params
+    try:
+        return storage.get_best_trial(study_id).params
+    except ValueError:
+        logging.error(f"No trials found in Optuna study {full_study_name}.")
+        return None
