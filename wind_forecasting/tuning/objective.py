@@ -148,9 +148,7 @@ class MLTuningObjective:
             scaling_factor = self.base_batch_size / current_batch_size
             # BUGFIX Preserve float type for epoch validation
             if isinstance(base_val_check_interval, float) and base_val_check_interval <= 1.0:
-                # # TODO why can't we round this too? 
                 dynamic_val_check_interval = base_val_check_interval
-                # dynamic_val_check_interval = base_val_check_interval * scaling_factor
             else:
                 dynamic_val_check_interval = max(1.0, round(base_val_check_interval * scaling_factor))
             

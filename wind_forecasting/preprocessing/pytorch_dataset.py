@@ -85,10 +85,11 @@ class WindForecastingDataset(IterableDataset):
         if dist.is_initialized():
             rank = dist.get_rank()
             world_size = dist.get_world_size()
+            logger.info(f"Using distributed training with rank={rank}, world_size={world_size}")
         else:
             rank = 0
             world_size = 1
-        logger.info(f"training rank={rank}, world_size={world_size}")
+            logger.info(f"Using signle-rank training with rank={rank}, world_size={world_size}")
                 
         worker_info = torch.utils.data.get_worker_info()
         
@@ -314,11 +315,11 @@ class WindForecastingInferenceDataset(WindForecastingDataset):
         if dist.is_initialized():
             rank = dist.get_rank()
             world_size = dist.get_world_size()
+            logger.info(f"Using distributed inference with rank={rank}, world_size={world_size}")
         else:
             rank = 0
             world_size = 1
-            
-        logger.info(f"inference rank={rank}, world_size={world_size}")
+            logger.info(f"Using single-rank inference with rank={rank}, world_size={world_size}")
             
         worker_info = torch.utils.data.get_worker_info()
         
