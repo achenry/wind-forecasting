@@ -424,6 +424,8 @@ class DataModule():
                             logging.info(f"Getting dataset for cg_idx={cg_idx} of {len(ds)}.")
                         temp_ds[f"SPLIT{cg_idx}"] = ds[cg_idx].select([pl.col("time")] + self.feat_dynamic_real_cols + self.target_cols)
 
+                    setattr(self, f"{split}_dataset", temp_ds)
+                    
                 if self.as_lazyframe:
                     for split in splits:
                         setattr(self, f"{split}_dataset", 
