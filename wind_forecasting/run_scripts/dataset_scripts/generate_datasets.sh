@@ -1,6 +1,6 @@
 #!/bin/bash 
 #SBATCH --account=ssc
-#SBATCH --time=02:00:00
+#SBATCH --time=06:00:00
 #SBATCH --output=%j-%x.out
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=104
