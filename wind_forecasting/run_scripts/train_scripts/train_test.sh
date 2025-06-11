@@ -3,7 +3,7 @@
 #SBATCH --partition=debug
 #SBATCH --time=01:00:00
 #SBATCH --nodes=1 # this needs to match Trainer(num_nodes...)
-#SBATCH --cpus-per-task=4
+##SBATCH --cpus-per-task=2
 #SBATCH --gres=gpu:2
 #SBATCH --ntasks-per-node=2 # this needs to match Trainer(devices=...), and number of GPUs
 #SBATCH --mem-per-cpu=20G
@@ -21,22 +21,4 @@ ml PrgEnv-intel mamba
 #eval "$(conda shell.bash hook)"
 mamba activate wind_forecasting_env
 
-export NUMEXPR_MAX_THREADS=128
-export MODEL=$1
-export MODEL_CONFIG_FILE=$2
-
-API_FILE="../.wandb_api_key"
-if [ -f "${API_FILE}" ]; then
-  source "${API_FILE}"
-else
-  echo "ERROR: WANDB API‑key file not found at ${API_FILE}" >&2
-  exit 1
-fi
-
-echo "SLURM_NTASKS=${SLURM_NTASKS}"
-echo "SLURM_JOB_NUM_NODES=${SLURM_JOB_NUM_NODES}"
-echo "SLURM_GPUS_ON_NODE=${SLURM_GPUS_ON_NODE}"
-echo "SLURM_JOB_GPUS=${SLURM_JOB_GPUS}"
-echo "SLURM_JOB_GRES=${SLURM_JOB_GRES}"
-
-srun python ../run_model.py --config $MODEL_CONFIG_FILE --mode train --model $MODEL --use_tuned_parameters 
+srun python train_test.py
