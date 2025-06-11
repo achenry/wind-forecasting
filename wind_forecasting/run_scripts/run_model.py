@@ -230,7 +230,7 @@ def main():
 
     num_workers = max(0, cpus_per_task - 1)
 
-    # Set DataLoader parameters within the trainer config TODO JUAN why is num_workers=1
+    # Set DataLoader parameters within the trainer config TODO JUAN does num_workers have to be cpus_per_task-1, should persistent_workers be set to False
     logging.info(f"Determined SLURM_CPUS_PER_TASK={cpus_per_task}. Setting num_workers = {num_workers}.")
     
     if args.mode != "dataset":
@@ -238,6 +238,9 @@ def main():
         logging.info("Creating datasets")
         use_normalization = False if args.model == "tactis" else config["dataset"].get("normalize", True)
         logging.info(f"Instantiating DataModule with normalized={use_normalization} (Forced False for TACTiS-2 which requires denormalized input)")
+        
+        persistent_workers = num_workers > 0
+        
         data_module = DataModule(
             data_path=config["dataset"]["data_path"],
             n_splits=config["dataset"]["n_splits"],
@@ -259,7 +262,7 @@ def main():
             batch_size=config["dataset"].get("batch_size", 128),
             workers=num_workers,
             pin_memory=True,
-            persistent_workers=True,
+            persistent_workers=persistent_workers,
             verbose=True
         )
     
@@ -776,6 +779,7 @@ def main():
             
             dm_params.append(dm_param_set)
             
+            persistent_workers = num_workers > 0
             dm = DataModule(
                 data_path=cnf["dataset"]["data_path"],
                 n_splits=cnf["dataset"]["n_splits"],
@@ -797,7 +801,7 @@ def main():
                 batch_size=cnf["dataset"].get("batch_size", 128),
                 workers=num_workers,
                 pin_memory=True,
-                persistent_workers=True,
+                persistent_workers=persistent_workers,
                 verbose=True
             )
             

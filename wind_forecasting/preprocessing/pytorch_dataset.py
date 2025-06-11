@@ -14,8 +14,108 @@ import torch
 from torch.utils.data import IterableDataset
 import torch.distributed as dist
 from itertools import cycle, islice
+from torch.utils.data import DataLoader
+import lightning.pytorch as pl
 
 logger = logging.getLogger(__name__)
+
+class WindForecastingDatamodule(pl.LightningDataModule):
+    def __init__(self, train_data_path, val_data_path, train_sampler, 
+                 context_length, prediction_length, time_features, val_sampler=None, 
+                 train_repeat=True, val_repeat=False,
+                 batch_size=32, num_workers=4, pin_memory=True, persistent_workers=True):
+        super().__init__()
+        self.train_data_path = train_data_path
+        self.val_data_path = val_data_path
+        self.train_sampler = train_sampler
+        self.val_sampler = val_sampler
+        self.batch_size = batch_size
+        self.num_workers = num_workers
+        self.pin_memory = pin_memory
+        self.persistent_workers = persistent_workers
+        self.context_length = context_length
+        self.prediction_length = prediction_length
+        self.time_features = time_features
+        
+        self.train_repeat = train_repeat
+        self.val_repeat = val_repeat
+        
+        # These will be populated in setup()
+        self.train_dataset = None
+        self.val_dataset = None
+        self.test_dataset = None # Good practice to include
+
+    def setup(self, stage: str):
+        # The Trainer calls this on each DDP process
+        if stage == 'fit':
+            self.train_dataset = WindForecastingDataset(
+                data_path=self.train_data_path,
+                context_length=self.context_length,
+                prediction_length=self.prediction_length,
+                time_features=self.time_features,
+                sampler=self.train_sampler,  # GluonTS sampler instance
+                repeat=self.train_repeat,
+                skip_indices=1)
+        
+        if (stage == "validate" or stage == "fit") and self.val_data_path:
+            self.val_dataset = WindForecastingInferenceDataset(
+                data_path=self.val_data_path,
+                context_length=self.context_length,
+                prediction_length=self.prediction_length,
+                time_features=self.time_features,
+                sampler=self.val_sampler,  # GluonTS sampler instance
+                repeat=self.val_repeat,
+                skip_indices=self.prediction_length)
+
+        # Called when `trainer.test()` starts
+        elif stage == 'test':
+            # self.test_dataset = ... (if you have test data)
+            pass
+
+    def train_dataloader(self):
+        # The Trainer calls this after setup() on each DDP process
+        return DataLoader(
+            self.train_dataset,
+            batch_size=self.batch_size,
+            shuffle=False,  # Will be overridden by DistributedSampler in DDP
+            num_workers=self.num_workers,
+            pin_memory=self.pin_memory,
+            persistent_workers=self.persistent_workers,
+            # drop_last=True,  # Important for DDP to avoid uneven batch sizes
+        )
+        
+    def val_dataloader(self):
+        # This is also called at the correct time.
+        # It will correctly shard the validation data across all GPUs and workers.
+        if self.val_dataset is None:
+            return None
+        
+        return DataLoader(
+            self.val_dataset,
+            batch_size=self.batch_size,
+            shuffle=False,  # Never shuffle validation data
+            # worker_init_fn=self.__class__._worker_init_fn,
+            num_workers=self.num_workers,
+            pin_memory=self.pin_memory,
+            persistent_workers=self.persistent_workers,
+            # drop_last=False,  # Keep all validation samples
+        )
+
+    def test_dataloader(self):
+        # The same pattern applies for testing.
+        if self.test_dataset is None:
+            return None
+            
+        return DataLoader(
+            self.train_dataset,
+            batch_size=self.batch_size,
+            shuffle=False,  # Never shuffle validation data
+            # worker_init_fn=self.__class__._worker_init_fn,
+            num_workers=self.num_workers,
+            pin_memory=self.pin_memory,
+            persistent_workers=self.persistent_workers,
+            # drop_last=False,  # Keep all validation samples
+        )
 
 
 class WindForecastingDataset(IterableDataset):
