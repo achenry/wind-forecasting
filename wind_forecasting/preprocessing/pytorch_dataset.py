@@ -23,7 +23,7 @@ class WindForecastingDatamodule(pl.LightningDataModule):
     def __init__(self, train_data_path, val_data_path, train_sampler, 
                  context_length, prediction_length, time_features, val_sampler=None, 
                  train_repeat=True, val_repeat=False,
-                 batch_size=32, num_workers=4, pin_memory=True, persistent_workers=True):
+                 batch_size=32, num_workers=4, pin_memory=True):
         super().__init__()
         self.train_data_path = train_data_path
         self.val_data_path = val_data_path
@@ -32,7 +32,6 @@ class WindForecastingDatamodule(pl.LightningDataModule):
         self.batch_size = batch_size
         self.num_workers = num_workers
         self.pin_memory = pin_memory
-        self.persistent_workers = persistent_workers
         self.context_length = context_length
         self.prediction_length = prediction_length
         self.time_features = time_features
@@ -44,60 +43,97 @@ class WindForecastingDatamodule(pl.LightningDataModule):
         self.train_dataset = None
         self.val_dataset = None
         self.test_dataset = None # Good practice to include
+        
+        # These will be set in the setup() hook
+        self.world_size = 1
+        self.rank = 0
 
     def setup(self, stage: str):
+        # This hook is called on each DDP process, so `self.trainer` is available.
+        if self.trainer:
+            self.rank = self.trainer.global_rank
+            self.world_size = self.trainer.world_size
+            
         # The Trainer calls this on each DDP process
-        if stage == 'fit':
-            self.train_dataset = WindForecastingDataset(
+        # if stage == 'fit':
+        #     self.train_dataset = WindForecastingDataset(
+        #         data_path=self.train_data_path,
+        #         context_length=self.context_length,
+        #         prediction_length=self.prediction_length,
+        #         time_features=self.time_features,
+        #         sampler=self.train_sampler,  # GluonTS sampler instance
+        #         repeat=self.train_repeat,
+        #         skip_indices=1,
+        #         world_size=self.world_size,
+        #         rank=self.rank)
+        
+        # if (stage == "validate" or stage == "fit") and self.val_data_path:
+        #     self.val_dataset = WindForecastingInferenceDataset(
+        #         data_path=self.val_data_path,
+        #         context_length=self.context_length,
+        #         prediction_length=self.prediction_length,
+        #         time_features=self.time_features,
+        #         sampler=self.val_sampler,  # GluonTS sampler instance
+        #         repeat=self.val_repeat,
+        #         skip_indices=self.prediction_length,
+        #         world_size=self.world_size,
+        #         rank=self.rank)
+
+        # Called when `trainer.test()` starts
+        # elif stage == 'test':
+            # self.test_dataset = ... (if you have test data)
+            # pass
+
+    def train_dataloader(self):
+        # The Trainer calls this after setup() on each DDP process
+        train_dataset = WindForecastingDataset(
                 data_path=self.train_data_path,
                 context_length=self.context_length,
                 prediction_length=self.prediction_length,
                 time_features=self.time_features,
                 sampler=self.train_sampler,  # GluonTS sampler instance
                 repeat=self.train_repeat,
-                skip_indices=1)
-        
-        if (stage == "validate" or stage == "fit") and self.val_data_path:
-            self.val_dataset = WindForecastingInferenceDataset(
-                data_path=self.val_data_path,
-                context_length=self.context_length,
-                prediction_length=self.prediction_length,
-                time_features=self.time_features,
-                sampler=self.val_sampler,  # GluonTS sampler instance
-                repeat=self.val_repeat,
-                skip_indices=self.prediction_length)
-
-        # Called when `trainer.test()` starts
-        elif stage == 'test':
-            # self.test_dataset = ... (if you have test data)
-            pass
-
-    def train_dataloader(self):
-        # The Trainer calls this after setup() on each DDP process
+                skip_indices=1,
+                world_size=self.world_size,
+                rank=self.rank)
         return DataLoader(
-            self.train_dataset,
+            train_dataset,
             batch_size=self.batch_size,
             shuffle=False,  # Will be overridden by DistributedSampler in DDP
             num_workers=self.num_workers,
             pin_memory=self.pin_memory,
-            persistent_workers=self.persistent_workers,
+            persistent_workers=self.num_workers>0,
             # drop_last=True,  # Important for DDP to avoid uneven batch sizes
         )
         
     def val_dataloader(self):
         # This is also called at the correct time.
         # It will correctly shard the validation data across all GPUs and workers.
-        if self.val_dataset is None:
+        # if self.val_dataset is None:
+        #     return None
+        
+        val_dataset = WindForecastingInferenceDataset(
+                data_path=self.val_data_path,
+                context_length=self.context_length,
+                prediction_length=self.prediction_length,
+                time_features=self.time_features,
+                sampler=self.val_sampler,  # GluonTS sampler instance
+                repeat=self.val_repeat,
+                skip_indices=self.prediction_length,
+                world_size=self.world_size,
+                rank=self.rank)
+        
+        if val_dataset is None:
             return None
         
         return DataLoader(
-            self.val_dataset,
+            val_dataset,
             batch_size=self.batch_size,
             shuffle=False,  # Never shuffle validation data
             # worker_init_fn=self.__class__._worker_init_fn,
             num_workers=self.num_workers,
             pin_memory=self.pin_memory,
-            persistent_workers=self.persistent_workers,
+            persistent_workers=self.num_workers>0,
             # drop_last=False,  # Keep all validation samples
         )
 
@@ -113,7 +149,7 @@ class WindForecastingDatamodule(pl.LightningDataModule):
             # worker_init_fn=self.__class__._worker_init_fn,
             num_workers=self.num_workers,
             pin_memory=self.pin_memory,
-            persistent_workers=self.persistent_workers,
+            persistent_workers=self.num_workers>0,
             # drop_last=False,  # Keep all validation samples
         )
 
@@ -145,7 +181,9 @@ class WindForecastingDataset(IterableDataset):
         time_features: Optional[List] = None,
         sampler: Optional[Any] = None,  # GluonTS sampler instance
         repeat: bool = False,
-        skip_indices: int = 1
+        skip_indices: int = 1,
+        rank: int = 0,
+        world_size: int = 1
     ):
         self.context_length = context_length
         self.prediction_length = prediction_length
@@ -153,6 +191,10 @@ class WindForecastingDataset(IterableDataset):
         self.sampler = sampler
         self.repeat = repeat
         self.skip_indices = skip_indices
+        
+        # Store world_size and rank passed from the DataModule
+        self.world_size = world_size
+        self.rank = rank
         
         # Load data from pickle
         logger.info(f"Loading dataset from {data_path}")
@@ -175,33 +217,22 @@ class WindForecastingDataset(IterableDataset):
         self.worker_shard_step = 1
         
     def __iter__(self):
-        # return islice(self._base_iter(), self.worker_shard_start, None, self.worker_shard_step)
         
-        # try:
-        # TRUST that Lightning has set up the environment. Try to get DDP info.
-        # If this fails, the except block will catch it.
-        world_size = dist.get_world_size()
-        rank = dist.get_rank()
-        # except (RuntimeError, ValueError):
-        #     # This will catch "Default process group has not been initialized"
-        #     world_size = 1
-        #     rank = 0
-        
-        if world_size > 1:
-            logger.info(f"Using distributed training with rank={rank}, world_size={world_size}")
+        if self.world_size > 1:
+            logger.info(f"Using distributed training with rank={self.rank}, world_size={self.world_size}")
         else:
-            logger.info(f"Using single-rank training with rank={rank}, world_size={world_size}")
+            logger.info(f"Using single-rank training with rank={self.rank}, world_size={self.world_size}")
                 
         worker_info = torch.utils.data.get_worker_info()
         
         if worker_info is None: # Main process, num_workers=0 case
-            return islice(self._base_iter(), rank, None, world_size)
+            return islice(self._base_iter(), self.rank, None, self.world_size)
         else: # In a worker process
             num_workers = worker_info.num_workers
             worker_id = worker_info.id
             
-            global_num_workers = num_workers * world_size
-            global_worker_id = rank * num_workers + worker_id
+            global_num_workers = num_workers * self.world_size
+            global_worker_id = self.rank * num_workers + worker_id
             logger.info(f"training global_worker_id={global_worker_id}, global_num_workers={global_num_workers}")
 
             return islice(self._base_iter(), global_worker_id, None, global_num_workers)

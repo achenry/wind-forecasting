@@ -1,5 +1,4 @@
 # debug_ddp.py
-import gluonts
 import torch.multiprocessing as mp
 import lightning.pytorch as pl
 from gluonts.transform import ExpectedNumInstanceSampler
@@ -20,15 +19,15 @@ def main():
     
     # Example config (replace with your actual values)
     config = {
-        'train_data_path': '/projects/ssc/ahenry/wind_forecasting/awaken_data/awaken_processed_normalized_train_ready_30s_per_turbine_ctx28_pred7_train.pkl',
-        'val_data_path': '/projects/ssc/ahenry/wind_forecasting/awaken_data/awaken_processed_normalized_train_ready_30s_per_turbine_ctx28_pred7_val.pkl',
-        'context_length': 28,
+        'train_data_path': '/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/awaken_data/awaken_processed_normalized_train_ready_30s_per_turbine_ctx14_pred7_train.pkl',
+        'val_data_path': '/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/awaken_data/awaken_processed_normalized_train_ready_30s_per_turbine_ctx14_pred7_val.pkl',
+        'context_length': 14,
         'prediction_length': 7,
         'batch_size': 32,
         'num_workers': 0,
         # You'll need to figure out how to create/pass your `train_sampler`
         # and `time_features`. For this test, you might be able to simplify them.
-        'train_sampler': ExpectedNumInstanceSampler(num_instances=1.0, min_past=28, min_future=7), 
+        'train_sampler': ExpectedNumInstanceSampler(num_instances=1.0, min_past=14, min_future=7), 
         "val_sampler": None,
         'time_features': [second_of_minute, minute_of_hour, hour_of_day, day_of_year],
     }
@@ -42,8 +41,7 @@ def main():
         prediction_length=config['prediction_length'],
         time_features=config['time_features'],
         batch_size=config['batch_size'],
-        num_workers=config['num_workers'],
-        persistent_workers=False # Keep this false for the test
+        num_workers=config['num_workers']
     )
 
     # 3. Instantiate your LightningModule (your model) directly
@@ -57,7 +55,7 @@ def main():
     # 4. Instantiate the Trainer
     #    Make sure the strategy and devices match your SLURM request.
     trainer = pl.Trainer(
-        accelerator="auto",
+        accelerator="cpu",
         devices=2, # Or however many GPUs you requested
         strategy="auto",
         max_epochs=1,
