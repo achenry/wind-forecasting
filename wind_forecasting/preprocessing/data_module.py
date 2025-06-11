@@ -330,12 +330,12 @@ class DataModule():
                         logging.info(f"Setting {split}_dataset attribute.")
                     
                     temp_ds = {}
-                    for cg in range(len(ds)):
+                    for cg_idx in range(len(ds)):
                         # df = ds[cg].collect(_eager=True)
                         for turbine_id in self.target_suffixes:
                             if self.verbose:
-                                logging.info(f"Getting dataset for turbine_id={turbine_id}, cg={cg} of {len(ds)}.")
-                            temp_ds[f"TURBINE{turbine_id}_SPLIT{cg}"] = self.get_df_by_turbine(ds[cg], turbine_id)#.lazy()
+                                logging.info(f"Getting dataset for turbine_id={turbine_id}, cg_idx={cg_idx} of {len(ds)}.")
+                            temp_ds[f"TURBINE{turbine_id}_SPLIT{cg_idx}"] = self.get_df_by_turbine(ds[cg_idx], turbine_id)#.lazy()
                     
                     setattr(self, f"{split}_dataset", temp_ds)
                 
@@ -414,10 +414,15 @@ class DataModule():
                 # transform list into dictionary if item_id, reduced dataset pairs
                 for split in splits:
                     ds = getattr(self, f"{split}_dataset")
-                    setattr(self, f"{split}_dataset", 
-                            {f"SPLIT{split}": 
-                            ds[split].select([pl.col("time")] + self.feat_dynamic_real_cols + self.target_cols) 
-                            for split in range(len(ds))})
+                    if self.verbose:
+                        logging.info(f"Setting {split}_dataset attribute.")
+                    
+                    temp_ds = {}
+                    for cg_idx in range(len(ds)):
+                        # df = ds[cg].collect(_eager=True)
+                        if self.verbose:
+                            logging.info(f"Getting dataset for cg_idx={cg_idx} of {len(ds)}.")
+                        temp_ds[f"SPLIT{cg_idx}"] = ds[cg_idx].select([pl.col("time")] + self.feat_dynamic_real_cols + self.target_cols)
 
                 if self.as_lazyframe:
                     for split in splits:

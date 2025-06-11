@@ -88,7 +88,7 @@ class WindForecastingDataset(IterableDataset):
         else:
             rank = 0
             world_size = 1
-        logger.info(f"rank={rank}, world_size={world_size}")
+        logger.info(f"training rank={rank}, world_size={world_size}")
                 
         worker_info = torch.utils.data.get_worker_info()
         
@@ -100,7 +100,7 @@ class WindForecastingDataset(IterableDataset):
             
             global_num_workers = num_workers * world_size
             global_worker_id = rank * num_workers + worker_id
-            logger.info(f"global_worker_id={global_worker_id}, global_num_workers={global_num_workers}")
+            logger.info(f"training global_worker_id={global_worker_id}, global_num_workers={global_num_workers}")
 
             return islice(self._base_iter(), global_worker_id, None, global_num_workers)
         
@@ -318,7 +318,7 @@ class WindForecastingInferenceDataset(WindForecastingDataset):
             rank = 0
             world_size = 1
             
-        logger.info(f"rank={rank}, world_size={world_size}")
+        logger.info(f"inference rank={rank}, world_size={world_size}")
             
         worker_info = torch.utils.data.get_worker_info()
         
@@ -330,6 +330,6 @@ class WindForecastingInferenceDataset(WindForecastingDataset):
             
             global_num_workers = num_workers * world_size
             global_worker_id = rank * num_workers + worker_id
-            logger.info(f"global_worker_id={global_worker_id}, global_num_workers={global_num_workers}")
+            logger.info(f"inference global_worker_id={global_worker_id}, global_num_workers={global_num_workers}")
 
             return islice(self._base_iter(), global_worker_id, None, global_num_workers)
