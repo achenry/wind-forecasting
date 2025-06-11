@@ -124,7 +124,7 @@ class WindForecastingDataset(IterableDataset):
         
         for entry in self.data:
             
-            sampled_indices = self.sampler(entry['target'])[:, :, self.skip_indices]
+            sampled_indices = self.sampler(entry['target'])[::self.skip_indices]
             
             if len(sampled_indices) == 0:
                 continue
