@@ -46,8 +46,8 @@ from wind_forecasting.run_scripts.testing import test_model, get_checkpoint, loa
 from wind_forecasting.tuning import get_tuned_params
 from wind_forecasting.utils.optuna_config_utils import generate_db_setup_params
 
-import torch.multiprocessing as tmp
-tmp.set_start_method('spawn', force=True)
+# import torch.multiprocessing as tmp
+# tmp.set_start_method('spawn', force=True)
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
