@@ -177,8 +177,15 @@ class WindForecastingDataset(IterableDataset):
     def __iter__(self):
         # return islice(self._base_iter(), self.worker_shard_start, None, self.worker_shard_step)
         
-        rank = dist.get_rank()
-        world_size = dist.get_world_size()
+        try:
+            # TRUST that Lightning has set up the environment. Try to get DDP info.
+            # If this fails, the except block will catch it.
+            world_size = dist.get_world_size()
+            rank = dist.get_rank()
+        except (RuntimeError, ValueError):
+            # This will catch "Default process group has not been initialized"
+            world_size = 1
+            rank = 0
         
         if world_size > 1:
             logger.info(f"Using distributed training with rank={rank}, world_size={world_size}")
