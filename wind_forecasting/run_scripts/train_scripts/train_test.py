@@ -1,5 +1,4 @@
 # debug_ddp.py
-import gluonts
 import torch.multiprocessing as mp
 import lightning.pytorch as pl
 from gluonts.transform import ExpectedNumInstanceSampler
@@ -42,8 +41,7 @@ def main():
         prediction_length=config['prediction_length'],
         time_features=config['time_features'],
         batch_size=config['batch_size'],
-        num_workers=config['num_workers'],
-        persistent_workers=False # Keep this false for the test
+        num_workers=config['num_workers']
     )
 
     # 3. Instantiate your LightningModule (your model) directly
