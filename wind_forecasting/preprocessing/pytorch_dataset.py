@@ -33,7 +33,6 @@ class WindForecastingDatamodule(pl.LightningDataModule):
         self.num_workers = num_workers
         self.pin_memory = pin_memory
         self.persistent_workers = persistent_workers
-        self.persistent_workers = False # TODO TESTING
         self.context_length = context_length
         self.prediction_length = prediction_length
         self.time_features = time_features
@@ -178,13 +177,12 @@ class WindForecastingDataset(IterableDataset):
     def __iter__(self):
         # return islice(self._base_iter(), self.worker_shard_start, None, self.worker_shard_step)
         
-        if dist.is_initialized():
-            rank = dist.get_rank()
-            world_size = dist.get_world_size()
+        rank = dist.get_rank()
+        world_size = dist.get_world_size()
+        
+        if world_size > 1:
             logger.info(f"Using distributed training with rank={rank}, world_size={world_size}")
         else:
-            rank = 0
-            world_size = 1
             logger.info(f"Using single-rank training with rank={rank}, world_size={world_size}")
                 
         worker_info = torch.utils.data.get_worker_info()
