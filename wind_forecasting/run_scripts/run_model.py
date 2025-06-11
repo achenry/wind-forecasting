@@ -1026,7 +1026,7 @@ def main():
                 # Pass additional kwargs that might be needed for PyTorch dataloaders
                 num_workers=num_workers,
                 pin_memory=True,
-                persistent_workers=True
+                persistent_workers=False # TODO TESTING
             )
         else:
             # Original GluonTS data loading
