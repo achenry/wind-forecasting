@@ -167,11 +167,6 @@ class WindForecastingDataset(IterableDataset):
             sample = self.data[0]
             assert 'target' in sample, "Dataset must contain 'target' field"
             assert 'start' in sample, "Dataset must contain 'start' field"
-        
-        if self.repeat:
-            self.data = cycle(self.data)
-        else:
-            self.data = iter(self.data)
             
         self.dataset_idx = 0
         # These attributes will be configured by the worker_init_fn.
@@ -223,7 +218,14 @@ class WindForecastingDataset(IterableDataset):
             - feat_static_real: (num_static_real,)
         """
         
-        for entry in self.data:
+        # Create a NEW, FRESH iterator from the source list every time.
+        data_iterator = iter(self.data)
+        
+        # Apply cycle() here if needed, on the new iterator.
+        if self.repeat:
+            data_iterator = cycle(data_iterator)
+        
+        for entry in data_iterator:
             
             sampled_indices = self.sampler(entry['target'])[::self.skip_indices]
             
@@ -337,7 +339,14 @@ class WindForecastingInferenceDataset(WindForecastingDataset):
     def _base_iter(self):
         """Get a specific window for inference."""
         
-        for entry in self.data:
+        # Create a NEW, FRESH iterator from the source list every time.
+        data_iterator = iter(self.data)
+        
+        # Apply cycle() here if needed, on the new iterator.
+        if self.repeat:
+            data_iterator = cycle(data_iterator)
+        
+        for entry in data_iterator:
             # Same processing as parent class but with fixed time point
             target = entry['target']
             start_period = entry['start']

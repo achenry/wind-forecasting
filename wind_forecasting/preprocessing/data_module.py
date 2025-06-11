@@ -579,6 +579,7 @@ class DataModule():
         
         # TODO total past length may also have to supercede context_len + max(self.lags_seq)
         for cg, ds in enumerate(dataset):
+            logging.info(f"Splitting {cg}th dataset of {len(dataset)}.")
             # TODO in this case should just add to training data anyway? 
             if round(min(self.train_split, self.val_split, self.test_split) * self.rows_per_split[cg] * self.n_splits) < self.context_length + self.prediction_length:
                 logging.info(f"Can't split dataset corresponding to continuity group {cg} into training, validation, testing, the full dataset only has data points {round(self.rows_per_split[cg] * self.n_splits)}")
@@ -616,34 +617,23 @@ class DataModule():
                     datasets.append(ds.select(pl.exclude("continuity_group")))
                     break
             
+            logging.info(f"Computing split offsets.")
             train_offset = round(self.train_split * self.rows_per_split[cg])
             val_offset = round(self.val_split * self.rows_per_split[cg])
             test_offset = round(self.test_split * self.rows_per_split[cg])
 
-            # TODO shouldn't test data include history, and just the labels be unseen by training data?
-            # train_datasets.append(ds.slice(0, train_offset))
-            # val_datasets.append(ds.slice(train_offset, val_offset))
-            # test_datasets.append(ds.slice(train_offset + val_offset, test_offset))
+            logging.info(f"Creating train_datasets list.")
             train_datasets += [d.slice(0, train_offset) for d in datasets]
+            
+            logging.info(f"Creating val_datasets list.")
             val_datasets += [d.slice(train_offset, val_offset) for d in datasets]  # val_offset is the length of validation data
+            
+            logging.info(f"Creating test_datasets list.")
             test_datasets += [d.slice(train_offset + val_offset, test_offset) for d in datasets]  # test_offset is the length of test data
             
-            # TODO doesn't work with iterable lazy frame
-            # if self.verbose:
-            #     for t, train_entry in enumerate(iter(train_datasets)):
-            #         logging.info(f"training dataset cg {cg}, split {t} start time = {train_entry['start']}, end time = {train_entry['start'] + train_entry['target'].shape[1]}, duration = {train_entry['target'].shape[1] * pd.Timedelta(train_entry['start'].freq)}\n")
-
-            #     for v, val_entry in enumerate(iter(val_datasets)):
-            #         logging.info(f"validation dataset cg {cg}, split {v} start time = {val_entry['start']}, end time = {val_entry['start'] + val_entry['target'].shape[1]}, duration = {val_entry['target'].shape[1] * pd.Timedelta(val_entry['start'].freq)}\n")
-
-            #     for t, test_entry in enumerate(iter(test_datasets)):
-            #         logging.info(f"test dataset cg {cg}, split {t} start time = {test_entry['start']}, end time = {test_entry['start'] + test_entry['target'].shape[1]}, duration = {test_entry['target'].shape[1] * pd.Timedelta(test_entry['start'].freq)}\n")
-            
-            # n_test_windows = int((self.test_split * self.rows_per_split[cg]) / self.prediction_length)
-            # test_dataset = test_gen.generate_instances(prediction_length=self.prediction_length, windows=n_test_windows)
-        
         if self.verbose:
             logging.info("Returning train/val/test datasets.")
+            
         return train_datasets, val_datasets, test_datasets
 
     def highlight_entry(self, entry, color, ax, vlines=None):
