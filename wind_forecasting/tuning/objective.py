@@ -148,7 +148,9 @@ class MLTuningObjective:
             scaling_factor = self.base_batch_size / current_batch_size
             # BUGFIX Preserve float type for epoch validation
             if isinstance(base_val_check_interval, float) and base_val_check_interval <= 1.0:
+                # # TODO why can't we round this too? 
                 dynamic_val_check_interval = base_val_check_interval
+                # dynamic_val_check_interval = base_val_check_interval * scaling_factor
             else:
                 dynamic_val_check_interval = max(1.0, round(base_val_check_interval * scaling_factor))
             
@@ -356,7 +358,7 @@ class MLTuningObjective:
         logging.info(f"  - trainer limit_train_batches: {trial_trainer_kwargs.get('limit_train_batches', 'NOT SET')}")
         logging.info(f"  - Expected total batches: {trial_trainer_kwargs.get('max_epochs', 0) * estimator_kwargs['num_batches_per_epoch']}")
         
-        # Calculate actual number of training samples
+        # Calculate actual number of training samples TODO this will not work with expectednumsampler...
         n_training_samples = 0
         for ds in self.data_module.train_dataset:
             a, b = estimator_kwargs["train_sampler"]._get_bounds(ds["target"])
@@ -373,7 +375,6 @@ class MLTuningObjective:
         # Add model-specific arguments from the default config YAML
         # CRITICAL: Preserve the dynamically calculated num_batches_per_epoch
         dynamic_num_batches = estimator_kwargs["num_batches_per_epoch"]
-        
         
         estimator_kwargs.update({k: v for k, v in self.config["model"][self.model].items() if k in valid_estimator_params})
         estimator_kwargs["num_batches_per_epoch"] = dynamic_num_batches  # Restore dynamic value
@@ -469,7 +470,6 @@ class MLTuningObjective:
                     logging.info(f"  Training data: {train_data_path}")
                     logging.info(f"  Validation data: {val_data_path}")
                     
-
                     estimator.train(
                         training_data=train_data_path,
                         validation_data=val_data_path,
@@ -477,7 +477,8 @@ class MLTuningObjective:
                         # Pass additional kwargs that might be needed for PyTorch dataloaders
                         num_workers=4,
                         pin_memory=True,
-                        persistent_workers=True
+                        persistent_workers=True,
+                        skip_indices=self.data_module.prediction_length # TODO this should be configurable how many indices in sequential sampler to skip for validation
                     )
                 else:
                     # Original GluonTS data loading

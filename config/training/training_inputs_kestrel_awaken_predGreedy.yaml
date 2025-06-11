@@ -285,5 +285,5 @@ trainer:
     num_nodes: 1
     strategy: ddp
     max_epochs: 100 # Maximum number of epochs to train 100
-    limit_train_batches: 5000
+    limit_train_batches:  # 5000, set to null for training, 5000 for tuning
     log_every_n_steps: 100

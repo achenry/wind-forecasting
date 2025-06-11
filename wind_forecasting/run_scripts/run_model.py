@@ -48,14 +48,6 @@ from wind_forecasting.utils.optuna_config_utils import generate_db_setup_params
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-mpi_exists = False
-try:
-    from mpi4py import MPI
-    mpi_exists = True
-except:
-    logging.warning("No MPI available on system.")
-
-
 def main():
 
     # %% DETERMINE WORKER RANK (using WORKER_RANK set in Slurm script, fallback to 0)
