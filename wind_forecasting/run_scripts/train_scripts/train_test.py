@@ -20,15 +20,15 @@ def main():
     
     # Example config (replace with your actual values)
     config = {
-        'train_data_path': '/projects/ssc/ahenry/wind_forecasting/awaken_data/awaken_processed_normalized_train_ready_30s_per_turbine_ctx28_pred7_train.pkl',
-        'val_data_path': '/projects/ssc/ahenry/wind_forecasting/awaken_data/awaken_processed_normalized_train_ready_30s_per_turbine_ctx28_pred7_val.pkl',
-        'context_length': 28,
+        'train_data_path': '/projects/ssc/ahenry/wind_forecasting/awaken_data/awaken_processed_normalized_train_ready_30s_per_turbine_ctx14_pred7_train.pkl',
+        'val_data_path': '/projects/ssc/ahenry/wind_forecasting/awaken_data/awaken_processed_normalized_train_ready_30s_per_turbine_ctx14_pred7_val.pkl',
+        'context_length': 14,
         'prediction_length': 7,
         'batch_size': 32,
         'num_workers': 0,
         # You'll need to figure out how to create/pass your `train_sampler`
         # and `time_features`. For this test, you might be able to simplify them.
-        'train_sampler': ExpectedNumInstanceSampler(num_instances=1.0, min_past=28, min_future=7), 
+        'train_sampler': ExpectedNumInstanceSampler(num_instances=1.0, min_past=14, min_future=7), 
         "val_sampler": None,
         'time_features': [second_of_minute, minute_of_hour, hour_of_day, day_of_year],
     }
@@ -50,7 +50,7 @@ def main():
     #    You'll need to provide its required arguments.
     model = InformerLightningModule(
         # ... arguments for your model ...
-        model_config={'freq': '30s', 'context_length': 34, 'prediction_length': 17, 'num_feat_dynamic_real': 6, 'num_feat_static_real': 1, 'num_feat_static_cat': 1, 'cardinality': [88], 'embedding_dimension': None, 'd_model': 128, 'n_heads': 8, 'num_encoder_layers': 2, 'num_decoder_layers': 2, 'activation': 'gelu', 'dropout': 0.15697382123348755, 'dim_feedforward': 512, 'attn': 'prob', 'factor': 5, 'distil': True, 'input_size': 2, 'distr_output': LowRankMultivariateNormalOutput(dim=2, rank=8), 'lags_seq': [0], 'scaling': 'False', 'num_parallel_samples': 100},
+        model_config={'freq': '30s', 'context_length': 14, 'prediction_length': 7, 'num_feat_dynamic_real': 6, 'num_feat_static_real': 1, 'num_feat_static_cat': 1, 'cardinality': [88], 'embedding_dimension': None, 'd_model': 128, 'n_heads': 8, 'num_encoder_layers': 2, 'num_decoder_layers': 2, 'activation': 'gelu', 'dropout': 0.15697382123348755, 'dim_feedforward': 512, 'attn': 'prob', 'factor': 5, 'distil': True, 'input_size': 2, 'distr_output': LowRankMultivariateNormalOutput(dim=2, rank=8), 'lags_seq': [0], 'scaling': 'False', 'num_parallel_samples': 100},
     lr=1e-4,weight_decay=1e-8,eta_min_fraction=0.1,gradient_clip_val=1000,warmup_steps=50000, steps_to_decay=50000, batch_size=128, base_batch_size_for_scheduler_steps=2048,base_limit_train_batches=None,num_batches_per_epoch=154724
     )
 
