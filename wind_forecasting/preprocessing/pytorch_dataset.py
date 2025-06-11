@@ -44,13 +44,15 @@ class WindForecastingDataset(IterableDataset):
         prediction_length: int,
         time_features: Optional[List] = None,
         sampler: Optional[Any] = None,  # GluonTS sampler instance
-        repeat: bool = False
+        repeat: bool = False,
+        skip_indices: int = 1
     ):
         self.context_length = context_length
         self.prediction_length = prediction_length
         self.time_features = time_features or []
         self.sampler = sampler
         self.repeat = repeat
+        self.skip_indices = skip_indices
         
         # Load data from pickle
         logger.info(f"Loading dataset from {data_path}")
@@ -122,7 +124,7 @@ class WindForecastingDataset(IterableDataset):
         
         for entry in self.data:
             
-            sampled_indices = self.sampler(entry['target'])
+            sampled_indices = self.sampler(entry['target'])[:, :, self.skip_indices]
             
             if len(sampled_indices) == 0:
                 continue
@@ -230,7 +232,6 @@ class WindForecastingInferenceDataset(WindForecastingDataset):
     
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.skip_indices = kwargs.get("skip_indices", 1)
         
     def _base_iter(self):
         """Get a specific window for inference."""
