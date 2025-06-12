@@ -316,7 +316,6 @@ class DataModule():
                         if self.verbose:
                             logging.info(f"Collecting {d}th {split} dataset of {len(split_ds)}.")
 
-                            
                         split_ds[d] = []
                         for turbine_id in self.target_suffixes:
                             if self.verbose:
@@ -413,8 +412,6 @@ class DataModule():
                     for d, ds in enumerate(split_ds):
                         if self.verbose:
                             logging.info(f"Collecting {d}th {split} dataset of {len(split_ds)}.")
-                            
-                        ds = ds.collect().lazy()
                             
                         split_ds[d] = ds.collect().select([pl.col("time")] + self.feat_dynamic_real_cols + self.target_cols).lazy()
                         split_ds_keys.append(f"SPLIT{d}")
