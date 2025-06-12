@@ -142,6 +142,8 @@ for i in $(seq 0 $((${NUM_GPUS}-1))); do
       # Note: PYTHONPATH and WANDB_DIR are inherited via export from parent script
 
       echo \"Worker ${i}: Running python script with WORKER_RANK=${WORKER_RANK}...\"
+
+      ulimit -n unlimited
       
       # --- Run the tuning script ---
       # Workers connect to the already initialized study using the PG URL
