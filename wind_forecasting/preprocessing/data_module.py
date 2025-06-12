@@ -174,7 +174,7 @@ class DataModule():
         
         if self.verbose:
             logging.info(f"Writing resampled/sorted parquet to {self.train_ready_data_path}.") 
-        dataset.collect().write_parquet(self.train_ready_data_path, statistics=False)
+        dataset.collect().write_parquet(self.train_ready_data_path)
         if self.verbose:
             logging.info(f"Saved resampled/sorted parquet to {self.train_ready_data_path}.")
         
@@ -313,19 +313,19 @@ class DataModule():
                     if self.verbose:
                         logging.info(f"Collecting {d}th train dataset of {len(self.train_dataset)}.")
                     fp = self.train_ready_data_path.replace(".parquet", f"_train_{d}_tmp.parquet")
-                    self.train_dataset[d].collect(_eager=True).write_parquet(fp, statistics=False)
+                    self.train_dataset[d].collect(_eager=True).write_parquet(fp)
                     
                 for d, ds in enumerate(self.val_dataset):
                     if self.verbose:
                         logging.info(f"Collecting {d}th val dataset of {len(self.val_dataset)}.")
                     fp = self.train_ready_data_path.replace(".parquet", f"_val_{d}_tmp.parquet")
-                    self.val_dataset[d].collect(_eager=True).write_parquet(fp, statistics=False)
+                    self.val_dataset[d].collect(_eager=True).write_parquet(fp)
                     
                 for d, ds in enumerate(self.test_dataset):
                     if self.verbose:
                         logging.info(f"Collecting {d}th test dataset of {len(self.test_dataset)}.")
                     fp = self.train_ready_data_path.replace(".parquet", f"_test_{d}_tmp.parquet")
-                    self.test_dataset[d].collect(_eager=True).write_parquet(fp, statistics=False)
+                    self.test_dataset[d].collect(_eager=True).write_parquet(fp)
                     
                 for d, ds in enumerate(self.train_dataset):
                     if self.verbose:
@@ -420,19 +420,19 @@ class DataModule():
                     if self.verbose:
                         logging.info(f"Collecting {d}th train dataset of {len(self.train_dataset)}.")
                     fp = self.train_ready_data_path.replace(".parquet", f"_train_{d}_tmp.parquet")
-                    self.train_dataset[d].collect(_eager=True).write_parquet(fp, statistics=False)
+                    self.train_dataset[d].collect(_eager=True).write_parquet(fp)
                     
                 for d, ds in enumerate(self.val_dataset):
                     if self.verbose:
                         logging.info(f"Collecting {d}th val dataset of {len(self.val_dataset)}.")
                     fp = self.train_ready_data_path.replace(".parquet", f"_val_{d}_tmp.parquet")
-                    self.val_dataset[d].collect(_eager=True).write_parquet(fp, statistics=False)
+                    self.val_dataset[d].collect(_eager=True).write_parquet(fp)
                     
                 for d, ds in enumerate(self.test_dataset):
                     if self.verbose:
                         logging.info(f"Collecting {d}th test dataset of {len(self.test_dataset)}.")
                     fp = self.train_ready_data_path.replace(".parquet", f"_test_{d}_tmp.parquet")
-                    self.test_dataset[d].collect(_eager=True).write_parquet(fp, statistics=False)
+                    self.test_dataset[d].collect(_eager=True).write_parquet(fp)
                     
                 for d, ds in enumerate(self.train_dataset):
                     if self.verbose:
