@@ -311,22 +311,22 @@ class DataModule():
                 
                 for split in splits:
                     split_ds = getattr(self, f"{split}_dataset")
-                    temp_ds = {}
+                    split_ds_keys = []
                     for d, ds in enumerate(split_ds):
                         if self.verbose:
                             logging.info(f"Collecting {d}th {split} dataset of {len(split_ds)}.")
-                        ds = ds.collect().lazy()
 
-                        if self.verbose:
-                            logging.info(f"Setting {split}_dataset attribute.")
                             
+                        split_ds[d] = []
                         for turbine_id in self.target_suffixes:
                             if self.verbose:
                                 logging.info(f"Getting dataset for turbine_id={turbine_id}, cg_idx={d} of {len(split_ds)}.")
-                            temp_ds[f"TURBINE{turbine_id}_SPLIT{d}"] = self.get_df_by_turbine(ds, turbine_id)
+                            split_ds[d].append(self.get_df_by_turbine(ds, turbine_id))
+                            split_ds_keys.append(f"TURBINE{turbine_id}_SPLIT{d}")
                     
-                    setattr(self, f"{split}_dataset", temp_ds.copy)
-                    del ds, temp_ds
+                    if self.verbose:
+                        logging.info(f"Setting {split}_dataset attribute.")
+                    setattr(self, f"{split}_dataset", {k: v for k, v in zip(split_ds_keys, split_ds)})
                             
                 # for d, ds in enumerate(self.val_dataset):
                 #     if self.verbose:
@@ -409,21 +409,19 @@ class DataModule():
                 
                 for split in splits:
                     split_ds = getattr(self, f"{split}_dataset")
-                    temp_ds = {}
+                    split_ds_keys = []
                     for d, ds in enumerate(split_ds):
                         if self.verbose:
-                            logging.info(f"Collecting {d}th train dataset of {len(split_ds)}.")
+                            logging.info(f"Collecting {d}th {split} dataset of {len(split_ds)}.")
                             
                         ds = ds.collect().lazy()
-                        
-                        if self.verbose:
-                            logging.info(f"Setting {split}_dataset attribute.")
                             
-                        
-                        temp_ds[f"SPLIT{d}"] = ds.select([pl.col("time")] + self.feat_dynamic_real_cols + self.target_cols)
+                        split_ds[d] = ds.collect().select([pl.col("time")] + self.feat_dynamic_real_cols + self.target_cols).lazy()
+                        split_ds_keys.append(f"SPLIT{d}")
 
-                    setattr(self, f"{split}_dataset", temp_ds.copy())
-                    del ds, temp_ds
+                    if self.verbose:
+                        logging.info(f"Setting {split}_dataset attribute.")
+                    setattr(self, f"{split}_dataset", {k: v for k, v in zip(split_ds_keys, split_ds)})
                     
                 # for d, ds in enumerate(self.val_dataset):
                 #     if self.verbose:
