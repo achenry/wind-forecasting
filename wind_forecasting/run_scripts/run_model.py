@@ -992,12 +992,6 @@ def main():
                    estimator_class=EstimatorClass,
                    distr_output_class=DistrOutputClass,
                    data_module=data_module,
-                   max_epochs=config["optuna"]["max_epochs"],
-                   # Use base_limit_train_batches if available, otherwise fallback to limit_train_batches (or None)
-                   limit_train_batches=config["optuna"].get("base_limit_train_batches", config["optuna"].get("limit_train_batches", None)),
-                   metric=config["optuna"]["metric"],
-                   direction=config["optuna"]["direction"],
-                   n_trials_per_worker=config["optuna"]["n_trials_per_worker"],
                    trial_protection_callback=handle_trial_with_oom_protection,
                    seed=args.seed, tuning_phase=args.tuning_phase,
                    restart_tuning=args.restart_tuning) # Add restart_tuning parameter
