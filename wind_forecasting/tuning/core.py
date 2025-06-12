@@ -614,24 +614,26 @@ def tune_model(model, config, study_name, optuna_storage, lightning_module_class
             )
             logging.info(f"Rank 0: Initialized W&B summary run: {wandb.run.name} (ID: {wandb.run.id}) with Git info: {git_info_config}")
 
-            try:
-                # Log Optuna visualizations using the helper function
-                logging.info("Rank 0: Logging Optuna visualizations to W&B summary run...")
-                log_optuna_visualizations_to_wandb(study, wandb.run)
-                logging.info("Rank 0: Finished logging Optuna visualizations to W&B.")
+            # TODO might be a cause of too many artifacts being logged
+            if False:
+                try:
+                    # Log Optuna visualizations using the helper function
+                    logging.info("Rank 0: Logging Optuna visualizations to W&B summary run...")
+                    log_optuna_visualizations_to_wandb(study, wandb.run)
+                    logging.info("Rank 0: Finished logging Optuna visualizations to W&B.")
 
-                # Log Detailed Trials Table using the helper function
-                log_detailed_trials_table_to_wandb(study, wandb.run)
+                    # Log Detailed Trials Table using the helper function
+                    log_detailed_trials_table_to_wandb(study, wandb.run)
 
-            except Exception as e_log:
-                 logging.error(f"Rank 0: Error during logging visualizations or trial table to W&B summary run: {e_log}", exc_info=True)
-            finally:
-                # Ensure W&B run is finished even if logging fails
-                if wandb.run is not None:
-                    logging.info(f"Rank 0: Finishing W&B summary run: {wandb.run.name}")
-                    wandb.finish()
-                else:
-                    logging.warning("Rank 0: No active W&B run found to finish in the finally block.")
+                except Exception as e_log:
+                    logging.error(f"Rank 0: Error during logging visualizations or trial table to W&B summary run: {e_log}", exc_info=True)
+                finally:
+                    # Ensure W&B run is finished even if logging fails
+                    if wandb.run is not None:
+                        logging.info(f"Rank 0: Finishing W&B summary run: {wandb.run.name}")
+                        wandb.finish()
+                    else:
+                        logging.warning("Rank 0: No active W&B run found to finish in the finally block.")
 
         except Exception as e_init:
             logging.error(f"Rank 0: Failed to initialize W&B summary run: {e_init}", exc_info=True)
