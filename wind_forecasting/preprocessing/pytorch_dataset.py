@@ -211,10 +211,6 @@ class WindForecastingDataset(IterableDataset):
             assert 'start' in sample, "Dataset must contain 'start' field"
             
         self.dataset_idx = 0
-        # These attributes will be configured by the worker_init_fn.
-        # Set defaults for the non-worker/non-distributed case.
-        self.worker_shard_start = 0
-        self.worker_shard_step = 1
         
     def __iter__(self):
         
@@ -226,6 +222,7 @@ class WindForecastingDataset(IterableDataset):
         worker_info = torch.utils.data.get_worker_info()
         
         if worker_info is None: # Main process, num_workers=0 case
+            logger.info(f"training worker_info is None, on main process fetching islice {self.rank}:None:{self.world_size}")
             return islice(self._base_iter(), self.rank, None, self.world_size)
         else: # In a worker process
             num_workers = worker_info.num_workers
@@ -233,7 +230,7 @@ class WindForecastingDataset(IterableDataset):
             
             global_num_workers = num_workers * self.world_size
             global_worker_id = self.rank * num_workers + worker_id
-            logger.info(f"training global_worker_id={global_worker_id}, global_num_workers={global_num_workers}")
+            logger.info(f"training multiple workers, fetching islice {global_worker_id}:None:{global_num_workers}")
 
             return islice(self._base_iter(), global_worker_id, None, global_num_workers)
         
