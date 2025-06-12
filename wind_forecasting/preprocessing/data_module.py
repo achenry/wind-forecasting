@@ -312,7 +312,7 @@ class DataModule():
                 for d, ds in enumerate(self.train_dataset):
                     if self.verbose:
                         logging.info(f"Collecting {d}th train dataset of {len(self.train_dataset)}.")
-                    self.train_dataset[d].collect() = self.train_dataset[d].collect().lazy()
+                    self.train_dataset[d] = self.train_dataset[d].collect().lazy()
                     
                 for d, ds in enumerate(self.val_dataset):
                     if self.verbose:
