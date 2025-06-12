@@ -1,17 +1,17 @@
 #!/bin/bash 
 #SBATCH --account=ssc
 #SBATCH --output=%j-%x.out
-##SBATCH --partition=debug
-##SBATCH --time=01:00:00
-##SBATCH --nodes=1 # this needs to match Trainer(num_nodes...)
-##SBATCH --gres=gpu:2
-##SBATCH --ntasks-per-node=2 # this needs to match Trainer(devices=...)
-##SBATCH --mem-per-cpu=40G
+#SBATCH --partition=debug
+#SBATCH --time=01:00:00
 #SBATCH --nodes=1 # this needs to match Trainer(num_nodes...)
-#SBATCH --time=96:00:00
-#SBATCH --gres=gpu:4
-#SBATCH --ntasks-per-node=4 # this needs to match Trainer(devices=...)
+#SBATCH --gres=gpu:2
+#SBATCH --ntasks-per-node=2 # this needs to match Trainer(devices=...)
 #SBATCH --mem-per-cpu=40G
+##SBATCH --nodes=1 # this needs to match Trainer(num_nodes...)
+##SBATCH --time=96:00:00
+##SBATCH --gres=gpu:4
+##SBATCH --ntasks-per-node=4 # this needs to match Trainer(devices=...)
+##SBATCH --mem-per-cpu=40G
 
 # salloc --account=ssc --time=01:00:00 --gpus=2 --ntasks-per-node=2 --partition=debug
 
@@ -108,6 +108,9 @@ declare -a WORKER_PIDS=()
 
 echo "Launching ${NUM_GPUS} tuning workers..."
 
+ulimit -n 1024
+echo "Open file limit is now: $(ulimit -n)"
+
 # Launch multiple workers per GPU
 for i in $(seq 0 $((${NUM_GPUS}-1))); do
       # Create a unique seed for this worker
@@ -142,8 +145,9 @@ for i in $(seq 0 $((${NUM_GPUS}-1))); do
 
       echo \"Worker ${i}: Running python script with WORKER_RANK=${WORKER_RANK}...\"
 
-      ulimit -n unlimited
-      
+      ulimit -n 1024
+      echo \"Worker ${i} open file limit is now: \$(ulimit -n)\"
+
       # --- Run the tuning script ---
       # Workers connect to the already initialized study using the PG URL
       # Pass --restart_tuning flag from the main script environment
