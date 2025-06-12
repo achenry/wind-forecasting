@@ -310,18 +310,24 @@ class DataModule():
                     self.split_dataset([dataset.filter(pl.col("continuity_group") == cg) for cg in self.continuity_groups]) 
                     
                 for d, ds in enumerate(self.train_dataset):
+                    if self.verbose:
+                        logging.info(f"Collecting {d}th train dataset of {len(self.train_dataset)}.")
                     fp = self.train_ready_data_path.replace(".parquet", f"_train_{d}_tmp.parquet")
-                    self.train_dataset[d].collect().write_parquet(fp)
+                    self.train_dataset[d].collect(_eager=True).write_parquet(fp)
                     self.train_dataset[d] = pl.scan_parquet(fp)
                     
                 for d, ds in enumerate(self.val_dataset):
+                    if self.verbose:
+                        logging.info(f"Collecting {d}th val dataset of {len(self.val_dataset)}.")
                     fp = self.train_ready_data_path.replace(".parquet", f"_val_{d}_tmp.parquet")
-                    self.val_dataset[d].collect().write_parquet(fp)
+                    self.val_dataset[d].collect(_eager=True).write_parquet(fp)
                     self.val_dataset[d] = pl.scan_parquet(fp)
                     
                 for d, ds in enumerate(self.test_dataset):
+                    if self.verbose:
+                        logging.info(f"Collecting {d}th test dataset of {len(self.test_dataset)}.")
                     fp = self.train_ready_data_path.replace(".parquet", f"_test_{d}_tmp.parquet")
-                    self.test_dataset[d].collect().write_parquet(fp)
+                    self.test_dataset[d].collect(_eager=True).write_parquet(fp)
                     self.test_dataset[d] = pl.scan_parquet(fp)
                     
                 for split in splits:
@@ -393,18 +399,24 @@ class DataModule():
                     self.split_dataset([dataset.filter(pl.col("continuity_group") == cg) for cg in self.continuity_groups])
                 
                 for d, ds in enumerate(self.train_dataset):
+                    if self.verbose:
+                        logging.info(f"Collecting {d}th train dataset of {len(train_dataset)}.")
                     fp = self.train_ready_data_path.replace(".parquet", f"_train_{d}_tmp.parquet")
-                    self.train_dataset[d].collect().write_parquet(fp)
+                    self.train_dataset[d].collect(_eager=True).write_parquet(fp)
                     self.train_dataset[d] = pl.scan_parquet(fp)
                     
                 for d, ds in enumerate(self.val_dataset):
+                    if self.verbose:
+                        logging.info(f"Collecting {d}th val dataset of {len(val_dataset)}.")
                     fp = self.train_ready_data_path.replace(".parquet", f"_val_{d}_tmp.parquet")
-                    self.val_dataset[d].collect().write_parquet(fp)
+                    self.val_dataset[d].collect(_eager=True).write_parquet(fp)
                     self.val_dataset[d] = pl.scan_parquet(fp)
                     
                 for d, ds in enumerate(self.test_dataset):
+                    if self.verbose:
+                        logging.info(f"Collecting {d}th test dataset of {len(test_dataset)}.")
                     fp = self.train_ready_data_path.replace(".parquet", f"_test_{d}_tmp.parquet")
-                    self.test_dataset[d].collect().write_parquet(fp)
+                    self.test_dataset[d].collect(_eager=True).write_parquet(fp)
                     self.test_dataset[d] = pl.scan_parquet(fp)
                     
                 # train_grouper = MultivariateGrouper(
