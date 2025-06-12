@@ -313,36 +313,40 @@ class DataModule():
                     if self.verbose:
                         logging.info(f"Collecting {d}th train dataset of {len(self.train_dataset)}.")
                     fp = self.train_ready_data_path.replace(".parquet", f"_train_{d}_tmp.parquet")
-                    self.train_dataset[d].collect(_eager=True).write_parquet(fp)
+                    self.train_dataset[d].collect(_eager=True).write_parquet(fp, statistics=False)
                     
                 for d, ds in enumerate(self.val_dataset):
                     if self.verbose:
                         logging.info(f"Collecting {d}th val dataset of {len(self.val_dataset)}.")
                     fp = self.train_ready_data_path.replace(".parquet", f"_val_{d}_tmp.parquet")
-                    self.val_dataset[d].collect(_eager=True).write_parquet(fp)
-                    self.val_dataset[d] = pl.scan_parquet(fp)
+                    self.val_dataset[d].collect(_eager=True).write_parquet(fp, statistics=False)
                     
                 for d, ds in enumerate(self.test_dataset):
                     if self.verbose:
                         logging.info(f"Collecting {d}th test dataset of {len(self.test_dataset)}.")
                     fp = self.train_ready_data_path.replace(".parquet", f"_test_{d}_tmp.parquet")
-                    self.test_dataset[d].collect(_eager=True).write_parquet(fp)
-                    self.test_dataset[d] = pl.scan_parquet(fp)
+                    self.test_dataset[d].collect(_eager=True).write_parquet(fp, statistics=False)
                     
                 for d, ds in enumerate(self.train_dataset):
                     if self.verbose:
                         logging.info(f"Scanning {d}th train dataset of {len(self.train_dataset)}.")
-                    self.train_dataset[d] = pl.scan_parquet(fp)
+                    fp = self.train_ready_data_path.replace(".parquet", f"_train_{d}_tmp.parquet")
+                    self.train_dataset[d] = pl.scan_parquet(fp)\
+                                              .with_columns(time=pl.col("time").cast(pl.Datetime(time_unit="ns")))
                     
                 for d, ds in enumerate(self.val_dataset):
                     if self.verbose:
                         logging.info(f"Scanning {d}th val dataset of {len(self.val_dataset)}.")
-                    self.val_dataset[d] = pl.scan_parquet(fp)
+                    fp = self.train_ready_data_path.replace(".parquet", f"_val_{d}_tmp.parquet")
+                    self.val_dataset[d] = pl.scan_parquet(fp)\
+                                              .with_columns(time=pl.col("time").cast(pl.Datetime(time_unit="ns")))
                     
                 for d, ds in enumerate(self.test_dataset):
                     if self.verbose:
                         logging.info(f"Scanning {d}th test dataset of {len(self.test_dataset)}.")
-                    self.test_dataset[d] = pl.scan_parquet(fp)
+                    fp = self.train_ready_data_path.replace(".parquet", f"_test_{d}_tmp.parquet")
+                    self.test_dataset[d] = pl.scan_parquet(fp)\
+                                              .with_columns(time=pl.col("time").cast(pl.Datetime(time_unit="ns")))
                     
                 for split in splits:
                     ds = getattr(self, f"{split}_dataset")
@@ -416,34 +420,40 @@ class DataModule():
                     if self.verbose:
                         logging.info(f"Collecting {d}th train dataset of {len(self.train_dataset)}.")
                     fp = self.train_ready_data_path.replace(".parquet", f"_train_{d}_tmp.parquet")
-                    self.train_dataset[d].collect(_eager=True).write_parquet(fp)
+                    self.train_dataset[d].collect(_eager=True).write_parquet(fp, statistics=False)
                     
                 for d, ds in enumerate(self.val_dataset):
                     if self.verbose:
                         logging.info(f"Collecting {d}th val dataset of {len(self.val_dataset)}.")
                     fp = self.train_ready_data_path.replace(".parquet", f"_val_{d}_tmp.parquet")
-                    self.val_dataset[d].collect(_eager=True).write_parquet(fp)
+                    self.val_dataset[d].collect(_eager=True).write_parquet(fp, statistics=False)
                     
                 for d, ds in enumerate(self.test_dataset):
                     if self.verbose:
                         logging.info(f"Collecting {d}th test dataset of {len(self.test_dataset)}.")
                     fp = self.train_ready_data_path.replace(".parquet", f"_test_{d}_tmp.parquet")
-                    self.test_dataset[d].collect(_eager=True).write_parquet(fp)
+                    self.test_dataset[d].collect(_eager=True).write_parquet(fp, statistics=False)
                     
                 for d, ds in enumerate(self.train_dataset):
                     if self.verbose:
                         logging.info(f"Scanning {d}th train dataset of {len(self.train_dataset)}.")
-                    self.train_dataset[d] = pl.scan_parquet(fp)
+                    fp = self.train_ready_data_path.replace(".parquet", f"_train_{d}_tmp.parquet")
+                    self.train_dataset[d] = pl.scan_parquet(fp)\
+                                              .with_columns(time=pl.col("time").cast(pl.Datetime(time_unit="ns")))
                     
                 for d, ds in enumerate(self.val_dataset):
                     if self.verbose:
                         logging.info(f"Scanning {d}th val dataset of {len(self.val_dataset)}.")
-                    self.val_dataset[d] = pl.scan_parquet(fp)
+                    fp = self.train_ready_data_path.replace(".parquet", f"_val_{d}_tmp.parquet")
+                    self.val_dataset[d] = pl.scan_parquet(fp)\
+                                              .with_columns(time=pl.col("time").cast(pl.Datetime(time_unit="ns")))
                     
                 for d, ds in enumerate(self.test_dataset):
                     if self.verbose:
                         logging.info(f"Scanning {d}th test dataset of {len(self.test_dataset)}.")
-                    self.test_dataset[d] = pl.scan_parquet(fp)
+                    fp = self.train_ready_data_path.replace(".parquet", f"_test_{d}_tmp.parquet")
+                    self.test_dataset[d] = pl.scan_parquet(fp)\
+                                              .with_columns(time=pl.col("time").cast(pl.Datetime(time_unit="ns")))
                     
                 # train_grouper = MultivariateGrouper(
                 #     max_target_dim=self.num_target_vars,
@@ -533,6 +543,7 @@ class DataModule():
                                     logging.error(f"Rank 0: Error removing temp file {temp_path}: {cleanup_error}")
                                     
             for temp_path in glob.glob(self.train_ready_data_path.replace(".parquet", f"_{split}_*_tmp.parquet")):
+                logging.info(f"Removing temporary file {temp_path}.")
                 os.remove(temp_path)
                     
 
