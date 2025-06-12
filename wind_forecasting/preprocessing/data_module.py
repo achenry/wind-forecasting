@@ -308,37 +308,51 @@ class DataModule():
                 
                 self.train_dataset, self.val_dataset, self.test_dataset = \
                     self.split_dataset([dataset.filter(pl.col("continuity_group") == cg) for cg in self.continuity_groups]) 
-                    
-                for d, ds in enumerate(self.train_dataset):
-                    if self.verbose:
-                        logging.info(f"Collecting {d}th train dataset of {len(self.train_dataset)}.")
-                    self.train_dataset[d] = self.train_dataset[d].collect().lazy()
-                    
-                for d, ds in enumerate(self.val_dataset):
-                    if self.verbose:
-                        logging.info(f"Collecting {d}th val dataset of {len(self.val_dataset)}.")
-                    self.val_dataset[d] = self.val_dataset[d].collect().lazy()
-                    
-                for d, ds in enumerate(self.test_dataset):
-                    if self.verbose:
-                        logging.info(f"Collecting {d}th test dataset of {len(self.test_dataset)}.")
-                    fp = self.train_ready_data_path.replace(".parquet", f"_test_{d}_tmp.parquet")
-                    self.test_dataset[d] = self.test_dataset[d].collect().lazy()
-                    
+                
                 for split in splits:
-                    ds = getattr(self, f"{split}_dataset")
-                    if self.verbose:
-                        logging.info(f"Setting {split}_dataset attribute.")
-                    
+                    split_ds = getattr(self, f"{split}_dataset")
                     temp_ds = {}
-                    for cg_idx in range(len(ds)):
-                        # df = ds[cg].collect()
+                    for d, ds in enumerate(split_ds):
+                        if self.verbose:
+                            logging.info(f"Collecting {d}th {split} dataset of {len(split_ds)}.")
+                        ds = ds.collect().lazy()
+
+                        if self.verbose:
+                            logging.info(f"Setting {split}_dataset attribute.")
+                            
                         for turbine_id in self.target_suffixes:
                             if self.verbose:
-                                logging.info(f"Getting dataset for turbine_id={turbine_id}, cg_idx={cg_idx} of {len(ds)}.")
-                            temp_ds[f"TURBINE{turbine_id}_SPLIT{cg_idx}"] = self.get_df_by_turbine(ds[cg_idx], turbine_id)#.lazy()
+                                logging.info(f"Getting dataset for turbine_id={turbine_id}, cg_idx={d} of {len(split_ds)}.")
+                            temp_ds[f"TURBINE{turbine_id}_SPLIT{d}"] = self.get_df_by_turbine(ds, turbine_id)
                     
-                    setattr(self, f"{split}_dataset", temp_ds)
+                    setattr(self, f"{split}_dataset", temp_ds.copy)
+                    del ds, temp_ds
+                            
+                # for d, ds in enumerate(self.val_dataset):
+                #     if self.verbose:
+                #         logging.info(f"Collecting {d}th val dataset of {len(self.val_dataset)}.")
+                #     self.val_dataset[d] = self.val_dataset[d].collect().lazy()
+                    
+                # for d, ds in enumerate(self.test_dataset):
+                #     if self.verbose:
+                #         logging.info(f"Collecting {d}th test dataset of {len(self.test_dataset)}.")
+                #     fp = self.train_ready_data_path.replace(".parquet", f"_test_{d}_tmp.parquet")
+                #     self.test_dataset[d] = self.test_dataset[d].collect().lazy()
+                    
+                # for split in splits:
+                #     ds = getattr(self, f"{split}_dataset")
+                #     if self.verbose:
+                #         logging.info(f"Setting {split}_dataset attribute.")
+                    
+                #     temp_ds = {}
+                #     for cg_idx in range(len(ds)):
+                #         # df = ds[cg].collect()
+                #         for turbine_id in self.target_suffixes:
+                #             if self.verbose:
+                #                 logging.info(f"Getting dataset for turbine_id={turbine_id}, cg_idx={cg_idx} of {len(ds)}.")
+                #             temp_ds[f"TURBINE{turbine_id}_SPLIT{cg_idx}"] = self.get_df_by_turbine(ds[cg_idx], turbine_id)#.lazy()
+                    
+                #     setattr(self, f"{split}_dataset", temp_ds)
                 
                 if self.as_lazyframe:
                     static_index = [f"TURBINE{turbine_id}_SPLIT{split}" for turbine_id in self.target_suffixes for cg in range(len(self.train_dataset))]
@@ -393,38 +407,51 @@ class DataModule():
                 self.train_dataset, self.val_dataset, self.test_dataset = \
                     self.split_dataset([dataset.filter(pl.col("continuity_group") == cg) for cg in self.continuity_groups])
                 
-                for d, ds in enumerate(self.train_dataset):
-                    if self.verbose:
-                        logging.info(f"Collecting {d}th train dataset of {len(self.train_dataset)}.")
-                    self.train_dataset[d] = self.train_dataset[d].collect().lazy()
+                for split in splits:
+                    split_ds = getattr(self, f"{split}_dataset")
+                    temp_ds = {}
+                    for d, ds in enumerate(split_ds):
+                        if self.verbose:
+                            logging.info(f"Collecting {d}th train dataset of {len(split_ds)}.")
+                            
+                        ds = ds.collect().lazy()
+                        
+                        if self.verbose:
+                            logging.info(f"Setting {split}_dataset attribute.")
+                            
+                        
+                        temp_ds[f"SPLIT{d}"] = ds.select([pl.col("time")] + self.feat_dynamic_real_cols + self.target_cols)
+
+                    setattr(self, f"{split}_dataset", temp_ds.copy())
+                    del ds, temp_ds
                     
-                for d, ds in enumerate(self.val_dataset):
-                    if self.verbose:
-                        logging.info(f"Collecting {d}th val dataset of {len(self.val_dataset)}.")
-                    self.val_dataset[d] = self.val_dataset[d].collect().lazy()
+                # for d, ds in enumerate(self.val_dataset):
+                #     if self.verbose:
+                #         logging.info(f"Collecting {d}th val dataset of {len(self.val_dataset)}.")
+                #     self.val_dataset[d] = self.val_dataset[d].collect().lazy()
                     
-                for d, ds in enumerate(self.test_dataset):
-                    if self.verbose:
-                        logging.info(f"Collecting {d}th test dataset of {len(self.test_dataset)}.")
-                    self.test_dataset[d] = self.test_dataset[d].collect().lazy()
+                # for d, ds in enumerate(self.test_dataset):
+                #     if self.verbose:
+                #         logging.info(f"Collecting {d}th test dataset of {len(self.test_dataset)}.")
+                #     self.test_dataset[d] = self.test_dataset[d].collect().lazy()
                     
                 #     max_target_dim=self.num_target_vars,
                 #     split_on="continuity_group" if len(self.continuity_groups) > 1 else None
                 # )
                 # transform list into dictionary if item_id, reduced dataset pairs
-                for split in splits:
-                    ds = getattr(self, f"{split}_dataset")
-                    if self.verbose:
-                        logging.info(f"Setting {split}_dataset attribute.")
+                # for split in splits:
+                #     ds = getattr(self, f"{split}_dataset")
+                #     if self.verbose:
+                #         logging.info(f"Setting {split}_dataset attribute.")
                     
-                    temp_ds = {}
-                    for cg_idx in range(len(ds)):
-                        # df = ds[cg].collect()
-                        if self.verbose:
-                            logging.info(f"Getting dataset for cg_idx={cg_idx} of {len(ds)}.")
-                        temp_ds[f"SPLIT{cg_idx}"] = ds[cg_idx].select([pl.col("time")] + self.feat_dynamic_real_cols + self.target_cols)
+                #     temp_ds = {}
+                #     for cg_idx in range(len(ds)):
+                #         # df = ds[cg].collect()
+                #         if self.verbose:
+                #             logging.info(f"Getting dataset for cg_idx={cg_idx} of {len(ds)}.")
+                #         temp_ds[f"SPLIT{cg_idx}"] = ds[cg_idx].select([pl.col("time")] + self.feat_dynamic_real_cols + self.target_cols)
 
-                    setattr(self, f"{split}_dataset", temp_ds)
+                #     setattr(self, f"{split}_dataset", temp_ds)
                     
                 if self.as_lazyframe:
                     for split in splits:
