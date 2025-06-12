@@ -186,16 +186,19 @@ def main():
 
             # Clear GPU memory before starting
             torch.cuda.empty_cache()
+            
+            # Final check to ensure configuration is valid for available GPUs
+            if isinstance(config["trainer"]["devices"], int) and config["trainer"]["devices"] > num_gpus:
+                logging.warning(f"Requested {config['trainer']['devices']} GPUs but only {num_gpus} are available. Adjusting trainer.devices.")
+                config["trainer"]["devices"] = num_gpus
 
-        # Final check to ensure configuration is valid for available GPUs
-        if isinstance(config["trainer"]["devices"], int) and config["trainer"]["devices"] > num_gpus:
-            logging.warning(f"Requested {config['trainer']['devices']} GPUs but only {num_gpus} are available. Adjusting trainer.devices.")
-            config["trainer"]["devices"] = num_gpus
-
-        if num_gpus == 1 and config["trainer"]["strategy"] != "auto":
-            logging.warning(f"Adjusting trainer.strategy from {config['trainer']['strategy']} to 'auto' for single machine GPU.")
-            config["trainer"]["strategy"] = "auto"
-
+            if num_gpus == 1 and config["trainer"]["strategy"] != "auto":
+                logging.warning(f"Adjusting trainer.strategy from {config['trainer']['strategy']} to 'auto' for single machine GPU.")
+                config["trainer"]["strategy"] = "auto"
+        
+        else:
+            config["trainer"]["devices"] = 1
+            
         logging.info(f"Trainer config: devices={config['trainer']['devices']}, strategy={config['trainer'].get('strategy', 'auto')}")
 
         gc.collect()

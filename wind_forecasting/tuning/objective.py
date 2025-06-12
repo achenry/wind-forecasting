@@ -262,8 +262,7 @@ class MLTuningObjective:
             # Initialize a new W&B run for this specific trial
             logging.info(f"WANDB_DIR == {os.environ["WANDB_DIR"]}")
             logging.info(f"self.config['logging']['wandb_dir'] == {self.config['logging']['wandb_dir']}")
-            
-            # TODO TESTING
+            assert os.path.exists(self.config['logging']['wandb_dir'])
             # if False:
             wandb.init(
                 # Core identification
