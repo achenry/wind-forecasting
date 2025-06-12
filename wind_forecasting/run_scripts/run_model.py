@@ -383,7 +383,7 @@ def main():
                 name=run_name, # Unique name for the run, can also take config for hyperparameters. Keep brief
                 save_dir=wandb_dir, # Directory for saving logs and metadata
                 log_model=False,
-                offline=True,
+                # offline=True,
                 job_type=args.mode,
                 mode=config['logging'].get('wandb_mode', 'online'), # Configurable wandb mode
                 id=unique_id,
