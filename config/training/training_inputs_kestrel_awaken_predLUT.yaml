@@ -168,12 +168,12 @@ model:
     gradient_clip_val_stage2: 1000.0
     ### VALUES FOR per_turbine_target = true ###
     # Learning Rate Scheduler for Stage 1
-    warmup_steps_s1: 50000 # Warmup steps for Stage 1
-    steps_to_decay_s1: 50000 # T_max = (steps_per_epoch [282] * epochs_in_stage [30]) - warmup_steps
+    warmup_steps_s1: 0.1 # Warmup steps for Stage 1
+    steps_to_decay_s1: 0.9 # T_max = (steps_per_epoch [282] * epochs_in_stage [30]) - warmup_steps
     eta_min_fraction_s1: 0.01  # Fraction of initial LR for eta_min in Stage 1 cosine decay
     # Learning Rate Scheduler for Stage 2
-    warmup_steps_s2: 50000 # Warmup steps for Stage 2
-    steps_to_decay_s2: 50000 # T_max = (steps_per_epoch [282] * epochs_in_stage [100-30]) - warmup_steps ~ 47940 - warmup_steps    
+    warmup_steps_s2: 0.1 # Warmup steps for Stage 2
+    steps_to_decay_s2: 0.9 # T_max = (steps_per_epoch [282] * epochs_in_stage [100-30]) - warmup_steps ~ 47940 - warmup_steps    
     eta_min_fraction_s2: 0.01  # Fraction of initial LR for eta_min in Stage 2 cosine decay    
 
 
