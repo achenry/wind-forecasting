@@ -260,6 +260,8 @@ class MLTuningObjective:
             run_name = f"{self.config['experiment']['run_name']}_rank_{os.environ.get('WORKER_RANK', '0')}_trial_{trial.number}"
             
             # Initialize a new W&B run for this specific trial
+            logging.info(f"WANDB_DIR == {os.environ["WANDB_DIR"]}")
+            logging.info(f"self.config['logging']['wandb_dir'] == {self.config['logging']['wandb_dir']}")
             wandb.init(
                 # Core identification
                 project=project_name,
