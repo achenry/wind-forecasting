@@ -42,7 +42,7 @@ mkdir -p ${LOG_DIR}/checkpoints # TODO this isn't used
 
 # --- Set Shared Environment Variables ---
 export PYTHONPATH=${WORK_DIR}:${PYTHONPATH}
-export WANDB_DIR=${LOG_DIR} # WandB will create a 'wandb' subdirectory here automatically
+# export WANDB_DIR=${LOG_DIR} # WandB will create a 'wandb' subdirectory here automatically
 
 # --- Print Job Info ---
 echo "--- SLURM JOB INFO ---"
@@ -139,7 +139,7 @@ for i in $(seq 0 $((${NUM_GPUS}-1))); do
       conda activate wind_forecasting_env
       echo \"Worker ${i}: Conda environment 'wind_forecasting_env' activated.\"
     
-      # Note: PYTHONPATH and WANDB_DIR are inherited via export from parent script
+      # Note: PYTHONPATH is inherited via export from parent script
 
       echo \"Worker ${i}: Running python script with WORKER_RANK=${WORKER_RANK}...\"
 
