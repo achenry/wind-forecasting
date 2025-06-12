@@ -286,7 +286,7 @@ class MLTuningObjective:
             # Create a WandbLogger using the current W&B run
             # log_model=False as we only want metrics for this trial logger
             # TODO offline temporarily
-            wandb_logger_trial = WandbLogger(log_model=False, experiment=wandb.run, save_dir=self.config['logging']['wandb_dir'], offline=True)
+            wandb_logger_trial = WandbLogger(log_model=False, experiment=wandb.run, save_dir=self.config['logging']['wandb_dir'])#, offline=True)
             logging.info(f"Rank {os.environ.get('WORKER_RANK', '0')}: Created WandbLogger for trial {trial.number}")
 
             # Add the trial-specific logger to the trainer kwargs for this worker
