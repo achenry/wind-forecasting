@@ -320,8 +320,10 @@ def main():
         # Configure WandB to use the correct checkpoint location
         # This ensures artifacts are saved in the correct checkpoint directory
         os.environ["WANDB_RUN_DIR"] = run_dir
-        # os.environ["WANDB_ARTIFACT_DIR"] = os.environ["WANDB_CHECKPOINT_PATH"] = checkpoint_dir
+        os.environ["WANDB_ARTIFACT_DIR"] = os.environ["WANDB_CHECKPOINT_PATH"] = config["logging"].get("checkpoint_dir", os.path.join(log_dir, "checkpoints"))
         os.environ["WANDB_DIR"] = wandb_dir
+        os.environ["WANDB_CACHE_DIR"] = os.path.join(wandb_dir, "cache")
+        os.environ["WANDB_SOCKET_PATH"] = os.path.join(wandb_dir, f"socket.{unique_id}")
 
         # Fetch GitHub repo URL and current commit and set WandB environment variables
         project_root = config['experiment'].get('project_root', os.getcwd())
@@ -370,6 +372,7 @@ def main():
         checkpoint_dir = os.path.join(log_dir, project_name, unique_id)
         # Create WandB logger only for train/test modes
         if args.mode in ["train", "test"]:
+            # TODO offline temporarily
             wandb_logger = WandbLogger(
                 project=f"train_{project_name}", # Project name in WandB, set in config
                 entity=config['logging'].get('entity'),
@@ -377,6 +380,7 @@ def main():
                 name=run_name, # Unique name for the run, can also take config for hyperparameters. Keep brief
                 save_dir=wandb_dir, # Directory for saving logs and metadata
                 log_model=False,
+                offline=True,
                 job_type=args.mode,
                 mode=config['logging'].get('wandb_mode', 'online'), # Configurable wandb mode
                 id=unique_id,
