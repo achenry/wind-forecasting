@@ -230,7 +230,7 @@ class WindForecastingDataset(IterableDataset):
             
             global_num_workers = num_workers * self.world_size
             global_worker_id = self.rank * num_workers + worker_id
-            logger.info(f"training multiple workers, fetching islice {global_worker_id}:None:{global_num_workers}")
+            logger.info(f"training worker {worker_info.id} of {num_workers}, fetching islice {global_worker_id}:None:{global_num_workers}")
 
             return islice(self._base_iter(), global_worker_id, None, global_num_workers)
         
