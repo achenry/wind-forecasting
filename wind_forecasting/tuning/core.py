@@ -541,42 +541,41 @@ def tune_model(model, config, study_name, optuna_storage, lightning_module_class
             logging.info(f"Rank 0: Still waiting for trials to finish ({num_finished}/{expected_total_trials}). Sleeping for {wait_interval_seconds} seconds...")
             time.sleep(wait_interval_seconds)
 
+        # Fetch best trial *before* initializing summary run
+        best_trial = None
         try:
-            # Fetch best trial *before* initializing summary run
-            best_trial = None
-            try:
-                best_trial = study.best_trial
-                logging.info(f"Rank 0: Fetched best trial: Number={best_trial.number}, Value={best_trial.value}")
-            except ValueError:
-                logging.warning("Rank 0: Could not retrieve best trial (likely no trials completed successfully).")
-            except Exception as e_best_trial:
-                logging.error(f"Rank 0: Error fetching best trial: {e_best_trial}", exc_info=True)
+            best_trial = study.best_trial
+            logging.info(f"Rank 0: Fetched best trial: Number={best_trial.number}, Value={best_trial.value}")
+        except ValueError:
+            logging.warning("Rank 0: Could not retrieve best trial (likely no trials completed successfully).")
+        except Exception as e_best_trial:
+            logging.error(f"Rank 0: Error fetching best trial: {e_best_trial}", exc_info=True)
 
-            # Fetch Git info directly using subprocess
-            remote_url = None
-            commit_hash = None
-            try:
-                # Get remote URL
-                remote_url_bytes = subprocess.check_output(['git', 'config', '--get', 'remote.origin.url'], stderr=subprocess.STDOUT).strip()
-                remote_url = remote_url_bytes.decode('utf-8')
-                # Convert SSH URL to HTTPS URL if necessary
-                if remote_url.startswith("git@"):
-                    remote_url = remote_url.replace(":", "/").replace("git@", "https://")
-                # Remove .git suffix AFTER potential conversion
-                if remote_url.endswith(".git"):
-                    remote_url = remote_url[:-4]
+        # Fetch Git info directly using subprocess
+        remote_url = None
+        commit_hash = None
+        try:
+            # Get remote URL
+            remote_url_bytes = subprocess.check_output(['git', 'config', '--get', 'remote.origin.url'], stderr=subprocess.STDOUT).strip()
+            remote_url = remote_url_bytes.decode('utf-8')
+            # Convert SSH URL to HTTPS URL if necessary
+            if remote_url.startswith("git@"):
+                remote_url = remote_url.replace(":", "/").replace("git@", "https://")
+            # Remove .git suffix AFTER potential conversion
+            if remote_url.endswith(".git"):
+                remote_url = remote_url[:-4]
 
-                # Get commit hash
-                commit_hash_bytes = subprocess.check_output(['git', 'rev-parse', 'HEAD'], stderr=subprocess.STDOUT).strip()
-                commit_hash = commit_hash_bytes.decode('utf-8')
-                logging.info(f"Rank 0: Fetched Git Info - URL: {remote_url}, Commit: {commit_hash}")
-            except subprocess.CalledProcessError as e:
-                logging.warning(f"Rank 0: Could not get Git info: {e.output.decode('utf-8').strip()}")
-            except FileNotFoundError:
-                logging.warning("Rank 0: 'git' command not found. Cannot log Git info.")
-            except Exception as e_git:
-                 logging.error(f"Rank 0: An unexpected error occurred while fetching Git info: {e_git}", exc_info=True)
-
+            # Get commit hash
+            commit_hash_bytes = subprocess.check_output(['git', 'rev-parse', 'HEAD'], stderr=subprocess.STDOUT).strip()
+            commit_hash = commit_hash_bytes.decode('utf-8')
+            logging.info(f"Rank 0: Fetched Git Info - URL: {remote_url}, Commit: {commit_hash}")
+        except subprocess.CalledProcessError as e:
+            logging.warning(f"Rank 0: Could not get Git info: {e.output.decode('utf-8').strip()}")
+        except FileNotFoundError:
+            logging.warning("Rank 0: 'git' command not found. Cannot log Git info.")
+        except Exception as e_git:
+                logging.error(f"Rank 0: An unexpected error occurred while fetching Git info: {e_git}", exc_info=True)
+                
     # All workers log their contribution
     logging.info(f"Worker {worker_id} completed optimization")
 
