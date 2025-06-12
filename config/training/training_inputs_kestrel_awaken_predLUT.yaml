@@ -194,8 +194,8 @@ model:
     lr: 6.398379938945388e-05
     weight_decay: 1e-08
     dropout: 0.15697382123348755
-    warmup_steps: 50000 # Warmup steps
-    steps_to_decay: 50000 # T_max = (steps_per_epoch [282] * epochs_in_stage [30]) - warmup_steps
+    warmup_steps: 0.1 # Warmup steps
+    steps_to_decay: 0.9 # T_max = (steps_per_epoch [282] * epochs_in_stage [30]) - warmup_steps
   autoformer:
     # embedding_dimension: [32] # Determines dimension of the embedding space
     num_encoder_layers: 2 # Number of transformer blocks stacked
@@ -203,8 +203,8 @@ model:
     n_heads: 8 # Number of heads for spatio-temporal attention
     dim_feedforward: 2048
     activation: gelu
-    warmup_steps: 50000 # Warmup steps
-    steps_to_decay: 50000 # T_max = (steps_per_epoch [282] * epochs_in_stage [30]) - warmup_steps
+    warmup_steps: 0.1 # Warmup steps
+    steps_to_decay: 0.9 # T_max = (steps_per_epoch [282] * epochs_in_stage [30]) - warmup_steps
   spacetimeformer:
     # embedding_dimension: 32 # Determines dimension of the embedding space
     num_encoder_layers: 3 # Number of transformer blocks stacked
@@ -229,8 +229,8 @@ model:
     embed_method: spatio-temporal
     activation: gelu
     use_given: False
-    warmup_steps: 50000 # Warmup steps
-    steps_to_decay: 50000 # T_max = (steps_per_epoch [282] * epochs_in_stage [30]) - warmup_steps
+    warmup_steps: 0.1 # Warmup steps
+    steps_to_decay: 0.9 # T_max = (steps_per_epoch [282] * epochs_in_stage [30]) - warmup_steps
   svr:
     kernel: rbf
     C: 1.0
