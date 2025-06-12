@@ -7,12 +7,11 @@ and applies necessary transformations for model training.
 
 import logging
 import pickle
-from typing import Dict, List, Optional, Any
+from typing import List, Optional, Any
 import numpy as np
 import pandas as pd
 import torch
 from torch.utils.data import IterableDataset
-import torch.distributed as dist
 from itertools import cycle, islice
 from torch.utils.data import DataLoader
 import lightning.pytorch as pl
@@ -39,11 +38,6 @@ class WindForecastingDatamodule(pl.LightningDataModule):
         self.train_repeat = train_repeat
         self.val_repeat = val_repeat
         
-        # These will be populated in setup()
-        self.train_dataset = None
-        self.val_dataset = None
-        self.test_dataset = None # Good practice to include
-        
         # These will be set in the setup() hook
         self.world_size = 1
         self.rank = 0
@@ -53,36 +47,6 @@ class WindForecastingDatamodule(pl.LightningDataModule):
         if self.trainer:
             self.rank = self.trainer.global_rank
             self.world_size = self.trainer.world_size
-            
-        # The Trainer calls this on each DDP process
-        # if stage == 'fit':
-        #     self.train_dataset = WindForecastingDataset(
-        #         data_path=self.train_data_path,
-        #         context_length=self.context_length,
-        #         prediction_length=self.prediction_length,
-        #         time_features=self.time_features,
-        #         sampler=self.train_sampler,  # GluonTS sampler instance
-        #         repeat=self.train_repeat,
-        #         skip_indices=1,
-        #         world_size=self.world_size,
-        #         rank=self.rank)
-        
-        # if (stage == "validate" or stage == "fit") and self.val_data_path:
-        #     self.val_dataset = WindForecastingInferenceDataset(
-        #         data_path=self.val_data_path,
-        #         context_length=self.context_length,
-        #         prediction_length=self.prediction_length,
-        #         time_features=self.time_features,
-        #         sampler=self.val_sampler,  # GluonTS sampler instance
-        #         repeat=self.val_repeat,
-        #         skip_indices=self.prediction_length,
-        #         world_size=self.world_size,
-        #         rank=self.rank)
-
-        # Called when `trainer.test()` starts
-        # elif stage == 'test':
-            # self.test_dataset = ... (if you have test data)
-            # pass
 
     def train_dataloader(self):
         # The Trainer calls this after setup() on each DDP process
@@ -370,16 +334,8 @@ class WindForecastingInferenceDataset(WindForecastingDataset):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         
-    def _base_iter(self):
-        """Get a specific window for inference."""
-        
-        # Create a NEW, FRESH iterator from the source list every time.
-        data_iterator = iter(self.data)
-        
-        # Apply cycle() here if needed, on the new iterator.
-        if self.repeat:
-            data_iterator = cycle(data_iterator)
-        
+        data_iterator = self.data
+        self.samples = []
         for entry in data_iterator:
             # Same processing as parent class but with fixed time point
             target = entry['target']
@@ -442,7 +398,7 @@ class WindForecastingInferenceDataset(WindForecastingDataset):
                     future_time_feat = np.vstack([future_time_feat, future_dynamic])
                 
                 # Convert to tensors
-                yield {
+                self.samples.append({
                     'past_target': torch.from_numpy(past_target.T).float(),
                     'future_target': torch.from_numpy(future_target.T).float(),
                     'past_time_feat': torch.from_numpy(past_time_feat.T).float(),
@@ -451,4 +407,87 @@ class WindForecastingInferenceDataset(WindForecastingDataset):
                     'future_observed_values': torch.from_numpy(future_observed.T).float(),
                     'feat_static_cat': torch.tensor(feat_static_cat, dtype=torch.long),
                     'feat_static_real': torch.tensor(feat_static_real, dtype=torch.float),
-                }
+                })
+        
+    def _base_iter(self):
+        """Get a specific window for inference."""
+        for s in self.samples:
+            yield s
+        # Create a NEW, FRESH iterator from the source list every time.
+        # data_iterator = iter(self.data)
+        # # Apply cycle() here if needed, on the new iterator.
+        # if self.repeat:
+        #     data_iterator = cycle(data_iterator)
+        
+        # for entry in data_iterator:
+        #     # Same processing as parent class but with fixed time point
+        #     target = entry['target']
+        #     start_period = entry['start']
+        #     ts_length = target.shape[1]
+        
+        #     # Find all valid time points
+        #     min_time = self.context_length
+        #     max_time = ts_length - self.prediction_length
+            
+        #     # Fill time indices
+        #     sample_indices = np.arange(min_time, max_time + 1, self.skip_indices)
+            
+        #     if len(sample_indices) == 0:
+        #         continue
+            
+        #     for idx in sample_indices:
+        #         # Split into past and future windows at fixed time point t
+        #         past_target = target[:, idx - self.context_length:idx]
+        #         future_target = target[:, idx:idx + self.prediction_length]
+                
+        #         # Rest of processing is identical to parent class
+        #         # ... (same as parent __getitem__ but without random sampling)
+                
+        #         # Create time features
+        #         _, ts_length = target.shape
+        #         time_index = pd.period_range(
+        #             start=start_period,
+        #             periods=ts_length,
+        #             freq=start_period.freq
+        #         )
+                
+        #         past_time_feat = self._create_time_features(
+        #             time_index[idx - self.context_length:idx]
+        #         )
+        #         future_time_feat = self._create_time_features(
+        #             time_index[idx:idx + self.prediction_length]
+        #         )
+                
+        #         # Create observed values indicator
+        #         past_observed = ~np.isnan(past_target)
+        #         future_observed = ~np.isnan(future_target)
+                
+        #         # Handle NaN values
+        #         past_target = np.nan_to_num(past_target, 0.0)
+        #         future_target = np.nan_to_num(future_target, 0.0)
+                
+        #         # Get static features
+        #         feat_static_cat = entry.get('feat_static_cat', [0])
+        #         feat_static_real = entry.get('feat_static_real', [0.0])
+                
+        #         # Get dynamic features if available
+        #         if 'feat_dynamic_real' in entry:
+        #             feat_dynamic_real = entry['feat_dynamic_real']
+        #             past_dynamic = feat_dynamic_real[:, idx - self.context_length:idx]
+        #             future_dynamic = feat_dynamic_real[:, idx:idx + self.prediction_length]
+                    
+        #             # Stack with time features
+        #             past_time_feat = np.vstack([past_time_feat, past_dynamic])
+        #             future_time_feat = np.vstack([future_time_feat, future_dynamic])
+                
+        #         # Convert to tensors
+        #         yield {
+        #             'past_target': torch.from_numpy(past_target.T).float(),
+        #             'future_target': torch.from_numpy(future_target.T).float(),
+        #             'past_time_feat': torch.from_numpy(past_time_feat.T).float(),
+        #             'future_time_feat': torch.from_numpy(future_time_feat.T).float(),
+        #             'past_observed_values': torch.from_numpy(past_observed.T).float(),
+        #             'future_observed_values': torch.from_numpy(future_observed.T).float(),
+        #             'feat_static_cat': torch.tensor(feat_static_cat, dtype=torch.long),
+        #             'feat_static_real': torch.tensor(feat_static_real, dtype=torch.float),
+        #         }
