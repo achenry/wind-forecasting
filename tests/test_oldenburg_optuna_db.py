@@ -157,7 +157,7 @@ def test_database_connection(credentials):
         logger.info(f"Successfully connected! Found {len(studies)} existing studies.")
         
         for study in studies:
-            logger.info(f"  - Study: {study.study_name} (ID: {study.study_id}, Trials: {study.n_trials})")
+            logger.info(f"  - Study: {study.study_name} (ID: {study._study_id})")
         
         return storage, storage_url
         
@@ -260,15 +260,15 @@ def test_parallel_optimization(storage_url):
 
 def cleanup_test_studies(storage):
     """Optional: Clean up test studies (commented out by default)."""
-    logger.info("\nCleanup option available but not executed.")
-    logger.info("To clean up test studies, uncomment the cleanup code.")
+    # logger.info("\nCleanup option available but not executed.")
+    # logger.info("To clean up test studies, uncomment the cleanup code.")
     
     # Uncomment below to enable cleanup
-    # studies = storage.get_all_studies()
-    # for study in studies:
-    #     if study.study_name.startswith("test_study_") or study.study_name.startswith("parallel_test_"):
-    #         logger.info(f"  Deleting study: {study.study_name}")
-    #         storage.delete_study(study._study_id)
+    studies = storage.get_all_studies()
+    for study in studies:
+        if study.study_name.startswith("test_study_") or study.study_name.startswith("parallel_test_"):
+            logger.info(f"  Deleting study: {study.study_name}")
+            storage.delete_study(study._study_id)
 
 def main():
     """Main test function."""
