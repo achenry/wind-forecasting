@@ -402,7 +402,7 @@ class DataModule():
                             logging.info(f"Collecting and writing {d}th {split} dataset of {len(split_ds)}.")
                         
                         with open(self.train_ready_data_path.replace(".parquet", f"_{split}_tmp.parquet"), "wb") as fp:
-                            ds.collect().write_parquet(fp, statistics=False)
+                            ds.collect(_eager=True).write_parquet(fp, statistics=False)
                 
                 for split in splits:
                     split_ds = getattr(self, f"{split}_dataset")
@@ -630,7 +630,7 @@ class DataModule():
             
             logging.info(f"Creating test_datasets list.")
             test_datasets += [d.slice(train_offset + val_offset, test_offset) for d in datasets]  # test_offset is the length of test data
-            
+        
         if self.verbose:
             logging.info("Returning train/val/test datasets.")
             
