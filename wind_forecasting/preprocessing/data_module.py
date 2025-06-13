@@ -385,22 +385,32 @@ class DataModule():
                 
                 for split in splits:
                     split_ds = getattr(self, f"{split}_dataset")
-                    split_ds_keys = []
                     for d, ds in enumerate(split_ds):
                         if self.verbose:
-                            logging.info(f"Collecting {d}th {split} dataset of {len(split_ds)}.")
+                            logging.info(f"Collecting and writing {d}th {split} dataset of {len(split_ds)}.")
                         
                         ds = ds.collect(_eager=True)
                         with open(self.train_ready_data_path.replace(".parquet", f"_{split}_tmp.parquet"), "wb") as fp:
                             ds.write_parquet(fp)
-                        ds = pl.scan_parquet(self.train_ready_data_path.replace(".parquet", f"_{split}_tmp.parquet"))
+                
+                for split in splits:
+                    split_ds = getattr(self, f"{split}_dataset")
+                    split_ds_keys = []
+                    split_ds_vals = []
+                    for d, ds in enumerate(split_ds):
+                        if self.verbose:
+                            logging.info(f"Scanning {d}th {split} dataset of {len(split_ds)}.")
                         
-                        split_ds[d] = ds.select([pl.col("time")] + self.feat_dynamic_real_cols + self.target_cols)
+                        with open(self.train_ready_data_path.replace(".parquet", f"_{split}_tmp.parquet"), "wb") as fp:
+                            ds = pl.scan_parquet(fp)
+                        
+                        split_ds_vals.append(ds.select([pl.col("time")] + self.feat_dynamic_real_cols + self.target_cols))
                         split_ds_keys.append(f"SPLIT{d}")
 
                     if self.verbose:
                         logging.info(f"Setting {split}_dataset attribute.")
-                    setattr(self, f"{split}_dataset", {k: v for k, v in zip(split_ds_keys, split_ds)})
+                        
+                    setattr(self, f"{split}_dataset", {k: v for k, v in zip(split_ds_keys, split_ds_vals)})
                     
                 if self.as_lazyframe:
                     for split in splits:
