@@ -1,0 +1,288 @@
+experiment:
+  username: jmb0507
+  project_name: tune_tactis_flasc_3_local
+  run_name: tune_v2_farm_local # [p = patience, d = min_delta, b = limit_train_batches, n = n_startup_trials] / hb = hyperband min_resource, reduction_factor
+  project_root: /user/taed7566/Forecasting/wind-forecasting
+  log_dir: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/
+  notes: ""
+  extra_tags: ["flasc", "tune", "tcp", "farm", "oldenburg_db"] # By default already has GPU id and model name.
+
+logging:
+  entity: jmb0507-cu-boulder # Wandb entity (group name)
+  wandb_mode: online
+  save_code: false # Do not save code to W&B
+  wandb_dir: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs # Let WandB create the 'wandb' subdir here
+  optuna_dir: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/optuna
+  checkpoint_dir: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/checkpoints
+  chkp_dir_suffix: "_210"
+  slurm_output_dir: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/slurm_logs
+
+optuna:
+  save_trial_code: false      # Default false
+  n_trials_per_worker: 20   # Replaced by total_study_trials for global trial limit
+  total_study_trials: 200     # Global maximum number of trials across all workers, takes precedence over n_trials_per_worker
+  max_epochs: 40              # epochs per trial
+  sampler: "random"           # Options: "random" (ExpectedNumInstanceSampler), "sequential" (SequentialSampler)
+  sampler_params:
+    tpe:
+      n_startup_trials: 8
+      multivariate: true
+      constant_liar: true
+      group: false
+  base_limit_train_batches: 5000    # base batches per epoch - will be scaled based on batch_size ratio
+  metric: "val_loss"          # The metric to optimize (NLL)
+  direction: "minimize"       # Whether to minimize or maximize the metric
+
+  resample_freq_choices: [15, 30, 45, 60] # Resample frequency in seconds
+  
+  # Pruning configuration
+  pruning:
+    enabled: true
+    type: "successivehalving"
+    min_resource: 12
+    reduction_factor: 2
+    min_early_stopping_rate: 0
+    bootstrap_count: 8
+
+  # Optuna visualization configuration (additional to wandb)
+  visualization:
+    enabled: true
+    output_dir: ${logging.optuna_dir}/visualizations
+    plots:
+      optimization_history: true
+      parameter_importance: true
+      slice_plot: true
+
+  # Storage backend configuration
+  storage:
+    backend: "postgresql"  # Options: "postgresql", "sqlite"
+    # --- TCP/IP PostgreSQL Settings ---
+    use_tcp: true
+    use_socket: false
+    db_host: "pg.optuna.uni-oldenburg.de"
+    db_port: 5432
+    db_name: "optuna"
+    db_user: "optuna02"
+    db_password_env_var: "LOCAL_PG_PASSWORD"
+    # No SSL settings needed for local university database
+    # sslmode: "require"
+    # sslrootcert_path: "config/certs/aiven_pg_ca.pem"
+
+    # --- Local PostgreSQL Specific Settings ---
+    # Path relative to project root (e.g., ~/wind-forecasting)
+    # pgdata_path: "/user/taed7566/Forecasting/wind-forecasting/optuna/pgdata" # Directory for PostgreSQL data files
+    # pgdata_instance_name: "flasc_tactis_2" # INFO: CREATE NEW INSTANCE (DIRECTORY) FOR STUDIES #flasc_tactis, flasc_default , keep same for resuming!!
+    # db_name: "optuna_study_db"  # Name of the PostgreSQL database
+    # db_user: "optuna_user"
+    # use_socket: true      # Use Unix domain socket for local connection (recommended on single node)
+    # socket_dir_base: "/user/taed7566/Forecasting/wind-forecasting/optuna/sockets" # Base directory for socket files
+    # sync_dir: "/user/taed7566/Forecasting/wind-forecasting/optuna/sync"           # Directory for synchronization files
+
+    # --- Optional Command Execution Settings ---
+    # run_cmd_shell: false # Set to true if specific commands require shell=True
+
+    # --- SQLite Specific Settings (not used if backend is postgresql) ---
+    # sqlite_path: "logging/optuna/study.db" Relative path for SQLite file if backend="sqlite"
+    # sqlite_wal: true  Enable WAL mode for SQLite
+    # sqlite_timeout: 600  Timeout in seconds for SQLite locks
+
+  # Optuna Dashboard auto-launch configuration
+  dashboard:
+    enabled: false             # Set to true to automatically launch the dashboard on rank 0
+    port: 8088                # Port for the dashboard web server
+    log_file: "${logging.optuna_dir}/optuna_dashboard.log" # Log file for the dashboard process
+
+dataset:
+    sampler: "random"    # Options: "random" (ExpectedNumInstanceSampler), "sequential" (SequentialSampler) INFO: This is used for training
+    data_path: /user/taed7566/Forecasting/wind-forecasting/examples/data/preprocessed_flasc_data/SMARTEOLE_WakeSteering_SCADA_1minData_normalized.parquet
+    normalization_consts_path:  /user/taed7566/Forecasting/wind-forecasting/examples/data/preprocessed_flasc_data/SMARTEOLE_WakeSteering_SCADA_1minData_normalization_consts.csv
+    context_length: 600 # in seconds
+    prediction_length: 210 # in seconds
+    target_turbine_ids: # or leave blank to capture all
+    normalize: false # Using denormalized data with TACTiS-2's internal scaling 
+    batch_size: 128
+    base_batch_size: 128  # Base batch size for scaling calculations
+    workers: 4 # Consider adjusting based on CPU cores per task
+    overfit: false
+    test_split: 0.20
+    val_split: 0.10
+    resample_freq: 30s
+    n_splits: 1 # how many divisions of each continuity group to make which is further subdivided into training test and validation data
+    per_turbine_target: true
+    # context_length_factor: 2  # INFO: Takes precedence over context_length when use_tuned_parameters is true
+    use_pytorch_dataloader: true # Use PyTorch DataLoader for training and validation
+
+model:
+  distr_output: 
+    class: LowRankMultivariateNormalOutput
+    kwargs:
+      rank: 8
+
+  ############# MODEL-SPECIFIC PARAMETERS ##############
+  # [ TACTiS-2 ]
+  tactis:
+    # General TACTiS settings
+    initial_stage: 1
+    stage2_start_epoch: 20 # Epoch to start stage 2 (copula training)
+    ac_mlp_num_layers: 2 # MLP layers for attention copula
+    ac_mlp_dim: 128      # Dimension of AC's internal MLP layers
+    stage1_activation_function: "relu" # Activation for Stage 1 encoders (e.g., "relu", "gelu", "leaky_relu")
+    stage2_activation_function: "relu" # Activation for Stage 2 encoders (e.g., "relu", "gelu", "leaky_relu")
+    input_encoding_normalization: true
+    scaling: "std" # Options: "mean", "std", null
+    loss_normalization: "both" # Options: "series", "timesteps", "both", "none"
+    encoder_type: "standard" # Options: "standard", "temporal"
+    bagging_size: null
+    num_parallel_samples: 200 # Inference only setting
+    # Marginal CDF Encoder
+    marginal_embedding_dim_per_head: 8
+    marginal_num_heads: 5
+    marginal_num_layers: 4
+    flow_input_encoder_layers: 6
+    flow_series_embedding_dim: 5
+    # Attentional Copula Encoder
+    copula_embedding_dim_per_head: 8
+    copula_num_heads: 5
+    copula_num_layers: 2
+    copula_input_encoder_layers: 1
+    copula_series_embedding_dim: 48
+    # Decoder
+    decoder_dsf_num_layers: 2
+    decoder_dsf_hidden_dim: 256
+    decoder_mlp_num_layers: 3
+    decoder_mlp_hidden_dim: 16
+    decoder_transformer_num_layers: 3
+    decoder_transformer_embedding_dim_per_head: 16
+    decoder_transformer_num_heads: 6
+    decoder_num_bins: 50
+    # Optimizer Params
+    lr_stage1: 5e-6
+    lr_stage2: 2e-6
+    weight_decay_stage1: 1e-5
+    weight_decay_stage2: 1e-5
+    # Dropout & Clipping
+    dropout_rate: 0.1
+    gradient_clip_val_stage1: 1000.0
+    gradient_clip_val_stage2: 1000.0
+    ### VALUES FOR per_turbine_target = true ###
+    # Learning Rate Scheduler for Stage 1
+    warmup_steps_s1: 0.10 # Warmup steps for Stage 1
+    steps_to_decay_s1: 0.90 # T_max = (steps_per_epoch [282] * epochs_in_stage [30]) - warmup_steps
+    eta_min_fraction_s1: 0.01  # Fraction of initial LR for eta_min in Stage 1 cosine decay
+    # Learning Rate Scheduler for Stage 2
+    warmup_steps_s2: 0.10 # Warmup steps for Stage 2
+    steps_to_decay_s2: 0.90 # T_max = (steps_per_epoch [282] * epochs_in_stage [100-30]) - warmup_steps ~ 47940 - warmup_steps    
+    eta_min_fraction_s2: 0.01  # Fraction of initial LR for eta_min in Stage 2 cosine decay    
+    ### VALUES FOR per_turbine_target = false ###
+    # # Learning Rate Scheduler for Stage 1
+    # warmup_steps_s1: 201 # Warmup steps for Stage 1
+    # steps_to_decay_s1: 1007 # T_max = (steps_per_epoch [282] * epochs_in_stage [30]) - warmup_steps
+    # eta_min_fraction_s1: 0.01  # Fraction of initial LR for eta_min in Stage 1 cosine decay
+    # # Learning Rate Scheduler for Stage 2
+    # warmup_steps_s2: 322 # Warmup steps for Stage 2
+    # steps_to_decay_s2: 2497 # T_max = (steps_per_epoch [282] * epochs_in_stage [100-30]) - warmup_steps ~ 47940 - warmup_steps    
+    # eta_min_fraction_s2: 0.01  # Fraction of initial LR for eta_min in Stage 2 cosine decay    
+
+  # [ Informer ]
+  informer:
+    # embedding_dimension: 32 # Determines dimension of the embedding space
+    num_encoder_layers: 2 # Number of transformer blocks stacked
+    num_decoder_layers: 1 # Number of transformer blocks stacked
+    n_heads: 8 # Increased from 4 for better model capacity
+    d_model: 512
+    dim_feedforward: 2048
+    activation: relu
+    warmup_steps: 50000 # Warmup steps
+    steps_to_decay: 50000 # T_max = (steps_per_epoch [282] * epochs_in_stage [30]) - warmup_steps
+    eta_min_fraction: 0.01  # Fraction of initial LR for eta_min cosine decay
+
+  # [ Autoformer ]
+  autoformer:
+    # embedding_dimension: 32 # Determines dimension of the embedding space
+    num_encoder_layers: 2 # Number of transformer blocks stacked
+    num_decoder_layers: 1 # Number of transformer blocks stacked
+    n_heads: 8 # Number of heads for spatio-temporal attention
+    dim_feedforward: 2048
+    activation: gelu
+    warmup_steps: 50000 # Warmup steps
+    steps_to_decay: 50000 # T_max = (steps_per_epoch [282] * epochs_in_stage [30]) - warmup_steps
+    eta_min_fraction: 0.01  # Fraction of initial LR for eta_min cosine decay
+
+  # [ Spacetimeformer ]
+  spacetimeformer:
+    # embedding_dimension: 32 # Determines dimension of the embedding space
+    num_encoder_layers: 3 # Number of transformer blocks stacked
+    num_decoder_layers: 3 # Number of transformer blocks stacked
+    n_heads: 3 # Number of heads for spatio-temporal attention
+    d_model: 200
+    dim_feedforward: 800
+    d_queries_keys: 30
+    d_values: 30
+    dropout_emb: 0.2
+    dropout_attn_matrix: 0.0
+    dropout_attn_out: 0.0
+    dropout_ff: 0.3
+    dropout_qkv: 0.0
+    start_token_len: 0
+    performer_redraw_interval: 100
+    use_shifted_time_windows: False
+    # decay_factor: 0.25
+    # l2_coeff: 1e-6
+    # class_loss_imp: 0.1
+    pos_emb_type: abs
+    embed_method: spatio-temporal
+    activation: gelu
+    use_given: False
+    warmup_steps: 50000 # Warmup steps
+    steps_to_decay: 50000 # T_max = (steps_per_epoch [282] * epochs_in_stage [30]) - warmup_steps
+    eta_min_fraction: 0.01  # Fraction of initial LR for eta_min cosine decay
+########### END OF MODEL-SPECIFIC PARAMETERS ###########
+
+callbacks:
+    progress_bar:
+      class_path: lightning.pytorch.callbacks.TQDMProgressBar
+      init_args:
+        refresh_rate: 200  # every n steps
+        leave: false
+    # early_stopping:
+    #   class_path: lightning.pytorch.callbacks.EarlyStopping
+    #   init_args:
+    #     monitor: 'val_loss'
+    #     patience: 5 # Number of epochs to wait before stopping (val>epochs to disable) - 8 good
+    #     min_delta: 25.0 # Minimum change to be considered an improvement (>5.0 after observing visual fluctuations of 2-4 per epoch on an almost-perfectly visual plateau) - 5.0 good
+    #     mode: 'min'
+    #     check_finite: true
+    model_checkpoint:
+      class_path: lightning.pytorch.callbacks.ModelCheckpoint
+      init_args:
+        dirpath: ${logging.checkpoint_dir}
+        filename: '{epoch}-{step}-{val_loss:.2f}'
+        monitor: 'val_loss'
+        mode: 'min'
+        save_top_k: 1
+        save_last: true
+        verbose: true
+    lr_monitor: # Log learning rate
+      class_path: lightning.pytorch.callbacks.LearningRateMonitor
+      init_args:
+        logging_interval: step # Log every step/epoch
+        log_momentum: false
+    dead_neuron_monitor: # INFO @boujuan [custom callback] Currently doesnt work ~OOM (check utils/callbacks.py)
+      enabled: false
+
+trainer:
+    val_check_interval: 1.0
+    accelerator: gpu
+    devices: auto
+    num_nodes: 1
+    strategy: ddp
+    max_epochs: 100 # Maximum number of epochs to train 100
+    limit_train_batches: 5000
+    # default_root_dir: ${logging.checkpoint_dir}  # Changed from direct path to use log_dir
+    # precision: 16-mixed # 16-mixed enables mixed precision training 32-true is full precision
+    # batch_size: 32 # larger = more stable gradients
+    # lr: 0.0001 # Step size
+    # dropout: 0.1 # Regularization parameter (prevents overfitting)
+    # patience: 50 # Number of epochs to wait before early stopping
+    # accumulate_grad_batches: 2 # Simulates a larger batch size
+    log_every_n_steps: 100

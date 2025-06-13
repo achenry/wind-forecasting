@@ -23,11 +23,41 @@ BASE_DIR="/user/taed7566/Forecasting/wind-forecasting" # Absolute path to the ba
 OUTPUT_DIR="/dss/work/taed7566/Forecasting_Outputs/wind-forecasting"
 export WORK_DIR="${BASE_DIR}/wind_forecasting"
 export LOG_DIR="${OUTPUT_DIR}/logs"
-export CONFIG_FILE="${BASE_DIR}/config/training/training_inputs_juan_flasc_tune_storm.yaml"
+export CONFIG_FILE="${BASE_DIR}/config/training/training_inputs_juan_flasc_tune_storm_local_db_210.yaml"
 export MODEL_NAME="tactis"
 export RESTART_TUNING_FLAG="" # "" Or "--restart_tuning"
 export AUTO_EXIT_WHEN_DONE="true"  # Set to "true" to exit script when all workers finish, "false" to keep running until timeout
 export NUMEXPR_MAX_THREADS=128
+
+# --- Database Credentials File ---
+DB_LOGIN_FILE="/user/taed7566/Forecasting/Docs/db_login"
+
+# --- Parse Database Credentials ---
+echo "Reading database credentials from ${DB_LOGIN_FILE}..."
+if [ ! -f "${DB_LOGIN_FILE}" ]; then
+    echo "ERROR: Database login file not found: ${DB_LOGIN_FILE}"
+    exit 1
+fi
+
+# Parse the login file
+DB_NAME=$(grep "^DB=" "${DB_LOGIN_FILE}" | cut -d'=' -f2)
+DB_HOST=$(grep "^FQDN=" "${DB_LOGIN_FILE}" | cut -d'=' -f2)
+DB_PORT=$(grep "^DBPORT=" "${DB_LOGIN_FILE}" | cut -d'=' -f2)
+
+# Parse user credentials (format: username:password)
+USER_LINE=$(grep "^USER=" "${DB_LOGIN_FILE}" | cut -d'=' -f2)
+DB_USER=$(echo "${USER_LINE}" | cut -d':' -f1)
+DB_PASSWORD=$(echo "${USER_LINE}" | cut -d':' -f2)
+
+# Export the password as environment variable for the Python scripts
+export LOCAL_PG_PASSWORD="${DB_PASSWORD}"
+
+echo "Database connection info:"
+echo "  Host: ${DB_HOST}"
+echo "  Port: ${DB_PORT}"
+echo "  Database: ${DB_NAME}"
+echo "  User: ${DB_USER}"
+echo "  Password: [HIDDEN]"
 
 # --- Create Logging Directories ---
 # Create the job-specific directory for worker logs and final main logs
@@ -98,7 +128,7 @@ fi
 export POSTGRES_BIN_DIR=$(dirname "$PG_INITDB_PATH")
 echo "Found PostgreSQL bin directory: ${POSTGRES_BIN_DIR}"
 echo "Setting PostgreSQL environment variables..."
-export PGPASSWORD="${AIVEN_PG_PASSWORD}"
+export PGPASSWORD="${LOCAL_PG_PASSWORD}"
 
 # --- End Main Environment Setup ---
 
