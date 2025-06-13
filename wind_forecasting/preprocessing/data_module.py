@@ -401,8 +401,8 @@ class DataModule():
                         if self.verbose:
                             logging.info(f"Collecting and writing {d}th {split} dataset of {len(split_ds)}.")
                         
-                        with open(self.train_ready_data_path.replace(".parquet", f"_{split}_tmp.parquet"), "wb") as fp:
-                            ds.collect(_eager=True).write_parquet(fp, statistics=False)
+                        # with open(self.train_ready_data_path.replace(".parquet", f"_{split}_tmp.parquet"), "wb") as fp:
+                        ds.collect(_eager=True).write_parquet(fp, statistics=False)
                 
                 for split in splits:
                     split_ds = getattr(self, f"{split}_dataset")
