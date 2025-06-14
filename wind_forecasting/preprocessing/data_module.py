@@ -359,7 +359,6 @@ class DataModule():
                                         feat_dynamic_real=self.feat_dynamic_real_prefixes, static_features=self.static_features, 
                                         assume_sorted=True, assume_resampled=True, unchecked=True))
                 else:
-                    
                     # convert dictionary of item_id: lazyframe datasets into list of dictionaries with numpy arrays for data
                     for split in splits:
                         datasets = []
@@ -395,14 +394,13 @@ class DataModule():
                 self.train_dataset, self.val_dataset, self.test_dataset = \
                     self.split_dataset([dataset.filter(pl.col("continuity_group") == cg) for cg in self.continuity_groups])
                 
-                for split in splits:
-                    split_ds = getattr(self, f"{split}_dataset")
-                    for d, ds in enumerate(split_ds):
-                        if self.verbose:
-                            logging.info(f"Collecting and writing {d}th {split} dataset of {len(split_ds)}.")
+                # for split in splits:
+                #     split_ds = getattr(self, f"{split}_dataset")
+                #     for d, ds in enumerate(split_ds):
+                #         if self.verbose:
+                #             logging.info(f"Collecting {d}th {split} dataset of {len(split_ds)}.")
                         
-                        with open(self.train_ready_data_path.replace(".parquet", f"_{split}_{d}_tmp.parquet"), "wb") as fp:
-                            ds.collect(_eager=True).write_parquet(fp, statistics=False)
+                #         ds.collect(_eager=True).write_parquet(self.train_ready_data_path.replace(".parquet", f"_{split}_{d}_tmp.parquet"), statistics=False)
                 
                 for split in splits:
                     split_ds = getattr(self, f"{split}_dataset")
@@ -412,10 +410,8 @@ class DataModule():
                         if self.verbose:
                             logging.info(f"Scanning {d}th {split} dataset of {len(split_ds)}.")
                         
-                        with open(self.train_ready_data_path.replace(".parquet", f"_{split}_{d}_tmp.parquet"), "rb") as fp:
-                            ds = pl.scan_parquet(fp)
-                        
-                        split_ds_vals.append(ds.select([pl.col("time")] + self.feat_dynamic_real_cols + self.target_cols))
+                        # split_ds_vals.append(pl.scan_parquet(fp).select([pl.col("time")] + self.feat_dynamic_real_cols + self.target_cols))
+                        split_ds_vals.append(split_ds[d].select([pl.col("time")] + self.feat_dynamic_real_cols + self.target_cols))
                         split_ds_keys.append(f"SPLIT{d}")
 
                     if self.verbose:
