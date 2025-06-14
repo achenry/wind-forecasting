@@ -317,7 +317,7 @@ class DataModule():
                         if self.verbose:
                             logging.info(f"Collecting {d}th {split} dataset of {len(split_ds)}.")
                         
-                        with open(self.train_ready_data_path.replace(".parquet", f"_{split}_tmp.parquet"), "wb") as fp:
+                        with open(self.train_ready_data_path.replace(".parquet", f"_{split}_{d}_tmp.parquet"), "wb") as fp:
                             ds.collect().write_parquet(fp, statistics=False)
                     
                 for split in splits:
@@ -328,7 +328,7 @@ class DataModule():
                         if self.verbose:
                             logging.info(f"Collecting {d}th {split} dataset of {len(split_ds)}.")
                         
-                        with open(self.train_ready_data_path.replace(".parquet", f"_{split}_tmp.parquet"), "rb") as fp:
+                        with open(self.train_ready_data_path.replace(".parquet", f"_{split}_{d}_tmp.parquet"), "rb") as fp:
                             ds = pl.scan_parquet(fp)
                         
                         for turbine_id in self.target_suffixes:
@@ -401,18 +401,18 @@ class DataModule():
                         if self.verbose:
                             logging.info(f"Collecting and writing {d}th {split} dataset of {len(split_ds)}.")
                         
-                        # with open(self.train_ready_data_path.replace(".parquet", f"_{split}_tmp.parquet"), "wb") as fp:
-                        ds.collect(_eager=True).write_parquet(fp, statistics=False)
+                        with open(self.train_ready_data_path.replace(".parquet", f"_{split}_{d}_tmp.parquet"), "wb") as fp:
+                            ds.collect(_eager=True).write_parquet(fp, statistics=False)
                 
                 for split in splits:
                     split_ds = getattr(self, f"{split}_dataset")
                     split_ds_keys = []
                     split_ds_vals = []
-                    for d, ds in enumerate(split_ds):
+                    for d in range(len(split_ds)):
                         if self.verbose:
                             logging.info(f"Scanning {d}th {split} dataset of {len(split_ds)}.")
                         
-                        with open(self.train_ready_data_path.replace(".parquet", f"_{split}_tmp.parquet"), "rb") as fp:
+                        with open(self.train_ready_data_path.replace(".parquet", f"_{split}_{d}_tmp.parquet"), "rb") as fp:
                             ds = pl.scan_parquet(fp)
                         
                         split_ds_vals.append(ds.select([pl.col("time")] + self.feat_dynamic_real_cols + self.target_cols))
