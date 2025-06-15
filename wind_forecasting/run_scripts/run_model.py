@@ -48,14 +48,6 @@ from wind_forecasting.utils.optuna_config_utils import generate_db_setup_params
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-mpi_exists = False
-try:
-    from mpi4py import MPI
-    mpi_exists = True
-except:
-    logging.warning("No MPI available on system.")
-
-
 def main():
 
     # %% DETERMINE WORKER RANK (using WORKER_RANK set in Slurm script, fallback to 0)
@@ -490,29 +482,33 @@ def main():
                 
                 tuned_params = get_tuned_params(optuna_storage, db_setup_params["base_study_prefix"])
                 
-                # tuned_params = {'context_length_factor': 3, 'batch_size': 256, 'num_encoder_layers': 2, 'num_decoder_layers': 2, 'dim_feedforward': 2048, 'n_heads': 6, 'factor': 1, 'moving_avg': 21, 'lr': 4.7651748046751395e-05, 'weight_decay': 0.0, 'dropout': 0.0982708428790269}
-                # tuned_params = {'context_length_factor': 2, 'batch_size': 128, 'num_encoder_layers': 2, 'num_decoder_layers': 3, 'd_model': 128, 'n_heads': 6}
-                
-                config["model"]["distr_output"]["kwargs"].update({k: v for k, v in tuned_params.items() if k in config["model"]["distr_output"]["kwargs"]})
-                config["dataset"].update({k: v for k, v in tuned_params.items() if k in config["dataset"]})
-                # config["model"][args.model].update({k: v for k, v in tuned_params.items() if k in config["model"][args.model]})
-                
-                config["trainer"].update({k: v for k, v in tuned_params.items() if k in trainer_params})
-                
-                data_module.batch_size = config["dataset"]["batch_size"]
-                
-                model_hparams.update(
-                    {k: v for k, v in tuned_params.items() if k in estimator_params})
-                
-                context_length_factor = tuned_params.get('context_length_factor', config["dataset"].get("context_length_factor", None)) # Default to config or 2 if not in trial/config
-                if context_length_factor:
-                    data_module.context_length = int(context_length_factor * data_module.prediction_length)
-                    logging.info(f"Setting context_length to {context_length_factor} times the prediction length {data_module.prediction_length} = {data_module.context_length} from tuned parameters.")
+                if tuned_params is not None:
+                    # tuned_params = {'context_length_factor': 3, 'batch_size': 256, 'num_encoder_layers': 2, 'num_decoder_layers': 2, 'dim_feedforward': 2048, 'n_heads': 6, 'factor': 1, 'moving_avg': 21, 'lr': 4.7651748046751395e-05, 'weight_decay': 0.0, 'dropout': 0.0982708428790269}
+                    # tuned_params = {'context_length_factor': 2, 'batch_size': 128, 'num_encoder_layers': 2, 'num_decoder_layers': 3, 'd_model': 128, 'n_heads': 6}
+                    
+                    config["model"]["distr_output"]["kwargs"].update({k: v for k, v in tuned_params.items() if k in config["model"]["distr_output"]["kwargs"]})
+                    config["dataset"].update({k: v for k, v in tuned_params.items() if k in config["dataset"]})
+                    # config["model"][args.model].update({k: v for k, v in tuned_params.items() if k in config["model"][args.model]})
+                    
+                    config["trainer"].update({k: v for k, v in tuned_params.items() if k in trainer_params})
+                    
+                    data_module.batch_size = config["dataset"]["batch_size"]
+                    
+                    model_hparams.update(
+                        {k: v for k, v in tuned_params.items() if k in estimator_params})
+                    
+                    context_length_factor = tuned_params.get('context_length_factor', config["dataset"].get("context_length_factor", None)) # Default to config or 2 if not in trial/config
+                    if context_length_factor:
+                        data_module.context_length = int(context_length_factor * data_module.prediction_length)
+                        logging.info(f"Setting context_length to {context_length_factor} times the prediction length {data_module.prediction_length} = {data_module.context_length} from tuned parameters.")
+                    else:
+                        data_module.context_length = config["dataset"]["context_length"]
+                        logging.info(f"Setting context_length to default value {data_module.context_length} from default values.")
+                    
+                    data_module.freq = config["dataset"]["resample_freq"]
                 else:
-                    data_module.context_length = config["dataset"]["context_length"]
-                    logging.info(f"Setting context_length to default value {data_module.context_length} from default values.")
-                
-                data_module.freq = config["dataset"]["resample_freq"]
+                    found_tuned_params = False
+                    
             except FileNotFoundError as e:
                 logging.warning(e)
                 found_tuned_params = False
@@ -521,8 +517,6 @@ def main():
                 found_tuned_params = False
         else:
             found_tuned_params = False 
-            
-        # TODO HIGH lr and weight_decay are not being set properly during tuning or training!!!
         
         if found_tuned_params:
             logging.info(f"Updating estimator {args.model.capitalize()} kwargs with tuned parameters {tuned_params}")
@@ -761,7 +755,7 @@ def main():
     if args.mode == "dataset":
         # TODO this won't consider varying context length factors or resample frequencies
         dm_params = []
-        for cnf_path, mdl in zip(args.config, args.config):
+        for cnf_path, mdl in zip(args.config, args.model):
             with open(cnf_path, "r") as file:
                 cnf = yaml.safe_load(file)
             dm_normalized = False if mdl == "tactis" else cnf["dataset"].get("normalize", True)
@@ -816,7 +810,6 @@ def main():
                     reload = True
                 else:
                     reload = False
-            
             else:
                 reload = False
         
@@ -834,7 +827,6 @@ def main():
                 reload = True
             else:
                 reload = False
-      
         else:
             reload = False
     
