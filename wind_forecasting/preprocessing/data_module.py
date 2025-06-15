@@ -309,39 +309,6 @@ class DataModule():
                 self.train_dataset, self.val_dataset, self.test_dataset = \
                     self.split_dataset([dataset.filter(pl.col("continuity_group") == cg) for cg in self.continuity_groups]) 
                 
-                for split in splits:
-                    split_ds = getattr(self, f"{split}_dataset")
-                    split_ds_keys = []
-                    split_ds_vals = []
-                    for d, ds in enumerate(split_ds):
-                        if self.verbose:
-                            logging.info(f"Collecting {d}th {split} dataset of {len(split_ds)}.")
-                        
-                        with open(self.train_ready_data_path.replace(".parquet", f"_{split}_{d}_tmp.parquet"), "wb") as fp:
-                            ds.collect().write_parquet(fp, statistics=False)
-                    
-                # for split in splits:
-                #     split_ds = getattr(self, f"{split}_dataset")
-                #     split_ds_keys = []
-                #     split_ds_vals = []
-                #     for d, ds in enumerate(split_ds):
-                #         if self.verbose:
-                #             logging.info(f"Collecting {d}th {split} dataset of {len(split_ds)}.")
-                        
-                #         with open(self.train_ready_data_path.replace(".parquet", f"_{split}_{d}_tmp.parquet"), "rb") as fp:
-                #             ds = pl.scan_parquet(fp)
-                        
-                #         for turbine_id in self.target_suffixes:
-                #             if self.verbose:
-                #                 logging.info(f"Getting dataset for turbine_id={turbine_id}, cg_idx={d} of {len(split_ds)}.")
-                #             split_ds_vals.append(self.get_df_by_turbine(ds, turbine_id))
-                #             split_ds_keys.append(f"TURBINE{turbine_id}_SPLIT{d}")
-                    
-                #     if self.verbose:
-                #         logging.info(f"Setting {split}_dataset attribute.")
-                        
-                    setattr(self, f"{split}_dataset", {k: v for k, v in zip(split_ds_keys, split_ds)})
-                
                 if self.as_lazyframe:
                     static_index = [f"TURBINE{turbine_id}_SPLIT{split}" for turbine_id in self.target_suffixes for cg in range(len(self.train_dataset))]
                     self.static_features = pd.DataFrame(
@@ -352,9 +319,9 @@ class DataModule():
                     )
                     
                     for split in splits:
-                        ds = getattr(self, f"{split}_dataset")
+                        split_ds = getattr(self, f"{split}_dataset")
                         setattr(self, f"{split}_dataset", 
-                                PolarsDataset(ds, 
+                                PolarsDataset({f"TURBINE{turbine_id}_SPLIT{d}": self.get_df_by_turbine(ds, turbine_id) for d, ds in enumerate(split_ds) for turbine_id in self.target_suffixes}, 
                                         target=self.target_prefixes, timestamp="time", freq=self.freq, 
                                         feat_dynamic_real=self.feat_dynamic_real_prefixes, static_features=self.static_features, 
                                         assume_sorted=True, assume_resampled=True, unchecked=True))
@@ -397,36 +364,12 @@ class DataModule():
                 self.train_dataset, self.val_dataset, self.test_dataset = \
                     self.split_dataset([dataset.filter(pl.col("continuity_group") == cg) for cg in self.continuity_groups])
                 
-                # for split in splits:
-                #     split_ds = getattr(self, f"{split}_dataset")
-                #     for d, ds in enumerate(split_ds):
-                #         if self.verbose:
-                #             logging.info(f"Collecting {d}th {split} dataset of {len(split_ds)}.")
-                        
-                #         ds.collect(_eager=True).write_parquet(self.train_ready_data_path.replace(".parquet", f"_{split}_{d}_tmp.parquet"), statistics=False)
-                
-                # for split in splits:
-                #     split_ds = getattr(self, f"{split}_dataset")
-                #     split_ds_keys = []
-                #     split_ds_vals = []
-                #     for d in range(len(split_ds)):
-                #         if self.verbose:
-                #             logging.info(f"Scanning {d}th {split} dataset of {len(split_ds)}.")
-                        
-                #         # split_ds_vals.append(pl.scan_parquet(fp).select([pl.col("time")] + self.feat_dynamic_real_cols + self.target_cols))
-                #         split_ds_vals.append(split_ds[d].select([pl.col("time")] + self.feat_dynamic_real_cols + self.target_cols))
-                #         split_ds_keys.append(f"SPLIT{d}")
-
-                #     if self.verbose:
-                #         logging.info(f"Setting {split}_dataset attribute.")
-                        
-                #     setattr(self, f"{split}_dataset", {k: v for k, v in zip(split_ds_keys, split_ds_vals)})
-                    
                 if self.as_lazyframe:
                     for split in splits:
+                        split_ds = getattr(self, f"{split}_dataset")
                         setattr(self, f"{split}_dataset", 
                                 PolarsDataset(
-                                    getattr(self, f"{split}_dataset"), 
+                                    {f"SPLIT{d}": ds.select([pl.col("time")] + self.feat_dynamic_real_cols + self.target_cols) for d, ds in enumerate(split_ds)}, 
                                     timestamp="time", freq=self.freq, 
                                     target=self.target_cols, feat_dynamic_real=self.feat_dynamic_real_cols, static_features=self.static_features, 
                                     assume_sorted=True, assume_resampled=True, unchecked=True
@@ -491,11 +434,6 @@ class DataModule():
                                     logging.info(f"Rank 0: Cleaned up temp file {temp_path}")
                                 except OSError as cleanup_error:
                                     logging.error(f"Rank 0: Error removing temp file {temp_path}: {cleanup_error}")
-                                    
-            for temp_path in glob.glob(self.train_ready_data_path.replace(".parquet", f"_{split}_*_tmp.parquet")):
-                logging.info(f"Removing temporary file {temp_path}.")
-                os.remove(temp_path)
-                    
 
         # Only use barrier if PyTorch distributed is actually initialized
         # In tuning mode with independent workers, we don't need/want a barrier
