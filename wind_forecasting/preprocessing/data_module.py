@@ -386,6 +386,8 @@ class DataModule():
                     # convert dictionary of item_id: lazyframe datasets into list of dictionaries with numpy arrays for data
                     for split in splits:
                         datasets = []
+                        
+                        setattr(self, f"{split}_dataset", pl.collect_all(getattr(self, f"{split}_dataset")))
                         split_ds = getattr(self, f"{split}_dataset")
                         # item_ids = list(getattr(self, f"{split}_dataset").keys())
                         for d in range(len(split_ds)):
@@ -393,8 +395,8 @@ class DataModule():
                             if self.verbose:
                                 logging.info(f"Transforming {split} dataset {item_id} into numpy form.")
                             # ds = getattr(self, f"{split}_dataset")[item_id]
-                            start_time = pd.Period(split_ds[d].select(pl.col("time").first()).collect().item(), freq=self.freq)
-                            ds = split_ds[d].select(self.feat_dynamic_real_cols + self.target_cols).collect().to_numpy().T
+                            start_time = pd.Period(split_ds[d].select(pl.col("time").first()).item(), freq=self.freq)
+                            ds = split_ds[d].select(self.feat_dynamic_real_cols + self.target_cols).to_numpy().T
                             datasets.append({
                                 "target": ds[-len(self.target_cols):, :],
                                  "item_id": item_id,
