@@ -440,7 +440,7 @@ class DataModule():
                                 logging.info(f"Transforming {split} dataset {item_id} into numpy form.")
                             ds = getattr(self, f"{split}_dataset")[item_id]
                             start_time = pd.Period(ds.select(pl.col("time").first()).collect().item(), freq=self.freq)
-                            ds = ds.select(self.feat_dynamic_real_cols + self.target_cols).collect().to_numpy().T
+                            ds = ds.select(self.feat_dynamic_real_cols + self.target_cols).collect(_eager=True).to_numpy().T
                             datasets.append({
                                 "target": ds[-len(self.target_cols):, :],
                                  "item_id": item_id,
