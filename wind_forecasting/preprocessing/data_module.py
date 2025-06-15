@@ -310,10 +310,10 @@ class DataModule():
                     self.split_dataset([dataset.filter(pl.col("continuity_group") == cg) for cg in self.continuity_groups]) 
                 
                 if self.as_lazyframe:
-                    static_index = [f"TURBINE{turbine_id}_SPLIT{split}" for turbine_id in self.target_suffixes for cg in range(len(self.train_dataset))]
+                    static_index = [f"TURBINE{turbine_id}_SPLIT{split}" for turbine_id in self.target_suffixes for cg in self.train_dataset["continuity_group"].unique().collect()]
                     self.static_features = pd.DataFrame(
                         {
-                            "turbine_id": pd.Categorical(turbine_id for turbine_id in self.target_suffixes for cg in range(len(self.train_dataset)))
+                            "turbine_id": pd.Categorical(turbine_id for turbine_id in self.target_suffixes for cg in self.train_dataset["continuity_group"].unique().collect())
                         },
                         index=static_index
                     )
@@ -330,6 +330,7 @@ class DataModule():
                     for split in splits:
                         datasets = []
                         # item_ids = list(getattr(self, f"{split}_dataset").keys())
+                        setattr(self, f"{split}_dataset", pl.collect_all(getattr(self, f"{split}_dataset")))
                         split_ds = getattr(self, f"{split}_dataset")
                         for d in enumerate(len(split_ds)):
                             for turbine_id in self.target_suffixes:
@@ -337,8 +338,12 @@ class DataModule():
                                 if verbose:
                                     logging.info(f"Transforming {split} dataset {item_id} into numpy form.")
                                 # ds = getattr(self, f"{split}_dataset")[item_id]
-                                start_time = pd.Period(split_ds[d].select(pl.col("time").first()).collect().item(), freq=self.freq)
-                                ds = split_ds[d].select(self.feat_dynamic_real_prefixes + self.target_prefixes).collect(_eager=True).to_numpy().T
+                                start_time = pd.Period(split_ds[d].select(pl.col("time").first()).item(), freq=self.freq)
+                                logging.info(341)
+                                ds = split_ds[d].select(self.feat_dynamic_real_prefixes + self.target_prefixes)
+                                logging.info(343)
+                                ds = ds.to_numpy().T
+                                logging.info(345)
                                 datasets.append({
                                     "target": ds[-len(self.target_prefixes):, :],
                                     "item_id": item_id,
@@ -346,6 +351,7 @@ class DataModule():
                                     "feat_static_cat": [self.target_suffixes.index(re.search("(?<=TURBINE)\\w+(?=_SPLIT)", item_id).group(0))],
                                     "feat_dynamic_real": ds[:-len(self.target_prefixes), :]
                                 })
+                                logging.info(353)
                             # del getattr(self, f"{split}_dataset")[item_id]
                         setattr(self, f"{split}_dataset", datasets)
 
@@ -388,7 +394,7 @@ class DataModule():
                                 logging.info(f"Transforming {split} dataset {item_id} into numpy form.")
                             # ds = getattr(self, f"{split}_dataset")[item_id]
                             start_time = pd.Period(split_ds[d].select(pl.col("time").first()).collect().item(), freq=self.freq)
-                            ds = split_ds[d].select(self.feat_dynamic_real_cols + self.target_cols).collect(_eager=True).to_numpy().T
+                            ds = split_ds[d].select(self.feat_dynamic_real_cols + self.target_cols).collect().to_numpy().T
                             datasets.append({
                                 "target": ds[-len(self.target_cols):, :],
                                  "item_id": item_id,
@@ -562,17 +568,18 @@ class DataModule():
             test_offset = round(self.test_split * self.rows_per_split[cg])
 
             logging.info(f"Creating train_datasets list.")
-            train_datasets += [d.slice(0, train_offset) for d in datasets]
+            train_datasets += [ds.slice(0, train_offset).with_columns(continuity_group=pl.lit(d)) for d, ds in enumerate(datasets)]
             
             logging.info(f"Creating val_datasets list.")
-            val_datasets += [d.slice(train_offset, val_offset) for d in datasets]  # val_offset is the length of validation data
+            val_datasets += [ds.slice(train_offset, val_offset).with_columns(continuity_group=pl.lit(d)) for d, ds in enumerate(datasets)]  # val_offset is the length of validation data
             
             logging.info(f"Creating test_datasets list.")
-            test_datasets += [d.slice(train_offset + val_offset, test_offset) for d in datasets]  # test_offset is the length of test data
+            test_datasets += [ds.slice(train_offset + val_offset, test_offset).with_columns(continuity_group=pl.lit(d)) for d, ds in enumerate(datasets)]  # test_offset is the length of test data
         
         if self.verbose:
             logging.info("Returning train/val/test datasets.")
             
+        # return pl.concat(train_datasets, how="vertical"), pl.concat(val_datasets, how="vertical"), pl.concat(test_datasets, how="vertical")
         return train_datasets, val_datasets, test_datasets
 
     def highlight_entry(self, entry, color, ax, vlines=None):
