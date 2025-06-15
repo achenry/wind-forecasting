@@ -320,25 +320,25 @@ class DataModule():
                         with open(self.train_ready_data_path.replace(".parquet", f"_{split}_{d}_tmp.parquet"), "wb") as fp:
                             ds.collect().write_parquet(fp, statistics=False)
                     
-                for split in splits:
-                    split_ds = getattr(self, f"{split}_dataset")
-                    split_ds_keys = []
-                    split_ds_vals = []
-                    for d, ds in enumerate(split_ds):
-                        if self.verbose:
-                            logging.info(f"Collecting {d}th {split} dataset of {len(split_ds)}.")
+                # for split in splits:
+                #     split_ds = getattr(self, f"{split}_dataset")
+                #     split_ds_keys = []
+                #     split_ds_vals = []
+                #     for d, ds in enumerate(split_ds):
+                #         if self.verbose:
+                #             logging.info(f"Collecting {d}th {split} dataset of {len(split_ds)}.")
                         
-                        with open(self.train_ready_data_path.replace(".parquet", f"_{split}_{d}_tmp.parquet"), "rb") as fp:
-                            ds = pl.scan_parquet(fp)
+                #         with open(self.train_ready_data_path.replace(".parquet", f"_{split}_{d}_tmp.parquet"), "rb") as fp:
+                #             ds = pl.scan_parquet(fp)
                         
-                        for turbine_id in self.target_suffixes:
-                            if self.verbose:
-                                logging.info(f"Getting dataset for turbine_id={turbine_id}, cg_idx={d} of {len(split_ds)}.")
-                            split_ds_vals.append(self.get_df_by_turbine(ds, turbine_id))
-                            split_ds_keys.append(f"TURBINE{turbine_id}_SPLIT{d}")
+                #         for turbine_id in self.target_suffixes:
+                #             if self.verbose:
+                #                 logging.info(f"Getting dataset for turbine_id={turbine_id}, cg_idx={d} of {len(split_ds)}.")
+                #             split_ds_vals.append(self.get_df_by_turbine(ds, turbine_id))
+                #             split_ds_keys.append(f"TURBINE{turbine_id}_SPLIT{d}")
                     
-                    if self.verbose:
-                        logging.info(f"Setting {split}_dataset attribute.")
+                #     if self.verbose:
+                #         logging.info(f"Setting {split}_dataset attribute.")
                         
                     setattr(self, f"{split}_dataset", {k: v for k, v in zip(split_ds_keys, split_ds)})
                 
@@ -362,21 +362,24 @@ class DataModule():
                     # convert dictionary of item_id: lazyframe datasets into list of dictionaries with numpy arrays for data
                     for split in splits:
                         datasets = []
-                        item_ids = list(getattr(self, f"{split}_dataset").keys())
-                        for item_id in item_ids:
-                            if verbose:
-                                logging.info(f"Transforming {split} dataset {item_id} into numpy form.")
-                            ds = getattr(self, f"{split}_dataset")[item_id]
-                            start_time = pd.Period(ds.select(pl.col("time").first()).collect().item(), freq=self.freq)
-                            ds = ds.select(self.feat_dynamic_real_prefixes + self.target_prefixes).collect().to_numpy().T
-                            datasets.append({
-                                "target": ds[-len(self.target_prefixes):, :],
-                                 "item_id": item_id,
-                                 "start": start_time,
-                                 "feat_static_cat": [self.target_suffixes.index(re.search("(?<=TURBINE)\\w+(?=_SPLIT)", item_id).group(0))],
-                                 "feat_dynamic_real": ds[:-len(self.target_prefixes), :]
-                            })
-                            del getattr(self, f"{split}_dataset")[item_id]
+                        # item_ids = list(getattr(self, f"{split}_dataset").keys())
+                        split_ds = getattr(self, f"{split}_dataset")
+                        for d in enumerate(len(split_ds)):
+                            for turbine_id in self.target_suffixes:
+                                item_id = f"TURBINE{turbine_id}_SPLIT{d}"
+                                if verbose:
+                                    logging.info(f"Transforming {split} dataset {item_id} into numpy form.")
+                                # ds = getattr(self, f"{split}_dataset")[item_id]
+                                start_time = pd.Period(split_ds[d].select(pl.col("time").first()).collect().item(), freq=self.freq)
+                                ds = split_ds[d].select(self.feat_dynamic_real_prefixes + self.target_prefixes).collect(_eager=True).to_numpy().T
+                                datasets.append({
+                                    "target": ds[-len(self.target_prefixes):, :],
+                                    "item_id": item_id,
+                                    "start": start_time,
+                                    "feat_static_cat": [self.target_suffixes.index(re.search("(?<=TURBINE)\\w+(?=_SPLIT)", item_id).group(0))],
+                                    "feat_dynamic_real": ds[:-len(self.target_prefixes), :]
+                                })
+                            # del getattr(self, f"{split}_dataset")[item_id]
                         setattr(self, f"{split}_dataset", datasets)
 
                 if verbose:
@@ -402,22 +405,22 @@ class DataModule():
                         
                 #         ds.collect(_eager=True).write_parquet(self.train_ready_data_path.replace(".parquet", f"_{split}_{d}_tmp.parquet"), statistics=False)
                 
-                for split in splits:
-                    split_ds = getattr(self, f"{split}_dataset")
-                    split_ds_keys = []
-                    split_ds_vals = []
-                    for d in range(len(split_ds)):
-                        if self.verbose:
-                            logging.info(f"Scanning {d}th {split} dataset of {len(split_ds)}.")
+                # for split in splits:
+                #     split_ds = getattr(self, f"{split}_dataset")
+                #     split_ds_keys = []
+                #     split_ds_vals = []
+                #     for d in range(len(split_ds)):
+                #         if self.verbose:
+                #             logging.info(f"Scanning {d}th {split} dataset of {len(split_ds)}.")
                         
-                        # split_ds_vals.append(pl.scan_parquet(fp).select([pl.col("time")] + self.feat_dynamic_real_cols + self.target_cols))
-                        split_ds_vals.append(split_ds[d].select([pl.col("time")] + self.feat_dynamic_real_cols + self.target_cols))
-                        split_ds_keys.append(f"SPLIT{d}")
+                #         # split_ds_vals.append(pl.scan_parquet(fp).select([pl.col("time")] + self.feat_dynamic_real_cols + self.target_cols))
+                #         split_ds_vals.append(split_ds[d].select([pl.col("time")] + self.feat_dynamic_real_cols + self.target_cols))
+                #         split_ds_keys.append(f"SPLIT{d}")
 
-                    if self.verbose:
-                        logging.info(f"Setting {split}_dataset attribute.")
+                #     if self.verbose:
+                #         logging.info(f"Setting {split}_dataset attribute.")
                         
-                    setattr(self, f"{split}_dataset", {k: v for k, v in zip(split_ds_keys, split_ds_vals)})
+                #     setattr(self, f"{split}_dataset", {k: v for k, v in zip(split_ds_keys, split_ds_vals)})
                     
                 if self.as_lazyframe:
                     for split in splits:
@@ -434,20 +437,22 @@ class DataModule():
                     # convert dictionary of item_id: lazyframe datasets into list of dictionaries with numpy arrays for data
                     for split in splits:
                         datasets = []
-                        item_ids = list(getattr(self, f"{split}_dataset").keys())
-                        for item_id in item_ids:
+                        split_ds = getattr(self, f"{split}_dataset")
+                        # item_ids = list(getattr(self, f"{split}_dataset").keys())
+                        for d in range(len(split_ds)):
+                            item_id = f"SPLIT{d}"
                             if self.verbose:
                                 logging.info(f"Transforming {split} dataset {item_id} into numpy form.")
-                            ds = getattr(self, f"{split}_dataset")[item_id]
-                            start_time = pd.Period(ds.select(pl.col("time").first()).collect().item(), freq=self.freq)
-                            ds = ds.select(self.feat_dynamic_real_cols + self.target_cols).collect(_eager=True).to_numpy().T
+                            # ds = getattr(self, f"{split}_dataset")[item_id]
+                            start_time = pd.Period(split_ds[d].select(pl.col("time").first()).collect().item(), freq=self.freq)
+                            ds = split_ds[d].select(self.feat_dynamic_real_cols + self.target_cols).collect(_eager=True).to_numpy().T
                             datasets.append({
                                 "target": ds[-len(self.target_cols):, :],
                                  "item_id": item_id,
                                  "start": start_time,
                                  "feat_dynamic_real": ds[:-len(self.target_cols), :]
                             })
-                            del getattr(self, f"{split}_dataset")[item_id]
+                            # del getattr(self, f"{split}_dataset")[item_id]
                         setattr(self, f"{split}_dataset", datasets)
                 if verbose:
                     logging.info(f"Finished splitting datasets for all turbine case.")
