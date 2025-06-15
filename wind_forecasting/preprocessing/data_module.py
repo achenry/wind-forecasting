@@ -396,13 +396,16 @@ class DataModule():
                                 logging.info(f"Transforming {split} dataset {item_id} into numpy form.")
                             # ds = getattr(self, f"{split}_dataset")[item_id]
                             start_time = pd.Period(split_ds[d].select(pl.col("time").first()).item(), freq=self.freq)
+                            logging.info(399)
                             ds = split_ds[d].select(self.feat_dynamic_real_cols + self.target_cols).to_numpy().T
+                            logging.info(401)
                             datasets.append({
                                 "target": ds[-len(self.target_cols):, :],
                                  "item_id": item_id,
                                  "start": start_time,
                                  "feat_dynamic_real": ds[:-len(self.target_cols), :]
                             })
+                            logging.info(408)
                             # del getattr(self, f"{split}_dataset")[item_id]
                         setattr(self, f"{split}_dataset", datasets)
                 if verbose:
