@@ -746,11 +746,12 @@ def main():
                 target_turbine_id = list(data_loader.turbine_mapping[0].values())[target_turbine_idx]
                 # other_outputs[0][target_turbine_idx] # TODO plot median, mean, need wind speed bins too...
                 fig, axs = plot.plot_power_curve(
-                    # df_query.select(f"wind_speed_{target_turbine_id}").slice(0, ROW_LIMIT).collect().to_numpy(),
-                    # df_query.select(f"power_output_{target_turbine_id}").slice(0, ROW_LIMIT).collect().to_numpy(),
-                    df_query.select(f"wind_speed_{target_turbine_id}").filter(~out_of_window[:, target_turbine_idx]).slice(0, ROW_LIMIT).collect().to_numpy(),
-                    df_query.select(f"power_output_{target_turbine_id}").filter(~out_of_window[:, target_turbine_idx]).slice(0, ROW_LIMIT).collect().to_numpy(),
-                    flag=bin_outliers[~out_of_window[:, target_turbine_idx], target_turbine_idx][:ROW_LIMIT],
+                    df_query.select(f"wind_speed_{target_turbine_id}").slice(0, ROW_LIMIT).collect().to_numpy(),
+                    df_query.select(f"power_output_{target_turbine_id}").slice(0, ROW_LIMIT).collect().to_numpy(),
+                    # df_query.select(f"wind_speed_{target_turbine_id}").filter(~out_of_window[:, target_turbine_idx]).slice(0, ROW_LIMIT).collect().to_numpy(),
+                    # df_query.select(f"power_output_{target_turbine_id}").filter(~out_of_window[:, target_turbine_idx]).slice(0, ROW_LIMIT).collect().to_numpy(),
+                    # flag=bin_outliers[~out_of_window[:, target_turbine_idx], target_turbine_idx][:ROW_LIMIT],
+                    flag=(bin_outliers[:, target_turbine_idx] | out_of_window[:, target_turbine_idx])[:ROW_LIMIT],
                     flag_labels=("Bad Measurements", "Normal Measurements"),
                     xlim=(-1, 30),
                     ylim=(-100, 3000),

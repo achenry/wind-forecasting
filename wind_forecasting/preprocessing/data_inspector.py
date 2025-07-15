@@ -19,6 +19,7 @@ import numpy as np
 from floris import FlorisModel
 from floris.flow_visualization import visualize_cut_plane
 import floris.layout_visualization as layoutviz
+from floris.utilities import rotate_coordinates_rel_west
 import scipy.stats as stats
 import polars as pl
 import polars.selectors as cs
@@ -619,7 +620,7 @@ class DataInspector:
                    wind_directions=wind_directions, wind_speeds=wind_speeds, turbulence_intensities=turbulence_intensities)
         
         # Create the plot
-        fig, ax = plt.subplots(figsize=(10, 5.2))
+        fig, ax = plt.subplots(figsize=(15.12,  8.58))
         
         # Plot the turbine layout
         layoutviz.plot_turbine_points(
@@ -627,12 +628,33 @@ class DataInspector:
             highlight_turbine_groups=turbine_groups,
             highlight_colors=turbine_group_colors)
         
+        x, y, _, _, _ = rotate_coordinates_rel_west(
+            self.fmodel.core.grid.wind_directions,
+            self.fmodel.core.grid.turbine_coordinates
+        )
+        max_diameter = np.max(self.fmodel.core.grid.turbine_diameters)
+
+        x1_bounds = (np.min(x) - 20 * max_diameter, np.max(x) + 20 * max_diameter)
+        x2_bounds = (np.min(y) - 20 * max_diameter, np.max(y) + 20 * max_diameter)
+        
+        # x_rng = self.fmodel.layout_x.max() - self.fmodel.layout_x.min()
+        # y_rng = self.fmodel.layout_y.max() - self.fmodel.layout_y.min()
         # Calculate and visualize the flow field
-        horizontal_plane = self.fmodel.calculate_horizontal_plane(height=self.fmodel.core.farm.hub_heights[0])
-        ax.set_xlim((horizontal_plane.df.x1.min(), horizontal_plane.df.x1.max()))
-        ax.set_ylim((horizontal_plane.df.x2.min(), horizontal_plane.df.x2.max()))
-        ax.set_ylim((-200, 10000))
+        horizontal_plane = self.fmodel.calculate_horizontal_plane(
+            height=self.fmodel.core.farm.hub_heights[0],
+            x_bounds=x1_bounds,
+            y_bounds=x2_bounds,
+            )
+        # ax.set_xlim((horizontal_plane.df.x1.min(), horizontal_plane.df.x1.max()))
+        # ax.set_ylim((horizontal_plane.df.x2.min(), horizontal_plane.df.x2.max()))
+        # ax.set_ylim((-200, 10000))
         visualize_cut_plane(horizontal_plane, ax=ax, min_speed=1, max_speed=10, color_bar=True)
+        
+        x1_bounds = (np.min(x) - 20 * max_diameter, np.max(x) + 20 * max_diameter)
+        x2_bounds = (np.min(y) - 2 * max_diameter, np.max(y) + 2 * max_diameter)
+        ax.set_xlim(x1_bounds)
+        ax.set_ylim(x2_bounds)
+        ax.set_aspect("equal")
         
         if turbine_labels:
             # turbine_labels = list(turbine_labels)
