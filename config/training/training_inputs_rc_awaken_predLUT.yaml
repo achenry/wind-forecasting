@@ -65,7 +65,7 @@ optuna:
   storage:
     backend: "mysql"  # Options: "postgresql", "sqlite", "mysql", "journal"
     # --- SQLite Specific Settings (not used if backend is postgresql) ---
-    # storage_dir: /projects/ssc/ahenry/wind_forecasting/optuna
+    # storage_dir: /projects/awaken/ahenry/wind_forecasting/optuna
     sqlite_wal: true  # Enable WAL mode for SQLite
     sqlite_timeout: 600 # Timeout in seconds for SQLite locks
 

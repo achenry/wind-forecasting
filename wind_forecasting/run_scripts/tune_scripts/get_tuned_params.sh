@@ -1,11 +1,11 @@
 #!/bin/bash 
-#SBATCH --account=ssc
+#SBATCH --account=awaken
 #SBATCH --time=01:00:00
 #SBATCH --output=%j-%x.out
 #SBATCH --nodes=1 # this needs to match Trainer(num_nodes...)
 #SBATCH --ntasks-per-node=1 # this needs to match Trainer(devices=...)
 
-# salloc --account=ssc --time=01:00:00 --ntasks-per-node=1 --partition=debug
+# salloc --account=awaken --time=01:00:00 --ntasks-per-node=1 --partition=debug
 
 # --- Command Line Args ---
 export MODEL_NAME=$1

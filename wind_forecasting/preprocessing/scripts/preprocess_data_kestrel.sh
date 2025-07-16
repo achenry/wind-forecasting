@@ -3,7 +3,7 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks=104 # NOTE use 1 for st_dev calc
 #SBATCH --mem=0
-#SBATCH --account=ssc
+#SBATCH --account=awaken
 #SBATCH --time=12:00:00
 #SBATCH --partition=bigmem
 ##SBATCH --time=01:00:00

@@ -1,12 +1,12 @@
 #!/bin/bash 
-#SBATCH --account=ssc
+#SBATCH --account=awaken
 #SBATCH --time=04:00:00
 #SBATCH --output=%j-%x.out
 #SBATCH --nodes=1 # this needs to match Trainer(num_nodes...)
 #SBATCH --ntasks-per-node=104 # this needs to match Trainer(devices=...), and number of GPUs
 #SBATCH --mem=0 # refers to CPU (not GPU) memory, automatically given all GPU memory in a SLURM job, 85G
 
-# salloc --account=ssc --time=01:00:00 --gpus=2 --ntasks-per-node=2 --partition=debug
+# salloc --account=awaken --time=01:00:00 --gpus=2 --ntasks-per-node=2 --partition=debug
 
 module purge
 #module load PrgEnv-intel

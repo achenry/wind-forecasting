@@ -67,7 +67,7 @@ optuna:
   storage:
     backend: "mysql"  # Options: "postgresql", "sqlite", "mysql", "journal"
     # --- SQLite Specific Settings (not used if backend is postgresql) ---
-    # storage_dir: /projects/ssc/ahenry/wind_forecasting/optuna
+    # storage_dir: /projects/awaken/ahenry/wind_forecasting/optuna
     sqlite_wal: true  # Enable WAL mode for SQLite
     sqlite_timeout: 600 # Timeout in seconds for SQLite locks
 
@@ -253,7 +253,7 @@ trainer:
     # accumulate: 1.0
     max_epochs: 200 # Maximum number of epochs to train 100
     limit_train_batches: # None
-    # default_root_dir: /projects/ssc/ahenry/wind_forecasting/checkpoints
+    # default_root_dir: /projects/awaken/ahenry/wind_forecasting/checkpoints
     # precision: 32-true # 16-mixed enables mixed precision training 32-true is full precision
     # batch_size: 32 # larger = more stable gradients
     # lr: 0.0001 # Step size

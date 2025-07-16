@@ -96,7 +96,7 @@ pip install -e .
 cd ..
 
 
-# salloc --account=ssc --time=01:00:00 --mem-per-cpu=64G --gpus=2 --ntasks-per-node=2 --partition=debug
+# salloc --account=awaken --time=01:00:00 --mem-per-cpu=64G --gpus=2 --ntasks-per-node=2 --partition=debug
 
 # vim /projects/ssc/ahenry/conda/envs/wind_forecasting/conda-meta/pinned
 # performer-pytorch==1.1.4=pyhd8ed1ab_0  # conda-forge
