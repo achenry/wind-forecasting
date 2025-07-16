@@ -3,7 +3,7 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=104
 #SBATCH --mem=0
-#SBATCH --account=ssc
+#SBATCH --account=awaken
 #SBATCH --time=02:00:00
 #SBATCH --partition=bigmem
 ##SBATCH --partition=standard
@@ -22,7 +22,7 @@ echo $SLURM_NTASKS
 #export MPICC=$(which mpicc)
 
 # export RUST_BACKTRACE=full
-# salloc --partition=debug --mem=0 --time=00:30:00 --ntasks=104 --account=ssc
+# salloc --partition=debug --mem=0 --time=00:30:00 --ntasks=104 --account=awaken
 #export MPICH_SHARED_MEM_COLL_OPT=mpi_bcast,mpi_barrier 
 #export MPICH_COLL_OPT_OFF=mpi_allreduce 
 #export LD_LIBRARy_PATH=$CONDA_PREFIX/lib
@@ -36,5 +36,5 @@ mpirun --npernode $SLURM_NTASKS_PER_NODE python preprocessing_main.py --config /
 #srun python preprocessing_main.py --config /$HOME/toolboxes/wind_forecasting_env/wind-forecasting/examples/inputs/preprocessing_inputs_kestrel_awaken_new.yaml --reload_data --multiprocessor mpi
 #srun python preprocessing_main.py --config /$HOME/toolboxes/wind_forecasting_env/wind-forecasting/examples/inputs/preprocessing_inputs_rc_awaken.yaml --reload_data --multiprocessor mpi
 
-#mv /tmp/scratch/$SLURM_JOB_ID/*.parquet /projects/ssc/ahenry/wind_forecasting/awaken_data/ 
-#mv /tmp/scratch/$SLURM_JOB_ID/*.parquet /projects/ssc/ahenry/wind_forecasting/flasc_data/ 
+#mv /tmp/scratch/$SLURM_JOB_ID/*.parquet /projects/awaken/ahenry/wind_forecasting/awaken_data/ 
+#mv /tmp/scratch/$SLURM_JOB_ID/*.parquet /projects/awaken/ahenry/wind_forecasting/flasc_data/ 

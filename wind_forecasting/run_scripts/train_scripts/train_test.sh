@@ -1,5 +1,5 @@
 #!/bin/bash 
-#SBATCH --account=ssc
+#SBATCH --account=awaken
 #SBATCH --partition=debug
 #SBATCH --time=01:00:00
 #SBATCH --nodes=1 # this needs to match Trainer(num_nodes...)
@@ -14,7 +14,7 @@
 ##SBATCH --ntasks-per-node=4 # this needs to match Trainer(devices=...), and number of GPUs
 ##SBATCH --mem-per-cpu=20G
 
-# salloc --account=ssc --time=01:00:00 --gpus=2 --ntasks-per-node=2 --partition=debug
+# salloc --account=awaken --time=01:00:00 --gpus=2 --ntasks-per-node=2 --partition=debug
 
 module purge
 ml PrgEnv-intel mamba

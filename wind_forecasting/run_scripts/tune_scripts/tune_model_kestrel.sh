@@ -1,5 +1,5 @@
 #!/bin/bash 
-#SBATCH --account=ssc
+#SBATCH --account=awaken
 #SBATCH --output=%j-%x.out
 #SBATCH --partition=debug
 #SBATCH --time=01:00:00
@@ -14,7 +14,7 @@
 ##SBATCH --ntasks-per-node=4 # this needs to match Trainer(devices=...)
 ##SBATCH --mem-per-cpu=85G
 
-# salloc --account=ssc --time=01:00:00 --gpus=2 --ntasks-per-node=2 --partition=debug
+# salloc --account=awaken --time=01:00:00 --gpus=2 --ntasks-per-node=2 --partition=debug
 
 # --- Command Line Args ---
 export MODEL_NAME=$1

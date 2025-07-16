@@ -4,8 +4,8 @@ experiment:
   username: aoife-henry
   project_name: wind_forecasting_awaken_pred210
   run_name: kestrel_awaken_pred210
-  log_dir: /projects/ssc/ahenry/wind_forecasting/logging/
-  project_root: /projects/ssc/ahenry/wind_forecasting/
+  log_dir: /projects/awaken/ahenry/wind_forecasting/logging/
+  project_root: /projects/awaken/ahenry/wind_forecasting/
   notes: "Tuning AWAKEN with Informer+"
   extra_tags: ["awaken", "pred210"] # By default already has GPU id, model and mode.
 
@@ -13,10 +13,10 @@ logging:
   entity: jmb0507-cu-boulder # Wandb entity (group name)
   wandb_mode: online
   save_code: true # Save code to wandb
-  wandb_dir: /projects/ssc/ahenry/wind_forecasting/logging/ # WandB will create a 'wandb' subdirectory here automatically
-  optuna_dir: /projects/ssc/ahenry/wind_forecasting/logging/optuna/
-  checkpoint_dir: /projects/ssc/ahenry/wind_forecasting/logging/checkpoints/
-  slurm_output_dir: /projects/ssc/ahenry/wind_forecasting/logging/slurm_logs/
+  wandb_dir: /projects/awaken/ahenry/wind_forecasting/logging/ # WandB will create a 'wandb' subdirectory here automatically
+  optuna_dir: /projects/awaken/ahenry/wind_forecasting/logging/optuna/
+  checkpoint_dir: /projects/awaken/ahenry/wind_forecasting/logging/checkpoints/
+  slurm_output_dir: /projects/awaken/ahenry/wind_forecasting/logging/slurm_logs/
 
 optuna:
   save_trial_code: false      # Default false
@@ -67,7 +67,7 @@ optuna:
   storage:
     backend: "mysql"  # Options: "postgresql", "sqlite", "mysql", "journal"
     # --- SQLite Specific Settings (not used if backend is postgresql) ---
-    # storage_dir: /projects/ssc/ahenry/wind_forecasting/optuna
+    # storage_dir: /projects/awaken/ahenry/wind_forecasting/optuna
     sqlite_wal: true  # Enable WAL mode for SQLite
     sqlite_timeout: 600 # Timeout in seconds for SQLite locks
 
@@ -93,8 +93,8 @@ optuna:
 
 
 dataset: 
-    data_path: /projects/ssc/ahenry/wind_forecasting/awaken_data/awaken_processed_normalized.parquet
-    normalization_consts_path: /projects/ssc/ahenry/wind_forecasting/awaken_data/awaken_processed_normalization_consts.csv
+    data_path: /projects/awaken/ahenry/wind_forecasting/awaken_data/awaken_processed_normalized.parquet
+    normalization_consts_path: /projects/awaken/ahenry/wind_forecasting/awaken_data/awaken_processed_normalization_consts.csv
     context_length: 600 # in seconds
     prediction_length: 210 # in seconds
     target_turbine_ids: # or leave blank to capture all
@@ -251,7 +251,7 @@ trainer:
     # accumulate: 1.0
     max_epochs: 100 # Maximum number of epochs to train 100
     limit_train_batches: # None
-    # default_root_dir: /projects/ssc/ahenry/wind_forecasting/checkpoints
+    # default_root_dir: /projects/awaken/ahenry/wind_forecasting/checkpoints
     # precision: 32-true # 16-mixed enables mixed precision training 32-true is full precision
     # batch_size: 32 # larger = more stable gradients
     # lr: 0.0001 # Step size

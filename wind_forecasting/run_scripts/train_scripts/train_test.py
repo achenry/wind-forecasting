@@ -19,8 +19,8 @@ def main():
     
     # Example config (replace with your actual values)
     config = {
-        'train_data_path': '/projects/ssc/ahenry/wind_forecasting/awaken_data/awaken_processed_normalized_train_ready_30s_per_turbine_ctx14_pred7_train.pkl',
-        'val_data_path': '/projects/ssc/ahenry/wind_forecasting/awaken_data/awaken_processed_normalized_train_ready_30s_per_turbine_ctx14_pred7_val.pkl',
+        'train_data_path': '/projects/awaken/ahenry/wind_forecasting/awaken_data/awaken_processed_normalized_train_ready_30s_per_turbine_ctx14_pred7_train.pkl',
+        'val_data_path': '/projects/awaken/ahenry/wind_forecasting/awaken_data/awaken_processed_normalized_train_ready_30s_per_turbine_ctx14_pred7_val.pkl',
         'context_length': 14,
         'prediction_length': 7,
         'batch_size': 32,
