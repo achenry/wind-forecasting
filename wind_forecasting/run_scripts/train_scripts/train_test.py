@@ -24,7 +24,7 @@ def main():
         'context_length': 14,
         'prediction_length': 7,
         'batch_size': 32,
-        'num_workers': 0,
+        'num_workers': 2,
         # You'll need to figure out how to create/pass your `train_sampler`
         # and `time_features`. For this test, you might be able to simplify them.
         'train_sampler': ExpectedNumInstanceSampler(num_instances=1.0, min_past=14, min_future=7), 
@@ -63,8 +63,8 @@ def main():
         # For this test, let's also disable the sanity check to see if that helps
         num_sanity_val_steps=0,
         # We can also limit training to a few batches to make it run fast
-        limit_train_batches=10, 
-        limit_val_batches=10,
+        limit_train_batches=1000, 
+        limit_val_batches=500,
     )
 
     # 5. Run fit
