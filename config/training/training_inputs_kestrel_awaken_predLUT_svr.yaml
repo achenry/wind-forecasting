@@ -2,8 +2,8 @@ experiment:
   username: aoife-henry
   project_name: wind_forecasting_awaken_pred510
   run_name: kestrel_awaken_pred510
-  log_dir: /projects/awaken/ahenry/wind_forecasting/logging/
-  project_root: /projects/awaken/ahenry/wind_forecasting/
+  log_dir: /projects/ssc/ahenry/wind_forecasting/logging/
+  project_root: /projects/ssc/ahenry/wind_forecasting/
   notes: "Tuning AWAKEN with Informer+"
   extra_tags: ["awaken", "pred510"] # By default already has GPU id, model and mode.
 
@@ -11,10 +11,10 @@ logging:
   entity: jmb0507-cu-boulder # Wandb entity (group name)
   wandb_mode: online
   save_code: true # Save code to wandb
-  wandb_dir: /projects/awaken/ahenry/wind_forecasting/logging/ # WandB will create a 'wandb' subdirectory here automatically
-  optuna_dir: /projects/awaken/ahenry/wind_forecasting/logging/optuna/
-  checkpoint_dir: /projects/awaken/ahenry/wind_forecasting/logging/checkpoints/
-  slurm_output_dir: /projects/awaken/ahenry/wind_forecasting/logging/slurm_logs/
+  wandb_dir: /projects/ssc/ahenry/wind_forecasting/logging/ # WandB will create a 'wandb' subdirectory here automatically
+  optuna_dir: /projects/ssc/ahenry/wind_forecasting/logging/optuna/
+  checkpoint_dir: /projects/ssc/ahenry/wind_forecasting/logging/checkpoints/
+  slurm_output_dir: /projects/ssc/ahenry/wind_forecasting/logging/slurm_logs/
 
 optuna:
   save_trial_code: false      # Default false
