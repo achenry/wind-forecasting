@@ -339,8 +339,9 @@ class DataModule():
                                     logging.info(f"Transforming {split} dataset {item_id} into numpy form.")
                                 # ds = getattr(self, f"{split}_dataset")[item_id]
                                 start_time = pd.Period(split_ds[d].select(pl.col("time").first()).item(), freq=self.freq)
-                                ds = split_ds[d].select(self.feat_dynamic_real_prefixes + self.target_prefixes)
-                                ds = ds.to_numpy().T
+                                # self.get_df_by_turbine(split_ds[d], turbine_id)
+                                # ds = split_ds[d].select(self.feat_dynamic_real_prefixes + self.target_prefixes)
+                                ds = self.get_df_by_turbine(split_ds[d], turbine_id).to_numpy().T
                                 datasets.append({
                                     "target": ds[-len(self.target_prefixes):, :],
                                     "item_id": item_id,
@@ -348,7 +349,7 @@ class DataModule():
                                     "feat_static_cat": [self.target_suffixes.index(re.search("(?<=TURBINE)\\w+(?=_SPLIT)", item_id).group(0))],
                                     "feat_dynamic_real": ds[:-len(self.target_prefixes), :]
                                 })
-                                logging.info(353)
+                                
                             # del getattr(self, f"{split}_dataset")[item_id]
                         setattr(self, f"{split}_dataset", datasets)
 
@@ -499,7 +500,7 @@ class DataModule():
         # return dataset
         
     def get_df_by_turbine(self, dataset, turbine_id):
-        return dataset.select(pl.col("time"), *[col for col in (self.feat_dynamic_real_cols + self.target_cols) if turbine_id in col])\
+        return dataset.select(pl.col("time"), *[col for col in (self.feat_dynamic_real_cols + self.target_cols) if col.endswith(f"_{turbine_id}")])\
                         .rename(mapping={**{f"{tgt_col}_{turbine_id}": tgt_col for tgt_col in self.target_prefixes},
                                         **{f"{feat_col}_{turbine_id}": feat_col for feat_col in self.feat_dynamic_real_prefixes}})
 
