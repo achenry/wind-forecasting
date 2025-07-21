@@ -332,7 +332,7 @@ class DataModule():
                         # item_ids = list(getattr(self, f"{split}_dataset").keys())
                         setattr(self, f"{split}_dataset", pl.collect_all(getattr(self, f"{split}_dataset")))
                         split_ds = getattr(self, f"{split}_dataset")
-                        for d in enumerate(len(split_ds)):
+                        for d in range(len(split_ds)):
                             for turbine_id in self.target_suffixes:
                                 item_id = f"TURBINE{turbine_id}_SPLIT{d}"
                                 if verbose:
