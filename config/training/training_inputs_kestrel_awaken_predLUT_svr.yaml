@@ -1,11 +1,11 @@
 experiment:
   username: aoife-henry
-  project_name: wind_forecasting_awaken_pred510
-  run_name: kestrel_awaken_pred510
+  project_name: wind_forecasting_awaken_pred60
+  run_name: kestrel_awaken_pred60
   log_dir: /projects/ssc/ahenry/wind_forecasting/logging/
   project_root: /projects/ssc/ahenry/wind_forecasting/
   notes: "Tuning AWAKEN with Informer+"
-  extra_tags: ["awaken", "pred510"] # By default already has GPU id, model and mode.
+  extra_tags: ["awaken", "pred60"] # By default already has GPU id, model and mode.
 
 logging:
   entity: jmb0507-cu-boulder # Wandb entity (group name)
