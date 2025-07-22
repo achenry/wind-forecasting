@@ -835,7 +835,7 @@ def main():
         # wait until data_module attributes have been updated to generate splits
         data_module.set_train_ready_path()
         if rank_zero_only.rank == 0:
-            logging.info("Preparing data for tuning")
+            logging.info("Preparing data for tuning on rank 0")
             if args.reload_data or not os.path.exists(data_module.train_ready_data_path):
                 data_module.generate_datasets()
                 reload = True

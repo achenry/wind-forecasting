@@ -174,7 +174,10 @@ class DataModule():
         if self.verbose:
             logging.info(f"Writing resampled/sorted parquet to {self.train_ready_data_path}.") 
 
-        dataset.collect().write_parquet(self.train_ready_data_path, statistics=False)
+        dataset.collect().write_parquet(f"{self.train_ready_data_path}.done", statistics=False)
+        if os.path.exists(self.train_ready_data_path):
+            os.remove(self.train_ready_data_path)
+        os.rename(f"{self.train_ready_data_path}.done", self.train_ready_data_path)
         if self.verbose:
             logging.info(f"Saved resampled/sorted parquet to {self.train_ready_data_path}.")
         
@@ -284,15 +287,15 @@ class DataModule():
             exists = os.path.exists(split_path)
             logging.info(f"Rank {rank}: Split file {split}: {split_path} (exists: {exists})")
 
-        if rank == 0 and (reload or not split_files_exist):
-            
-            logging.info(f"Rank {rank}: Scanning dataset {self.train_ready_data_path}.")
-            dataset = IterableLazyFrame(data_path=self.train_ready_data_path, dtype=self.dtype)
-            logging.info(f"Rank {rank}: Finished scanning dataset {self.train_ready_data_path}.")
+        logging.info(f"Rank {rank}: Scanning dataset {self.train_ready_data_path}.")
+        dataset = IterableLazyFrame(data_path=self.train_ready_data_path, dtype=self.dtype)
+        logging.info(f"Rank {rank}: Finished scanning dataset {self.train_ready_data_path}.")
 
-            # sets self.continuity_groups, self.target_cols, self.target_suffixes, self.feat_dynamic_real_cols, self.num_target_vars, 
-            #       self.num_feat_dynamic_real, self.num_feat_static_cat, self.num_feat_static_real, self.static_features, self.cardinality
-            self.get_dataset_info(dataset)
+        # sets self.continuity_groups, self.target_cols, self.target_suffixes, self.feat_dynamic_real_cols, self.num_target_vars, 
+        #       self.num_feat_dynamic_real, self.num_feat_static_cat, self.num_feat_static_real, self.static_features, self.cardinality
+        self.get_dataset_info(dataset)
+    
+        if rank == 0 and (reload or not split_files_exist):
             
             logging.info(f"Rank 0: Generating splits (reload={reload}, files_exist={split_files_exist}).")
             if self.per_turbine_target:
@@ -444,15 +447,7 @@ class DataModule():
                                     logging.info(f"Rank 0: Cleaned up temp file {temp_path}")
                                 except OSError as cleanup_error:
                                     logging.error(f"Rank 0: Error removing temp file {temp_path}: {cleanup_error}")
-        else:
-            logging.info(f"Rank {rank}: Scanning dataset {self.train_ready_data_path}.")
-            dataset = IterableLazyFrame(data_path=self.train_ready_data_path, dtype=self.dtype)
-            logging.info(f"Rank {rank}: Finished scanning dataset {self.train_ready_data_path}.")
 
-            # sets self.continuity_groups, self.target_cols, self.target_suffixes, self.feat_dynamic_real_cols, self.num_target_vars, 
-            #       self.num_feat_dynamic_real, self.num_feat_static_cat, self.num_feat_static_real, self.static_features, self.cardinality
-            self.get_dataset_info(dataset)
-            
         # Only use barrier if PyTorch distributed is actually initialized
         # In tuning mode with independent workers, we don't need/want a barrier
         is_distributed = dist.is_available() and dist.is_initialized()
