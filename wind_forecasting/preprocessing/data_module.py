@@ -287,15 +287,15 @@ class DataModule():
             exists = os.path.exists(split_path)
             logging.info(f"Rank {rank}: Split file {split}: {split_path} (exists: {exists})")
 
-        logging.info(f"Rank {rank}: Scanning dataset {self.train_ready_data_path}.")
-        dataset = IterableLazyFrame(data_path=self.train_ready_data_path, dtype=self.dtype)
-        logging.info(f"Rank {rank}: Finished scanning dataset {self.train_ready_data_path}.")
-
-        # sets self.continuity_groups, self.target_cols, self.target_suffixes, self.feat_dynamic_real_cols, self.num_target_vars, 
-        #       self.num_feat_dynamic_real, self.num_feat_static_cat, self.num_feat_static_real, self.static_features, self.cardinality
-        self.get_dataset_info(dataset)
     
         if rank == 0 and (reload or not split_files_exist):
+            logging.info(f"Rank {rank}: Scanning dataset {self.train_ready_data_path}.")
+            dataset = IterableLazyFrame(data_path=self.train_ready_data_path, dtype=self.dtype)
+            logging.info(f"Rank {rank}: Finished scanning dataset {self.train_ready_data_path}.")
+
+            # sets self.continuity_groups, self.target_cols, self.target_suffixes, self.feat_dynamic_real_cols, self.num_target_vars, 
+            #       self.num_feat_dynamic_real, self.num_feat_static_cat, self.num_feat_static_real, self.static_features, self.cardinality
+            self.get_dataset_info(dataset)
             
             logging.info(f"Rank 0: Generating splits (reload={reload}, files_exist={split_files_exist}).")
             if self.per_turbine_target:
@@ -473,6 +473,13 @@ class DataModule():
             logging.info(f"Rank {rank}: All split files detected, proceeding to load.")
         
         if rank != 0 or (not reload and split_files_exist):
+            logging.info(f"Rank {rank}: Scanning dataset {self.train_ready_data_path}.")
+            dataset = IterableLazyFrame(data_path=self.train_ready_data_path, dtype=self.dtype)
+            logging.info(f"Rank {rank}: Finished scanning dataset {self.train_ready_data_path}.")
+
+            # sets self.continuity_groups, self.target_cols, self.target_suffixes, self.feat_dynamic_real_cols, self.num_target_vars, 
+            #       self.num_feat_dynamic_real, self.num_feat_static_cat, self.num_feat_static_real, self.static_features, self.cardinality
+            self.get_dataset_info(dataset)
             logging.info(f"Rank {rank}: Loading saved split datasets.")
             for split in splits:
                 split_path = self.get_split_file_path(split)
