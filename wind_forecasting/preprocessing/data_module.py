@@ -174,6 +174,7 @@ class DataModule():
         
         if self.verbose:
             logging.info(f"Writing resampled/sorted parquet to {self.train_ready_data_path}.") 
+
         dataset.collect().write_parquet(self.train_ready_data_path, statistics=False)
         if self.verbose:
             logging.info(f"Saved resampled/sorted parquet to {self.train_ready_data_path}.")
@@ -347,7 +348,7 @@ class DataModule():
                                     "item_id": item_id,
                                     "start": start_time,
                                     "feat_static_cat": [self.target_suffixes.index(re.search("(?<=TURBINE)\\w+(?=_SPLIT)", item_id).group(0))],
-                                    "feat_dynamic_real": ds[:-len(self.target_prefixes), :]
+                                    "feat_dynamic_real": ds[1:-len(self.target_prefixes), :]
                                 })
                                 
                             # del getattr(self, f"{split}_dataset")[item_id]
