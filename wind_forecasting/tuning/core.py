@@ -18,9 +18,7 @@ from optuna.pruners import HyperbandPruner, PercentilePruner, PatientPruner, Suc
 from optuna.trial import TrialState
 
 from wind_forecasting.tuning.objective import MLTuningObjective
-from wind_forecasting.tuning.utils.optuna_utils import (
-    OptunaSamplerPrunerPersistence
-)
+from wind_forecasting.tuning.utils.optuna_utils import OptunaSamplerPrunerPersistence
 from wind_forecasting.utils.optuna_config_utils import generate_db_setup_params, generate_optuna_dashboard_command
 
 
@@ -105,7 +103,7 @@ def tune_model(model, config, study_name, optuna_storage, lightning_module_class
 
         elif pruning_type == "hyperband":
             min_resource = config["optuna"]["pruning"].get("min_resource", 2)
-            max_resource = config["optuna"]["pruning"].get("max_resource", max_epochs)
+            max_resource = config["optuna"]["pruning"].get("max_resource", 10)
             reduction_factor = config["optuna"]["pruning"].get("reduction_factor", 2)
             bootstrap_count = config["optuna"]["pruning"].get("bootstrap_count", 0)
             
@@ -159,7 +157,6 @@ def tune_model(model, config, study_name, optuna_storage, lightning_module_class
     worker_id = os.environ.get('WORKER_RANK', '0')
 
     # Generate unique study name based on restart_tuning flag
-
     base_study_prefix = study_name
     if restart_tuning:
         job_id = os.environ.get('SLURM_JOB_ID')

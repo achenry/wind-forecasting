@@ -3,8 +3,7 @@ from typing import List, Type, Optional
 import os
 import re
 import logging
-import torch
-import glob
+import time
 import torch.distributed as dist
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -201,7 +200,7 @@ class DataModule():
                 self.continuity_groups = dataset.select(pl.col("continuity_group").unique()).collect().to_numpy().flatten()
             else:
                 self.continuity_groups = [0]
-                
+        
         if self.verbose:
             logging.info(f"Found continuity groups {self.continuity_groups}")
             
@@ -278,11 +277,6 @@ class DataModule():
             # Rank was explicitly provided
             logging.info(f"Rank {rank}: Using explicitly provided rank value.")
 
-        logging.info(f"Rank {rank}: Scanning dataset {self.train_ready_data_path}.")
-        dataset = IterableLazyFrame(data_path=self.train_ready_data_path, dtype=self.dtype)
-        logging.info(f"Rank {rank}: Finished scanning dataset {self.train_ready_data_path}.")
-
-        self.get_dataset_info(dataset)
         split_files_exist = all(os.path.exists(self.get_split_file_path(split)) for split in splits)
         logging.info(f"Rank {rank}: Split file check - context_length={self.context_length}, prediction_length={self.prediction_length}, split_files_exist={split_files_exist}")
         for split in splits:
@@ -291,6 +285,15 @@ class DataModule():
             logging.info(f"Rank {rank}: Split file {split}: {split_path} (exists: {exists})")
 
         if rank == 0 and (reload or not split_files_exist):
+            
+            logging.info(f"Rank {rank}: Scanning dataset {self.train_ready_data_path}.")
+            dataset = IterableLazyFrame(data_path=self.train_ready_data_path, dtype=self.dtype)
+            logging.info(f"Rank {rank}: Finished scanning dataset {self.train_ready_data_path}.")
+
+            # sets self.continuity_groups, self.target_cols, self.target_suffixes, self.feat_dynamic_real_cols, self.num_target_vars, 
+            #       self.num_feat_dynamic_real, self.num_feat_static_cat, self.num_feat_static_real, self.static_features, self.cardinality
+            self.get_dataset_info(dataset)
+            
             logging.info(f"Rank 0: Generating splits (reload={reload}, files_exist={split_files_exist}).")
             if self.per_turbine_target:
                 if self.verbose:
@@ -441,7 +444,15 @@ class DataModule():
                                     logging.info(f"Rank 0: Cleaned up temp file {temp_path}")
                                 except OSError as cleanup_error:
                                     logging.error(f"Rank 0: Error removing temp file {temp_path}: {cleanup_error}")
+        else:
+            logging.info(f"Rank {rank}: Scanning dataset {self.train_ready_data_path}.")
+            dataset = IterableLazyFrame(data_path=self.train_ready_data_path, dtype=self.dtype)
+            logging.info(f"Rank {rank}: Finished scanning dataset {self.train_ready_data_path}.")
 
+            # sets self.continuity_groups, self.target_cols, self.target_suffixes, self.feat_dynamic_real_cols, self.num_target_vars, 
+            #       self.num_feat_dynamic_real, self.num_feat_static_cat, self.num_feat_static_real, self.static_features, self.cardinality
+            self.get_dataset_info(dataset)
+            
         # Only use barrier if PyTorch distributed is actually initialized
         # In tuning mode with independent workers, we don't need/want a barrier
         is_distributed = dist.is_available() and dist.is_initialized()
@@ -452,7 +463,7 @@ class DataModule():
         elif rank != 0:
             # For independent workers (e.g., tuning mode), use file-based synchronization
             # Wait for rank 0 to finish by checking if all split files exist
-            import time
+            
             max_wait_time = 300  # 5 minutes timeout
             check_interval = 2   # Check every 2 seconds
             start_time = time.time()
@@ -461,6 +472,7 @@ class DataModule():
                 if time.time() - start_time > max_wait_time:
                     raise TimeoutError(f"Rank {rank}: Timeout waiting for split files from rank 0")
                 logging.info(f"Rank {rank}: Waiting for rank 0 to generate split files...")
+                
                 time.sleep(check_interval)
             
             logging.info(f"Rank {rank}: All split files detected, proceeding to load.")
