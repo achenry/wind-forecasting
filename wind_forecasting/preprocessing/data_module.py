@@ -172,12 +172,15 @@ class DataModule():
         # dataset.target_cols = self.target_cols 
         
         if self.verbose:
-            logging.info(f"Writing resampled/sorted parquet to {self.train_ready_data_path}.") 
+            logging.info(f"Writing resampled/sorted parquet to {self.train_ready_data_path}.done") 
 
-        dataset.collect().write_parquet(f"{self.train_ready_data_path}.done", statistics=False)
-        if os.path.exists(self.train_ready_data_path):
-            os.remove(self.train_ready_data_path)
-        os.rename(f"{self.train_ready_data_path}.done", self.train_ready_data_path)
+        temp_fp = f"{self.train_ready_data_path}.done"
+        dataset.collect(_eager=True).write_parquet(temp_fp, statistics=False)
+        
+        # if os.path.exists(self.train_ready_data_path):
+        #     os.remove(self.train_ready_data_path)
+        os.rename(temp_fp, self.train_ready_data_path)
+        
         if self.verbose:
             logging.info(f"Saved resampled/sorted parquet to {self.train_ready_data_path}.")
         
