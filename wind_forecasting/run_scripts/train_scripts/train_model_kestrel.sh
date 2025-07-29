@@ -8,6 +8,9 @@
 #SBATCH --ntasks-per-node=4 # this needs to match Trainer(devices=...), and number of GPUs
 #SBATCH --mem-per-cpu=20G
 
+##SBATCH --partition=debug
+##SBATCH --time=36:00:00
+
 # salloc --account=awaken --time=01:00:00 --gpus=2 --ntasks-per-node=2 --partition=debug
 
 module purge
@@ -33,4 +36,4 @@ echo "SLURM_GPUS_ON_NODE=${SLURM_GPUS_ON_NODE}"
 echo "SLURM_JOB_GPUS=${SLURM_JOB_GPUS}"
 echo "SLURM_JOB_GRES=${SLURM_JOB_GRES}"
 
-srun python ../run_model.py --config $MODEL_CONFIG_FILE --mode train --model $MODEL --use_tuned_parameters 
+srun python ../run_model.py --config $MODEL_CONFIG_FILE --mode train --model $MODEL --use_tuned_parameters --override dataset.context_length_factor=10

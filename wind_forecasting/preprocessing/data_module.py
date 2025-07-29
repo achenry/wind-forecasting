@@ -174,12 +174,17 @@ class DataModule():
         if self.verbose:
             logging.info(f"Writing resampled/sorted parquet to {self.train_ready_data_path}.done") 
 
+        # TODO HIGH there may be a racing condition here if multiple workers are writing to the same file e.g. for tuning
+        # confirm that this only occurs on rank 0
         temp_fp = f"{self.train_ready_data_path}.done"
         dataset.collect(_eager=True).write_parquet(temp_fp, statistics=False)
         
         # if os.path.exists(self.train_ready_data_path):
         #     os.remove(self.train_ready_data_path)
-        os.rename(temp_fp, self.train_ready_data_path)
+        # os.rename(temp_fp, self.train_ready_data_path)
+        # Atomic rename - if file exists, this will overwrite it atomically
+        logging.info(f"Rank 0: Atomically moving {temp_fp} to {self.train_ready_data_path}")
+        os.replace(temp_fp, self.train_ready_data_path)  # os.replace is atomic on POSIX
         
         if self.verbose:
             logging.info(f"Saved resampled/sorted parquet to {self.train_ready_data_path}.")
