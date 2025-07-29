@@ -11,7 +11,9 @@
 ##SBATCH --partition=debug
 ##SBATCH --time=36:00:00
 
-# salloc --account=awaken --time=01:00:00 --gpus=2 --ntasks-per-node=2 --partition=debug
+# salloc --account=awaken --time=01:00:00 --gpus=2 --ntasks-per-node=2 --partition=debug --mem-per-cpu=20G
+# export MODEL=informer
+# export MODEL_CONFIG_FILE=$HOME/toolboxes/wind_forecasting_env/wind-forecasting/config/training/training_inputs_kestrel_awaken_predLUT.yaml
 
 module purge
 ml PrgEnv-intel mamba
@@ -36,4 +38,10 @@ echo "SLURM_GPUS_ON_NODE=${SLURM_GPUS_ON_NODE}"
 echo "SLURM_JOB_GPUS=${SLURM_JOB_GPUS}"
 echo "SLURM_JOB_GRES=${SLURM_JOB_GRES}"
 
-srun python ../run_model.py --config $MODEL_CONFIG_FILE --mode train --model $MODEL --use_tuned_parameters --override dataset.context_length_factor=10
+srun python ../run_model.py --config $MODEL_CONFIG_FILE --mode train --model $MODEL --use_tuned_parameters \
+                            --override dataset.context_length_factor=10 \
+                                       dataset.sampler=sequential \
+                                       trainer.max_epochs=40 \
+                                       trainer.limit_train_batches=null \
+                                       trainer.val_check_interval=1.0 \
+                                       dataset.batch_size=64
