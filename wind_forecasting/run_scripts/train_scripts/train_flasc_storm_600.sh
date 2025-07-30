@@ -128,11 +128,16 @@ srun python ${WORK_DIR}/run_scripts/run_model.py \
       trainer.max_epochs=100 \
       trainer.limit_train_batches=null \
       trainer.val_check_interval=1.0 \
-      tactis.stage2_start_epoch=50 \
-      experiment.run_name=train_flasc_tactis_600_storm \
-      experiment.project_name=train_tactis_flasc_storm \
-      logging.chkp_dir_suffix=_600_train \
-      experiment.extra_tags="[\"flasc\", \"train\", \"tactis\", \"600s\", \"storm\"]"
+      tactis.stage2_start_epoch=15 \
+      tactis.lr_stage2=8e-06 \
+      tactis.weight_decay_stage2=1e-06 \
+      tactis.copula_num_layers=2 \
+      tactis.copula_num_heads=6 \
+      tactis.ac_mlp_num_layers=6 \
+      experiment.run_name=train_flasc_tactis_600_storm_v2 \
+      experiment.project_name=train_tactis_flasc_storm_v2 \
+      logging.chkp_dir_suffix=_600_train_v2 \
+      experiment.extra_tags="[\"flasc\", \"train\", \"tactis\", \"600s\", \"storm\", \"improved_copula\"]"
 
 TRAIN_EXIT_CODE=$?
 
