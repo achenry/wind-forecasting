@@ -884,8 +884,6 @@ def main():
         
         n_training_steps = np.ceil(n_training_samples / data_module.batch_size).astype(int)
         assert estimator_kwargs["num_batches_per_epoch"] is None or isinstance(estimator_kwargs["num_batches_per_epoch"], int)
-        if estimator_kwargs["num_batches_per_epoch"] is not None:
-            n_training_steps = min(n_training_steps, estimator_kwargs["num_batches_per_epoch"])
         
         # Log warning if using random sampler with null limit_train_batches
         if estimator_kwargs["num_batches_per_epoch"] is None:
@@ -896,7 +894,8 @@ def main():
             elif sampler_type == "sequential":
                 estimator_kwargs["true_num_batches_per_epoch"] = n_training_steps
         else:
-            estimator_kwargs["true_num_batches_per_epoch"] = estimator_kwargs["num_batches_per_epoch"]
+            n_training_steps = min(n_training_steps, estimator_kwargs["num_batches_per_epoch"])
+            estimator_kwargs["true_num_batches_per_epoch"] = n_training_steps #estimator_kwargs["num_batches_per_epoch"]
         
         if  "d_model" in model_hparams: # and "dim_feedforward" not in model_hparams
             # set dim_feedforward to 4x the d_model found in this trial
