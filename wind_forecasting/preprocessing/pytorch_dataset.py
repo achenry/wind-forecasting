@@ -154,6 +154,12 @@ class WindForecastingDataset(IterableDataset):
         self.time_features = time_features or []
         self.sampler = sampler
         self.repeat = repeat
+        
+        if self.repeat:
+            logger.info(f"Dataset will repeat indefinitely")
+        else:
+            logger.info(f"Dataset will not repeat, will stop after one pass")
+            
         self.skip_indices = skip_indices
         
         # Store world_size and rank passed from the DataModule
