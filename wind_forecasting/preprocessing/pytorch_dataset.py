@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 class WindForecastingDatamodule(pl.LightningDataModule):
     def __init__(self, train_data_path, val_data_path, train_sampler, 
                  context_length, prediction_length, time_features, val_sampler=None, 
-                 train_repeat=True, val_repeat=False,
+                 train_repeat=False, val_repeat=False,
                  batch_size=32, num_workers=4, pin_memory=True):
         super().__init__()
         self.train_data_path = train_data_path

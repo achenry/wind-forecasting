@@ -310,7 +310,8 @@ def main():
 
         # Get worker info from environment variables
         worker_id = os.environ.get('SLURM_PROCID', '0')
-        gpu_id = os.environ.get('CUDA_VISIBLE_DEVICES', '0')
+        gpu_id = os.environ.get('CUDA_VISIBLE_DEVICES', '0') # TODO GPU_ID is a list here...
+        gpu_id = '0'
 
         # Create a unique run name for each worker
         project_name = f"{config['experiment'].get('project_name', 'wind_forecasting')}_{args.model}"
@@ -886,14 +887,16 @@ def main():
         if estimator_kwargs["num_batches_per_epoch"] is not None:
             n_training_steps = min(n_training_steps, estimator_kwargs["num_batches_per_epoch"])
         
-        # TODO JUAN PATCH
-        estimator_kwargs["num_batches_per_epoch"] = n_training_steps
-            
         # Log warning if using random sampler with null limit_train_batches
-        if (config["dataset"].get("sampler", "sequential") == "random" and
-            estimator_kwargs["num_batches_per_epoch"] is None):
-            logging.warning("Using random sampler (ExpectedNumInstanceSampler) with limit_train_batches=null. "
-                          "Consider setting an explicit integer value for limit_train_batches to avoid potential issues.")
+        if estimator_kwargs["num_batches_per_epoch"] is None:
+            sampler_type = config["dataset"].get("sampler", "sequential")
+            if sampler_type == "random":
+                logging.warning("Using random sampler (ExpectedNumInstanceSampler) with limit_train_batches=null. "
+                            "Consider setting an explicit integer value for limit_train_batches to avoid potential issues.")
+            elif sampler_type == "sequential":
+                estimator_kwargs["true_num_batches_per_epoch"] = n_training_steps
+        else:
+            estimator_kwargs["true_num_batches_per_epoch"] = estimator_kwargs["num_batches_per_epoch"]
         
         if  "d_model" in model_hparams: # and "dim_feedforward" not in model_hparams
             # set dim_feedforward to 4x the d_model found in this trial
