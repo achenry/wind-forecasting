@@ -244,9 +244,9 @@ def main():
         logging.warning(f"Could not parse SLURM_CPUS_PER_TASK ('{cpus_per_task_str}'), defaulting cpus_per_task to 1.")
         cpus_per_task = 1
 
-    num_workers = max(0, cpus_per_task - 1)
+    num_workers = max(0, cpus_per_task - 2) # subtract one for the main process, and one for system overhead, and let rest be workers
 
-    # Set DataLoader parameters within the trainer config TODO JUAN does num_workers have to be cpus_per_task-1, should persistent_workers be set to False
+    # Set DataLoader parameters within the trainer config
     logging.info(f"Determined SLURM_CPUS_PER_TASK={cpus_per_task}. Setting num_workers = {num_workers}.")
     
     if args.mode != "dataset":
