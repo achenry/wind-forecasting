@@ -5,6 +5,7 @@ from memory_profiler import profile
 import os
 import re
 import torch
+import torch.multiprocessing
 import gc
 import random
 import json
@@ -50,6 +51,15 @@ from wind_forecasting.utils.optuna_config_utils import generate_db_setup_params
 # tmp.set_start_method('spawn', force=True)
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+# Change the sharing strategy to avoid "Too many open files" errors
+# This should be one of the first things your script does.
+try:
+    torch.multiprocessing.set_sharing_strategy('file_system')
+    logging.info("Set multiprocessing sharing strategy to 'file_system'.")
+except RuntimeError:
+    # In case it's already set or not supported on the system
+    logging.warning("Could not set multiprocessing sharing strategy to 'file_system', or it could already be set. ")
 
 def main():
 
