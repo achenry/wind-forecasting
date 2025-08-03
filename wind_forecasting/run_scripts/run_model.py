@@ -1030,7 +1030,7 @@ def main():
             logging.info(f"Using PyTorch DataLoader with file paths:")
             logging.info(f"  Training data: {train_data_path}")
             logging.info(f"  Validation data: {val_data_path}")
-            
+            persistent_workers = num_workers > 0
             estimator.train(
                 training_data=train_data_path,
                 validation_data=val_data_path,
@@ -1039,7 +1039,7 @@ def main():
                 # Pass additional kwargs that might be needed for PyTorch dataloaders
                 num_workers=num_workers,
                 pin_memory=True,
-                persistent_workers=False # TODO TESTING
+                persistent_workers=persistent_workers
             )
         else:
             # Original GluonTS data loading
