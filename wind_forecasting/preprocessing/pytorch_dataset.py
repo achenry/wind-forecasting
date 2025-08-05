@@ -212,7 +212,7 @@ class WindForecastingDataset(IterableDataset):
         self.n_datasets = len(self.data)
         logger.info(f"Loaded {self.n_datasets} time series")
 
-        # del self.data # Free memory after loading
+        del self.data # Free memory after loading
         self.dataset_idx = 0
       
     def __iter__(self):
