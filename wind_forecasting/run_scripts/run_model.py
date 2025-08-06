@@ -54,12 +54,12 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 
 # Change the sharing strategy to avoid "Too many open files" errors
 # This should be one of the first things your script does.
-try:
-    torch.multiprocessing.set_sharing_strategy('file_system')
-    logging.info("Set multiprocessing sharing strategy to 'file_system'.")
-except RuntimeError:
-    # In case it's already set or not supported on the system
-    logging.warning("Could not set multiprocessing sharing strategy to 'file_system', or it could already be set. ")
+# try:
+#     torch.multiprocessing.set_sharing_strategy('file_system')
+#     logging.info("Set multiprocessing sharing strategy to 'file_system'.")
+# except RuntimeError:
+#     # In case it's already set or not supported on the system
+#     logging.warning("Could not set multiprocessing sharing strategy to 'file_system', or it could already be set. ")
 
 def main():
 
