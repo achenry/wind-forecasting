@@ -134,6 +134,7 @@ srun python ${WORK_DIR}/run_scripts/run_model.py \
       tactis.copula_num_layers=2 \
       tactis.copula_num_heads=6 \
       tactis.ac_mlp_num_layers=6 \
+      tactis.decoder_num_bins=200 \
       experiment.run_name=train_flasc_tactis_600_storm_v2 \
       experiment.project_name=train_tactis_flasc_storm_v2 \
       logging.chkp_dir_suffix=_600_train_v2 \
