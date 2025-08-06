@@ -197,17 +197,23 @@ class WindForecastingDataset(IterableDataset):
                             [_serialize(np.array(sample[k]).flatten()) for sample in self.data]
                         )
                 setattr(self, f"_dim_{k}", np.array(self.data[0][k]).shape[0])
-                setattr(self, f"_addr_{k}", torch.from_numpy(np.cumsum(np.asarray([len(item) for item in getattr(self, f"_data_{k}")], dtype=np.int64))))
-        
+               # setattr(self, f"_addr_{k}", torch.from_numpy(np.cumsum(np.asarray([len(item) for item in getattr(self, f"_data_{k}")], dtype=np.int64))))
             else:
-                setattr(self, f"_data_{k}", np.array([sample[k] for sample in self.data]))
-        
+                setattr(self, f"_data_{k}",  [_serialize(sample[k]) for sample in self.data])
+
         # at this point, len(self._data_target) == len(self.data) i.e. an item for every time series sample
+        
+        self._addr = torch.from_numpy(
+            np.vstack([np.cumsum(np.asarray([len(item) for item in getattr(self, f"_data_{k}")], dtype=np.int64)) 
+                       for k in self._data_keys ]))
+                    #    if isinstance(self.data[0][k], (np.ndarray, list))]))
         
         for k in self._data_keys:
             if isinstance(getattr(self, f"_data_{k}"), list):
                 setattr(self, f"_data_{k}", 
                         torch.from_numpy(np.concatenate(getattr(self, f"_data_{k}"))))
+            # elif isinstance(getattr(self, f"_data_{k}"), np.ndarray):
+            #     setattr(self, f"_data_{k}", torch.from_numpy(getattr(self, f"_data_{k}")))
         
         self.n_datasets = len(self.data)
         logger.info(f"Loaded {self.n_datasets} time series")
@@ -265,8 +271,13 @@ class WindForecastingDataset(IterableDataset):
         # iterators = {}
         # for k in self._data_keys:
         #     iterators[k] = iter(getattr(self, f"_data_{k}"))
+        
+        addr = self._addr.numpy()
+        addr = {
+            k: addr[i, :] for i, k in enumerate(self._data_keys)
+        }
             
-        addr_iterator = zip(iter(self._data_start), iter(self._addr_target), iter(self._addr_feat_dynamic_real), iter(self._addr_feat_static_cat))
+        addr_iterator = zip(iter(self._data_start), iter(addr["start"]), iter(addr["target"]), iter(addr["feat_dynamic_real"]), iter(addr["feat_static_cat"]))
         
         # Apply cycle() here if needed, on the new iterator.
         if self.repeat:
@@ -277,28 +288,26 @@ class WindForecastingDataset(IterableDataset):
         
         # for entry in data_iterator:
         ds_idx = 0
-        for start_period, addr_target, addr_fdr, addr_fsc in addr_iterator:
+        for start_period, end_addr_start, end_addr_target, end_addr_fdr, end_addr_fsc in addr_iterator:
             
             if ds_idx == 0:
-                start_addr_target = start_addr_fdr = start_addr_fsc = 0
+                start_addr_start = start_addr_target = start_addr_fdr = start_addr_fsc = 0
             else:
-                start_addr_target = last_addr_target
-                start_addr_fdr = last_addr_fdr
-                start_addr_fsc = last_addr_fsc
+                start_addr_start, start_addr_target, start_addr_fdr, start_addr_fsc = (
+                    last_addr_start, last_addr_target, last_addr_fdr, last_addr_fsc
+                )
             
-            end_addr_target = addr_target.item()
-            end_addr_fdr = addr_fdr.item()
-            end_addr_fsc = addr_fsc.item()
-            
-            last_addr_target = addr_target.item()
-            last_addr_fdr = addr_fdr.item()
-            last_addr_fsc = addr_fsc.item()
-            
+            # item_id = pickle.loads(memoryview(self._data_item_id[start_addr_item_id:end_addr_item_id].numpy()))
+            start_period = pickle.loads(memoryview(self._data_start[start_addr_start:end_addr_start].numpy()))
             target =  pickle.loads(memoryview(self._data_target[start_addr_target:end_addr_target].numpy())).reshape((self._dim_target, -1))
             # start_period = self._data_start[ds_idx]
             feat_static_cat = pickle.loads(memoryview(self._data_feat_static_cat[start_addr_fsc:end_addr_fsc].numpy()))
             feat_dynamic_real = pickle.loads(memoryview(self._data_feat_dynamic_real[start_addr_fdr:end_addr_fdr].numpy())).reshape((self._dim_feat_dynamic_real, -1))
             feat_static_real = [0.0]
+            
+            last_addr_start, last_addr_target, last_addr_fdr, last_addr_fsc = (
+                end_addr_start, end_addr_target, end_addr_fdr, end_addr_fsc
+                )
             
             sampled_indices = self.sampler(target)[::self.skip_indices]
             
@@ -412,23 +421,34 @@ class WindForecastingInferenceDataset(WindForecastingDataset):
         # data_iterator = self.data
         # addr_iterator = zip(iter(self._addr_target), iter(self._addr_feat_dynamic_real), iter(self._addr_feat_static_cat))
         
+        addr = self._addr.numpy()
+        addr = {
+            k: addr[i, :] for i, k in enumerate(self._data_keys)
+        }
+        
         self.samples = []
         # for entry in data_iterator:
         for ds_idx in range(self.n_datasets):
             
             if ds_idx == 0:
-                start_addr_target = start_addr_fdr = start_addr_fsc = 0
+                # start_addr_item_id = 
+                start_addr_start = start_addr_target = start_addr_fdr = start_addr_fsc = 0
             else:
-                start_addr_target = self._addr_target[ds_idx - 1].item()
-                start_addr_fdr = self._addr_feat_dynamic_real[ds_idx - 1].item()
-                start_addr_fsc = self._addr_feat_static_cat[ds_idx - 1].item()
+                # start_addr_item_id = addr["item_id"][ds_idx - 1]
+                start_addr_start = addr["start"][ds_idx - 1]
+                start_addr_target = addr["target"][ds_idx - 1]
+                start_addr_fdr = addr["feat_dynamic_real"][ds_idx - 1]
+                start_addr_fsc = addr["feat_static_cat"][ds_idx - 1]
+
+            # end_addr_item_id = addr["item_id"][ds_idx]
+            end_addr_start = addr["start"][ds_idx]
+            end_addr_target = addr["target"][ds_idx]
+            end_addr_fdr = addr["feat_dynamic_real"][ds_idx]
+            end_addr_fsc = addr["feat_static_cat"][ds_idx]
             
-            end_addr_target = self._addr_target[ds_idx].item()
-            end_addr_fdr = self._addr_feat_dynamic_real[ds_idx].item()
-            end_addr_fsc = self._addr_feat_static_cat[ds_idx].item()
-            
+            # item_id = pickle.loads(memoryview(self._data_item_id[start_addr_item_id:end_addr_item_id].numpy()))
+            start_period = pickle.loads(memoryview(self._data_start[start_addr_start:end_addr_start].numpy()))
             target = pickle.loads(memoryview(self._data_target[start_addr_target:end_addr_target].numpy())).reshape((self._dim_target, -1))
-            start_period = self._data_start[ds_idx]
             feat_static_cat = pickle.loads(memoryview(self._data_feat_static_cat[start_addr_fsc:end_addr_fsc].numpy()))
             feat_dynamic_real = pickle.loads(memoryview(self._data_feat_dynamic_real[start_addr_fdr:end_addr_fdr].numpy())).reshape((self._dim_feat_dynamic_real, -1))
             feat_static_real = [0.0]
