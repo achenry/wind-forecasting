@@ -266,7 +266,7 @@ class WindForecastingDataset(IterableDataset):
         # for k in self._data_keys:
         #     iterators[k] = iter(getattr(self, f"_data_{k}"))
             
-        addr_iterator = zip(iter(self._addr_target), iter(self._addr_feat_dynamic_real), iter(self._addr_feat_static_cat))
+        addr_iterator = zip(iter(self._data_start), iter(self._addr_target), iter(self._addr_feat_dynamic_real), iter(self._addr_feat_static_cat))
         
         # Apply cycle() here if needed, on the new iterator.
         if self.repeat:
@@ -276,10 +276,10 @@ class WindForecastingDataset(IterableDataset):
         # np.reshape(self.data[0]["target"].flatten(), (self._dim_target, -1)),
         
         # for entry in data_iterator:
-        idx = 0
-        for addr_target, addr_fdr, addr_fsc in addr_iterator:
+        ds_idx = 0
+        for start_period, addr_target, addr_fdr, addr_fsc in addr_iterator:
             
-            if idx == 0:
+            if ds_idx == 0:
                 start_addr_target = start_addr_fdr = start_addr_fsc = 0
             else:
                 start_addr_target = last_addr_target
@@ -293,24 +293,22 @@ class WindForecastingDataset(IterableDataset):
             last_addr_target = addr_target.item()
             last_addr_fdr = addr_fdr.item()
             last_addr_fsc = addr_fsc.item()
-            idx += 1 # not the first iteration anymore
             
-            entry = {
-                "target": pickle.loads(memoryview(self._data_target[start_addr_target:end_addr_target].numpy())).reshape((self._dim_target, -1)),
-                "start": self._data_start[idx],
-                "feat_static_cat": pickle.loads(memoryview(self._data_feat_static_cat[start_addr_fsc:end_addr_fsc].numpy())),
-                "feat_dynamic_real": pickle.loads(memoryview(self._data_feat_dynamic_real[start_addr_fdr:end_addr_fdr].numpy())).reshape((self._dim_feat_dynamic_real, -1))
-            }
+            target =  pickle.loads(memoryview(self._data_target[start_addr_target:end_addr_target].numpy())).reshape((self._dim_target, -1))
+            # start_period = self._data_start[ds_idx]
+            feat_static_cat = pickle.loads(memoryview(self._data_feat_static_cat[start_addr_fsc:end_addr_fsc].numpy()))
+            feat_dynamic_real = pickle.loads(memoryview(self._data_feat_dynamic_real[start_addr_fdr:end_addr_fdr].numpy())).reshape((self._dim_feat_dynamic_real, -1))
+            feat_static_real = [0.0]
             
-            sampled_indices = self.sampler(entry['target'])[::self.skip_indices]
+            sampled_indices = self.sampler(target)[::self.skip_indices]
+            
+            ds_idx = -1
             
             if len(sampled_indices) == 0:
                 continue
             
             for idx in sampled_indices:
                 # Extract data
-                target = entry['target']  # Shape: (num_series, time_steps)
-                start_period = entry['start']
                 _, ts_length = target.shape
                 
                 # Find all valid time points
@@ -348,18 +346,18 @@ class WindForecastingDataset(IterableDataset):
                 future_target = np.nan_to_num(future_target, 0.0)
                 
                 # Get static features
-                feat_static_cat = entry.get('feat_static_cat', [0])
-                feat_static_real = entry.get('feat_static_real', [0.0])
+                # feat_static_cat = entry.get('feat_static_cat', [0])
+                # feat_static_real = entry.get('feat_static_real', [0.0])
                 
                 # Get dynamic features if available
-                if 'feat_dynamic_real' in entry:
-                    feat_dynamic_real = entry['feat_dynamic_real']
-                    past_dynamic = feat_dynamic_real[:, idx - self.context_length:idx]
-                    future_dynamic = feat_dynamic_real[:, idx:idx + self.prediction_length]
-                    
-                    # Stack with time features
-                    past_time_feat = np.vstack([past_time_feat, past_dynamic])
-                    future_time_feat = np.vstack([future_time_feat, future_dynamic])
+                # if 'feat_dynamic_real' in entry:
+                    # feat_dynamic_real = entry['feat_dynamic_real']
+                past_dynamic = feat_dynamic_real[:, idx - self.context_length:idx]
+                future_dynamic = feat_dynamic_real[:, idx:idx + self.prediction_length]
+                
+                # Stack with time features
+                past_time_feat = np.vstack([past_time_feat, past_dynamic])
+                future_time_feat = np.vstack([future_time_feat, future_dynamic])
                 
                 # Convert to tensors and transpose to (time, features)
                 yield {
@@ -416,29 +414,26 @@ class WindForecastingInferenceDataset(WindForecastingDataset):
         
         self.samples = []
         # for entry in data_iterator:
-        for idx in range(self.n_datasets):
+        for ds_idx in range(self.n_datasets):
             
-            if idx == 0:
+            if ds_idx == 0:
                 start_addr_target = start_addr_fdr = start_addr_fsc = 0
             else:
-                start_addr_target = self._addr_target[idx - 1].item()
-                start_addr_fdr = self._addr_feat_dynamic_real[idx - 1].item()
-                start_addr_fsc = self._addr_feat_static_cat[idx - 1].item()
+                start_addr_target = self._addr_target[ds_idx - 1].item()
+                start_addr_fdr = self._addr_feat_dynamic_real[ds_idx - 1].item()
+                start_addr_fsc = self._addr_feat_static_cat[ds_idx - 1].item()
             
-            end_addr_target = self._addr_target[idx].item()
-            end_addr_fdr = self._addr_feat_dynamic_real[idx].item()
-            end_addr_fsc = self._addr_feat_static_cat[idx].item()
+            end_addr_target = self._addr_target[ds_idx].item()
+            end_addr_fdr = self._addr_feat_dynamic_real[ds_idx].item()
+            end_addr_fsc = self._addr_feat_static_cat[ds_idx].item()
             
-            entry = {
-                "target": pickle.loads(memoryview(self._data_target[start_addr_target:end_addr_target].numpy())).reshape((self._dim_target, -1)),
-                "start": self._data_start[idx],
-                "feat_static_cat": pickle.loads(memoryview(self._data_feat_static_cat[start_addr_fsc:end_addr_fsc].numpy())),
-                "feat_dynamic_real": pickle.loads(memoryview(self._data_feat_dynamic_real[start_addr_fdr:end_addr_fdr].numpy())).reshape((self._dim_feat_dynamic_real, -1))
-            }
+            target = pickle.loads(memoryview(self._data_target[start_addr_target:end_addr_target].numpy())).reshape((self._dim_target, -1))
+            start_period = self._data_start[ds_idx]
+            feat_static_cat = pickle.loads(memoryview(self._data_feat_static_cat[start_addr_fsc:end_addr_fsc].numpy()))
+            feat_dynamic_real = pickle.loads(memoryview(self._data_feat_dynamic_real[start_addr_fdr:end_addr_fdr].numpy())).reshape((self._dim_feat_dynamic_real, -1))
+            feat_static_real = [0.0]
             
             # Same processing as parent class but with fixed time point
-            target = entry['target']
-            start_period = entry['start']
             ts_length = target.shape[1]
         
             # Find all valid time points
@@ -483,18 +478,18 @@ class WindForecastingInferenceDataset(WindForecastingDataset):
                 future_target = np.nan_to_num(future_target, 0.0)
                 
                 # Get static features
-                feat_static_cat = entry.get('feat_static_cat', [0])
-                feat_static_real = entry.get('feat_static_real', [0.0])
+                # feat_static_cat = entry.get('feat_static_cat', [0])
+                # feat_static_real = entry.get('feat_static_real', [0.0])
                 
                 # Get dynamic features if available
-                if 'feat_dynamic_real' in entry:
-                    feat_dynamic_real = entry['feat_dynamic_real']
-                    past_dynamic = feat_dynamic_real[:, idx - self.context_length:idx]
-                    future_dynamic = feat_dynamic_real[:, idx:idx + self.prediction_length]
-                    
-                    # Stack with time features
-                    past_time_feat = np.vstack([past_time_feat, past_dynamic])
-                    future_time_feat = np.vstack([future_time_feat, future_dynamic])
+                # if 'feat_dynamic_real' in entry:
+                    # feat_dynamic_real = entry['feat_dynamic_real']
+                past_dynamic = feat_dynamic_real[:, idx - self.context_length:idx]
+                future_dynamic = feat_dynamic_real[:, idx:idx + self.prediction_length]
+                
+                # Stack with time features
+                past_time_feat = np.vstack([past_time_feat, past_dynamic])
+                future_time_feat = np.vstack([future_time_feat, future_dynamic])
                 
                 # Convert to tensors
                 self.samples.append({
