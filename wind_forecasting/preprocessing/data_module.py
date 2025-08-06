@@ -590,13 +590,13 @@ class DataModule():
             val_offset = round(self.val_split * self.rows_per_split[cg])
             test_offset = round(self.test_split * self.rows_per_split[cg])
 
-            logging.info(f"Creating train_datasets list.")
+            logging.info(f"Creating {cg}th of {len(dataset)} train_datasets list.")
             train_datasets += [ds.slice(0, train_offset).with_columns(continuity_group=pl.lit(d)) for d, ds in enumerate(datasets)]
             
-            logging.info(f"Creating val_datasets list.")
+            logging.info(f"Creating {cg}th of {len(dataset)} val_datasets list.")
             val_datasets += [ds.slice(train_offset, val_offset).with_columns(continuity_group=pl.lit(d)) for d, ds in enumerate(datasets)]  # val_offset is the length of validation data
             
-            logging.info(f"Creating test_datasets list.")
+            logging.info(f"Creating {cg}th of {len(dataset)} test_datasets list.")
             test_datasets += [ds.slice(train_offset + val_offset, test_offset).with_columns(continuity_group=pl.lit(d)) for d, ds in enumerate(datasets)]  # test_offset is the length of test data
         
         if self.verbose:
