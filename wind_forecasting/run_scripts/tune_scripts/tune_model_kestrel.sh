@@ -1,12 +1,13 @@
 #!/bin/bash 
 #SBATCH --account=awaken
 #SBATCH --output=%j-%x.out
-#SBATCH --partition=gpu-h100l
+##SBATCH --partition=debug
 #SBATCH --nodes=1 # this needs to match Trainer(num_nodes...)
 #SBATCH --gres=gpu:4
 #SBATCH --ntasks-per-node=4 # this needs to match Trainer(devices=...)
-#SBATCH --mem-per-cpu=40G
+#SBATCH --mem-per-cpu=85G
 #SBATCH --time=96:00:00
+##SBATCH --time=01:00:00
 
 # salloc --account=awaken --time=01:00:00 --gpus=2 --ntasks-per-node=2 --partition=debug
 
