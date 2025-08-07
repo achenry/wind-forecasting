@@ -1,14 +1,14 @@
 import argparse
 # from calendar import c
 import logging
-from memory_profiler import profile
+# from memory_profiler import profile
 import os
 import re
 import torch
-import torch.multiprocessing
+# import torch.multiprocessing
+import multiprocessing as mp
 import gc
 import random
-import json
 import numpy as np
 from datetime import datetime
 import platform
@@ -16,6 +16,7 @@ import subprocess
 import inspect
 
 import polars as pl
+import polars.selectors as cs
 from lightning.pytorch import Trainer
 from lightning.pytorch.loggers import WandbLogger
 from lightning.pytorch.utilities import rank_zero_only
@@ -234,7 +235,8 @@ def main():
         
     
     # Dynamically set DataLoader workers based on SLURM_CPUS_PER_TASK
-    cpus_per_task_str = os.environ.get('SLURM_CPUS_PER_TASK', '1') # Default to 1 CPU if var not set
+    cpus_per_task_str = os.environ.get('SLURM_CPUS_PER_TASK', mp.cpu_count()) # Default to 1 CPU if var not set
+    cpus_per_task_str = os.environ.get('SLURM_CPUS_PER_TASK', 1) # TODO TESTING
     try:
         cpus_per_task = int(cpus_per_task_str)
         if cpus_per_task <= 0:
@@ -271,7 +273,7 @@ def main():
             freq=config["dataset"]["resample_freq"],
             target_suffixes=config["dataset"]["target_turbine_ids"],
             per_turbine_target=config["dataset"]["per_turbine_target"],
-            as_lazyframe=False,
+            as_lazyframe=True, # TESTING TODO
             dtype=pl.Float32,
             normalized=use_normalization,  # TACTiS-2 requires denormalized input for internal scaling
             normalization_consts_path=config["dataset"]["normalization_consts_path"], # Needed for denormalization
@@ -815,7 +817,7 @@ def main():
                 freq=cnf["dataset"]["resample_freq"],
                 target_suffixes=cnf["dataset"]["target_turbine_ids"],
                 per_turbine_target=cnf["dataset"]["per_turbine_target"],
-                as_lazyframe=False,
+                as_lazyframe=True, # TESTING TODO
                 dtype=pl.Float32,
                 normalized=dm_normalized,  # TACTiS-2 requires denormalized input for internal scaling
                 normalization_consts_path=cnf["dataset"]["normalization_consts_path"], # Needed for denormalization
@@ -888,9 +890,14 @@ def main():
         }
         
         n_training_samples = 0
-        for ds in data_module.train_dataset:
-            a, b = estimator_kwargs["train_sampler"]._get_bounds(ds["target"])
-            n_training_samples += (b - a + 1)
+        if data_module.as_lazyframe:
+            for item_id in data_module.train_dataset["item_id"].unique():
+                a, b = estimator_kwargs["train_sampler"]._get_bounds(data_module.train_dataset.filter(data_module.train_dataset["item_id"] == item_id).select(cs.starts_with("target_")).to_numpy().T)
+                n_training_samples += (b - a + 1)
+        else:
+            for ds in data_module.train_dataset:
+                a, b = estimator_kwargs["train_sampler"]._get_bounds(ds["target"])
+                n_training_samples += (b - a + 1)
         
         n_training_steps = np.ceil(n_training_samples / data_module.batch_size).astype(int)
         assert estimator_kwargs["num_batches_per_epoch"] is None or isinstance(estimator_kwargs["num_batches_per_epoch"], int)
