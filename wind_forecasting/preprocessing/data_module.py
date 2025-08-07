@@ -88,7 +88,10 @@ class DataModule():
             suffix = ""
         
         # Include context_length in the filename to make cache files distinct
-        return f"{base_path}_{split}{suffix}.pkl"
+        if self.as_lazyframe:
+            return f"{base_path}_{split}{suffix}.parquet"
+        else:
+            return f"{base_path}_{split}{suffix}.pkl"
     
     def _validate_loaded_splits(self, splits, rank):
         """Validate that loaded splits are compatible with current context_length requirements."""
@@ -96,19 +99,25 @@ class DataModule():
         
         for split in splits:
             dataset = getattr(self, f"{split}_dataset")
-            if not dataset:
+            if len(dataset) == 0:
                 logging.warning(f"Rank {rank}: {split} dataset is empty! This may cause validation issues.")
                 continue
                 
             # Check if dataset has enough samples for the current context_length requirements
             if isinstance(dataset, list) and len(dataset) > 0:
                 # Check a representative sample from the dataset
-                sample = dataset[0] if dataset else None
+                sample = dataset[0] if len(dataset) else None
                 if sample and "target" in sample:
                     target_length = sample["target"].shape[1] if hasattr(sample["target"], "shape") else len(sample["target"][0])
                     if target_length < min_required_length:
                         logging.error(f"Rank {rank}: {split} dataset samples are too short ({target_length}) for context_length={self.context_length} + prediction_length={self.prediction_length} = {min_required_length}")
                         raise ValueError(f"Loaded {split} dataset is incompatible with current context_length={self.context_length}")
+            elif isinstance(dataset, pl.DataFrame):
+                # For Polars DataFrame, check the length of the target column
+                target_length = dataset.filter(pl.col("item_id") == dataset["item_id"].unique()[0]).select(pl.len()).item()
+                if target_length < min_required_length:
+                    logging.error(f"Rank {rank}: {split} dataset samples are too short ({target_length}) for context_length={self.context_length} + prediction_length={self.prediction_length} = {min_required_length}")
+                    raise ValueError(f"Loaded {split} dataset is incompatible with current context_length={self.context_length}")
                         
         logging.info(f"Rank {rank}: Validation passed for loaded splits with context_length={self.context_length}, prediction_length={self.prediction_length}")
     
@@ -294,7 +303,6 @@ class DataModule():
             split_path = self.get_split_file_path(split)
             exists = os.path.exists(split_path)
             logging.info(f"Rank {rank}: Split file {split}: {split_path} (exists: {exists})")
-
     
         if rank == 0 and (reload or not split_files_exist):
             logging.info(f"Rank {rank}: Scanning dataset {self.train_ready_data_path}.")
@@ -321,25 +329,54 @@ class DataModule():
                 
                 self.continuity_groups = dataset.select(pl.col("continuity_group").unique()).collect().to_numpy().flatten()
                 
+                # TODO TESTING
+                self.continuity_groups = self.continuity_groups[:3]
+                
                 self.train_dataset, self.val_dataset, self.test_dataset = \
                     self.split_dataset([dataset.filter(pl.col("continuity_group") == cg) for cg in self.continuity_groups]) 
                 
                 if self.as_lazyframe:
-                    static_index = [f"TURBINE{turbine_id}_SPLIT{split}" for turbine_id in self.target_suffixes for cg in self.train_dataset["continuity_group"].unique().collect()]
-                    self.static_features = pd.DataFrame(
-                        {
-                            "turbine_id": pd.Categorical(turbine_id for turbine_id in self.target_suffixes for cg in self.train_dataset["continuity_group"].unique().collect())
-                        },
-                        index=static_index
-                    )
+                    # static_index = [f"TURBINE{turbine_id}_SPLIT{cg}" for turbine_id in self.target_suffixes for cg in self.train_dataset["continuity_group"].unique().collect()]
+                    # self.static_features = pd.DataFrame(
+                    #     {
+                    #         "turbine_id": pd.Categorical(turbine_id for turbine_id in self.target_suffixes for cg in self.train_dataset["continuity_group"].unique().collect())
+                    #     },
+                    #     index=static_index
+                    # )
                     
                     for split in splits:
+                        datasets = []
+                        setattr(self, f"{split}_dataset", pl.collect_all(getattr(self, f"{split}_dataset")))
                         split_ds = getattr(self, f"{split}_dataset")
-                        setattr(self, f"{split}_dataset", 
-                                PolarsDataset({f"TURBINE{turbine_id}_SPLIT{d}": self.get_df_by_turbine(ds, turbine_id) for d, ds in enumerate(split_ds) for turbine_id in self.target_suffixes}, 
-                                        target=self.target_prefixes, timestamp="time", freq=self.freq, 
-                                        feat_dynamic_real=self.feat_dynamic_real_prefixes, static_features=self.static_features, 
-                                        assume_sorted=True, assume_resampled=True, unchecked=True))
+                        for d in range(len(split_ds)):
+                            for turbine_id in self.target_suffixes:
+                                item_id = f"TURBINE{turbine_id}_SPLIT{d}"
+                                start_time = pd.Period(split_ds[d].select(pl.col("time").first()).item(), freq=self.freq)
+                                if verbose:
+                                    logging.info(f"Transforming {split} dataset {item_id} into polars form.")
+                                ds = self.get_df_by_turbine(split_ds[d], turbine_id)
+                                datasets.append(pl.DataFrame(
+                                    {   "item_id": [item_id] * len(ds),
+                                        "time": pl.datetime_range(
+                                            start=start_time.start_time,
+                                            end=start_time.start_time + (pd.Timedelta(start_time.freq) * len(ds)),
+                                            interval=start_time.freqstr,
+                                            eager=True,
+                                            time_unit="ns",
+                                            closed="left"
+                                        ).alias("time"), 
+                                      f"feat_static_cat": [[self.target_suffixes.index(re.search("(?<=TURBINE)\\w+(?=_SPLIT)", item_id).group(0))]] * len(ds), 
+                                      **{f"target_{i}": ds[col] for i, col in enumerate(self.target_prefixes)}, 
+                                      **{f"feat_dynamic_real_{i}": ds[col] for i, col in enumerate(self.feat_dynamic_real_prefixes)}}))
+                        
+                        setattr(self, f"{split}_dataset", pl.concat(datasets, how="vertical"))
+                        
+                                
+                        # setattr(self, f"{split}_dataset", 
+                        #         PolarsDataset({f"TURBINE{turbine_id}_SPLIT{d}": self.get_df_by_turbine(ds, turbine_id) for d, ds in enumerate(split_ds) for turbine_id in self.target_suffixes}, 
+                        #                 target=self.target_prefixes, timestamp="time", freq=self.freq, 
+                        #                 feat_dynamic_real=self.feat_dynamic_real_prefixes, static_features=self.static_features, 
+                        #                 assume_sorted=True, assume_resampled=True, unchecked=True))
                 else:
                     # convert dictionary of item_id: lazyframe datasets into list of dictionaries with numpy arrays for data
                     for split in splits:
@@ -385,15 +422,39 @@ class DataModule():
                 
                 if self.as_lazyframe:
                     for split in splits:
+                        # split_ds = getattr(self, f"{split}_dataset")
+                        # setattr(self, f"{split}_dataset", 
+                        #         PolarsDataset(
+                        #             {f"SPLIT{d}": ds.select([pl.col("time")] + self.feat_dynamic_real_cols + self.target_cols) for d, ds in enumerate(split_ds)}, 
+                        #             timestamp="time", freq=self.freq, 
+                        #             target=self.target_cols, feat_dynamic_real=self.feat_dynamic_real_cols, static_features=self.static_features, 
+                        #             assume_sorted=True, assume_resampled=True, unchecked=True
+                        #     ))
+                        datasets = []
+                        setattr(self, f"{split}_dataset", pl.collect_all(getattr(self, f"{split}_dataset")))
                         split_ds = getattr(self, f"{split}_dataset")
-                        setattr(self, f"{split}_dataset", 
-                                PolarsDataset(
-                                    {f"SPLIT{d}": ds.select([pl.col("time")] + self.feat_dynamic_real_cols + self.target_cols) for d, ds in enumerate(split_ds)}, 
-                                    timestamp="time", freq=self.freq, 
-                                    target=self.target_cols, feat_dynamic_real=self.feat_dynamic_real_cols, static_features=self.static_features, 
-                                    assume_sorted=True, assume_resampled=True, unchecked=True
-                            ))
+                        for d in range(len(split_ds)):
+                            item_id = f"SPLIT{d}"
+                            start_time = pd.Period(split_ds[d].select(pl.col("time").first()).item(), freq=self.freq)
+                            if verbose:
+                                logging.info(f"Transforming {split} dataset {item_id} into polars form.")
+                            ds = split_ds[d].select([pl.col("time")] + self.feat_dynamic_real_cols + self.target_cols)
+                            datasets.append(pl.DataFrame(
+                                {"item_id": [item_id] * len(ds),
+                                    "time": pl.datetime_range(
+                                        start=start_time.start_time,
+                                        end=start_time.start_time + (pd.Timedelta(start_time.freq) * len(ds)),
+                                        interval=start_time.freqstr,
+                                        eager=True,
+                                        time_unit="ns",
+                                        closed="left"
+                                    ).alias("time"), 
+                                    f"feat_static_cat": [[self.target_suffixes.index(re.search("(?<=TURBINE)\\w+(?=_SPLIT)", item_id).group(0))]] * len(ds), 
+                                    **{f"target_{i}": ds[col] for i, col in enumerate(self.target_cols)}, 
+                                    **{f"feat_dynamic_real_{i}": ds[col] for i, col in enumerate(self.feat_dynamic_real_cols)}}))
                         
+                        setattr(self, f"{split}_dataset", pl.concat(datasets, how="vertical"))
+                         
                 else:
                     
                     # convert dictionary of item_id: lazyframe datasets into list of dictionaries with numpy arrays for data
@@ -424,37 +485,37 @@ class DataModule():
             # Log generated dataset sizes
             for split in splits:
                 dataset = getattr(self, f"{split}_dataset")
-                dataset_size = len(dataset) if dataset else 0
+                dataset_size = len(dataset) if dataset is not None else 0
                 logging.info(f"Rank 0: Generated {split} dataset size: {dataset_size} samples (context_length={self.context_length}, prediction_length={self.prediction_length})")
             
             if save:
                 logging.info(f"Rank 0: Saving generated splits.")
                 for split in splits:
-                    if self.as_lazyframe:
-                        raise NotImplementedError("Saving LazyFrame splits not implemented.")
-                    else:
-                        final_path = self.get_split_file_path(split)
-                        # Use process ID in temp filename to avoid collisions between workers
-                        temp_path = final_path + f".tmp.{os.getpid()}"
-                        logging.info(f"Rank 0: Saving {split} data to {temp_path}")
-                        try:
-                            # Write to temp file
+                    final_path = self.get_split_file_path(split)
+                    # Use process ID in temp filename to avoid collisions between workers
+                    temp_path = final_path + f".tmp.{os.getpid()}"
+                    logging.info(f"Rank 0: Saving {split} data to {temp_path}")
+                    try:
+                        # Write to temp file
+                        if self.as_lazyframe:
+                            getattr(self, f"{split}_dataset").write_parquet(temp_path, statistics=False)
+                        else:
                             with open(temp_path, 'wb') as fp:
                                 pickle.dump(getattr(self, f"{split}_dataset"), fp)
-                            
-                            # Atomic rename - if file exists, this will overwrite it atomically
-                            logging.info(f"Rank 0: Atomically moving {temp_path} to {final_path}")
-                            os.replace(temp_path, final_path)  # os.replace is atomic on POSIX
-                            logging.info(f"Rank 0: Successfully saved {split} data to {final_path}")
-                        except Exception as e:
-                            logging.error(f"Rank 0: Error saving {split} data: {e}")
-                            # Clean up temp file if it still exists
-                            if os.path.exists(temp_path):
-                                try:
-                                    os.remove(temp_path)
-                                    logging.info(f"Rank 0: Cleaned up temp file {temp_path}")
-                                except OSError as cleanup_error:
-                                    logging.error(f"Rank 0: Error removing temp file {temp_path}: {cleanup_error}")
+                        
+                        # Atomic rename - if file exists, this will overwrite it atomically
+                        logging.info(f"Rank 0: Atomically moving {temp_path} to {final_path}")
+                        os.replace(temp_path, final_path)  # os.replace is atomic on POSIX
+                        logging.info(f"Rank 0: Successfully saved {split} data to {final_path}")
+                    except Exception as e:
+                        logging.error(f"Rank 0: Error saving {split} data: {e}")
+                        # Clean up temp file if it still exists
+                        if os.path.exists(temp_path):
+                            try:
+                                os.remove(temp_path)
+                                logging.info(f"Rank 0: Cleaned up temp file {temp_path}")
+                            except OSError as cleanup_error:
+                                logging.error(f"Rank 0: Error removing temp file {temp_path}: {cleanup_error}")
 
         # Only use barrier if PyTorch distributed is actually initialized
         # In tuning mode with independent workers, we don't need/want a barrier
@@ -496,9 +557,11 @@ class DataModule():
                      logging.error(f"Rank {rank}: ERROR - Split file {split_path} not found after barrier!")
                      raise FileNotFoundError(f"Rank {rank}: Split file {split_path} not found after barrier!")
                 try:
-                    with open(split_path, 'rb') as fp:
-                        data = pickle.load(fp)
-                        setattr(self, f"{split}_dataset", data)
+                    if self.as_lazyframe:
+                        setattr(self, f"{split}_dataset", pl.read_parquet(split_path))
+                    else:
+                        with open(split_path, 'rb') as fp:
+                            setattr(self, f"{split}_dataset", pickle.load(fp))
                     logging.info(f"Rank {rank}: Successfully loaded {split} dataset from {split_path}.")
                 except EOFError as e:
                      logging.error(f"Rank {rank}: EOFError loading {split_path}. File might be corrupted. Error: {e}")
@@ -510,7 +573,7 @@ class DataModule():
             # Log dataset sizes and validate loaded splits for compatibility with current context_length
             for split in splits:
                 dataset = getattr(self, f"{split}_dataset")
-                dataset_size = len(dataset) if dataset else 0
+                dataset_size = len(dataset) if dataset is not None else 0
                 logging.info(f"Rank {rank}: Loaded {split} dataset size: {dataset_size} samples")
             
             self._validate_loaded_splits(splits, rank)

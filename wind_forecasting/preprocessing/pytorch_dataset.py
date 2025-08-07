@@ -7,25 +7,61 @@ and applies necessary transformations for model training.
 
 import logging
 import pickle
+# from memory_profiler import profile
 from typing import List, Optional, Any
 import numpy as np
 import pandas as pd
 import torch
-from torch.utils.data import IterableDataset
+from torch.utils.data import IterableDataset, Dataset
 from itertools import cycle, islice
 from torch.utils.data import DataLoader
-import lightning.pytorch as pl
+import lightning.pytorch as L
+import polars as pl
+import polars.selectors as cs
 
 logger = logging.getLogger(__name__)
 
-class WindForecastingDatamodule(pl.LightningDataModule):
+# def make_df(data):
+    
+#     # TODO HIGH probably unneccessary, since data was transformed from polars to this form before being pickled earlier...
+#     dfs = []
+#     for sample in data:
+#         # Convert each sample to a DataFrame
+#         df = {}
+#         for k in sample:
+#             if k in ["target", "feat_dynamic_real"]:
+#                 for c in range(sample[k].shape[0]):
+#                     df[f"{k}_{c}"] = sample[k][c, :]
+#             elif k in ["feat_static_cat", "feat_static_real", "item_id"]:
+#                 df[k] = [sample[k]] * sample["target"].shape[1]
+#             elif k == "start":
+#                 # df[k] = pd.period_range(
+#                 #     start=sample[k],
+#                 #     periods=sample["target"].shape[1],
+#                 #     freq=sample[k].freq
+#                 # )
+#                 df["time"] = pl.datetime_range(
+#                     start=sample[k].start_time,
+#                     end=sample[k].start_time + (pd.Timedelta(sample[k].freq) * sample["target"].shape[1]),
+#                     interval=sample[k].freqstr,
+#                     eager=True,
+#                     time_unit="ns",
+#                     closed="left"
+#                 ).alias("time")
+                
+#         dfs.append(pl.DataFrame(df))
+        
+#     # Concatenate all DataFrames into one
+#     return pl.concat(dfs, how="vertical")
+
+class WindForecastingDatamodule(L.LightningDataModule):
     def __init__(self, train_data_path, val_data_path, train_sampler, 
                  context_length, prediction_length, time_features, val_sampler=None, 
                  train_repeat=False, val_repeat=False,
                  batch_size=32, num_workers=4, pin_memory=True):
         super().__init__()
-        self.train_data_path = train_data_path
-        self.val_data_path = val_data_path
+        # self.train_data_path = train_data_path
+        # self.val_data_path = val_data_path
         self.train_sampler = train_sampler
         self.val_sampler = val_sampler
         self.batch_size = batch_size
@@ -34,6 +70,22 @@ class WindForecastingDatamodule(pl.LightningDataModule):
         self.context_length = context_length
         self.prediction_length = prediction_length
         self.time_features = time_features
+        
+        # Load data from pickle
+        logger.info(f"Loading dataset from {train_data_path}")
+        if train_data_path.endswith('.pkl'):
+            with open(train_data_path, 'rb') as f:
+                self.train_data = pickle.load(f) # TODO HIGH REST OF CODE WON'T WORK WITH PICKLE
+        else:
+            self.train_data = pl.read_parquet(train_data_path)
+            
+            
+        logger.info(f"Loading dataset from {val_data_path}")
+        if train_data_path.endswith('.pkl'):
+            with open(val_data_path, 'rb') as f:
+                self.val_data = pickle.load(f)
+        else:
+            self.val_data = pl.read_parquet(val_data_path)
         
         self.train_repeat = train_repeat
         self.val_repeat = val_repeat
@@ -51,7 +103,7 @@ class WindForecastingDatamodule(pl.LightningDataModule):
     def train_dataloader(self):
         # The Trainer calls this after setup() on each DDP process
         train_dataset = WindForecastingDataset(
-                data_path=self.train_data_path,
+                data=self.train_data,
                 context_length=self.context_length,
                 prediction_length=self.prediction_length,
                 time_features=self.time_features,
@@ -60,6 +112,7 @@ class WindForecastingDatamodule(pl.LightningDataModule):
                 skip_indices=1,
                 world_size=self.world_size,
                 rank=self.rank)
+        
         return DataLoader(
             train_dataset,
             batch_size=self.batch_size,
@@ -67,6 +120,7 @@ class WindForecastingDatamodule(pl.LightningDataModule):
             num_workers=self.num_workers,
             pin_memory=self.pin_memory,
             persistent_workers=self.num_workers>0,
+            prefetch_factor=2 if (self.num_workers > 0) else None
             # drop_last=True,  # Important for DDP to avoid uneven batch sizes
         )
         
@@ -77,7 +131,7 @@ class WindForecastingDatamodule(pl.LightningDataModule):
         #     return None
         
         val_dataset = WindForecastingInferenceDataset(
-                data_path=self.val_data_path,
+                data=self.val_data,
                 context_length=self.context_length,
                 prediction_length=self.prediction_length,
                 time_features=self.time_features,
@@ -98,6 +152,7 @@ class WindForecastingDatamodule(pl.LightningDataModule):
             num_workers=self.num_workers,
             pin_memory=self.pin_memory,
             persistent_workers=self.num_workers>0,
+            prefetch_factor=2 if (self.num_workers > 0) else None
             # drop_last=False,  # Keep all validation samples
         )
 
@@ -114,6 +169,7 @@ class WindForecastingDatamodule(pl.LightningDataModule):
             num_workers=self.num_workers,
             pin_memory=self.pin_memory,
             persistent_workers=self.num_workers>0,
+            prefetch_factor=2 if (self.num_workers > 0) else None
             # drop_last=False,  # Keep all validation samples
         )
 
@@ -122,6 +178,7 @@ def _serialize(data):
     buffer = pickle.dumps(data, protocol=-1)
     return np.frombuffer(buffer, dtype=np.uint8)
     
+# class WindForecastingDataset(IterableDataset):
 class WindForecastingDataset(IterableDataset):
     """
     PyTorch Dataset for wind forecasting data.
@@ -141,9 +198,10 @@ class WindForecastingDataset(IterableDataset):
         List of time feature functions to apply
     """
     
+    # @profile
     def __init__(
         self,
-        data_path: str,
+        data: pl.DataFrame,
         context_length: int,
         prediction_length: int,
         time_features: Optional[List] = None,
@@ -159,10 +217,10 @@ class WindForecastingDataset(IterableDataset):
         self.sampler = sampler
         self.repeat = repeat
         
-        if self.repeat:
-            logger.info(f"Dataset will repeat indefinitely")
-        else:
-            logger.info(f"Dataset will not repeat, will stop after one pass")
+        # if self.repeat:
+        #     logger.info(f"Dataset will repeat indefinitely")
+        # else:
+        #     logger.info(f"Dataset will not repeat, will stop after one pass")
             
         self.skip_indices = skip_indices
         
@@ -170,55 +228,55 @@ class WindForecastingDataset(IterableDataset):
         self.world_size = world_size
         self.rank = rank
         
-        # Load data from pickle
-        logger.info(f"Loading dataset from {data_path}")
-        with open(data_path, 'rb') as f:
-            self.data = pickle.load(f)
-            
         # Validate data format
-        if len(self.data) > 0:
-            sample = self.data[0]
-            assert 'target' in sample, "Dataset must contain 'target' field"
-            assert 'start' in sample, "Dataset must contain 'start' field"
+        # if len(self.data) > 0:
+        #     sample = self.data[0]
+            # assert 'target' in sample, "Dataset must contain 'target' field"
+            # assert 'start' in sample, "Dataset must contain 'start' field"
         
-        assert len(np.unique([sample["target"].shape[0] for sample in self.data])) == 1, "All samples must have the same number of target variables"
-        assert len(np.unique([sample["feat_dynamic_real"].shape[0] for sample in self.data])) == 1, "All samples must have the same number of dynamic features"
-        assert all([sample["target"].shape[1] == sample["feat_dynamic_real"].shape[1] for sample in self.data]), "length of target and feat_dynamic_real must match"
+        # assert len(np.unique([sample["target"].shape[0] for sample in self.data])) == 1, "All samples must have the same number of target variables"
+        # assert len(np.unique([sample["feat_dynamic_real"].shape[0] for sample in self.data])) == 1, "All samples must have the same number of dynamic features"
+        # assert all([sample["target"].shape[1] == sample["feat_dynamic_real"].shape[1] for sample in self.data]), "length of target and feat_dynamic_real must match"
         
         # self.num_target = self.data[0]['target'].shape[0]
         # self.num_feat_dynamic_real = self.data[0]['feat_dynamic_real'].shape[0]
         
+        self.data = data
+        
         # serialize into torch tensors to reduce memory usage
-        self._data_keys = list(self.data[0].keys())
-        for k in self._data_keys:
-            if isinstance(self.data[0][k], (np.ndarray, list)):
-                setattr(self, f"_data_{k}", 
-                            # [_serialize(item) for sample in self.data for item in np.array(sample[k]).flatten()]
-                            [_serialize(np.array(sample[k]).flatten()) for sample in self.data]
-                        )
-                setattr(self, f"_dim_{k}", np.array(self.data[0][k]).shape[0])
-               # setattr(self, f"_addr_{k}", torch.from_numpy(np.cumsum(np.asarray([len(item) for item in getattr(self, f"_data_{k}")], dtype=np.int64))))
-            else:
-                setattr(self, f"_data_{k}",  [_serialize(sample[k]) for sample in self.data])
+        # self._data_keys = list(self.data[0].keys())
+        # for k in self._data_keys:
+        #     if isinstance(self.data[0][k], (np.ndarray, list)):
+        #         setattr(self, f"_data_{k}", 
+        #                     # [_serialize(item) for sample in self.data for item in np.array(sample[k]).flatten()]
+        #                     [_serialize(np.array(sample[k]).flatten()) for sample in self.data]
+        #                 )
+        #         setattr(self, f"_dim_{k}", np.array(self.data[0][k]).shape[0])
+        #        # setattr(self, f"_addr_{k}", torch.from_numpy(np.cumsum(np.asarray([len(item) for item in getattr(self, f"_data_{k}")], dtype=np.int64))))
+        #     else:
+        #         setattr(self, f"_data_{k}",  [_serialize(sample[k]) for sample in self.data])
 
-        # at this point, len(self._data_target) == len(self.data) i.e. an item for every time series sample
+        # # at this point, len(self._data_target) == len(self.data) i.e. an item for every time series sample
         
-        self._addr = torch.from_numpy(
-            np.vstack([np.cumsum(np.asarray([len(item) for item in getattr(self, f"_data_{k}")], dtype=np.int64)) 
-                       for k in self._data_keys ]))
-                    #    if isinstance(self.data[0][k], (np.ndarray, list))]))
+        # self._addr = torch.from_numpy(
+        #     np.vstack([np.cumsum(np.asarray([len(item) for item in getattr(self, f"_data_{k}")], dtype=np.int64)) 
+        #                for k in self._data_keys ]))
+        #             #    if isinstance(self.data[0][k], (np.ndarray, list))]))
         
-        for k in self._data_keys:
-            if isinstance(getattr(self, f"_data_{k}"), list):
-                setattr(self, f"_data_{k}", 
-                        torch.from_numpy(np.concatenate(getattr(self, f"_data_{k}"))))
+        # for k in self._data_keys:
+        #     if isinstance(getattr(self, f"_data_{k}"), list):
+        #         setattr(self, f"_data_{k}", 
+        #                 torch.from_numpy(np.concatenate(getattr(self, f"_data_{k}"))))
             # elif isinstance(getattr(self, f"_data_{k}"), np.ndarray):
             #     setattr(self, f"_data_{k}", torch.from_numpy(getattr(self, f"_data_{k}")))
         
-        self.n_datasets = len(self.data)
+        if isinstance(self.data, pl.DataFrame):
+            self.n_datasets = self.data.select(pl.col("item_id").n_unique()).item()
+        else:
+            self.n_datasets = len(self.data)
         logger.info(f"Loaded {self.n_datasets} time series")
 
-        del self.data # Free memory after loading
+        # del self.data # Free memory after loading
         self.dataset_idx = 0
       
     def __iter__(self):
@@ -272,12 +330,12 @@ class WindForecastingDataset(IterableDataset):
         # for k in self._data_keys:
         #     iterators[k] = iter(getattr(self, f"_data_{k}"))
         
-        addr = self._addr.numpy()
-        addr = {
-            k: addr[i, :] for i, k in enumerate(self._data_keys)
-        }
+        # addr = self._addr.numpy()
+        # addr = {
+        #     k: addr[i, :] for i, k in enumerate(self._data_keys)
+        # }
             
-        addr_iterator = zip(iter(self._data_start), iter(addr["start"]), iter(addr["target"]), iter(addr["feat_dynamic_real"]), iter(addr["feat_static_cat"]))
+        # addr_iterator = zip(iter(self._data_start), iter(addr["start"]), iter(addr["target"]), iter(addr["feat_dynamic_real"]), iter(addr["feat_static_cat"]))
         
         # Apply cycle() here if needed, on the new iterator.
         if self.repeat:
@@ -287,31 +345,38 @@ class WindForecastingDataset(IterableDataset):
         # np.reshape(self.data[0]["target"].flatten(), (self._dim_target, -1)),
         
         # for entry in data_iterator:
-        ds_idx = 0
-        for start_period, end_addr_start, end_addr_target, end_addr_fdr, end_addr_fsc in addr_iterator:
+        # ds_idx = 0
+        # for start_period, end_addr_start, end_addr_target, end_addr_fdr, end_addr_fsc in addr_iterator:
+        for ds in self.data.partition_by("item_id"):
             
-            if ds_idx == 0:
-                start_addr_start = start_addr_target = start_addr_fdr = start_addr_fsc = 0
-            else:
-                start_addr_start, start_addr_target, start_addr_fdr, start_addr_fsc = (
-                    last_addr_start, last_addr_target, last_addr_fdr, last_addr_fsc
-                )
+            # if ds_idx == 0:
+            #     start_addr_start = start_addr_target = start_addr_fdr = start_addr_fsc = 0
+            # else:
+            #     start_addr_start, start_addr_target, start_addr_fdr, start_addr_fsc = (
+            #         last_addr_start, last_addr_target, last_addr_fdr, last_addr_fsc
+            #     )
             
             # item_id = pickle.loads(memoryview(self._data_item_id[start_addr_item_id:end_addr_item_id].numpy()))
-            start_period = pickle.loads(memoryview(self._data_start[start_addr_start:end_addr_start].numpy()))
-            target =  pickle.loads(memoryview(self._data_target[start_addr_target:end_addr_target].numpy())).reshape((self._dim_target, -1))
-            # start_period = self._data_start[ds_idx]
-            feat_static_cat = pickle.loads(memoryview(self._data_feat_static_cat[start_addr_fsc:end_addr_fsc].numpy()))
-            feat_dynamic_real = pickle.loads(memoryview(self._data_feat_dynamic_real[start_addr_fdr:end_addr_fdr].numpy())).reshape((self._dim_feat_dynamic_real, -1))
-            feat_static_real = [0.0]
+            # start_period = pickle.loads(memoryview(self._data_start[start_addr_start:end_addr_start].numpy()))
+            # target =  pickle.loads(memoryview(self._data_target[start_addr_target:end_addr_target].numpy())).reshape((self._dim_target, -1))
+            # # start_period = self._data_start[ds_idx]
+            # feat_static_cat = pickle.loads(memoryview(self._data_feat_static_cat[start_addr_fsc:end_addr_fsc].numpy()))
+            # feat_dynamic_real = pickle.loads(memoryview(self._data_feat_dynamic_real[start_addr_fdr:end_addr_fdr].numpy())).reshape((self._dim_feat_dynamic_real, -1))
+            # feat_static_real = [0.0]
             
-            last_addr_start, last_addr_target, last_addr_fdr, last_addr_fsc = (
-                end_addr_start, end_addr_target, end_addr_fdr, end_addr_fsc
-                )
+            # last_addr_start, last_addr_target, last_addr_fdr, last_addr_fsc = (
+            #     end_addr_start, end_addr_target, end_addr_fdr, end_addr_fsc
+            #     )
+            
+            time = pd.to_datetime(ds.select("time").to_numpy().squeeze())
+            target = ds.select(cs.starts_with("target_")).to_numpy().T
+            feat_dynamic_real = ds.select(cs.starts_with("feat_dynamic_real_")).to_numpy().T
+            feat_static_cat = ds.select(pl.col("feat_static_cat")).head(1).to_numpy()[0,0]
+            feat_static_real = np.array([0])
             
             sampled_indices = self.sampler(target)[::self.skip_indices]
             
-            ds_idx = -1
+            # ds_idx = -1
             
             if len(sampled_indices) == 0:
                 continue
@@ -332,18 +397,18 @@ class WindForecastingDataset(IterableDataset):
                 future_target = target[:, idx:idx + self.prediction_length]
                 
                 # Create time features
-                time_index = pd.period_range(
-                    start=start_period,
-                    periods=ts_length,
-                    freq=start_period.freq
-                )
+                # time_index = pd.period_range(
+                #     start=start_period,
+                #     periods=ts_length,
+                #     freq=start_period.freq
+                # )
                 
                 # Apply time feature transformations
                 past_time_feat = self._create_time_features(
-                    time_index[idx - self.context_length:idx]
+                    time[idx - self.context_length:idx]
                 )
                 future_time_feat = self._create_time_features(
-                    time_index[idx:idx + self.prediction_length]
+                    time[idx:idx + self.prediction_length]
                 )
                 
                 # Create observed values indicator (1 for observed, 0 for missing)
@@ -369,16 +434,29 @@ class WindForecastingDataset(IterableDataset):
                 future_time_feat = np.vstack([future_time_feat, future_dynamic])
                 
                 # Convert to tensors and transpose to (time, features)
-                yield {
-                    'past_target': torch.from_numpy(past_target.T).float(),
-                    'future_target': torch.from_numpy(future_target.T).float(),
-                    'past_time_feat': torch.from_numpy(past_time_feat.T).float(),
-                    'future_time_feat': torch.from_numpy(future_time_feat.T).float(),
-                    'past_observed_values': torch.from_numpy(past_observed.T).float(),
-                    'future_observed_values': torch.from_numpy(future_observed.T).float(),
-                    'feat_static_cat': torch.tensor(feat_static_cat, dtype=torch.long),
-                    'feat_static_real': torch.tensor(feat_static_real, dtype=torch.float),
-                }
+                # yield {
+                #     'past_target': torch.from_numpy(past_target.T).float(),
+                #     'future_target': torch.from_numpy(future_target.T).float(),
+                #     'past_time_feat': torch.from_numpy(past_time_feat.T).float(),
+                #     'future_time_feat': torch.from_numpy(future_time_feat.T).float(),
+                #     'past_observed_values': torch.from_numpy(past_observed.T).float(),
+                #     'future_observed_values': torch.from_numpy(future_observed.T).float(),
+                #     'feat_static_cat': torch.tensor(feat_static_cat, dtype=torch.long),
+                #     'feat_static_real': torch.tensor(feat_static_real, dtype=torch.float),
+                # }
+                yield (
+                    torch.from_numpy(past_target.T).float(),
+                    torch.from_numpy(future_target.T).float(),
+                    torch.from_numpy(past_time_feat.T).float(),
+                    torch.from_numpy(future_time_feat.T).float(),
+                    torch.from_numpy(past_observed.T).float(),
+                    torch.from_numpy(future_observed.T).float(),
+                    torch.tensor(feat_static_cat, dtype=torch.long),
+                    torch.tensor(feat_static_real, dtype=torch.float),
+                )
+                # np.array(['past_target', 'future_target', 'past_time_feat', 
+                #              'future_time_feat', 'past_observed_values', 'future_observed_values',
+                #              'feat_static_cat', 'feat_static_real']).astype(np.string_)
                 
     def _create_time_features(self, time_index: pd.PeriodIndex) -> np.ndarray:
         """
@@ -421,37 +499,146 @@ class WindForecastingInferenceDataset(WindForecastingDataset):
         # data_iterator = self.data
         # addr_iterator = zip(iter(self._addr_target), iter(self._addr_feat_dynamic_real), iter(self._addr_feat_static_cat))
         
-        addr = self._addr.numpy()
-        addr = {
-            k: addr[i, :] for i, k in enumerate(self._data_keys)
-        }
+        # addr = self._addr.numpy()
+        # addr = {
+        #     k: addr[i, :] for i, k in enumerate(self._data_keys)
+        # }
         
-        self.samples = []
+        # self.samples = []
         # for entry in data_iterator:
-        for ds_idx in range(self.n_datasets):
+        # for ds_idx in range(self.n_datasets):
             
-            if ds_idx == 0:
-                # start_addr_item_id = 
-                start_addr_start = start_addr_target = start_addr_fdr = start_addr_fsc = 0
-            else:
-                # start_addr_item_id = addr["item_id"][ds_idx - 1]
-                start_addr_start = addr["start"][ds_idx - 1]
-                start_addr_target = addr["target"][ds_idx - 1]
-                start_addr_fdr = addr["feat_dynamic_real"][ds_idx - 1]
-                start_addr_fsc = addr["feat_static_cat"][ds_idx - 1]
+        #     if ds_idx == 0:
+        #         # start_addr_item_id = 
+        #         start_addr_start = start_addr_target = start_addr_fdr = start_addr_fsc = 0
+        #     else:
+        #         # start_addr_item_id = addr["item_id"][ds_idx - 1]
+        #         start_addr_start = addr["start"][ds_idx - 1]
+        #         start_addr_target = addr["target"][ds_idx - 1]
+        #         start_addr_fdr = addr["feat_dynamic_real"][ds_idx - 1]
+        #         start_addr_fsc = addr["feat_static_cat"][ds_idx - 1]
 
-            # end_addr_item_id = addr["item_id"][ds_idx]
-            end_addr_start = addr["start"][ds_idx]
-            end_addr_target = addr["target"][ds_idx]
-            end_addr_fdr = addr["feat_dynamic_real"][ds_idx]
-            end_addr_fsc = addr["feat_static_cat"][ds_idx]
+        #     # end_addr_item_id = addr["item_id"][ds_idx]
+        #     end_addr_start = addr["start"][ds_idx]
+        #     end_addr_target = addr["target"][ds_idx]
+        #     end_addr_fdr = addr["feat_dynamic_real"][ds_idx]
+        #     end_addr_fsc = addr["feat_static_cat"][ds_idx]
+            
+        #     # item_id = pickle.loads(memoryview(self._data_item_id[start_addr_item_id:end_addr_item_id].numpy()))
+        #     start_period = pickle.loads(memoryview(self._data_start[start_addr_start:end_addr_start].numpy()))
+        #     target = pickle.loads(memoryview(self._data_target[start_addr_target:end_addr_target].numpy())).reshape((self._dim_target, -1))
+        #     feat_static_cat = pickle.loads(memoryview(self._data_feat_static_cat[start_addr_fsc:end_addr_fsc].numpy()))
+        #     feat_dynamic_real = pickle.loads(memoryview(self._data_feat_dynamic_real[start_addr_fdr:end_addr_fdr].numpy())).reshape((self._dim_feat_dynamic_real, -1))
+        #     feat_static_real = [0.0]
+            
+        #     # Same processing as parent class but with fixed time point
+        #     ts_length = target.shape[1]
+        
+        #     # Find all valid time points
+        #     min_time = self.context_length
+        #     max_time = ts_length - self.prediction_length
+            
+        #     # Fill time indices
+        #     sample_indices = np.arange(min_time, max_time + 1, self.skip_indices)
+            
+        #     if len(sample_indices) == 0:
+        #         continue
+            
+        #     for idx in sample_indices:
+        #         # Split into past and future windows at fixed time point t
+        #         past_target = target[:, idx - self.context_length:idx]
+        #         future_target = target[:, idx:idx + self.prediction_length]
+                
+        #         # Rest of processing is identical to parent class
+        #         # ... (same as parent __getitem__ but without random sampling)
+                
+        #         # Create time features
+        #         _, ts_length = target.shape
+        #         time_index = pd.period_range(
+        #             start=start_period,
+        #             periods=ts_length,
+        #             freq=start_period.freq
+        #         )
+                
+        #         past_time_feat = self._create_time_features(
+        #             time_index[idx - self.context_length:idx]
+        #         )
+        #         future_time_feat = self._create_time_features(
+        #             time_index[idx:idx + self.prediction_length]
+        #         )
+                
+        #         # Create observed values indicator
+        #         past_observed = ~np.isnan(past_target)
+        #         future_observed = ~np.isnan(future_target)
+                
+        #         # Handle NaN values
+        #         past_target = np.nan_to_num(past_target, 0.0)
+        #         future_target = np.nan_to_num(future_target, 0.0)
+                
+        #         # Get static features
+        #         # feat_static_cat = entry.get('feat_static_cat', [0])
+        #         # feat_static_real = entry.get('feat_static_real', [0.0])
+                
+        #         # Get dynamic features if available
+        #         # if 'feat_dynamic_real' in entry:
+        #             # feat_dynamic_real = entry['feat_dynamic_real']
+        #         past_dynamic = feat_dynamic_real[:, idx - self.context_length:idx]
+        #         future_dynamic = feat_dynamic_real[:, idx:idx + self.prediction_length]
+                
+        #         # Stack with time features
+        #         past_time_feat = np.vstack([past_time_feat, past_dynamic])
+        #         future_time_feat = np.vstack([future_time_feat, future_dynamic])
+                
+        #         # Convert to tensors
+        #         self.samples.append((
+        #             torch.from_numpy(past_target.T).float(),
+        #             torch.from_numpy(future_target.T).float(),
+        #             torch.from_numpy(past_time_feat.T).float(),
+        #             torch.from_numpy(future_time_feat.T).float(),
+        #             torch.from_numpy(past_observed.T).float(),
+        #             torch.from_numpy(future_observed.T).float(),
+        #             torch.tensor(feat_static_cat, dtype=torch.long),
+        #             torch.tensor(feat_static_real, dtype=torch.float)
+        #         ))
+                
+        # del self.data  # Free memory after loading
+        
+    def _base_iter(self):
+        """Get a specific window for inference."""
+        # for s in self.samples:
+            # yield s, np.array('past_target', 'future_target', 'past_time_feat', 
+            #                  'future_time_feat', 'past_observed_values', 'future_observed_values',
+            #                  'feat_static_cat', 'feat_static_real').astype(np.string_)
+        
+        for ds in self.data.partition_by("item_id"):
+            
+            # if ds_idx == 0:
+            #     # start_addr_item_id = 
+            #     start_addr_start = start_addr_target = start_addr_fdr = start_addr_fsc = 0
+            # else:
+            #     # start_addr_item_id = addr["item_id"][ds_idx - 1]
+            #     start_addr_start = addr["start"][ds_idx - 1]
+            #     start_addr_target = addr["target"][ds_idx - 1]
+            #     start_addr_fdr = addr["feat_dynamic_real"][ds_idx - 1]
+            #     start_addr_fsc = addr["feat_static_cat"][ds_idx - 1]
+
+            # # end_addr_item_id = addr["item_id"][ds_idx]
+            # end_addr_start = addr["start"][ds_idx]
+            # end_addr_target = addr["target"][ds_idx]
+            # end_addr_fdr = addr["feat_dynamic_real"][ds_idx]
+            # end_addr_fsc = addr["feat_static_cat"][ds_idx]
             
             # item_id = pickle.loads(memoryview(self._data_item_id[start_addr_item_id:end_addr_item_id].numpy()))
-            start_period = pickle.loads(memoryview(self._data_start[start_addr_start:end_addr_start].numpy()))
-            target = pickle.loads(memoryview(self._data_target[start_addr_target:end_addr_target].numpy())).reshape((self._dim_target, -1))
-            feat_static_cat = pickle.loads(memoryview(self._data_feat_static_cat[start_addr_fsc:end_addr_fsc].numpy()))
-            feat_dynamic_real = pickle.loads(memoryview(self._data_feat_dynamic_real[start_addr_fdr:end_addr_fdr].numpy())).reshape((self._dim_feat_dynamic_real, -1))
-            feat_static_real = [0.0]
+            # start_period = pickle.loads(memoryview(self._data_start[start_addr_start:end_addr_start].numpy()))
+            # target = pickle.loads(memoryview(self._data_target[start_addr_target:end_addr_target].numpy())).reshape((self._dim_target, -1))
+            # feat_static_cat = pickle.loads(memoryview(self._data_feat_static_cat[start_addr_fsc:end_addr_fsc].numpy()))
+            # feat_dynamic_real = pickle.loads(memoryview(self._data_feat_dynamic_real[start_addr_fdr:end_addr_fdr].numpy())).reshape((self._dim_feat_dynamic_real, -1))
+            # feat_static_real = [0.0]
+            time = pd.to_datetime(ds.select("time").to_numpy().squeeze())
+            target = ds.select(cs.starts_with("target_")).to_numpy().T
+            feat_dynamic_real = ds.select(cs.starts_with("feat_dynamic_real_")).to_numpy().T
+            feat_static_cat = ds.select(pl.col("feat_static_cat")).head(1).to_numpy()[0,0]
+            feat_static_real = np.array([0])
             
             # Same processing as parent class but with fixed time point
             ts_length = target.shape[1]
@@ -476,17 +663,18 @@ class WindForecastingInferenceDataset(WindForecastingDataset):
                 
                 # Create time features
                 _, ts_length = target.shape
-                time_index = pd.period_range(
-                    start=start_period,
-                    periods=ts_length,
-                    freq=start_period.freq
-                )
+                # time_index = pd.period_range(
+                #     start=start_period,
+                #     periods=ts_length,
+                #     freq=start_period.freq
+                # )
+                # time_index = time
                 
                 past_time_feat = self._create_time_features(
-                    time_index[idx - self.context_length:idx]
+                    time[idx - self.context_length:idx]
                 )
                 future_time_feat = self._create_time_features(
-                    time_index[idx:idx + self.prediction_length]
+                    time[idx:idx + self.prediction_length]
                 )
                 
                 # Create observed values indicator
@@ -512,20 +700,16 @@ class WindForecastingInferenceDataset(WindForecastingDataset):
                 future_time_feat = np.vstack([future_time_feat, future_dynamic])
                 
                 # Convert to tensors
-                self.samples.append({
-                    'past_target': torch.from_numpy(past_target.T).float(),
-                    'future_target': torch.from_numpy(future_target.T).float(),
-                    'past_time_feat': torch.from_numpy(past_time_feat.T).float(),
-                    'future_time_feat': torch.from_numpy(future_time_feat.T).float(),
-                    'past_observed_values': torch.from_numpy(past_observed.T).float(),
-                    'future_observed_values': torch.from_numpy(future_observed.T).float(),
-                    'feat_static_cat': torch.tensor(feat_static_cat, dtype=torch.long),
-                    'feat_static_real': torch.tensor(feat_static_real, dtype=torch.float),
-                })
-                
-        # del self.data  # Free memory after loading
-        
-    def _base_iter(self):
-        """Get a specific window for inference."""
-        for s in self.samples:
-            yield s
+                yield (
+                    torch.from_numpy(past_target.T).float(),
+                    torch.from_numpy(future_target.T).float(),
+                    torch.from_numpy(past_time_feat.T).float(),
+                    torch.from_numpy(future_time_feat.T).float(),
+                    torch.from_numpy(past_observed.T).float(),
+                    torch.from_numpy(future_observed.T).float(),
+                    torch.tensor(feat_static_cat, dtype=torch.long),
+                    torch.tensor(feat_static_real, dtype=torch.float)
+                )
+                # np.array(["past_target", "future_target", "past_time_feat", 
+                #              "future_time_feat", "past_observed_values", "future_observed_values",
+                #              "feat_static_cat", "feat_static_real"]).astype(np.string_)
