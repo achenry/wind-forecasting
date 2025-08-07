@@ -487,7 +487,7 @@ def main():
         else:
              logging.info("No connection info returned (likely SQLite or Journal mode).")
 
-    if args.mode in ["train", "test"]:
+    if args.mode in ["dataset", "train", "test"]:
         
         # get parameters expected by estimator and trainer
         estimator_sig = inspect.signature(EstimatorClass.__init__)
