@@ -236,7 +236,6 @@ def main():
     
     # Dynamically set DataLoader workers based on SLURM_CPUS_PER_TASK
     cpus_per_task_str = os.environ.get('SLURM_CPUS_PER_TASK', mp.cpu_count()) # Default to 1 CPU if var not set
-    cpus_per_task_str = os.environ.get('SLURM_CPUS_PER_TASK', 1) # TODO TESTING
     try:
         cpus_per_task = int(cpus_per_task_str)
         if cpus_per_task <= 0:

@@ -329,9 +329,6 @@ class DataModule():
                 
                 self.continuity_groups = dataset.select(pl.col("continuity_group").unique()).collect().to_numpy().flatten()
                 
-                # TODO TESTING
-                self.continuity_groups = self.continuity_groups[:3]
-                
                 self.train_dataset, self.val_dataset, self.test_dataset = \
                     self.split_dataset([dataset.filter(pl.col("continuity_group") == cg) for cg in self.continuity_groups]) 
                 
