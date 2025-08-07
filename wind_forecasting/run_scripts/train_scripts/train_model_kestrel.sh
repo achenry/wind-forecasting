@@ -1,17 +1,21 @@
 #!/bin/bash 
 #SBATCH --account=awaken
-#SBATCH --output=%j-%x.out
-#SBATCH --time=36:00:00
-#SBATCH --cpus-per-task=8
+#SBATCH --output=%j-%x-2gpu3cpu.out
+#SBATCH --time=04:00:00
+#SBATCH --cpus-per-task=3 # 2-5 is usually good
 #SBATCH --nodes=1 # this needs to match Trainer(num_nodes...)
-#SBATCH --gres=gpu:4
-#SBATCH --ntasks-per-node=4 # this needs to match Trainer(devices=...), and number of GPUs
-#SBATCH --mem-per-cpu=20G
+#SBATCH --gres=gpu:2
+#SBATCH --ntasks-per-node=2 # this needs to match Trainer(devices=...), and number of GPUs
+#SBATCH --mem-per-cpu=8192
 
 ##SBATCH --partition=debug
-##SBATCH --time=36:00:00
+##SBATCH --time=01:00:00
+##SBATCH --mem-per-cpu=5G
+##SBATCH --ntasks-per-node=2 # this needs to match Trainer(devices=...), and number of GPUs
+##SBATCH --gres=gpu:2
+##SBATCH --cpus-per-task=8
 
-# salloc --account=awaken --time=01:00:00 --gpus=2 --ntasks-per-node=2 --partition=debug --mem-per-cpu=20G
+# salloc --account=awaken --time=01:00:00 --gpus=2 --cpus-per-task=4 --ntasks-per-node=2 --partition=debug --mem-per-cpu=20G
 # export MODEL=informer
 # export MODEL_CONFIG_FILE=$HOME/toolboxes/wind_forecasting_env/wind-forecasting/config/training/training_inputs_kestrel_awaken_predLUT.yaml
 
@@ -38,10 +42,13 @@ echo "SLURM_GPUS_ON_NODE=${SLURM_GPUS_ON_NODE}"
 echo "SLURM_JOB_GPUS=${SLURM_JOB_GPUS}"
 echo "SLURM_JOB_GRES=${SLURM_JOB_GRES}"
 
+ulimit -n 65535
+echo "Open file limit is now: $(ulimit -n)"
+
 srun python ../run_model.py --config $MODEL_CONFIG_FILE --mode train --model $MODEL --use_tuned_parameters \
                             --override dataset.context_length_factor=10 \
                                        dataset.sampler=sequential \
                                        trainer.max_epochs=40 \
                                        trainer.limit_train_batches=null \
                                        trainer.val_check_interval=1.0 \
-                                       dataset.batch_size=64
+                                       dataset.batch_size=1024
