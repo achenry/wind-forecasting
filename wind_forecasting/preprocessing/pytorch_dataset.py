@@ -197,7 +197,7 @@ class WindForecastingDataset(IterableDataset):
         List of time feature functions to apply
     """
     
-    @profile
+    # @profile
     def __init__(
         self,
         data: pl.DataFrame,
