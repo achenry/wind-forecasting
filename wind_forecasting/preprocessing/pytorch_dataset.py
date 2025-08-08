@@ -244,12 +244,13 @@ class WindForecastingDataset(IterableDataset):
         
         # join with lenghts of each continuous time series in the dataset
         # ensure data is ordered by item_id
-        data, self.ds_addr = pl.align_frames(data, 
-                                             data.select(pl.col("item_id").value_counts()).unnest("item_id"), 
-                                             how="left", on="item_id")
+        self.ds_addr = data.group_by("item_id", maintain_order=True).agg(pl.len()).to_numpy()
+        # data, self.ds_addr = pl.align_frames(data, 
+        #                                      data.select(pl.col("item_id").value_counts()).unnest("item_id"), 
+        #                                      how="left", on="item_id")
         
         # the address corresponding to each new item_id time series
-        self.ds_addr = self.ds_addr.unique(maintain_order=True)["count"].to_numpy()
+        # self.ds_addr = self.ds_addr.unique(maintain_order=True)["count"].to_numpy()
         self.data_time = data.select(pl.col("time")).to_numpy().squeeze()
         self.data_target = data.select(cs.starts_with("target_")).to_numpy().T
         self.data_fdr = data.select(cs.starts_with("feat_dynamic_real_")).to_numpy().T
