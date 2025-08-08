@@ -890,8 +890,8 @@ def main():
         
         n_training_samples = 0
         if data_module.as_lazyframe:
-            for item_id in data_module.train_dataset["item_id"].unique():
-                a, b = estimator_kwargs["train_sampler"]._get_bounds(data_module.train_dataset.filter(data_module.train_dataset["item_id"] == item_id).select(cs.starts_with("target_")).to_numpy().T)
+            for ds in data_module.train_dataset.partition_by("item_id"):
+                a, b = estimator_kwargs["train_sampler"]._get_bounds(ds.select(cs.starts_with("target_0")))
                 n_training_samples += (b - a + 1)
         else:
             for ds in data_module.train_dataset:

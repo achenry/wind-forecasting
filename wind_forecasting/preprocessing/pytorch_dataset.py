@@ -241,7 +241,21 @@ class WindForecastingDataset(IterableDataset):
         # self.num_target = self.data[0]['target'].shape[0]
         # self.num_feat_dynamic_real = self.data[0]['feat_dynamic_real'].shape[0]
         
-        self.data = data
+        # join with lenghts of each continuous time series in the dataset
+        self.ds_addr = data.select(pl.col("item_id").value_counts()).unnest("item_id")
+        
+        # ensure data is ordered by item_id
+        self.data, self.ds_addr = pl.align_frames(data, self.ds_addr, how="left", on="item_id")
+        
+        # the address corresponding to each new item_id time series
+        self.ds_addr = self.ds_addr.unique(maintain_order=True)["count"].to_numpy().cumsum()
+        self.data_time = self.data.select(pl.col("time")).to_numpy().squeeze()
+        self.data_target = self.data.select(cs.starts_with("target_")).to_numpy().T
+        self.data_fdr = self.data.select(cs.starts_with("feat_dynamic_real_")).to_numpy().T
+        self.data_fsc = np.vstack(np.concatenate(
+            self.data.select(pl.col("feat_static_cat")).with_row_index().filter(pl.col("index").is_in(self.ds_addr))["feat_static_cat"].to_numpy()))
+        
+        self.ds_addr = self.ds_addr.cumsum()
         
         # serialize into torch tensors to reduce memory usage
         # self._data_keys = list(self.data[0].keys())
@@ -338,8 +352,7 @@ class WindForecastingDataset(IterableDataset):
         # addr_iterator = zip(iter(self._data_start), iter(addr["start"]), iter(addr["target"]), iter(addr["feat_dynamic_real"]), iter(addr["feat_static_cat"]))
         
         # Apply cycle() here if needed, on the new iterator.
-        if self.repeat:
-            addr_iterator = cycle(addr_iterator)
+        ds_addr = cycle(zip(self.ds_addr - self.ds_addr[0], self.ds_addr)) if self.repeat else zip(self.ds_addr - self.ds_addr[0], self.ds_addr)
         
         # to reconstruct the original data, you can use:
         # np.reshape(self.data[0]["target"].flatten(), (self._dim_target, -1)),
@@ -347,7 +360,9 @@ class WindForecastingDataset(IterableDataset):
         # for entry in data_iterator:
         # ds_idx = 0
         # for start_period, end_addr_start, end_addr_target, end_addr_fdr, end_addr_fsc in addr_iterator:
-        for ds in self.data.partition_by("item_id"):
+        # for ds in self.data.partition_by("item_id"):
+        start_addr = 0
+        for i, (start_addr, end_addr) in enumerate(ds_addr):
             
             # if ds_idx == 0:
             #     start_addr_start = start_addr_target = start_addr_fdr = start_addr_fsc = 0
@@ -368,11 +383,19 @@ class WindForecastingDataset(IterableDataset):
             #     end_addr_start, end_addr_target, end_addr_fdr, end_addr_fsc
             #     )
             
-            time = pd.to_datetime(ds.select("time").to_numpy().squeeze())
-            target = ds.select(cs.starts_with("target_")).to_numpy().T
-            feat_dynamic_real = ds.select(cs.starts_with("feat_dynamic_real_")).to_numpy().T
-            feat_static_cat = ds.select(pl.col("feat_static_cat")).head(1).to_numpy()[0,0]
+            # time = pd.to_datetime(ds.select("time").to_numpy().squeeze())
+            # target = ds.select(cs.starts_with("target_")).to_numpy().T
+            # feat_dynamic_real = ds.select(cs.starts_with("feat_dynamic_real_")).to_numpy().T
+            # feat_static_cat = ds.select(pl.col("feat_static_cat")).head(1).to_numpy()[0,0]
+            # feat_static_real = np.array([0])
+            
+            time = pd.to_datetime(self.data_time[start_addr:end_addr])
+            target = self.data_target[:, start_addr:end_addr]
+            feat_dynamic_real = self.data_fdr[:, start_addr:end_addr]
+            feat_static_cat = self.data_fsc[i, :]
             feat_static_real = np.array([0])
+            
+            start_addr = end_addr
             
             sampled_indices = self.sampler(target)[::self.skip_indices]
             
@@ -610,7 +633,8 @@ class WindForecastingInferenceDataset(WindForecastingDataset):
             #                  'future_time_feat', 'past_observed_values', 'future_observed_values',
             #                  'feat_static_cat', 'feat_static_real').astype(np.string_)
         
-        for ds in self.data.partition_by("item_id"):
+        start_addr = 0
+        for i, end_addr in enumerate(self.ds_addr):
             
             # if ds_idx == 0:
             #     # start_addr_item_id = 
@@ -634,11 +658,19 @@ class WindForecastingInferenceDataset(WindForecastingDataset):
             # feat_static_cat = pickle.loads(memoryview(self._data_feat_static_cat[start_addr_fsc:end_addr_fsc].numpy()))
             # feat_dynamic_real = pickle.loads(memoryview(self._data_feat_dynamic_real[start_addr_fdr:end_addr_fdr].numpy())).reshape((self._dim_feat_dynamic_real, -1))
             # feat_static_real = [0.0]
-            time = pd.to_datetime(ds.select("time").to_numpy().squeeze())
-            target = ds.select(cs.starts_with("target_")).to_numpy().T
-            feat_dynamic_real = ds.select(cs.starts_with("feat_dynamic_real_")).to_numpy().T
-            feat_static_cat = ds.select(pl.col("feat_static_cat")).head(1).to_numpy()[0,0]
+            # time = pd.to_datetime(ds.select("time").to_numpy().squeeze())
+            # target = ds.select(cs.starts_with("target_")).to_numpy().T
+            # feat_dynamic_real = ds.select(cs.starts_with("feat_dynamic_real_")).to_numpy().T
+            # feat_static_cat = ds.select(pl.col("feat_static_cat")).head(1).to_numpy()[0,0]
+            # feat_static_real = np.array([0])
+            
+            time = pd.to_datetime(self.data_time[start_addr:end_addr])
+            target = self.data_target[:, start_addr:end_addr]
+            feat_dynamic_real = self.data_fdr[:, start_addr:end_addr]
+            feat_static_cat = self.data_fsc[i, :]
             feat_static_real = np.array([0])
+            
+            start_addr = end_addr
             
             # Same processing as parent class but with fixed time point
             ts_length = target.shape[1]
