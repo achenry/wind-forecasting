@@ -7,7 +7,7 @@ and applies necessary transformations for model training.
 
 import logging
 import pickle
-# from memory_profiler import profile
+from memory_profiler import profile
 from typing import List, Optional, Any
 import numpy as np
 import pandas as pd
@@ -198,7 +198,7 @@ class WindForecastingDataset(IterableDataset):
         List of time feature functions to apply
     """
     
-    # @profile
+    @profile
     def __init__(
         self,
         data: pl.DataFrame,
@@ -245,17 +245,19 @@ class WindForecastingDataset(IterableDataset):
         self.ds_addr = data.select(pl.col("item_id").value_counts()).unnest("item_id")
         
         # ensure data is ordered by item_id
-        self.data, self.ds_addr = pl.align_frames(data, self.ds_addr, how="left", on="item_id")
+        data, self.ds_addr = pl.align_frames(data, self.ds_addr, how="left", on="item_id")
         
         # the address corresponding to each new item_id time series
         self.ds_addr = self.ds_addr.unique(maintain_order=True)["count"].to_numpy().cumsum()
-        self.data_time = self.data.select(pl.col("time")).to_numpy().squeeze()
-        self.data_target = self.data.select(cs.starts_with("target_")).to_numpy().T
-        self.data_fdr = self.data.select(cs.starts_with("feat_dynamic_real_")).to_numpy().T
+        self.data_time = data.select(pl.col("time")).to_numpy().squeeze()
+        self.data_target = data.select(cs.starts_with("target_")).to_numpy().T
+        self.data_fdr = data.select(cs.starts_with("feat_dynamic_real_")).to_numpy().T
         self.data_fsc = np.vstack(np.concatenate(
-            self.data.select(pl.col("feat_static_cat")).with_row_index().filter(pl.col("index").is_in(self.ds_addr))["feat_static_cat"].to_numpy()))
+            data.select(pl.col("feat_static_cat")).with_row_index().filter(pl.col("index").is_in(self.ds_addr))["feat_static_cat"].to_numpy()))
         
         self.ds_addr = self.ds_addr.cumsum()
+        
+        del data
         
         # serialize into torch tensors to reduce memory usage
         # self._data_keys = list(self.data[0].keys())
