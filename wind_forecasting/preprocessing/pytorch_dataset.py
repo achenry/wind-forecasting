@@ -23,7 +23,6 @@ logger = logging.getLogger(__name__)
 
 # def make_df(data):
     
-#     # TODO HIGH probably unneccessary, since data was transformed from polars to this form before being pickled earlier...
 #     dfs = []
 #     for sample in data:
 #         # Convert each sample to a DataFrame
@@ -241,6 +240,8 @@ class WindForecastingDataset(IterableDataset):
         # self.num_target = self.data[0]['target'].shape[0]
         # self.num_feat_dynamic_real = self.data[0]['feat_dynamic_real'].shape[0]
         
+        # TODO HIGH this will only work for dataframe not for numpy pkl
+        
         # join with lenghts of each continuous time series in the dataset
         self.ds_addr = data.select(pl.col("item_id").value_counts()).unnest("item_id")
         
@@ -285,15 +286,16 @@ class WindForecastingDataset(IterableDataset):
         #                 torch.from_numpy(np.concatenate(getattr(self, f"_data_{k}"))))
             # elif isinstance(getattr(self, f"_data_{k}"), np.ndarray):
             #     setattr(self, f"_data_{k}", torch.from_numpy(getattr(self, f"_data_{k}")))
-        
-        if isinstance(self.data, pl.DataFrame):
-            self.n_datasets = self.data.select(pl.col("item_id").n_unique()).item()
-        else:
-            self.n_datasets = len(self.data)
-        logger.info(f"Loaded {self.n_datasets} time series")
+        # self.n_datasets = len(self.ds_addr)
+        # if isinstance(self.data, pl.DataFrame):
+        #     # self.n_datasets = self.data.select(pl.col("item_id").n_unique()).item()
+        #     self.n_datasets = len(self.ds_addr)
+        # else:
+            # self.n_datasets = len(self.data)
+        # logger.info(f"Loaded {self.n_datasets} time series")
 
         # del self.data # Free memory after loading
-        self.dataset_idx = 0
+        # self.dataset_idx = 0
       
     def __iter__(self):
         
