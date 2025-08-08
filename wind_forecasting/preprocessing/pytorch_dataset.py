@@ -352,7 +352,8 @@ class WindForecastingDataset(IterableDataset):
         # addr_iterator = zip(iter(self._data_start), iter(addr["start"]), iter(addr["target"]), iter(addr["feat_dynamic_real"]), iter(addr["feat_static_cat"]))
         
         # Apply cycle() here if needed, on the new iterator.
-        ds_addr = cycle(zip(self.ds_addr - self.ds_addr[0], self.ds_addr)) if self.repeat else zip(self.ds_addr - self.ds_addr[0], self.ds_addr)
+        ds_addr = cycle(zip(np.insert(self.ds_addr[:-1], 0, 0), self.ds_addr)) if self.repeat \
+            else zip(np.insert(self.ds_addr[:-1], 0, 0), self.ds_addr)
         
         # to reconstruct the original data, you can use:
         # np.reshape(self.data[0]["target"].flatten(), (self._dim_target, -1)),
@@ -361,7 +362,6 @@ class WindForecastingDataset(IterableDataset):
         # ds_idx = 0
         # for start_period, end_addr_start, end_addr_target, end_addr_fdr, end_addr_fsc in addr_iterator:
         # for ds in self.data.partition_by("item_id"):
-        start_addr = 0
         for i, (start_addr, end_addr) in enumerate(ds_addr):
             
             # if ds_idx == 0:
@@ -394,8 +394,6 @@ class WindForecastingDataset(IterableDataset):
             feat_dynamic_real = self.data_fdr[:, start_addr:end_addr]
             feat_static_cat = self.data_fsc[i, :]
             feat_static_real = np.array([0])
-            
-            start_addr = end_addr
             
             sampled_indices = self.sampler(target)[::self.skip_indices]
             
