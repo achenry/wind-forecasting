@@ -94,19 +94,86 @@ class WindForecastingDatamodule(L.LightningDataModule):
         self.world_size = 1
         self.rank = 0
 
+    def _create_time_features(self, time_index: pd.PeriodIndex) -> np.ndarray:
+        """
+        Create time features from time index.
+        
+        Parameters
+        ----------
+        time_index : pd.PeriodIndex
+            Time index to create features from
+            
+        Returns
+        -------
+        np.ndarray
+            Shape (num_features, time_steps)
+        """
+        if not self.time_features:
+            # Default to empty features
+            return np.zeros((0, len(time_index)))
+        
+        features = []
+        for feat_func in self.time_features:
+            # Apply time feature function
+            feat = feat_func(time_index)
+            features.append(feat)
+            
+        return np.array(features)
+
     def setup(self, stage: str):
         # This hook is called on each DDP process, so `self.trainer` is available.
         if self.trainer:
             self.rank = self.trainer.global_rank
             self.world_size = self.trainer.world_size
+        
+        for split in ["train", "val"]:
+            data = getattr(self, f"{split}_data")
+            
+            if isinstance(data, pl.DataFrame):
+                # join with lenghts of each continuous time series in the dataset
+                # ensure data is ordered by item_id
+                time_addr = data.group_by("item_id", maintain_order=True).agg(pl.len())["len"].to_numpy()
+                setattr(self, f"{split}_ds_addr", torch.from_numpy(np.arange(len(time_addr - 1))))
+                time_addr = np.insert(time_addr.cumsum(), 0, 0)
+                
+                # the address corresponding to each new item_id time series
+                # self.ds_addr = self.ds_addr.unique(maintain_order=True)["count"].to_numpy()
+                # self.data_time, self.data_target, self.data_fdr, self.data_fsc = (
+                    # data.select(pl.col("time")).to_numpy().squeeze(), 
+                setattr(self, 
+                    f"{split}_data_time", 
+                    torch.from_numpy(self._create_time_features(
+                    pd.to_datetime(data.select(pl.col("time")).to_numpy().squeeze())
+                )))
+                setattr(self, 
+                    f"{split}_data_target", 
+                    torch.from_numpy(data.select(cs.starts_with("target_")).to_numpy().T))
+                setattr(self, 
+                    f"{split}_data_fdr", 
+                    torch.from_numpy(data.select(cs.starts_with("feat_dynamic_real_")).to_numpy().T))
+                setattr(self, 
+                        f"{split}_data_fsc", 
+                torch.from_numpy(np.vstack(np.concatenate(
+                data.select(pl.col("feat_static_cat")).with_row_index().filter(pl.col("index").is_in(time_addr[:-1]))["feat_static_cat"].to_numpy()))))
+                # self.time_addr = torch.from_numpy(self.time_addr)
+                setattr(self, f"{split}_time_addr", torch.from_numpy(time_addr))
+                
+            else:
+                raise NotImplementedError
+        
 
     def train_dataloader(self):
         # The Trainer calls this after setup() on each DDP process
         train_dataset = WindForecastingDataset(
-                data=self.train_data,
+                data_time=self.train_data_time,
+                data_target=self.train_data_target,
+                data_fdr=self.train_data_fdr,
+                data_fsc=self.train_data_fsc,
+                ds_addr=self.train_ds_addr,
+                time_addr=self.train_time_addr,
                 context_length=self.context_length,
                 prediction_length=self.prediction_length,
-                time_features=self.time_features,
+                # time_features=self.time_features,
                 sampler=self.train_sampler,  # GluonTS sampler instance
                 repeat=self.train_repeat,
                 skip_indices=1,
@@ -131,10 +198,15 @@ class WindForecastingDatamodule(L.LightningDataModule):
         #     return None
         
         val_dataset = WindForecastingInferenceDataset(
-                data=self.val_data,
+                data_time=self.val_data_time,
+                data_target=self.val_data_target,
+                data_fdr=self.val_data_fdr,
+                data_fsc=self.val_data_fsc,
+                ds_addr=self.val_ds_addr,
+                time_addr=self.val_time_addr,
                 context_length=self.context_length,
                 prediction_length=self.prediction_length,
-                time_features=self.time_features,
+                # time_features=self.time_features,
                 sampler=self.val_sampler,  # GluonTS sampler instance
                 repeat=self.val_repeat,
                 skip_indices=self.prediction_length,
@@ -201,10 +273,15 @@ class WindForecastingDataset(IterableDataset):
     @profile
     def __init__(
         self,
-        data: pl.DataFrame,
+        data_time: torch.Tensor,
+        data_target: torch.Tensor,
+        data_fdr: torch.Tensor,
+        data_fsc: torch.Tensor,
+        time_addr: torch.Tensor,
+        ds_addr: torch.Tensor,
         context_length: int,
         prediction_length: int,
-        time_features: Optional[List] = None,
+        # time_features: Optional[List] = None,
         sampler: Optional[Any] = None,  # GluonTS sampler instance
         repeat: bool = False,
         skip_indices: int = 1,
@@ -213,7 +290,7 @@ class WindForecastingDataset(IterableDataset):
     ):
         self.context_length = context_length
         self.prediction_length = prediction_length
-        self.time_features = time_features or []
+        # self.time_features = time_features or []
         self.sampler = sampler
         self.repeat = repeat
         
@@ -227,6 +304,13 @@ class WindForecastingDataset(IterableDataset):
         # Store world_size and rank passed from the DataModule
         self.world_size = world_size
         self.rank = rank
+        
+        self.data_time = data_time
+        self.data_target = data_target
+        self.data_fdr = data_fdr
+        self.data_fsc = data_fsc
+        self.time_addr = time_addr
+        self.ds_addr = ds_addr
         
         # Validate data format
         # if len(self.data) > 0:
@@ -243,34 +327,7 @@ class WindForecastingDataset(IterableDataset):
         
         
         logging.info(f"Instantiating data attributes in WindForecastingDataset.__init__ with rank = {self.rank} and world_size = {self.world_size}")
-        if isinstance(data, pl.DataFrame):
-            # join with lenghts of each continuous time series in the dataset
-            # ensure data is ordered by item_id
-            self.time_addr = data.group_by("item_id", maintain_order=True).agg(pl.len())["len"].to_numpy()
-            self.ds_addr = torch.from_numpy(np.arange(len(self.time_addr - 1)))
-            self.time_addr = np.insert(self.time_addr.cumsum(), 0, 0)
-            
-            # data, self.ds_addr = pl.align_frames(data, 
-            #                                      data.select(pl.col("item_id").value_counts()).unnest("item_id"), 
-            #                                      how="left", on="item_id")
-            
-            # the address corresponding to each new item_id time series
-            # self.ds_addr = self.ds_addr.unique(maintain_order=True)["count"].to_numpy()
-            self.data_time, self.data_target, self.data_fdr, self.data_fsc = (
-                # data.select(pl.col("time")).to_numpy().squeeze(), 
-                torch.from_numpy(self._create_time_features(
-                    pd.to_datetime(data.select(pl.col("time")).to_numpy().squeeze())
-                )),
-                torch.from_numpy(data.select(cs.starts_with("target_")).to_numpy().T),
-                torch.from_numpy(data.select(cs.starts_with("feat_dynamic_real_")).to_numpy().T),
-                torch.from_numpy(np.vstack(np.concatenate(
-                data.select(pl.col("feat_static_cat")).with_row_index().filter(pl.col("index").is_in(self.time_addr[:-1]))["feat_static_cat"].to_numpy())))
-            )
-            self.time_addr = torch.from_numpy(self.time_addr)
-            
-        else:
-            raise NotImplementedError
-        
+
         
         
             # TODO HIGH this will only work for dataframe not for numpy pkl, add earlier code back in
@@ -521,32 +578,6 @@ class WindForecastingDataset(IterableDataset):
                 # np.array(['past_target', 'future_target', 'past_time_feat', 
                 #              'future_time_feat', 'past_observed_values', 'future_observed_values',
                 #              'feat_static_cat', 'feat_static_real']).astype(np.string_)
-                
-    def _create_time_features(self, time_index: pd.PeriodIndex) -> np.ndarray:
-        """
-        Create time features from time index.
-        
-        Parameters
-        ----------
-        time_index : pd.PeriodIndex
-            Time index to create features from
-            
-        Returns
-        -------
-        np.ndarray
-            Shape (num_features, time_steps)
-        """
-        if not self.time_features:
-            # Default to empty features
-            return np.zeros((0, len(time_index)))
-        
-        features = []
-        for feat_func in self.time_features:
-            # Apply time feature function
-            feat = feat_func(time_index)
-            features.append(feat)
-            
-        return np.array(features)
 
 
 class WindForecastingInferenceDataset(WindForecastingDataset):
