@@ -123,13 +123,15 @@ class WindForecastingDatamodule(L.LightningDataModule):
 
     def setup(self, stage: str):
         # This hook is called on each DDP process, so `self.trainer` is available.
-        logging.info("Running WindForecastingDatamodule.setup()")
+        
         if self.trainer:
             self.rank = self.trainer.global_rank
             self.world_size = self.trainer.world_size
+            
+        logging.info(f"Running WindForecastingDatamodule.setup() on rank {self.rank} for world_size {self.world_size}")
         
         for split in ["train", "val"]:
-            logging.info(f"Setting {split} attributes in WindForecastingDatamodule.setup()")
+            logging.info(f"Setting {split} attributes in WindForecastingDatamodule.setup() on rank {self.rank} for world_size {self.world_size}")
             
             data = getattr(self, f"{split}_data")
             
@@ -168,7 +170,8 @@ class WindForecastingDatamodule(L.LightningDataModule):
 
     def train_dataloader(self):
         # The Trainer calls this after setup() on each DDP process
-        logging.info("Instantiating WindForecastingDataset in WindForecastingDatamodule.train_dataloader()")
+        logging.info(f"Instantiating WindForecastingDataset in WindForecastingDatamodule.train_dataloader() on rank {self.rank} for world_size {self.world_size}")
+        
         train_dataset = WindForecastingDataset(
                 data_time=self.train_data_time,
                 data_target=self.train_data_target,
@@ -186,7 +189,8 @@ class WindForecastingDatamodule(L.LightningDataModule):
                 rank=self.rank)
         
         
-        logging.info("Returning DataLoader in WindForecastingDatamodule.train_dataloader()")
+        logging.info(f"Returning DataLoader in WindForecastingDatamodule.train_dataloader() on rank {self.rank} for world_size {self.world_size}")
+        
         return DataLoader(
             train_dataset,
             batch_size=self.batch_size,
@@ -204,7 +208,8 @@ class WindForecastingDatamodule(L.LightningDataModule):
         # if self.val_dataset is None:
         #     return None
         
-        logging.info("Instantiating WindForecastingDataset in WindForecastingDatamodule.val_dataloader()")
+        logging.info(f"Instantiating WindForecastingDataset in WindForecastingDatamodule.val_dataloader() on rank {self.rank} for world_size {self.world_size}")
+        
         val_dataset = WindForecastingInferenceDataset(
                 data_time=self.val_data_time,
                 data_target=self.val_data_target,
@@ -224,7 +229,8 @@ class WindForecastingDatamodule(L.LightningDataModule):
         if val_dataset is None:
             return None
         
-        logging.info("Returning DataLoader in WindForecastingDatamodule.val_dataloader()")
+        logging.info(f"Returning DataLoader in WindForecastingDatamodule.val_dataloader() on rank {self.rank} for world_size {self.world_size}")
+        
         return DataLoader(
             val_dataset,
             batch_size=self.batch_size,
@@ -255,9 +261,9 @@ class WindForecastingDatamodule(L.LightningDataModule):
         )
 
 
-def _serialize(data):
-    buffer = pickle.dumps(data, protocol=-1)
-    return np.frombuffer(buffer, dtype=np.uint8)
+# def _serialize(data):
+#     buffer = pickle.dumps(data, protocol=-1)
+#     return np.frombuffer(buffer, dtype=np.uint8)
     
 # class WindForecastingDataset(IterableDataset):
 class WindForecastingDataset(IterableDataset):
@@ -279,7 +285,7 @@ class WindForecastingDataset(IterableDataset):
         List of time feature functions to apply
     """
     
-    @profile
+    # @profile
     def __init__(
         self,
         data_time: torch.Tensor,
@@ -396,7 +402,7 @@ class WindForecastingDataset(IterableDataset):
         # del self.data # Free memory after loading
         # self.dataset_idx = 0
     
-    @profile
+    # @profile
     def __iter__(self):
         
         if self.world_size > 1:
@@ -419,7 +425,7 @@ class WindForecastingDataset(IterableDataset):
 
             return islice(self._base_iter(), global_worker_id, None, global_num_workers)
     
-    @profile
+    # @profile
     def _base_iter(self):
     
         """
