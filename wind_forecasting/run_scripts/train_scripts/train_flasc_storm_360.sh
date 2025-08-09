@@ -128,7 +128,7 @@ srun python ${WORK_DIR}/run_scripts/run_model.py \
       trainer.max_epochs=100 \
       trainer.limit_train_batches=null \
       trainer.val_check_interval=1.0 \
-      tactis.stage2_start_epoch=15 \
+      tactis.stage2_start_epoch=20 \
       tactis.lr_stage2=8e-06 \
       tactis.weight_decay_stage2=1e-06 \
       tactis.copula_num_layers=2 \

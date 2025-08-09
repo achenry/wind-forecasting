@@ -1,12 +1,12 @@
 #!/bin/bash
 
-#SBATCH --partition=cfdg.p          # Partition for H100/A100 GPUs cfdg.p / all_gpu.p / mpcg.p(not allowed)
+#SBATCH --partition=all_gpu.p          # Partition for H100/A100 GPUs cfdg.p / all_gpu.p / mpcg.p(not allowed)
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1         # Match number of GPUs requested below (for DDP training)
 #SBATCH --cpus-per-task=8           # CPUs per task (adjust if needed for data loading)
 #SBATCH --mem-per-cpu=8192          # Memory per CPU
 #SBATCH --gres=gpu:H100:1
-#SBATCH --time=7-00:00              # Time limit (adjust as needed for training)
+#SBATCH --time=1-00:00              # Time limit (adjust as needed for training)
 #SBATCH --job-name=flasc_train_tactis_600      # Updated job name
 #SBATCH --output=/dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/slurm_logs/flasc_train_tactis_600_%j.out # Updated output log path
 #SBATCH --error=/dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/slurm_logs/flasc_train_tactis_600_%j.err  # Updated error log path
