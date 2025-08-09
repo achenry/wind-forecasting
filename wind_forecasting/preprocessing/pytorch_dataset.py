@@ -198,7 +198,7 @@ class WindForecastingDataset(IterableDataset):
         List of time feature functions to apply
     """
     
-    # @profile
+    @profile
     def __init__(
         self,
         data: pl.DataFrame,
@@ -246,21 +246,32 @@ class WindForecastingDataset(IterableDataset):
         if isinstance(data, pl.DataFrame):
             # join with lenghts of each continuous time series in the dataset
             # ensure data is ordered by item_id
-            self.ds_addr = np.insert(data.group_by("item_id", maintain_order=True).agg(pl.len())["len"].to_numpy().cumsum(), 0, 0)
+            self.time_addr = data.group_by("item_id", maintain_order=True).agg(pl.len())["len"].to_numpy()
+            self.ds_addr = torch.from_numpy(np.arange(len(self.time_addr - 1)))
+            self.time_addr = np.insert(self.time_addr.cumsum(), 0, 0)
+            
             # data, self.ds_addr = pl.align_frames(data, 
             #                                      data.select(pl.col("item_id").value_counts()).unnest("item_id"), 
             #                                      how="left", on="item_id")
             
             # the address corresponding to each new item_id time series
             # self.ds_addr = self.ds_addr.unique(maintain_order=True)["count"].to_numpy()
-            self.data_time = data.select(pl.col("time")).to_numpy().squeeze()
-            self.data_target = data.select(cs.starts_with("target_")).to_numpy().T
-            self.data_fdr = data.select(cs.starts_with("feat_dynamic_real_")).to_numpy().T
-            self.data_fsc = np.vstack(np.concatenate(
-                data.select(pl.col("feat_static_cat")).with_row_index().filter(pl.col("index").is_in(self.ds_addr[:-1]))["feat_static_cat"].to_numpy()))
+            self.data_time, self.data_target, self.data_fdr, self.data_fsc = (
+                # data.select(pl.col("time")).to_numpy().squeeze(), 
+                torch.from_numpy(self._create_time_features(
+                    pd.to_datetime(data.select(pl.col("time")).to_numpy().squeeze())
+                )),
+                torch.from_numpy(data.select(cs.starts_with("target_")).to_numpy().T),
+                torch.from_numpy(data.select(cs.starts_with("feat_dynamic_real_")).to_numpy().T),
+                torch.from_numpy(np.vstack(np.concatenate(
+                data.select(pl.col("feat_static_cat")).with_row_index().filter(pl.col("index").is_in(self.time_addr[:-1]))["feat_static_cat"].to_numpy())))
+            )
+            self.time_addr = torch.from_numpy(self.time_addr)
             
         else:
             raise NotImplementedError
+        
+        
         
             # TODO HIGH this will only work for dataframe not for numpy pkl, add earlier code back in
         #     self.ds_addr = data.group_by("item_id", maintain_order=True).agg(pl.len())["len"].to_numpy()
@@ -320,7 +331,8 @@ class WindForecastingDataset(IterableDataset):
 
         # del self.data # Free memory after loading
         # self.dataset_idx = 0
-      
+    
+    @profile
     def __iter__(self):
         
         if self.world_size > 1:
@@ -342,7 +354,8 @@ class WindForecastingDataset(IterableDataset):
             logger.info(f"training worker {worker_info.id} of {num_workers}, fetching islice {global_worker_id}:None:{global_num_workers}")
 
             return islice(self._base_iter(), global_worker_id, None, global_num_workers)
-        
+    
+    @profile
     def _base_iter(self):
     
         """
@@ -380,6 +393,7 @@ class WindForecastingDataset(IterableDataset):
         # addr_iterator = zip(iter(self._data_start), iter(addr["start"]), iter(addr["target"]), iter(addr["feat_dynamic_real"]), iter(addr["feat_static_cat"]))
         
         # Apply cycle() here if needed, on the new iterator.
+        time_addr = cycle(self.time_addr) if self.repeat else self.time_addr
         ds_addr = cycle(self.ds_addr) if self.repeat else self.ds_addr
         
         # to reconstruct the original data, you can use:
@@ -389,7 +403,7 @@ class WindForecastingDataset(IterableDataset):
         # ds_idx = 0
         # for start_period, end_addr_start, end_addr_target, end_addr_fdr, end_addr_fsc in addr_iterator:
         # for ds in self.data.partition_by("item_id"):
-        for i, (start_addr, end_addr) in enumerate(pairwise(ds_addr)):
+        for ds_idx, (start_addr, end_addr) in zip(ds_addr, pairwise(time_addr)):
             
             # if ds_idx == 0:
             #     start_addr_start = start_addr_target = start_addr_fdr = start_addr_fsc = 0
@@ -416,11 +430,11 @@ class WindForecastingDataset(IterableDataset):
             # feat_static_cat = ds.select(pl.col("feat_static_cat")).head(1).to_numpy()[0,0]
             # feat_static_real = np.array([0])
             
-            time = pd.to_datetime(self.data_time[start_addr:end_addr])
+            time = self.data_time[:, start_addr:end_addr]
             target = self.data_target[:, start_addr:end_addr]
             feat_dynamic_real = self.data_fdr[:, start_addr:end_addr]
-            feat_static_cat = self.data_fsc[i, :]
-            feat_static_real = np.array([0])
+            feat_static_cat = self.data_fsc[ds_idx, :]
+            feat_static_real = torch.tensor([0])
             
             sampled_indices = self.sampler(target)[::self.skip_indices]
             
@@ -452,20 +466,22 @@ class WindForecastingDataset(IterableDataset):
                 # )
                 
                 # Apply time feature transformations
-                past_time_feat = self._create_time_features(
-                    time[idx - self.context_length:idx]
-                )
-                future_time_feat = self._create_time_features(
-                    time[idx:idx + self.prediction_length]
-                )
+                # past_time_feat = self._create_time_features(
+                #     time[idx - self.context_length:idx]
+                # )
+                # future_time_feat = self._create_time_features(
+                #     time[idx:idx + self.prediction_length]
+                # )
+                past_time_feat = time[:, idx - self.context_length:idx]
+                future_time_feat = time[:, idx:idx + self.prediction_length]
                 
                 # Create observed values indicator (1 for observed, 0 for missing)
-                past_observed = ~np.isnan(past_target)
-                future_observed = ~np.isnan(future_target)
+                past_observed = ~torch.isnan(past_target)
+                future_observed = ~torch.isnan(future_target)
                 
                 # Handle NaN values
-                past_target = np.nan_to_num(past_target, 0.0)
-                future_target = np.nan_to_num(future_target, 0.0)
+                past_target = torch.nan_to_num(past_target, 0.0)
+                future_target = torch.nan_to_num(future_target, 0.0)
                 
                 # Get static features
                 # feat_static_cat = entry.get('feat_static_cat', [0])
@@ -478,8 +494,8 @@ class WindForecastingDataset(IterableDataset):
                 future_dynamic = feat_dynamic_real[:, idx:idx + self.prediction_length]
                 
                 # Stack with time features
-                past_time_feat = np.vstack([past_time_feat, past_dynamic])
-                future_time_feat = np.vstack([future_time_feat, future_dynamic])
+                past_time_feat = torch.vstack([past_time_feat, past_dynamic])
+                future_time_feat = torch.vstack([future_time_feat, future_dynamic])
                 
                 # Convert to tensors and transpose to (time, features)
                 # yield {
@@ -493,14 +509,14 @@ class WindForecastingDataset(IterableDataset):
                 #     'feat_static_real': torch.tensor(feat_static_real, dtype=torch.float),
                 # }
                 yield (
-                    torch.from_numpy(past_target.T).float(),
-                    torch.from_numpy(future_target.T).float(),
-                    torch.from_numpy(past_time_feat.T).float(),
-                    torch.from_numpy(future_time_feat.T).float(),
-                    torch.from_numpy(past_observed.T).float(),
-                    torch.from_numpy(future_observed.T).float(),
-                    torch.tensor(feat_static_cat, dtype=torch.long),
-                    torch.tensor(feat_static_real, dtype=torch.float),
+                    past_target.T.float(),
+                    future_target.T.float(),
+                    past_time_feat.T.float(),
+                    future_time_feat.T.float(),
+                    past_observed.T.float(),
+                    future_observed.T.float(),
+                    feat_static_cat.long(),
+                    feat_static_real.float(),
                 )
                 # np.array(['past_target', 'future_target', 'past_time_feat', 
                 #              'future_time_feat', 'past_observed_values', 'future_observed_values',
@@ -659,7 +675,7 @@ class WindForecastingInferenceDataset(WindForecastingDataset):
             #                  'feat_static_cat', 'feat_static_real').astype(np.string_)
         
         # start_addr = 0
-        for i, (start_addr, end_addr) in enumerate(pairwise(self.ds_addr)):
+        for ds_idx, (start_addr, end_addr) in zip(self.ds_addr, pairwise(self.ds_addr)):
             
             # if ds_idx == 0:
             #     # start_addr_item_id = 
@@ -689,11 +705,11 @@ class WindForecastingInferenceDataset(WindForecastingDataset):
             # feat_static_cat = ds.select(pl.col("feat_static_cat")).head(1).to_numpy()[0,0]
             # feat_static_real = np.array([0])
             
-            time = pd.to_datetime(self.data_time[start_addr:end_addr])
+            time = self.data_time[:, start_addr:end_addr]
             target = self.data_target[:, start_addr:end_addr]
             feat_dynamic_real = self.data_fdr[:, start_addr:end_addr]
-            feat_static_cat = self.data_fsc[i, :]
-            feat_static_real = np.array([0])
+            feat_static_cat = self.data_fsc[ds_idx, :]
+            feat_static_real = torch.tensor([0])
             
             # start_addr = end_addr
             
@@ -719,7 +735,7 @@ class WindForecastingInferenceDataset(WindForecastingDataset):
                 # ... (same as parent __getitem__ but without random sampling)
                 
                 # Create time features
-                _, ts_length = target.shape
+                # _, ts_length = target.shape
                 # time_index = pd.period_range(
                 #     start=start_period,
                 #     periods=ts_length,
@@ -727,20 +743,22 @@ class WindForecastingInferenceDataset(WindForecastingDataset):
                 # )
                 # time_index = time
                 
-                past_time_feat = self._create_time_features(
-                    time[idx - self.context_length:idx]
-                )
-                future_time_feat = self._create_time_features(
-                    time[idx:idx + self.prediction_length]
-                )
+                # past_time_feat = self._create_time_features(
+                #     time[idx - self.context_length:idx]
+                # )
+                # future_time_feat = self._create_time_features(
+                #     time[idx:idx + self.prediction_length]
+                # )
+                past_time_feat = time[:, idx - self.context_length:idx]
+                future_time_feat = time[:, idx:idx + self.prediction_length]
                 
                 # Create observed values indicator
-                past_observed = ~np.isnan(past_target)
-                future_observed = ~np.isnan(future_target)
+                past_observed = ~torch.isnan(past_target)
+                future_observed = ~torch.isnan(future_target)
                 
                 # Handle NaN values
-                past_target = np.nan_to_num(past_target, 0.0)
-                future_target = np.nan_to_num(future_target, 0.0)
+                past_target = torch.nan_to_num(past_target, 0.0)
+                future_target = torch.nan_to_num(future_target, 0.0)
                 
                 # Get static features
                 # feat_static_cat = entry.get('feat_static_cat', [0])
@@ -753,19 +771,19 @@ class WindForecastingInferenceDataset(WindForecastingDataset):
                 future_dynamic = feat_dynamic_real[:, idx:idx + self.prediction_length]
                 
                 # Stack with time features
-                past_time_feat = np.vstack([past_time_feat, past_dynamic])
-                future_time_feat = np.vstack([future_time_feat, future_dynamic])
+                past_time_feat = torch.vstack([past_time_feat, past_dynamic])
+                future_time_feat = torch.vstack([future_time_feat, future_dynamic])
                 
                 # Convert to tensors
                 yield (
-                    torch.from_numpy(past_target.T).float(),
-                    torch.from_numpy(future_target.T).float(),
-                    torch.from_numpy(past_time_feat.T).float(),
-                    torch.from_numpy(future_time_feat.T).float(),
-                    torch.from_numpy(past_observed.T).float(),
-                    torch.from_numpy(future_observed.T).float(),
-                    torch.tensor(feat_static_cat, dtype=torch.long),
-                    torch.tensor(feat_static_real, dtype=torch.float)
+                    past_target.T.float(),
+                    future_target.T.float(),
+                    past_time_feat.T.float(),
+                    future_time_feat.T.float(),
+                    past_observed.T.float(),
+                    future_observed.T.float(),
+                    feat_static_cat.long(),
+                    feat_static_real.float()
                 )
                 # np.array(["past_target", "future_target", "past_time_feat", 
                 #              "future_time_feat", "past_observed_values", "future_observed_values",
