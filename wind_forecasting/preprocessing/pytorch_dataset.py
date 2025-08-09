@@ -18,6 +18,7 @@ from torch.utils.data import DataLoader
 import lightning.pytorch as L
 import polars as pl
 import polars.selectors as cs
+from itertools import pairwise
 
 logger = logging.getLogger(__name__)
 
@@ -240,24 +241,46 @@ class WindForecastingDataset(IterableDataset):
         # self.num_target = self.data[0]['target'].shape[0]
         # self.num_feat_dynamic_real = self.data[0]['feat_dynamic_real'].shape[0]
         
-        # TODO HIGH this will only work for dataframe not for numpy pkl
         
-        # join with lenghts of each continuous time series in the dataset
-        # ensure data is ordered by item_id
-        self.ds_addr = data.group_by("item_id", maintain_order=True).agg(pl.len()).to_numpy()
-        # data, self.ds_addr = pl.align_frames(data, 
-        #                                      data.select(pl.col("item_id").value_counts()).unnest("item_id"), 
-        #                                      how="left", on="item_id")
         
-        # the address corresponding to each new item_id time series
-        # self.ds_addr = self.ds_addr.unique(maintain_order=True)["count"].to_numpy()
-        self.data_time = data.select(pl.col("time")).to_numpy().squeeze()
-        self.data_target = data.select(cs.starts_with("target_")).to_numpy().T
-        self.data_fdr = data.select(cs.starts_with("feat_dynamic_real_")).to_numpy().T
-        self.data_fsc = np.vstack(np.concatenate(
-            data.select(pl.col("feat_static_cat")).with_row_index().filter(pl.col("index").is_in(self.ds_addr))["feat_static_cat"].to_numpy()))
+        if isinstance(data, pl.DataFrame):
+            # join with lenghts of each continuous time series in the dataset
+            # ensure data is ordered by item_id
+            self.ds_addr = np.insert(data.group_by("item_id", maintain_order=True).agg(pl.len())["len"].to_numpy().cumsum(), 0, 0)
+            # data, self.ds_addr = pl.align_frames(data, 
+            #                                      data.select(pl.col("item_id").value_counts()).unnest("item_id"), 
+            #                                      how="left", on="item_id")
+            
+            # the address corresponding to each new item_id time series
+            # self.ds_addr = self.ds_addr.unique(maintain_order=True)["count"].to_numpy()
+            self.data_time = data.select(pl.col("time")).to_numpy().squeeze()
+            self.data_target = data.select(cs.starts_with("target_")).to_numpy().T
+            self.data_fdr = data.select(cs.starts_with("feat_dynamic_real_")).to_numpy().T
+            self.data_fsc = np.vstack(np.concatenate(
+                data.select(pl.col("feat_static_cat")).with_row_index().filter(pl.col("index").is_in(self.ds_addr[:-1]))["feat_static_cat"].to_numpy()))
+            
+        else:
+            raise NotImplementedError
         
-        self.ds_addr = self.ds_addr.cumsum()
+            # TODO HIGH this will only work for dataframe not for numpy pkl, add earlier code back in
+        #     self.ds_addr = data.group_by("item_id", maintain_order=True).agg(pl.len())["len"].to_numpy()
+        #     # data, self.ds_addr = pl.align_frames(data, 
+        #     #                                      data.select(pl.col("item_id").value_counts()).unnest("item_id"), 
+        #     #                                      how="left", on="item_id")
+            
+        #     # the address corresponding to each new item_id time series
+        #     # self.ds_addr = self.ds_addr.unique(maintain_order=True)["count"].to_numpy()
+        #     self.data_time = pd.period_range(
+        #                 start=data["start"],
+        #                 periods=data[],
+        #                 freq=start_period.freq
+        #             )
+        #     self.data_target = data.select(cs.starts_with("target_")).to_numpy().T
+        #     self.data_fdr = data.select(cs.starts_with("feat_dynamic_real_")).to_numpy().T
+        #     self.data_fsc = np.vstack(np.concatenate(
+        #         data.select(pl.col("feat_static_cat")).with_row_index().filter(pl.col("index").is_in(self.ds_addr))["feat_static_cat"].to_numpy()))
+            
+        #     self.ds_addr = self.ds_addr.cumsum()
         
         del data
         
@@ -357,8 +380,7 @@ class WindForecastingDataset(IterableDataset):
         # addr_iterator = zip(iter(self._data_start), iter(addr["start"]), iter(addr["target"]), iter(addr["feat_dynamic_real"]), iter(addr["feat_static_cat"]))
         
         # Apply cycle() here if needed, on the new iterator.
-        ds_addr = cycle(zip(np.insert(self.ds_addr[:-1], 0, 0), self.ds_addr)) if self.repeat \
-            else zip(np.insert(self.ds_addr[:-1], 0, 0), self.ds_addr)
+        ds_addr = cycle(self.ds_addr) if self.repeat else self.ds_addr
         
         # to reconstruct the original data, you can use:
         # np.reshape(self.data[0]["target"].flatten(), (self._dim_target, -1)),
@@ -367,7 +389,7 @@ class WindForecastingDataset(IterableDataset):
         # ds_idx = 0
         # for start_period, end_addr_start, end_addr_target, end_addr_fdr, end_addr_fsc in addr_iterator:
         # for ds in self.data.partition_by("item_id"):
-        for i, (start_addr, end_addr) in enumerate(ds_addr):
+        for i, (start_addr, end_addr) in enumerate(pairwise(ds_addr)):
             
             # if ds_idx == 0:
             #     start_addr_start = start_addr_target = start_addr_fdr = start_addr_fsc = 0
@@ -636,8 +658,8 @@ class WindForecastingInferenceDataset(WindForecastingDataset):
             #                  'future_time_feat', 'past_observed_values', 'future_observed_values',
             #                  'feat_static_cat', 'feat_static_real').astype(np.string_)
         
-        start_addr = 0
-        for i, end_addr in enumerate(self.ds_addr):
+        # start_addr = 0
+        for i, (start_addr, end_addr) in enumerate(pairwise(self.ds_addr)):
             
             # if ds_idx == 0:
             #     # start_addr_item_id = 
@@ -673,7 +695,7 @@ class WindForecastingInferenceDataset(WindForecastingDataset):
             feat_static_cat = self.data_fsc[i, :]
             feat_static_real = np.array([0])
             
-            start_addr = end_addr
+            # start_addr = end_addr
             
             # Same processing as parent class but with fixed time point
             ts_length = target.shape[1]
