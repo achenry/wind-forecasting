@@ -42,12 +42,27 @@ class WindForecastingDatamodule(L.LightningDataModule):
         self.train_repeat = train_repeat
         self.val_repeat = val_repeat
         
-        self.train_data_path = train_data_path
-        self.val_data_path = val_data_path
+        # self.train_data_path = train_data_path
+        # self.val_data_path = val_data_path
         
         # These will be set in the setup() hook
         self.world_size = 1
         self.rank = 0
+        
+        # Load data from pickle
+        logger.info(f"Loading dataset from {train_data_path}")
+        if train_data_path.endswith('.pkl'):
+            with open(train_data_path, 'rb') as f:
+                self.train_data = pickle.load(f) # TODO HIGH REST OF CODE WON'T WORK WITH PICKLE
+        else:
+            self.train_data = pl.read_parquet(train_data_path)
+              
+        logger.info(f"Loading dataset from {val_data_path}")
+        if val_data_path.endswith('.pkl'):
+            with open(val_data_path, 'rb') as f:
+                self.val_data = pickle.load(f)
+        else:
+            self.val_data = pl.read_parquet(val_data_path)
 
     def _create_time_features(self, time_index: pd.PeriodIndex) -> np.ndarray:
         """
@@ -76,22 +91,6 @@ class WindForecastingDatamodule(L.LightningDataModule):
             
         return np.array(features)
 
-    def prepare_data(self):
-        # Load data from pickle
-        logger.info(f"Loading dataset from {self.train_data_path}")
-        if self.train_data_path.endswith('.pkl'):
-            with open(self.train_data_path, 'rb') as f:
-                self.train_data = pickle.load(f) # TODO HIGH REST OF CODE WON'T WORK WITH PICKLE
-        else:
-            self.train_data = pl.read_parquet(self.train_data_path)
-              
-        logger.info(f"Loading dataset from {self.val_data_path}")
-        if self.val_data_path.endswith('.pkl'):
-            with open(self.val_data_path, 'rb') as f:
-                self.val_data = pickle.load(f)
-        else:
-            self.val_data = pl.read_parquet(self.val_data_path)
-    
     def setup(self, stage: str):
         # This hook is called on each DDP process, so `self.trainer` is available.
         
