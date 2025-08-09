@@ -242,7 +242,7 @@ class WindForecastingDataset(IterableDataset):
         # self.num_feat_dynamic_real = self.data[0]['feat_dynamic_real'].shape[0]
         
         
-        
+        logging.info(f"Instantiating data attributes in WindForecastingDataset.__init__ with rank = {self.rank} and world_size = {self.world_size}")
         if isinstance(data, pl.DataFrame):
             # join with lenghts of each continuous time series in the dataset
             # ensure data is ordered by item_id
@@ -282,7 +282,7 @@ class WindForecastingDataset(IterableDataset):
             
         #     self.ds_addr = self.ds_addr.cumsum()
         
-        del data
+        # del data
         
         # serialize into torch tensors to reduce memory usage
         # self._data_keys = list(self.data[0].keys())
