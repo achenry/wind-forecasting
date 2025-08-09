@@ -136,6 +136,8 @@ class WindForecastingDatamodule(L.LightningDataModule):
                 data = {
                     "time_addr": time_addr,
                     "ds_addr": ds_addr,
+                    "time": torch.from_numpy(self._create_time_features(
+                    pd.to_datetime(data.select(pl.col("time")).to_numpy().squeeze()))),
                     "target": torch.from_numpy(data.select(cs.starts_with("target_")).to_numpy().T),
                     "feat_static_cat": torch.from_numpy(
                         np.vstack(np.concatenate(
@@ -144,8 +146,7 @@ class WindForecastingDatamodule(L.LightningDataModule):
                 data["observed"] = ~torch.isnan(data["target"])
                 data["target"] = torch.nan_to_num(data["target"], 0.0)
                 data["time"] = torch.vstack([
-                    torch.from_numpy(self._create_time_features(
-                    pd.to_datetime(data.select(pl.col("time")).to_numpy().squeeze()))), 
+                    data["time"], 
                     torch.from_numpy(data.select(cs.starts_with("feat_dynamic_real_")).to_numpy().T)])
                 
             else:
