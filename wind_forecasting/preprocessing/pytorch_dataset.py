@@ -108,6 +108,7 @@ class WindForecastingDatamodule(L.LightningDataModule):
         np.ndarray
             Shape (num_features, time_steps)
         """
+        logging.info("Creating time features.")
         if not self.time_features:
             # Default to empty features
             return np.zeros((0, len(time_index)))
@@ -122,11 +123,14 @@ class WindForecastingDatamodule(L.LightningDataModule):
 
     def setup(self, stage: str):
         # This hook is called on each DDP process, so `self.trainer` is available.
+        logging.info("Running WindForecastingDatamodule.setup()")
         if self.trainer:
             self.rank = self.trainer.global_rank
             self.world_size = self.trainer.world_size
         
         for split in ["train", "val"]:
+            logging.info(f"Setting {split} attributes in WindForecastingDatamodule.setup()")
+            
             data = getattr(self, f"{split}_data")
             
             if isinstance(data, pl.DataFrame):
@@ -164,6 +168,7 @@ class WindForecastingDatamodule(L.LightningDataModule):
 
     def train_dataloader(self):
         # The Trainer calls this after setup() on each DDP process
+        logging.info("Instantiating WindForecastingDataset in WindForecastingDatamodule.train_dataloader()")
         train_dataset = WindForecastingDataset(
                 data_time=self.train_data_time,
                 data_target=self.train_data_target,
@@ -180,6 +185,8 @@ class WindForecastingDatamodule(L.LightningDataModule):
                 world_size=self.world_size,
                 rank=self.rank)
         
+        
+        logging.info("Returning DataLoader in WindForecastingDatamodule.train_dataloader()")
         return DataLoader(
             train_dataset,
             batch_size=self.batch_size,
@@ -197,6 +204,7 @@ class WindForecastingDatamodule(L.LightningDataModule):
         # if self.val_dataset is None:
         #     return None
         
+        logging.info("Instantiating WindForecastingDataset in WindForecastingDatamodule.val_dataloader()")
         val_dataset = WindForecastingInferenceDataset(
                 data_time=self.val_data_time,
                 data_target=self.val_data_target,
@@ -216,6 +224,7 @@ class WindForecastingDatamodule(L.LightningDataModule):
         if val_dataset is None:
             return None
         
+        logging.info("Returning DataLoader in WindForecastingDatamodule.val_dataloader()")
         return DataLoader(
             val_dataset,
             batch_size=self.batch_size,
@@ -327,8 +336,6 @@ class WindForecastingDataset(IterableDataset):
         
         
         logging.info(f"Instantiating data attributes in WindForecastingDataset.__init__ with rank = {self.rank} and world_size = {self.world_size}")
-
-        
         
             # TODO HIGH this will only work for dataframe not for numpy pkl, add earlier code back in
         #     self.ds_addr = data.group_by("item_id", maintain_order=True).agg(pl.len())["len"].to_numpy()
@@ -430,6 +437,7 @@ class WindForecastingDataset(IterableDataset):
             - feat_static_cat: (num_static_cat,)
             - feat_static_real: (num_static_real,)
         """
+        logging.info(f"Running WindForecastingDataset._base_iter() on rank {self.rank} with world_size {self.world_size}")
         
         # Create a NEW, FRESH iterator from the source list every time.
         # data_iterator = iter(self.data)
@@ -705,6 +713,7 @@ class WindForecastingInferenceDataset(WindForecastingDataset):
             #                  'future_time_feat', 'past_observed_values', 'future_observed_values',
             #                  'feat_static_cat', 'feat_static_real').astype(np.string_)
         
+        logging.info(f"Running WindForecastingInferenceDataset._base_iter() on rank {self.rank} with world_size {self.world_size}")
         # start_addr = 0
         for ds_idx, (start_addr, end_addr) in zip(self.ds_addr, pairwise(self.ds_addr)):
             
