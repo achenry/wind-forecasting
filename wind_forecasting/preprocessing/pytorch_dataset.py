@@ -109,10 +109,10 @@ class WindForecastingDatamodule(L.LightningDataModule):
                 # NOTE: below works, testing other
                 # # join with lenghts of each continuous time series in the dataset
                 # # ensure data is ordered by item_id
-                time_addr = data.group_by("item_id", maintain_order=True).agg(pl.len())["len"].to_numpy()
-                # setattr(self, f"{split}_ds_addr", torch.from_numpy(np.arange(len(time_addr - 1))))
-                ds_addr = torch.from_numpy(np.arange(len(time_addr - 1)))
-                time_addr = np.insert(time_addr.cumsum(), 0, 0)
+                # time_addr = data.group_by("item_id", maintain_order=True).agg(pl.len())["len"].to_numpy()
+                # # setattr(self, f"{split}_ds_addr", torch.from_numpy(np.arange(len(time_addr - 1))))
+                # ds_addr = torch.from_numpy(np.arange(len(time_addr - 1)))
+                # time_addr = np.insert(time_addr.cumsum(), 0, 0)
                 
                 # setattr(self, 
                 #     f"{split}_data_time", 
@@ -132,26 +132,28 @@ class WindForecastingDatamodule(L.LightningDataModule):
                 # # self.time_addr = torch.from_numpy(self.time_addr)
                 # setattr(self, f"{split}_time_addr", torch.from_numpy(time_addr))
                 
-                data = {
-                    "time_addr": time_addr,
-                    "ds_addr": ds_addr,
+                ds = {
+                    "time_addr": data.group_by("item_id", maintain_order=True).agg(pl.len())["len"].to_numpy(),
+                    "feat_dynamic_real": torch.from_numpy(data.select(cs.starts_with("feat_dynamic_real_")).to_numpy().T),
                     "time": torch.from_numpy(self._create_time_features(
                     pd.to_datetime(data.select(pl.col("time")).to_numpy().squeeze()))),
                     "target": torch.from_numpy(data.select(cs.starts_with("target_")).to_numpy().T),
-                    "feat_static_cat": torch.from_numpy(
-                        np.vstack(np.concatenate(
-                                    data.select(pl.col("feat_static_cat")).with_row_index().filter(pl.col("index").is_in(time_addr[:-1]))["feat_static_cat"].to_numpy()))),
                 }
-                data["observed"] = ~torch.isnan(data["target"])
-                data["target"] = torch.nan_to_num(data["target"], 0.0)
-                data["time"] = torch.vstack([
-                    data["time"], 
-                    torch.from_numpy(data.select(cs.starts_with("feat_dynamic_real_")).to_numpy().T)])
+                
+                ds["ds_addr"] = torch.from_numpy(np.arange(len(ds["time_addr"] - 1)))
+                ds["time_addr"] = np.insert(ds["time_addr"].cumsum(), 0, 0)
+                ds["feat_static_cat"] = torch.from_numpy(
+                        np.vstack(np.concatenate(
+                                    data.select(pl.col("feat_static_cat")).with_row_index().filter(pl.col("index").is_in(ds["time_addr"][:-1]))["feat_static_cat"].to_numpy())))
+                ds["observed"] = ~torch.isnan(ds["target"])
+                ds["target"] = torch.nan_to_num(ds["target"], 0.0)
+                ds["time"] = torch.vstack([ds["time"], ds["feat_dynamic_real"]])
+                del ds["feat_dynamic_real"]
                 
             else:
                 raise NotImplementedError
             
-            setattr(self, f"{split}_data", data)
+            setattr(self, f"{split}_data", ds)
         
 
     def train_dataloader(self):
@@ -373,7 +375,7 @@ class WindForecastingDataset(IterableDataset):
             target = self.data_target[:, start_addr:end_addr]
             # feat_dynamic_real = self.data_fdr[:, start_addr:end_addr]
             feat_static_cat = self.data_fsc[ds_idx, :]
-            observed = self.data_observed[: start_addr:end_addr]
+            observed = self.data_observed[:, start_addr:end_addr]
             feat_static_real = torch.tensor([0])
             
             sampled_indices = self.sampler(target)[::self.skip_indices]
@@ -455,7 +457,7 @@ class WindForecastingInferenceDataset(WindForecastingDataset):
         
         logging.info(f"Running WindForecastingInferenceDataset._base_iter() on rank {self.rank} with world_size {self.world_size}")
         
-        for ds_idx, (start_addr, end_addr) in zip(self.ds_addr, pairwise(self.ds_addr)):
+        for ds_idx, (start_addr, end_addr) in zip(self.ds_addr, pairwise(self.time_addr)):
             
             time = self.data_time[:, start_addr:end_addr]
             target = self.data_target[:, start_addr:end_addr]
