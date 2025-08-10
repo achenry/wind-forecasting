@@ -82,7 +82,7 @@ class WindForecastingDatamodule(L.LightningDataModule):
         logging.info(f"Creating time features on rank {self.rank} for world_size {self.world_size}.")
         if not self.time_features:
             # Default to empty features
-            return np.zeros((0, len(time_index)))
+            return np.zeros((len(time_index), 0))
         
         features = []
         for feat_func in self.time_features:
@@ -90,7 +90,7 @@ class WindForecastingDatamodule(L.LightningDataModule):
             feat = feat_func(time_index)
             features.append(feat)
             
-        return np.array(features)
+        return np.vstack(features).T
 
     def setup(self, stage: str):
         # This hook is called on each DDP process, so `self.trainer` is available.
@@ -135,10 +135,10 @@ class WindForecastingDatamodule(L.LightningDataModule):
                 
                 ds = {
                     "time_addr": data.group_by("item_id", maintain_order=True).agg(pl.len())["len"].to_numpy(),
-                    "feat_dynamic_real": torch.from_numpy(data.select(cs.starts_with("feat_dynamic_real_")).to_numpy().T),
+                    "feat_dynamic_real": torch.from_numpy(data.select(cs.starts_with("feat_dynamic_real_")).to_numpy()),
                     "time": torch.from_numpy(self._create_time_features(
                     pd.to_datetime(data.select(pl.col("time")).to_numpy().squeeze()))),
-                    "target": torch.from_numpy(data.select(cs.starts_with("target_")).to_numpy().T),
+                    "target": torch.from_numpy(data.select(cs.starts_with("target_")).to_numpy()),
                 }
                 
                 ds["ds_addr"] = torch.from_numpy(np.arange(len(ds["time_addr"] - 1)))
@@ -148,7 +148,7 @@ class WindForecastingDatamodule(L.LightningDataModule):
                                     data.select(pl.col("feat_static_cat")).with_row_index().filter(pl.col("index").is_in(ds["time_addr"][:-1]))["feat_static_cat"].to_numpy())))
                 ds["observed"] = ~torch.isnan(ds["target"])
                 ds["target"] = torch.nan_to_num(ds["target"], 0.0)
-                ds["time"] = torch.vstack([ds["time"], ds["feat_dynamic_real"]])
+                ds["time"] = torch.hstack([ds["time"], ds["feat_dynamic_real"]])
                 del ds["feat_dynamic_real"]
                 
             else:
@@ -292,21 +292,19 @@ class WindForecastingDataset(IterableDataset):
         self.data_observed = data["observed"]
         
         logging.info(f"Instantiating data attributes in WindForecastingDataset.__init__ with rank = {self.rank} and world_size = {self.world_size}")
-        
-        # TODO HIGH this will only work for dataframe not for numpy pkl, add earlier code back in
     
     @profile
     def __iter__(self):
         
-        if self.world_size > 1:
-            logger.info(f"Using distributed training with rank={self.rank}, world_size={self.world_size}")
-        else:
-            logger.info(f"Using single-rank training with rank={self.rank}, world_size={self.world_size}")
+        # if self.world_size > 1:
+        #     logger.info(f"Using distributed training with rank={self.rank}, world_size={self.world_size}")
+        # else:
+        #     logger.info(f"Using single-rank training with rank={self.rank}, world_size={self.world_size}")
                 
         worker_info = torch.utils.data.get_worker_info()
         
         if worker_info is None: # Main process, num_workers=0 case
-            logger.info(f"training worker_info is None, on main process fetching islice {self.rank}:None:{self.world_size}")
+            # logger.info(f"training worker_info is None, on main process fetching islice {self.rank}:None:{self.world_size}")
             return islice(self._base_iter(), self.rank, None, self.world_size)
         else: # In a worker process
             num_workers = worker_info.num_workers
@@ -314,7 +312,7 @@ class WindForecastingDataset(IterableDataset):
             
             global_num_workers = num_workers * self.world_size
             global_worker_id = self.rank * num_workers + worker_id
-            logger.info(f"training worker {worker_info.id} of {num_workers}, fetching islice {global_worker_id}:None:{global_num_workers}")
+            # logger.info(f"training worker {worker_info.id} of {num_workers}, fetching islice {global_worker_id}:None:{global_num_workers}")
 
             return islice(self._base_iter(), global_worker_id, None, global_num_workers)
     
@@ -336,7 +334,7 @@ class WindForecastingDataset(IterableDataset):
             - feat_static_cat: (num_static_cat,)
             - feat_static_real: (num_static_real,)
         """
-        logging.info(f"Running WindForecastingDataset._base_iter() on rank {self.rank} with world_size {self.world_size}")
+        # logging.info(f"Running WindForecastingDataset._base_iter() on rank {self.rank} with world_size {self.world_size}")
         
         # Apply cycle() here if needed, on the new iterator.
         time_addr = cycle(self.time_addr) if self.repeat else self.time_addr
@@ -344,45 +342,41 @@ class WindForecastingDataset(IterableDataset):
         
         for ds_idx, (start_addr, end_addr) in zip(ds_addr, pairwise(time_addr)):
             
-            time = self.data_time[:, start_addr:end_addr]
-            target = self.data_target[:, start_addr:end_addr]
+            time = self.data_time[start_addr:end_addr, :]
+            target = self.data_target[start_addr:end_addr, :]
             feat_static_cat = self.data_fsc[ds_idx, :]
-            observed = self.data_observed[:, start_addr:end_addr]
+            observed = self.data_observed[start_addr:end_addr, :]
             feat_static_real = torch.tensor([0])
             
-            sampled_indices = self.sampler(target)[::self.skip_indices]
+            sampled_indices = self.sampler(target.T)[::self.skip_indices]
             
             for idx in sampled_indices:
                 # Extract data
-                _, ts_length = target.shape
+                # ts_length = target.shape[1]
                 
                 # Find all valid time points
-                min_time = self.context_length
-                max_time = ts_length - self.prediction_length
+                # min_time = self.context_length
+                # max_time = ts_length - self.prediction_length
                 
-                if max_time < min_time:
+                if target.shape[0] - self.prediction_length < self.context_length:
                     continue
                 
                 # Split into past and future windows
-                context_slice = slice(idx - self.context_length, idx)
-                pred_slice = slice(idx, idx + self.prediction_length)
+                context_slice, pred_slice = slice(idx - self.context_length, idx), slice(idx, idx + self.prediction_length)
                 
-                past_target = target[:, context_slice]
-                future_target = target[:, pred_slice]
+                past_target, future_target = target[context_slice, :], target[pred_slice, :]
                 
-                past_time_feat = time[:, context_slice]
-                future_time_feat = time[:, pred_slice]
+                past_time_feat, future_time_feat = time[context_slice, :], time[pred_slice, :]
                 
-                past_observed = observed[:, context_slice]
-                future_observed = observed[:, pred_slice]
+                past_observed, future_observed = observed[context_slice, :], observed[pred_slice, :]
                 
                 yield (
-                    past_target.T.float(),
-                    future_target.T.float(),
-                    past_time_feat.T.float(),
-                    future_time_feat.T.float(),
-                    past_observed.T.float(),
-                    future_observed.T.float(),
+                    past_target.float(),
+                    future_target.float(),
+                    past_time_feat.float(),
+                    future_time_feat.float(),
+                    past_observed.float(),
+                    future_observed.float(),
                     feat_static_cat.long(),
                     feat_static_real.float(),
                 )
@@ -406,51 +400,48 @@ class WindForecastingInferenceDataset(WindForecastingDataset):
     def _base_iter(self):
         """Get a specific window for inference."""
         
-        logging.info(f"Running WindForecastingInferenceDataset._base_iter() on rank {self.rank} with world_size {self.world_size}")
+        # logging.info(f"Running WindForecastingInferenceDataset._base_iter() on rank {self.rank} with world_size {self.world_size}")
         
         for ds_idx, (start_addr, end_addr) in zip(self.ds_addr, pairwise(self.time_addr)):
             
-            time = self.data_time[:, start_addr:end_addr]
-            target = self.data_target[:, start_addr:end_addr]
-            observed = self.data_observed[:, start_addr:end_addr]
-            # feat_dynamic_real = self.data_fdr[:, start_addr:end_addr]
+            time = self.data_time[start_addr:end_addr, :]
+            target = self.data_target[start_addr:end_addr, :]
+            observed = self.data_observed[start_addr:end_addr, :]
+            # feat_dynamic_real = self.data_fdr[start_addr:end_addr, :]
             feat_static_cat = self.data_fsc[ds_idx, :]
             feat_static_real = torch.tensor([0])
             
             # start_addr = end_addr
             
             # Same processing as parent class but with fixed time point
-            ts_length = target.shape[1]
+            # ts_length = target.shape[1]
         
             # Find all valid time points
-            min_time = self.context_length
-            max_time = ts_length - self.prediction_length
+            # min_time = self.context_length
+            # max_time = ts_length - self.prediction_length
             
             # Fill time indices
-            sample_indices = np.arange(min_time, max_time + 1, self.skip_indices)
+            sample_indices = np.arange(self.context_length, target.shape[0] - self.prediction_length + 1, self.skip_indices)
             
             for idx in sample_indices:
                 # Split into past and future windows at fixed time point t
                 context_slice = slice(idx - self.context_length, idx)
                 pred_slice = slice(idx, idx + self.prediction_length)
                 
-                past_target = target[:, context_slice]
-                future_target = target[:, pred_slice]
+                past_target, future_target = target[context_slice, :], target[pred_slice, :]
                 
-                past_time_feat = time[:, context_slice]
-                future_time_feat = time[:, pred_slice]
+                past_time_feat, future_time_feat = time[context_slice, :], time[pred_slice, :]
                 
-                past_observed = observed[:, context_slice]
-                future_observed = observed[:, pred_slice]
+                past_observed, future_observed = observed[context_slice, :], observed[pred_slice, :]
                 
                 # Convert to tensors
                 yield (
-                    past_target.T.float(),
-                    future_target.T.float(),
-                    past_time_feat.T.float(),
-                    future_time_feat.T.float(),
-                    past_observed.T.float(),
-                    future_observed.T.float(),
+                    past_target.float(),
+                    future_target.float(),
+                    past_time_feat.float(),
+                    future_time_feat.float(),
+                    past_observed.float(),
+                    future_observed.float(),
                     feat_static_cat.long(),
                     feat_static_real.float()
                 )
