@@ -1,0 +1,79 @@
+# Example configuration for TACTiS-2 Stage 2 monitoring
+# Add these sections to your existing TACTiS training configuration
+
+# Stage 2 monitoring configuration
+stage2_monitoring:
+  # Enable comprehensive Stage 2 monitoring
+  sample_validation_every_n_epochs: 5  # Compute expensive metrics every 5 epochs
+  num_validation_samples: 100          # Number of samples for multivariate metrics  
+  compute_energy_score: true           # Enable Energy Score computation (expensive)
+  log_gradient_norms: true             # Log gradient norms for copula vs marginal params
+  max_batch_size_for_sampling: 8       # Limit batch size to prevent OOM during sampling
+
+# Trainer configuration for TACTiS with stage-aware metrics
+trainer:
+  # CRITICAL: Use stage-aware metric for TACTiS model selection
+  # This automatically switches from val_loss (Stage 1) to val_copula_loss (Stage 2)
+  monitor_metric: "val_stage_aware_metric"
+
+# Enhanced Optuna configuration for TACTiS two-stage training
+optuna:
+  # CRITICAL: Use stage-aware metric for optimization
+  metric: "val_stage_aware_metric" 
+  direction: "minimize"  # Lower values = better (both NLL and copula loss)
+  
+  # Stage-aware pruning configuration (optional but recommended)
+  stage_aware_pruning:
+    transition_buffer_epochs: 2        # Don't prune during epochs 18-22 (around transition)
+    stage2_min_epochs_before_pruning: 5  # Allow 5 Stage 2 epochs before pruning
+    enable_stage2_pruning: true        # Enable pruning in Stage 2 (set false for conservative)
+  
+  # Pruning configuration
+  pruning:
+    enabled: true
+    type: "hyperband"
+    min_resource: 10      # Allow Stage 1 to complete (epochs 0-19)
+    max_resource: 50      # Total training epochs
+    reduction_factor: 3
+
+# Model configuration with Stage 2 parameters
+model:
+  tactis:
+    # Two-stage training configuration  
+    stage2_start_epoch: 20
+    lr_stage1: 1.8e-3
+    lr_stage2: 7.0e-4    # Typically lower than Stage 1
+    weight_decay_stage2: 1e-5
+    gradient_clip_val_stage2: 5.0
+    
+    # Copula architecture (important for Stage 2 performance)
+    decoder_num_bins: 200
+    ac_mlp_num_layers: 3
+    ac_mlp_dim: 128
+
+# Expected Stage 2 monitoring behavior:
+# 
+# Metrics logged during training:
+# - train_loss / val_loss: Total NLL (will stagnate in Stage 2) 
+# - train_copula_loss / val_copula_loss: Copula loss (should decrease in Stage 2)
+# - train_stage_aware_metric / val_stage_aware_metric: What Optuna optimizes
+# - train_marginal_logdet / val_marginal_logdet: Should be constant in Stage 2
+# - train_copula_ratio: Copula contribution to total loss
+#
+# Multivariate metrics (every 5 epochs in Stage 2):
+# - val_energy_score: Gold standard multivariate metric (lower = better)
+# - val_sample_diversity: Forecast uncertainty measure
+# - val_correlation_error: Cross-variable dependency preservation
+# - val_forecast_bias: Mean forecast bias
+#
+# What to expect:
+# - Epochs 0-19 (Stage 1): val_loss decreases, val_copula_loss = 0 
+# - Epoch 20: Transition to Stage 2, possible temporary metric instability
+# - Epochs 20+ (Stage 2): val_loss stagnates, val_copula_loss should decrease
+# - Successful Stage 2: Improving Energy Score, maintained sample diversity
+#
+# Troubleshooting Stage 2:
+# - val_copula_loss increasing: Reduce lr_stage2
+# - val_copula_loss flat: Check parameter freezing, may need higher lr_stage2  
+# - High val_energy_score: Consider tuning copula architecture (num_bins, mlp_dim)
+# - Low sample_diversity: May indicate overconfident copula, check regularization

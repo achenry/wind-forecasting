@@ -745,6 +745,33 @@ def main():
              logging.info("No callbacks dictionary found in config or it's not a dictionary.")
         # --- End Callback Instantiation ---
         
+        # Add Stage2Monitor callback for TACTiS models
+        if args.model == 'tactis':
+            try:
+                from wind_forecasting.monitoring import Stage2Monitor
+                
+                # Get Stage 2 monitoring configuration
+                stage2_config = config.get('stage2_monitoring', {})
+                
+                stage2_monitor = Stage2Monitor(
+                    sample_validation_every_n_epochs=stage2_config.get('sample_validation_every_n_epochs', 5),
+                    num_validation_samples=stage2_config.get('num_validation_samples', 100),
+                    compute_energy_score=stage2_config.get('compute_energy_score', True),
+                    log_gradient_norms=stage2_config.get('log_gradient_norms', True),
+                    max_batch_size_for_sampling=stage2_config.get('max_batch_size_for_sampling', 8)
+                )
+                
+                instantiated_callbacks.append(stage2_monitor)
+                logging.info("Added Stage2Monitor callback for TACTiS training")
+                logging.info(f"Stage2Monitor config: sample_every={stage2_config.get('sample_validation_every_n_epochs', 5)}, "
+                           f"energy_score={stage2_config.get('compute_energy_score', True)}")
+                
+            except ImportError as e:
+                logging.warning(f"Could not import Stage2Monitor callback: {e}")
+                logging.warning("Stage 2 monitoring will not be available")
+            except Exception as e:
+                logging.error(f"Error adding Stage2Monitor callback: {e}")
+        
         # Ensure trainer_kwargs exists and add the instantiated callbacks list
         config.setdefault("trainer", {})
         config["trainer"]["callbacks"] = instantiated_callbacks

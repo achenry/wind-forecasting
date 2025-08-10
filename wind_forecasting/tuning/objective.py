@@ -403,8 +403,15 @@ class MLTuningObjective:
             estimator_kwargs["use_pytorch_dataloader"] = self.config["dataset"]["use_pytorch_dataloader"]
             logging.info(f"Trial {trial.number}: Setting use_pytorch_dataloader={self.config['dataset']['use_pytorch_dataloader']} from config")
 
-        # Get the metric key from config
-        metric_to_return = self.config.get("trainer", {}).get("monitor_metric", "val_loss") # Default to val_loss
+        # Get the metric key from config - use stage-aware metric for TACTiS
+        if self.model == 'tactis':
+            # For TACTiS, use stage-aware metric that switches between NLL and copula loss
+            metric_to_return = "val_stage_aware_metric"
+            logging.info(f"Trial {trial.number}: Using stage-aware metric for TACTiS optimization")
+        else:
+            # For other models, use traditional metric
+            metric_to_return = self.config.get("trainer", {}).get("monitor_metric", "val_loss")
+            logging.info(f"Trial {trial.number}: Using traditional metric '{metric_to_return}' for {self.model}")
         
         logging.info(f"Trial {trial.number}: Instantiating estimator '{self.model}' with final args: {list(estimator_kwargs.keys())}")
         logging.info(f"Trial {trial.number}: FINAL num_batches_per_epoch being passed to estimator: {estimator_kwargs.get('num_batches_per_epoch', 'NOT SET')}")
@@ -609,9 +616,13 @@ class MLTuningObjective:
                 logging.info(f"Rank {os.environ.get('WORKER_RANK', 'N/A')}: Finishing trial-specific W&B run '{current_run_name}' for trial {trial.number if 'trial' in locals() else 'unknown'}")
                 wandb.finish()
 
-        # Return metric to Optuna
-        metric_to_return = self.config.get("trainer", {}).get("monitor_metric", "val_loss")
+        # Return metric to Optuna - use stage-aware metric for TACTiS
+        if self.model == 'tactis':
+            metric_to_return = "val_stage_aware_metric"
+        else:
+            metric_to_return = self.config.get("trainer", {}).get("monitor_metric", "val_loss")
         
         metric_value = validate_metrics_for_return(agg_metrics, metric_to_return, trial.number)
+        logging.info(f"Trial {trial.number} - Returning '{metric_to_return}' metric value: {metric_value}")
         logging.info(f"Trial {trial.number} - This metric is from the trial-specific checkpoint: {os.path.basename(checkpoint_path)}")
         return metric_value

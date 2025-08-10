@@ -161,6 +161,36 @@ def tune_model(model, config, study_name, optuna_storage, lightning_module_class
     else:
         logging.info("Pruning is disabled, using NopPruner")
         pruner = NopPruner()
+    
+    # Wrap pruner with stage-aware logic for TACTiS models
+    if model == 'tactis':
+        try:
+            from wind_forecasting.tuning.utils.stage_aware_pruner import StageAwarePruner
+            
+            # Get Stage 2 configuration
+            stage2_start_epoch = config.get("model", {}).get("tactis", {}).get("stage2_start_epoch", 20)
+            
+            # Get stage-aware pruning configuration
+            stage_aware_config = config.get("optuna", {}).get("stage_aware_pruning", {})
+            
+            original_pruner = pruner
+            pruner = StageAwarePruner(
+                base_pruner=original_pruner,
+                stage2_start_epoch=stage2_start_epoch,
+                transition_buffer_epochs=stage_aware_config.get("transition_buffer_epochs", 2),
+                stage2_min_epochs_before_pruning=stage_aware_config.get("stage2_min_epochs_before_pruning", 5),
+                enable_stage2_pruning=stage_aware_config.get("enable_stage2_pruning", True)
+            )
+            
+            logging.info(f"Wrapped {type(original_pruner).__name__} with StageAwarePruner for TACTiS")
+            logging.info(f"Stage 2 starts at epoch {stage2_start_epoch}, buffer epochs: {stage_aware_config.get('transition_buffer_epochs', 2)}")
+            
+        except ImportError as e:
+            logging.warning(f"Could not import StageAwarePruner: {e}")
+            logging.warning("Using base pruner without stage awareness")
+        except Exception as e:
+            logging.error(f"Error configuring stage-aware pruner: {e}")
+            logging.warning("Using base pruner without stage awareness")
 
     # Get worker ID for study creation/loading logic
     # Use WORKER_RANK consistent with run_model.py. Default to '0' if not set.

@@ -1,9 +1,8 @@
 #!/bin/bash
 
 #SBATCH --partition=all_gpu.p          # Partition for H100/A100 GPUs cfdg.p / all_gpu.p / mpcg.p(not allowed)
-#SBATCH --exclude=mpcg003
 #SBATCH --nodes=1
-#SBATCH --ntasks-per-node=4         # Match number of GPUs requested below
+#SBATCH --ntasks-per-node=1         # Match number of GPUs requested below
 #SBATCH --cpus-per-task=2           # CPUs per task (4 tasks * 32 = 128 CPUs total) [1 CPU/GPU more than enough]
 #SBATCH --mem-per-cpu=4096          # Memory per CPU (Total Mem = ntasks * cpus-per-task * mem-per-cpu) [flasc uses only ~4-5 GiB max]
 #SBATCH --gres=gpu:4          # Request 2 H100 GPUs
