@@ -7,7 +7,8 @@ and applies necessary transformations for model training.
 
 import logging
 import pickle
-from memory_profiler import profile
+# from memory_profiler import profile
+from line_profiler import profile
 from typing import List, Optional, Any
 import numpy as np
 import pandas as pd
@@ -78,7 +79,7 @@ class WindForecastingDatamodule(L.LightningDataModule):
         np.ndarray
             Shape (num_features, time_steps)
         """
-        logging.info("Creating time features.")
+        logging.info(f"Creating time features on rank {self.rank} for world_size {self.world_size}.")
         if not self.time_features:
             # Default to empty features
             return np.zeros((0, len(time_index)))
@@ -161,12 +162,6 @@ class WindForecastingDatamodule(L.LightningDataModule):
         logging.info(f"Instantiating WindForecastingDataset in WindForecastingDatamodule.train_dataloader() on rank {self.rank} for world_size {self.world_size}")
         
         train_dataset = WindForecastingDataset(
-                # data_time=self.train_data_time,
-                # data_target=self.train_data_target,
-                # data_fdr=self.train_data_fdr,
-                # data_fsc=self.train_data_fsc,
-                # ds_addr=self.train_ds_addr,
-                # time_addr=self.train_time_addr,
                 data=self.train_data,
                 context_length=self.context_length,
                 prediction_length=self.prediction_length,
@@ -197,16 +192,9 @@ class WindForecastingDatamodule(L.LightningDataModule):
         logging.info(f"Instantiating WindForecastingDataset in WindForecastingDatamodule.val_dataloader() on rank {self.rank} for world_size {self.world_size}")
         
         val_dataset = WindForecastingInferenceDataset(
-                # data_time=self.val_data_time,
-                # data_target=self.val_data_target,
-                # data_fdr=self.val_data_fdr,
-                # data_fsc=self.val_data_fsc,
-                # ds_addr=self.val_ds_addr,
-                # time_addr=self.val_time_addr,
                 data=self.val_data,
                 context_length=self.context_length,
                 prediction_length=self.prediction_length,
-                # time_features=self.time_features,
                 sampler=self.val_sampler,  # GluonTS sampler instance
                 repeat=self.val_repeat,
                 skip_indices=self.prediction_length,
@@ -275,16 +263,9 @@ class WindForecastingDataset(IterableDataset):
     # @profile
     def __init__(
         self,
-        # data_time: torch.Tensor,
-        # data_target: torch.Tensor,
-        # data_fdr: torch.Tensor,
-        # data_fsc: torch.Tensor,
-        # time_addr: torch.Tensor,
-        # ds_addr: torch.Tensor,
         data: dict,
         context_length: int,
         prediction_length: int,
-        # time_features: Optional[List] = None,
         sampler: Optional[Any] = None,  # GluonTS sampler instance
         repeat: bool = False,
         skip_indices: int = 1,
@@ -293,7 +274,6 @@ class WindForecastingDataset(IterableDataset):
     ):
         self.context_length = context_length
         self.prediction_length = prediction_length
-        # self.time_features = time_features or []
         self.sampler = sampler
         self.repeat = repeat
         
@@ -302,13 +282,6 @@ class WindForecastingDataset(IterableDataset):
         # Store world_size and rank passed from the DataModule
         self.world_size = world_size
         self.rank = rank
-        
-        # self.data_time = data_time
-        # self.data_target = data_target
-        # self.data_fdr = data_fdr
-        # self.data_fsc = data_fsc
-        # self.time_addr = time_addr
-        # self.ds_addr = ds_addr
         
         self.data_time = data["time"]
         self.data_target = data["target"]
@@ -322,7 +295,7 @@ class WindForecastingDataset(IterableDataset):
         
         # TODO HIGH this will only work for dataframe not for numpy pkl, add earlier code back in
     
-    # @profile
+    @profile
     def __iter__(self):
         
         if self.world_size > 1:
@@ -345,7 +318,7 @@ class WindForecastingDataset(IterableDataset):
 
             return islice(self._base_iter(), global_worker_id, None, global_num_workers)
     
-    # @profile
+    @profile
     def _base_iter(self):
     
         """
@@ -373,15 +346,11 @@ class WindForecastingDataset(IterableDataset):
             
             time = self.data_time[:, start_addr:end_addr]
             target = self.data_target[:, start_addr:end_addr]
-            # feat_dynamic_real = self.data_fdr[:, start_addr:end_addr]
             feat_static_cat = self.data_fsc[ds_idx, :]
             observed = self.data_observed[:, start_addr:end_addr]
             feat_static_real = torch.tensor([0])
             
             sampled_indices = self.sampler(target)[::self.skip_indices]
-            
-            if len(sampled_indices) == 0:
-                continue
             
             for idx in sampled_indices:
                 # Extract data
@@ -404,23 +373,8 @@ class WindForecastingDataset(IterableDataset):
                 past_time_feat = time[:, context_slice]
                 future_time_feat = time[:, pred_slice]
                 
-                # Create observed values indicator (1 for observed, 0 for missing)
-                # past_observed = ~torch.isnan(past_target)
-                # future_observed = ~torch.isnan(future_target)
                 past_observed = observed[:, context_slice]
                 future_observed = observed[:, pred_slice]
-                
-                # Handle NaN values
-                # past_target = torch.nan_to_num(past_target, 0.0)
-                # future_target = torch.nan_to_num(future_target, 0.0)
-                
-                # Get dynamic features if available
-                # past_dynamic = feat_dynamic_real[:, context_slice]
-                # future_dynamic = feat_dynamic_real[:, pred_slice]
-                
-                # Stack with time features
-                # past_time_feat = torch.vstack([past_time_feat, past_dynamic])
-                # future_time_feat = torch.vstack([future_time_feat, future_dynamic])
                 
                 yield (
                     past_target.T.float(),
@@ -447,13 +401,10 @@ class WindForecastingInferenceDataset(WindForecastingDataset):
     
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        
+    
+    @profile
     def _base_iter(self):
         """Get a specific window for inference."""
-        # for s in self.samples:
-            # yield s, np.array('past_target', 'future_target', 'past_time_feat', 
-            #                  'future_time_feat', 'past_observed_values', 'future_observed_values',
-            #                  'feat_static_cat', 'feat_static_real').astype(np.string_)
         
         logging.info(f"Running WindForecastingInferenceDataset._base_iter() on rank {self.rank} with world_size {self.world_size}")
         
@@ -478,9 +429,6 @@ class WindForecastingInferenceDataset(WindForecastingDataset):
             # Fill time indices
             sample_indices = np.arange(min_time, max_time + 1, self.skip_indices)
             
-            if len(sample_indices) == 0:
-                continue
-            
             for idx in sample_indices:
                 # Split into past and future windows at fixed time point t
                 context_slice = slice(idx - self.context_length, idx)
@@ -492,24 +440,8 @@ class WindForecastingInferenceDataset(WindForecastingDataset):
                 past_time_feat = time[:, context_slice]
                 future_time_feat = time[:, pred_slice]
                 
-                # Create observed values indicator
-                # past_observed = ~torch.isnan(past_target)
-                # future_observed = ~torch.isnan(future_target)
-                
                 past_observed = observed[:, context_slice]
                 future_observed = observed[:, pred_slice]
-                
-                # Handle NaN values
-                # past_target = torch.nan_to_num(past_target, 0.0)
-                # future_target = torch.nan_to_num(future_target, 0.0)
-                
-                # Get dynamic features if available
-                # past_dynamic = feat_dynamic_real[:, context_slice]
-                # future_dynamic = feat_dynamic_real[:, pred_slice]
-                
-                # Stack with time features
-                # past_time_feat = torch.vstack([past_time_feat, past_dynamic])
-                # future_time_feat = torch.vstack([future_time_feat, future_dynamic])
                 
                 # Convert to tensors
                 yield (
