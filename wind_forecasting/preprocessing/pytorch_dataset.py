@@ -384,7 +384,7 @@ class WindForecastingDataset(IterableDataset):
                     observed[context_slice, :],
                     observed[pred_slice, :],
                     feat_static_cat,
-                    self.feat_static_real,
+                    self.data_feat_static_real,
                 )
                 # np.array(['past_target', 'future_target', 'past_time_feat', 
                 #              'future_time_feat', 'past_observed_values', 'future_observed_values',
@@ -448,7 +448,7 @@ class WindForecastingInferenceDataset(WindForecastingDataset):
                     observed[context_slice, :],
                     observed[pred_slice, :],
                     feat_static_cat,
-                    self.feat_static_real
+                    self.data_feat_static_real
                 )
                 # np.array(["past_target", "future_target", "past_time_feat", 
                 #              "future_time_feat", "past_observed_values", "future_observed_values",
