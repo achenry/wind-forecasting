@@ -143,7 +143,7 @@ class WindForecastingDatamodule(L.LightningDataModule):
                     "target": torch.from_numpy(data.select(cs.starts_with("target_")).to_numpy()),
                 }
                 
-                ds["ds_addr"] = torch.from_numpy(np.arange(len(ds["time_addr"] - 1)))
+                ds["ds_addr"] = np.arange(len(ds["time_addr"] - 1))
                 ds["time_addr"] = np.insert(ds["time_addr"].cumsum(), 0, 0)
                 ds["feat_static_cat"] = torch.from_numpy(
                         np.vstack(np.concatenate(
@@ -154,6 +154,7 @@ class WindForecastingDatamodule(L.LightningDataModule):
                 ds["observed"] = (~torch.isnan(ds["target"])).float()
                 ds["target"] = torch.nan_to_num(ds["target"], 0.0).float()
                 ds["time"] = torch.hstack([ds["time"], ds["feat_dynamic_real"]]).float()
+                ds["feat_static_real"] = torch.tensor([0]).float()
                 del ds["feat_dynamic_real"]
                 
             else:
@@ -295,7 +296,7 @@ class WindForecastingDataset(IterableDataset):
         self.time_addr = data["time_addr"]
         self.ds_addr = data["ds_addr"]
         self.data_observed = data["observed"]
-        self.feat_static_real = torch.tensor([0]).float()
+        self.data_feat_static_real = data["feat_static_real"]
         
         logging.info(f"Instantiating data attributes in WindForecastingDataset.__init__ with rank = {self.rank} and world_size = {self.world_size}")
     
@@ -369,19 +370,19 @@ class WindForecastingDataset(IterableDataset):
                 # Split into past and future windows
                 context_slice, pred_slice = slice(idx - self.context_length, idx), slice(idx, idx + self.prediction_length)
                 
-                past_target, future_target = target[context_slice, :], target[pred_slice, :]
+                # past_target, future_target = target[context_slice, :], target[pred_slice, :]
                 
-                past_time_feat, future_time_feat = time[context_slice, :], time[pred_slice, :]
+                # past_time_feat, future_time_feat = time[context_slice, :], time[pred_slice, :]
                 
-                past_observed, future_observed = observed[context_slice, :], observed[pred_slice, :]
+                # past_observed, future_observed = observed[context_slice, :], observed[pred_slice, :]
                 
                 yield (
-                    past_target,
-                    future_target,
-                    past_time_feat,
-                    future_time_feat,
-                    past_observed,
-                    future_observed,
+                    target[context_slice, :],
+                    target[pred_slice, :],
+                    time[context_slice, :],
+                    time[pred_slice, :],
+                    observed[context_slice, :],
+                    observed[pred_slice, :],
                     feat_static_cat,
                     self.feat_static_real,
                 )
@@ -432,20 +433,20 @@ class WindForecastingInferenceDataset(WindForecastingDataset):
                 context_slice = slice(idx - self.context_length, idx)
                 pred_slice = slice(idx, idx + self.prediction_length)
                 
-                past_target, future_target = target[context_slice, :], target[pred_slice, :]
+                # past_target, future_target = target[context_slice, :], target[pred_slice, :]
                 
-                past_time_feat, future_time_feat = time[context_slice, :], time[pred_slice, :]
+                # past_time_feat, future_time_feat = time[context_slice, :], time[pred_slice, :]
                 
-                past_observed, future_observed = observed[context_slice, :], observed[pred_slice, :]
+                # past_observed, future_observed = observed[context_slice, :], observed[pred_slice, :]
                 
                 # Convert to tensors
                 yield (
-                    past_target,
-                    future_target,
-                    past_time_feat,
-                    future_time_feat,
-                    past_observed,
-                    future_observed,
+                    target[context_slice, :],
+                    target[pred_slice, :],
+                    time[context_slice, :],
+                    time[pred_slice, :],
+                    observed[context_slice, :],
+                    observed[pred_slice, :],
                     feat_static_cat,
                     self.feat_static_real
                 )

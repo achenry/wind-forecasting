@@ -1,0 +1,165 @@
+Timer unit: 1e-09 s
+
+Total time: 8.2e-05 s
+File: /Users/ahenry/Documents/toolboxes/wind_forecasting/wind_forecasting/preprocessing/pytorch_dataset.py
+Function: __iter__ at line 302
+
+Line #      Hits         Time  Per Hit   % Time  Line Contents
+==============================================================
+   302                                               @profile
+   303                                               def __iter__(self):
+   304                                                   
+   305                                                   # if self.world_size > 1:
+   306                                                   #     logger.info(f"Using distributed training with rank={self.rank}, world_size={self.world_size}")
+   307                                                   # else:
+   308                                                   #     logger.info(f"Using single-rank training with rank={self.rank}, world_size={self.world_size}")
+   309                                                           
+   310         3      67000.0  22333.3     81.7          worker_info = torch.utils.data.get_worker_info()
+   311                                                   
+   312         3       6000.0   2000.0      7.3          if worker_info is None: # Main process, num_workers=0 case
+   313                                                       # logger.info(f"training worker_info is None, on main process fetching islice {self.rank}:None:{self.world_size}")
+   314         3       9000.0   3000.0     11.0              return islice(self._base_iter(), self.rank, None, self.world_size)
+   315                                                   else: # In a worker process
+   316                                                       num_workers = worker_info.num_workers
+   317                                                       worker_id = worker_info.id
+   318                                                       
+   319                                                       global_num_workers = num_workers * self.world_size
+   320                                                       global_worker_id = self.rank * num_workers + worker_id
+   321                                                       # logger.info(f"training worker {worker_info.id} of {num_workers}, fetching islice {global_worker_id}:None:{global_num_workers}")
+   322                                           
+   323                                                       return islice(self._base_iter(), global_worker_id, None, global_num_workers)
+
+Total time: 0.181221 s
+File: /Users/ahenry/Documents/toolboxes/wind_forecasting/wind_forecasting/preprocessing/pytorch_dataset.py
+Function: _base_iter at line 325
+
+Line #      Hits         Time  Per Hit   % Time  Line Contents
+==============================================================
+   325                                               @profile
+   326                                               def _base_iter(self):
+   327                                               
+   328                                                   """
+   329                                                   Get an iterable of samples with transformations applied.
+   330                                                   
+   331                                                   Returns
+   332                                                   -------
+   333                                                   Dictionary containing:
+   334                                                       - past_target: (context_length, num_series)
+   335                                                       - future_target: (prediction_length, num_series)
+   336                                                       - past_time_feat: (context_length, num_time_features)
+   337                                                       - future_time_feat: (prediction_length, num_time_features)
+   338                                                       - past_observed_values: (context_length, num_series)
+   339                                                       - future_observed_values: (prediction_length, num_series)
+   340                                                       - feat_static_cat: (num_static_cat,)
+   341                                                       - feat_static_real: (num_static_real,)
+   342                                                   """
+   343                                                   # logging.info(f"Running WindForecastingDataset._base_iter() on rank {self.rank} with world_size {self.world_size}")
+   344                                                   
+   345                                                   # Apply cycle() here if needed, on the new iterator.
+   346         1       2000.0   2000.0      0.0          time_addr = cycle(self.time_addr) if self.repeat else self.time_addr
+   347         1   12084000.0    1e+07      6.7          ds_addr = cycle(self.ds_addr) if self.repeat else self.ds_addr
+   348                                                   
+   349         2      13000.0   6500.0      0.0          for ds_idx, (start_addr, end_addr) in zip(ds_addr, pairwise(time_addr)):
+   350                                                       
+   351         2      22000.0  11000.0      0.0              time = self.data_time[start_addr:end_addr, :]
+   352         2      10000.0   5000.0      0.0              target = self.data_target[start_addr:end_addr, :]
+   353         2      19000.0   9500.0      0.0              feat_static_cat = self.data_fsc[ds_idx, :]
+   354         2       8000.0   4000.0      0.0              observed = self.data_observed[start_addr:end_addr, :]
+   355                                                       
+   356         2     225000.0 112500.0      0.1              sampled_indices = self.sampler(target.T)[::self.skip_indices]
+   357                                                       
+   358     12801    3284000.0    256.5      1.8              for idx in sampled_indices:
+   359                                                           # Extract data
+   360                                                           # ts_length = target.shape[1]
+   361                                                           
+   362                                                           # Find all valid time points
+   363                                                           # min_time = self.context_length
+   364                                                           # max_time = ts_length - self.prediction_length
+   365                                                           
+   366     12800    4915000.0    384.0      2.7                  if target.shape[0] - self.prediction_length < self.context_length:
+   367                                                               continue
+   368                                                           
+   369                                                           # Split into past and future windows
+   370     12800    6298000.0    492.0      3.5                  context_slice, pred_slice = slice(idx - self.context_length, idx), slice(idx, idx + self.prediction_length)
+   371                                                           
+   372     12800   46410000.0   3625.8     25.6                  past_target, future_target = target[context_slice, :], target[pred_slice, :]
+   373                                                           
+   374     12800   41719000.0   3259.3     23.0                  past_time_feat, future_time_feat = time[context_slice, :], time[pred_slice, :]
+   375                                                           
+   376     12800   41645000.0   3253.5     23.0                  past_observed, future_observed = observed[context_slice, :], observed[pred_slice, :]
+   377                                                           
+   378     12800   11755000.0    918.4      6.5                  yield (
+   379     12800    1936000.0    151.2      1.1                      past_target,
+   380     12800    1593000.0    124.5      0.9                      future_target,
+   381     12800    1400000.0    109.4      0.8                      past_time_feat,
+   382     12800    1676000.0    130.9      0.9                      future_time_feat,
+   383     12800    1807000.0    141.2      1.0                      past_observed,
+   384     12800    1453000.0    113.5      0.8                      future_observed,
+   385     12800    1460000.0    114.1      0.8                      feat_static_cat,
+   386     12800    1487000.0    116.2      0.8                      self.feat_static_real,
+   387                                                           )
+   388                                                           # np.array(['past_target', 'future_target', 'past_time_feat', 
+   389                                                           #              'future_time_feat', 'past_observed_values', 'future_observed_values',
+   390                                                           #              'feat_static_cat', 'feat_static_real']).astype(np.string_)
+
+Total time: 0.185654 s
+File: /Users/ahenry/Documents/toolboxes/wind_forecasting/wind_forecasting/preprocessing/pytorch_dataset.py
+Function: _base_iter at line 404
+
+Line #      Hits         Time  Per Hit   % Time  Line Contents
+==============================================================
+   404                                               @profile
+   405                                               def _base_iter(self):
+   406                                                   """Get a specific window for inference."""
+   407                                                   
+   408                                                   # logging.info(f"Running WindForecastingInferenceDataset._base_iter() on rank {self.rank} with world_size {self.world_size}")
+   409                                                   
+   410        41   15399000.0 375585.4      8.3          for ds_idx, (start_addr, end_addr) in zip(self.ds_addr, pairwise(self.time_addr)):
+   411                                                       
+   412        41     221000.0   5390.2      0.1              time = self.data_time[start_addr:end_addr, :]
+   413        41     137000.0   3341.5      0.1              target = self.data_target[start_addr:end_addr, :]
+   414        41     107000.0   2609.8      0.1              observed = self.data_observed[start_addr:end_addr, :]
+   415                                                       # feat_dynamic_real = self.data_fdr[start_addr:end_addr, :]
+   416        41     271000.0   6609.8      0.1              feat_static_cat = self.data_fsc[ds_idx, :]
+   417                                                       
+   418                                                       # start_addr = end_addr
+   419                                                       
+   420                                                       # Same processing as parent class but with fixed time point
+   421                                                       # ts_length = target.shape[1]
+   422                                                   
+   423                                                       # Find all valid time points
+   424                                                       # min_time = self.context_length
+   425                                                       # max_time = ts_length - self.prediction_length
+   426                                                       
+   427                                                       # Fill time indices
+   428        41     374000.0   9122.0      0.2              sample_indices = np.arange(self.context_length, target.shape[0] - self.prediction_length + 1, self.skip_indices)
+   429                                                       
+   430     13095    3851000.0    294.1      2.1              for idx in sample_indices:
+   431                                                           # Split into past and future windows at fixed time point t
+   432     13056    4462000.0    341.8      2.4                  context_slice = slice(idx - self.context_length, idx)
+   433     13056    3541000.0    271.2      1.9                  pred_slice = slice(idx, idx + self.prediction_length)
+   434                                                           
+   435     13056   49425000.0   3785.6     26.6                  past_target, future_target = target[context_slice, :], target[pred_slice, :]
+   436                                                           
+   437     13056   42487000.0   3254.2     22.9                  past_time_feat, future_time_feat = time[context_slice, :], time[pred_slice, :]
+   438                                                           
+   439     13056   42484000.0   3254.0     22.9                  past_observed, future_observed = observed[context_slice, :], observed[pred_slice, :]
+   440                                                           
+   441                                                           # Convert to tensors
+   442     13056   10825000.0    829.1      5.8                  yield (
+   443     13056    1944000.0    148.9      1.0                      past_target,
+   444     13056    1487000.0    113.9      0.8                      future_target,
+   445     13056    1414000.0    108.3      0.8                      past_time_feat,
+   446     13056    1353000.0    103.6      0.7                      future_time_feat,
+   447     13056    1303000.0     99.8      0.7                      past_observed,
+   448     13056    1519000.0    116.3      0.8                      future_observed,
+   449     13056    1330000.0    101.9      0.7                      feat_static_cat,
+   450     13056    1720000.0    131.7      0.9                      self.feat_static_real
+   451                                                           )
+   452                                                           # np.array(["past_target", "future_target", "past_time_feat", 
+   453                                                           #              "future_time_feat", "past_observed_values", "future_observed_values",
+   454                                                           #              "feat_static_cat", "feat_static_real"]).astype(np.string_)
+
+  0.00 seconds - /Users/ahenry/Documents/toolboxes/wind_forecasting/wind_forecasting/preprocessing/pytorch_dataset.py:302 - __iter__
+  0.18 seconds - /Users/ahenry/Documents/toolboxes/wind_forecasting/wind_forecasting/preprocessing/pytorch_dataset.py:325 - _base_iter
+  0.19 seconds - /Users/ahenry/Documents/toolboxes/wind_forecasting/wind_forecasting/preprocessing/pytorch_dataset.py:404 - _base_iter
