@@ -43,6 +43,8 @@ class WindForecastingDatamodule(L.LightningDataModule):
         self.train_repeat = train_repeat
         self.val_repeat = val_repeat
         
+        self.feat_static_real = torch.tensor([0]).float()
+        
         # self.train_data_path = train_data_path
         # self.val_data_path = val_data_path
         
@@ -145,10 +147,13 @@ class WindForecastingDatamodule(L.LightningDataModule):
                 ds["time_addr"] = np.insert(ds["time_addr"].cumsum(), 0, 0)
                 ds["feat_static_cat"] = torch.from_numpy(
                         np.vstack(np.concatenate(
-                                    data.select(pl.col("feat_static_cat")).with_row_index().filter(pl.col("index").is_in(ds["time_addr"][:-1]))["feat_static_cat"].to_numpy())))
-                ds["observed"] = ~torch.isnan(ds["target"])
-                ds["target"] = torch.nan_to_num(ds["target"], 0.0)
-                ds["time"] = torch.hstack([ds["time"], ds["feat_dynamic_real"]])
+                                    data.select(pl.col("feat_static_cat"))\
+                                               .with_row_index()\
+                                                   .filter(pl.col("index").is_in(ds["time_addr"][:-1]))["feat_static_cat"].to_numpy()
+                                    ))).long()
+                ds["observed"] = ~torch.isnan(ds["target"]).float()
+                ds["target"] = torch.nan_to_num(ds["target"], 0.0).float()
+                ds["time"] = torch.hstack([ds["time"], ds["feat_dynamic_real"]]).float()
                 del ds["feat_dynamic_real"]
                 
             else:
@@ -346,7 +351,6 @@ class WindForecastingDataset(IterableDataset):
             target = self.data_target[start_addr:end_addr, :]
             feat_static_cat = self.data_fsc[ds_idx, :]
             observed = self.data_observed[start_addr:end_addr, :]
-            feat_static_real = torch.tensor([0])
             
             sampled_indices = self.sampler(target.T)[::self.skip_indices]
             
@@ -371,14 +375,14 @@ class WindForecastingDataset(IterableDataset):
                 past_observed, future_observed = observed[context_slice, :], observed[pred_slice, :]
                 
                 yield (
-                    past_target.float(),
-                    future_target.float(),
-                    past_time_feat.float(),
-                    future_time_feat.float(),
-                    past_observed.float(),
-                    future_observed.float(),
-                    feat_static_cat.long(),
-                    feat_static_real.float(),
+                    past_target,
+                    future_target,
+                    past_time_feat,
+                    future_time_feat,
+                    past_observed,
+                    future_observed,
+                    feat_static_cat,
+                    self.feat_static_real,
                 )
                 # np.array(['past_target', 'future_target', 'past_time_feat', 
                 #              'future_time_feat', 'past_observed_values', 'future_observed_values',
@@ -409,7 +413,6 @@ class WindForecastingInferenceDataset(WindForecastingDataset):
             observed = self.data_observed[start_addr:end_addr, :]
             # feat_dynamic_real = self.data_fdr[start_addr:end_addr, :]
             feat_static_cat = self.data_fsc[ds_idx, :]
-            feat_static_real = torch.tensor([0])
             
             # start_addr = end_addr
             
@@ -436,14 +439,14 @@ class WindForecastingInferenceDataset(WindForecastingDataset):
                 
                 # Convert to tensors
                 yield (
-                    past_target.float(),
-                    future_target.float(),
-                    past_time_feat.float(),
-                    future_time_feat.float(),
-                    past_observed.float(),
-                    future_observed.float(),
-                    feat_static_cat.long(),
-                    feat_static_real.float()
+                    past_target,
+                    future_target,
+                    past_time_feat,
+                    future_time_feat,
+                    past_observed,
+                    future_observed,
+                    feat_static_cat,
+                    self.feat_static_real
                 )
                 # np.array(["past_target", "future_target", "past_time_feat", 
                 #              "future_time_feat", "past_observed_values", "future_observed_values",
