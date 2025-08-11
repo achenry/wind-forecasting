@@ -151,7 +151,7 @@ class WindForecastingDatamodule(L.LightningDataModule):
                                                .with_row_index()\
                                                    .filter(pl.col("index").is_in(ds["time_addr"][:-1]))["feat_static_cat"].to_numpy()
                                     ))).long()
-                ds["observed"] = ~torch.isnan(ds["target"]).float()
+                ds["observed"] = (~torch.isnan(ds["target"])).float()
                 ds["target"] = torch.nan_to_num(ds["target"], 0.0).float()
                 ds["time"] = torch.hstack([ds["time"], ds["feat_dynamic_real"]]).float()
                 del ds["feat_dynamic_real"]
@@ -295,6 +295,7 @@ class WindForecastingDataset(IterableDataset):
         self.time_addr = data["time_addr"]
         self.ds_addr = data["ds_addr"]
         self.data_observed = data["observed"]
+        self.feat_static_real = torch.tensor([0]).float()
         
         logging.info(f"Instantiating data attributes in WindForecastingDataset.__init__ with rank = {self.rank} and world_size = {self.world_size}")
     
