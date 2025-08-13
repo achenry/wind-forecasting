@@ -278,6 +278,7 @@ class WindForecastingDataset(IterableDataset):
         rank: int = 0,
         world_size: int = 1
     ):
+        super().__init__()
         self.context_length = context_length
         self.prediction_length = prediction_length
         self.sampler = sampler
@@ -312,7 +313,7 @@ class WindForecastingDataset(IterableDataset):
         
         if worker_info is None: # Main process, num_workers=0 case
             # logger.info(f"training worker_info is None, on main process fetching islice {self.rank}:None:{self.world_size}")
-            return islice(self._base_iter(), self.rank, None, self.world_size)
+            yield from islice(self._base_iter(), self.rank, None, self.world_size)
         else: # In a worker process
             num_workers = worker_info.num_workers
             worker_id = worker_info.id
@@ -321,7 +322,7 @@ class WindForecastingDataset(IterableDataset):
             global_worker_id = self.rank * num_workers + worker_id
             # logger.info(f"training worker {worker_info.id} of {num_workers}, fetching islice {global_worker_id}:None:{global_num_workers}")
 
-            return islice(self._base_iter(), global_worker_id, None, global_num_workers)
+            yield from islice(self._base_iter(), global_worker_id, None, global_num_workers)
     
     @profile
     def _base_iter(self):
