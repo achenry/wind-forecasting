@@ -17,7 +17,7 @@ import optuna
 from optuna import create_study, load_study
 from optuna.study import MaxTrialsCallback
 from optuna.samplers import TPESampler
-from optuna.pruners import HyperbandPruner, PercentilePruner, PatientPruner, SuccessiveHalvingPruner, NopPruner
+from optuna.pruners import HyperbandPruner, PercentilePruner, PatientPruner, SuccessiveHalvingPruner, MedianPruner, NopPruner
 from optuna.trial import TrialState
 import wandb
 
@@ -138,6 +138,18 @@ def tune_model(model, config, study_name, optuna_storage, lightning_module_class
                 bootstrap_count=bootstrap_count
             )
             logging.info(f"Created SuccessiveHalvingPruner with min_resource={min_resource}, reduction_factor={reduction_factor}, min_early_stopping_rate={min_early_stopping_rate}, bootstrap_count={bootstrap_count}, bootstrap_count={bootstrap_count}")
+
+        elif pruning_type == "median":
+            n_startup_trials = config["optuna"]["pruning"].get("n_startup_trials", 5)
+            n_warmup_steps = config["optuna"]["pruning"].get("n_warmup_steps", 0)
+            interval_steps = config["optuna"]["pruning"].get("interval_steps", 1)
+
+            pruner = MedianPruner(
+                n_startup_trials=n_startup_trials,
+                n_warmup_steps=n_warmup_steps,
+                interval_steps=interval_steps
+            )
+            logging.info(f"Created MedianPruner with n_startup_trials={n_startup_trials}, n_warmup_steps={n_warmup_steps}, interval_steps={interval_steps}")
 
         elif pruning_type == "percentile":
             percentile = config["optuna"]["pruning"].get("percentile", 25)

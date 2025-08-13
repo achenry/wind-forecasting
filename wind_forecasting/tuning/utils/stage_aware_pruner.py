@@ -13,10 +13,86 @@ transition period and uses appropriate metrics for each stage.
 
 import optuna
 import logging
-from typing import Dict, Any, Optional, Set
+from typing import Dict, Any, Optional, Set, List
 import numpy as np
 
 logger = logging.getLogger(__name__)
+
+
+class VirtualStudyView:
+    """
+    A study-like interface that wraps a filtered list of trials.
+    
+    This class provides the necessary interface for Optuna base pruners
+    to operate on a subset of trials (e.g., only same-stage trials).
+    It mimics the essential properties of optuna.Study while working
+    with a filtered trial list.
+    """
+    
+    def __init__(self, trials: List[optuna.Trial], original_study: optuna.Study):
+        """
+        Parameters:
+        -----------
+        trials : List[optuna.Trial]
+            Filtered list of trials for this virtual study
+        original_study : optuna.Study
+            The original study (needed for some study properties)
+        """
+        self.trials = trials
+        self._original_study = original_study
+        
+        # Compute best trial from filtered trials
+        completed_trials = [t for t in trials if t.state == optuna.trial.TrialState.COMPLETE]
+        
+        if completed_trials:
+            # For minimization (default), best = minimum value
+            direction = getattr(original_study, 'direction', optuna.study.StudyDirection.MINIMIZE)
+            if direction == optuna.study.StudyDirection.MINIMIZE:
+                self.best_trial = min(completed_trials, key=lambda t: t.value)
+            else:
+                self.best_trial = max(completed_trials, key=lambda t: t.value)
+            self.best_value = self.best_trial.value
+        else:
+            self.best_trial = None
+            self.best_value = None
+    
+    @property
+    def direction(self):
+        """Return the optimization direction from the original study."""
+        return getattr(self._original_study, 'direction', optuna.study.StudyDirection.MINIMIZE)
+    
+    @property
+    def directions(self):
+        """Return the optimization directions from the original study.""" 
+        return getattr(self._original_study, 'directions', [optuna.study.StudyDirection.MINIMIZE])
+    
+    @property
+    def study_name(self):
+        """Return the study name from the original study."""
+        return getattr(self._original_study, 'study_name', 'virtual_study')
+    
+    def get_trials(self, deepcopy: bool = True, states=None):
+        """
+        Return trials matching the specified states.
+        
+        Parameters:
+        -----------
+        deepcopy : bool
+            Whether to return deep copies (ignored in this implementation)
+        states : Optional[Container[optuna.trial.TrialState]]
+            States to filter by
+            
+        Returns:
+        --------
+        List[optuna.Trial] : Filtered trials
+        """
+        if states is None:
+            return self.trials
+        
+        if not isinstance(states, (list, tuple, set)):
+            states = [states]
+        
+        return [t for t in self.trials if t.state in states]
 
 
 class StageAwarePruner:
@@ -129,12 +205,12 @@ class StageAwarePruner:
                 if self._should_skip_stage2_pruning(trial, latest_epoch):
                     return False
             
-            # Use base pruner for the actual pruning decision
-            base_decision = self.base_pruner.prune(study, trial)
+            # Use stage-isolated pruning decision
+            base_decision = self._stage_isolated_prune(study, trial, latest_epoch)
             
             if base_decision:
                 stage = "Stage 1" if latest_epoch < self.stage2_start_epoch else "Stage 2"
-                logger.info(f"Trial {trial.number}: Base pruner recommends pruning at epoch "
+                logger.info(f"Trial {trial.number}: Stage-isolated pruner recommends pruning at epoch "
                            f"{latest_epoch} ({stage})")
             
             return base_decision
@@ -257,6 +333,186 @@ class StageAwarePruner:
             return False
             
         except Exception:
+            return False
+
+    def _get_trial_stage(self, trial: optuna.Trial) -> int:
+        """
+        Determine which stage a trial reached based on its intermediate values.
+        
+        Parameters:
+        -----------
+        trial : optuna.Trial
+            The trial to analyze
+            
+        Returns:
+        --------
+        int : Stage number (1 or 2)
+        """
+        if not trial.intermediate_values:
+            return 1  # Default to Stage 1 if no intermediate values
+        
+        max_epoch = max(trial.intermediate_values.keys())
+        return 2 if max_epoch >= self.stage2_start_epoch else 1
+    
+    def _filter_trials_by_stage(self, study: optuna.Study, target_stage: int) -> List[optuna.Trial]:
+        """
+        Filter study trials to only include those that reached the target stage.
+        
+        Parameters:
+        -----------
+        study : optuna.Study
+            The original study
+        target_stage : int
+            Stage to filter for (1 or 2)
+            
+        Returns:
+        --------
+        List[optuna.Trial] : Trials that reached the target stage
+        """
+        filtered_trials = []
+        
+        for trial in study.trials:
+            # Only consider completed trials for comparison
+            if trial.state != optuna.trial.TrialState.COMPLETE:
+                continue
+            
+            trial_stage = self._get_trial_stage(trial)
+            if trial_stage == target_stage:
+                filtered_trials.append(trial)
+        
+        logger.debug(f"Found {len(filtered_trials)} trials in Stage {target_stage} "
+                   f"out of {len(study.trials)} total trials")
+        
+        return filtered_trials
+    
+    def _stage_isolated_prune(self, study: optuna.Study, trial: optuna.Trial, latest_epoch: int) -> bool:
+        """
+        Perform stage-isolated pruning by comparing only with same-stage trials.
+        
+        This method creates a virtual study containing only trials from the same stage
+        as the current trial, then uses the base pruner to make a decision based on
+        that filtered data. This prevents comparing Stage 1 metrics with Stage 2 metrics.
+        
+        Parameters:
+        -----------
+        study : optuna.Study
+            The original study
+        trial : optuna.Trial
+            The trial being evaluated for pruning
+        latest_epoch : int
+            The latest epoch with intermediate values
+            
+        Returns:
+        --------
+        bool : True if trial should be pruned, False otherwise
+        """
+        try:
+            # Determine current stage
+            current_stage = 2 if latest_epoch >= self.stage2_start_epoch else 1
+            
+            # Filter trials to only include same-stage trials
+            same_stage_trials = self._filter_trials_by_stage(study, current_stage)
+            
+            # Apply fallback strategies for insufficient data
+            min_trials_for_pruning = 5  # Minimum trials needed for meaningful comparison
+            
+            if len(same_stage_trials) < min_trials_for_pruning:
+                logger.debug(f"Trial {trial.number}: Only {len(same_stage_trials)} same-stage trials, "
+                           f"need {min_trials_for_pruning} for reliable pruning. Using fallback strategy.")
+                
+                return self._fallback_pruning_decision(study, trial, current_stage, same_stage_trials)
+            
+            # Create virtual study with same-stage trials
+            virtual_study = VirtualStudyView(same_stage_trials, study)
+            
+            # Use base pruner on stage-isolated data
+            base_decision = self.base_pruner.prune(virtual_study, trial)
+            
+            logger.debug(f"Trial {trial.number}: Stage {current_stage} isolated pruning decision: {base_decision} "
+                       f"(based on {len(same_stage_trials)} same-stage trials)")
+            
+            return base_decision
+            
+        except Exception as e:
+            logger.error(f"Error in stage-isolated pruning for trial {trial.number}: {e}")
+            # Conservative fallback: don't prune if there's an error
+            return False
+    
+    def _fallback_pruning_decision(self, study: optuna.Study, trial: optuna.Trial, 
+                                 current_stage: int, same_stage_trials: List[optuna.Trial]) -> bool:
+        """
+        Make a fallback pruning decision when insufficient same-stage data is available.
+        
+        Fallback strategies:
+        1. If < 3 same-stage trials: Don't prune (too little data)
+        2. If Stage 2 with no Stage 2 history: Use Stage 1 data with penalty
+        3. If base pruner fails: Conservative approach (don't prune)
+        
+        Parameters:
+        -----------
+        study : optuna.Study
+            The original study
+        trial : optuna.Trial
+            The trial being evaluated
+        current_stage : int
+            Current stage of the trial
+        same_stage_trials : List[optuna.Trial]
+            Available same-stage trials
+            
+        Returns:
+        --------
+        bool : True if trial should be pruned, False otherwise
+        """
+        try:
+            # Strategy 1: If very few same-stage trials, be conservative
+            if len(same_stage_trials) < 3:
+                logger.debug(f"Trial {trial.number}: Too few same-stage trials ({len(same_stage_trials)}), "
+                           f"not pruning (conservative)")
+                return False
+            
+            # Strategy 2: For Stage 2 trials with limited Stage 2 history,
+            # use Stage 1 data with a conservative penalty
+            if current_stage == 2:
+                stage1_trials = self._filter_trials_by_stage(study, 1)
+                
+                if len(stage1_trials) >= 5:
+                    logger.debug(f"Trial {trial.number}: Using Stage 1 trials ({len(stage1_trials)}) "
+                               f"with penalty for Stage 2 pruning decision")
+                    
+                    # Create virtual study with Stage 1 trials
+                    virtual_study = VirtualStudyView(stage1_trials, study)
+                    
+                    # Apply conservative penalty: only prune if base pruner is very confident
+                    # We do this by temporarily modifying the trial's current value to be more conservative
+                    original_value = trial.intermediate_values.get(max(trial.intermediate_values.keys()))
+                    
+                    if original_value is not None:
+                        # For Stage 2, assume performance should be better than Stage 1 average
+                        # Apply a penalty that makes the trial look slightly worse
+                        stage1_values = [t.value for t in stage1_trials if t.value is not None]
+                        if stage1_values:
+                            stage1_mean = np.mean(stage1_values)
+                            penalty_factor = 1.1  # Make trial look 10% worse for conservative pruning
+                            
+                            # Temporarily modify intermediate values for pruning decision
+                            penalized_value = original_value * penalty_factor
+                            trial.intermediate_values[max(trial.intermediate_values.keys())] = penalized_value
+                            
+                            try:
+                                base_decision = self.base_pruner.prune(virtual_study, trial)
+                                logger.debug(f"Trial {trial.number}: Stage 1 fallback decision with penalty: {base_decision}")
+                                return base_decision
+                            finally:
+                                # Restore original value
+                                trial.intermediate_values[max(trial.intermediate_values.keys())] = original_value
+            
+            # Strategy 3: If all else fails, be conservative
+            logger.debug(f"Trial {trial.number}: All fallback strategies exhausted, not pruning (conservative)")
+            return False
+            
+        except Exception as e:
+            logger.error(f"Error in fallback pruning decision for trial {trial.number}: {e}")
+            # Ultimate fallback: don't prune
             return False
 
 

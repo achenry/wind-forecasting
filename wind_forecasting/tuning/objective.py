@@ -277,7 +277,7 @@ class MLTuningObjective:
                 # Logging and Behavior
                 save_code=self.config['optuna'].get('save_trial_code', False),
                 mode=self.config['logging'].get('wandb_mode', 'online'),
-                reinit="finish_previous"
+                reinit=True  # Create a fresh run for each trial with independent step counter
             )
             logging.info(f"Rank {os.environ.get('WORKER_RANK', '0')}: Initialized W&B run '{run_name}' for trial {trial.number}")
 
@@ -403,11 +403,11 @@ class MLTuningObjective:
             estimator_kwargs["use_pytorch_dataloader"] = self.config["dataset"]["use_pytorch_dataloader"]
             logging.info(f"Trial {trial.number}: Setting use_pytorch_dataloader={self.config['dataset']['use_pytorch_dataloader']} from config")
 
-        # Get the metric key from config - use stage-aware metric for TACTiS
+        # Get the metric key from config - use total NLL for TACTiS
         if self.model == 'tactis':
-            # For TACTiS, use stage-aware metric that switches between NLL and copula loss
-            metric_to_return = "val_stage_aware_metric"
-            logging.info(f"Trial {trial.number}: Using stage-aware metric for TACTiS optimization")
+            # For TACTiS, use total NLL which is consistent across both stages
+            metric_to_return = "val_total_nll"
+            logging.info(f"Trial {trial.number}: Using val_total_nll metric for TACTiS optimization")
         else:
             # For other models, use traditional metric
             metric_to_return = self.config.get("trainer", {}).get("monitor_metric", "val_loss")
@@ -616,9 +616,9 @@ class MLTuningObjective:
                 logging.info(f"Rank {os.environ.get('WORKER_RANK', 'N/A')}: Finishing trial-specific W&B run '{current_run_name}' for trial {trial.number if 'trial' in locals() else 'unknown'}")
                 wandb.finish()
 
-        # Return metric to Optuna - use stage-aware metric for TACTiS
+        # Return metric to Optuna - use total NLL for TACTiS
         if self.model == 'tactis':
-            metric_to_return = "val_stage_aware_metric"
+            metric_to_return = "val_total_nll"
         else:
             metric_to_return = self.config.get("trainer", {}).get("monitor_metric", "val_loss")
         
