@@ -418,8 +418,7 @@ class DataModule():
                 
                 self.continuity_groups = dataset.select(pl.col("continuity_group").unique()).collect().to_numpy().flatten()
                 
-                # TODO TESTING
-                self.continuity_groups = [0, 1, 2]
+                # self.continuity_groups = [0, 1, 2]
                 
                 # generate an iterablelazy frame for each continuity group and split within it
                 datasets = self.split_dataset([dataset.filter(pl.col("continuity_group") == cg) for cg in self.continuity_groups], splits)
@@ -456,8 +455,7 @@ class DataModule():
                                         eager=True,
                                         time_unit="ns",
                                         closed="left"
-                                    ).alias("time"), 
-                                    f"feat_static_cat": [[self.target_suffixes.index(re.search("(?<=TURBINE)\\w+(?=_SPLIT)", item_id).group(0))]] * len(ds), 
+                                    ).alias("time"),
                                     **{f"target_{i}": ds[col] for i, col in enumerate(self.target_cols)}, 
                                     **{f"feat_dynamic_real_{i}": ds[col] for i, col in enumerate(self.feat_dynamic_real_cols)}}))
                         

@@ -32,4 +32,5 @@ MDL_CONF_G=$HOME/toolboxes/wind_forecasting_env/wind-forecasting/config/training
 MDL_CONF_L=$HOME/toolboxes/wind_forecasting_env/wind-forecasting/config/training/training_inputs_kestrel_awaken_predLUT.yaml
 
 #python ../run_model.py --config $MDL_CONF_G $MDL_CONF_G $MDL_CONF_L $MDL_CONF_L --model informer informer tactis tactis --mode dataset --reload_data 
-python ../run_model.py --config $MDL_CONF_G $MDL_CONF_L --model tactis tactis --mode dataset --reload_data 
+# python ../run_model.py --config $MDL_CONF_G $MDL_CONF_L --model tactis tactis --mode dataset --reload_data 
+python ../run_model.py --config $MDL_CONF_L $MDL_CONF_L --model informer tactis --mode dataset --reload_data 
