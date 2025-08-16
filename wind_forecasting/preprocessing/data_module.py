@@ -354,12 +354,13 @@ class DataModule():
                                 if verbose:
                                     logging.info(f"Transforming {split} dataset {item_id} into polars form.")
                                 ds = self.get_df_by_turbine(split_ds[d], turbine_id)
+                                dt = pd.Timedelta(start_time.freq)
                                 datasets.append(pl.DataFrame(
                                     {   "item_id": [item_id] * len(ds),
                                         "time": pl.datetime_range(
                                             start=start_time.start_time,
-                                            end=start_time.start_time + (pd.Timedelta(start_time.freq) * len(ds)),
-                                            interval=start_time.freqstr,
+                                            end=start_time.start_time + (dt * len(ds)),
+                                            interval=dt,
                                             eager=True,
                                             time_unit="ns",
                                             closed="left"
@@ -414,7 +415,12 @@ class DataModule():
                 cg_counts = dataset.select("continuity_group").collect().to_series().value_counts().sort("continuity_group").select("count").to_numpy().flatten()
                 self.rows_per_split = [int(n_rows / self.n_splits) for n_rows in cg_counts] # each element corresponds to each continuity group
                 del cg_counts
+                
                 self.continuity_groups = dataset.select(pl.col("continuity_group").unique()).collect().to_numpy().flatten()
+                
+                # TODO TESTING
+                self.continuity_groups = [0, 1, 2]
+                
                 # generate an iterablelazy frame for each continuity group and split within it
                 datasets = self.split_dataset([dataset.filter(pl.col("continuity_group") == cg) for cg in self.continuity_groups], splits)
                 for split in splits:
@@ -436,16 +442,17 @@ class DataModule():
                         for d in range(len(split_ds)):
                             item_id = f"SPLIT{d}"
                             start_time = pd.Period(split_ds[d].select(pl.col("time").first()).item(), freq=self.freq)
-                            logging.info(f"START_TIME = {start_time}")
+                            
                             if verbose:
                                 logging.info(f"Transforming {split} dataset {item_id} into polars form.")
                             ds = split_ds[d].select([pl.col("time")] + self.feat_dynamic_real_cols + self.target_cols)
+                            dt = pd.Timedelta(start_time.freq)
                             datasets.append(pl.DataFrame(
                                 {"item_id": [item_id] * len(ds),
                                     "time": pl.datetime_range(
                                         start=start_time.start_time,
-                                        end=start_time.start_time + (pd.Timedelta(start_time.freq) * len(ds)),
-                                        interval=start_time.freqstr,
+                                        end=start_time.start_time + (dt * len(ds)),
+                                        interval=dt,#start_time.freqstr,
                                         eager=True,
                                         time_unit="ns",
                                         closed="left"
@@ -649,19 +656,20 @@ class DataModule():
                     datasets.append(ds.select(pl.exclude("continuity_group")))
                     break
             
+            train_offset = round(self.train_split * self.rows_per_split[cg])
+            val_offset = round(self.val_split * self.rows_per_split[cg])
+            test_offset = round(self.test_split * self.rows_per_split[cg])
+            
             if "train" in splits:
                 logging.info(f"Creating {cg}th of {len(dataset)} train_datasets list.")
-                train_offset = round(self.train_split * self.rows_per_split[cg])
                 train_datasets += [ds.slice(0, train_offset).with_columns(continuity_group=pl.lit(d)) for d, ds in enumerate(datasets)]
             
             if "val" in splits:
                 logging.info(f"Creating {cg}th of {len(dataset)} val_datasets list.")
-                val_offset = round(self.val_split * self.rows_per_split[cg])
                 val_datasets += [ds.slice(train_offset, val_offset).with_columns(continuity_group=pl.lit(d)) for d, ds in enumerate(datasets)]  # val_offset is the length of validation data
             
             if "test" in splits:
                 logging.info(f"Creating {cg}th of {len(dataset)} test_datasets list.")
-                test_offset = round(self.test_split * self.rows_per_split[cg])
                 test_datasets += [ds.slice(train_offset + val_offset, test_offset).with_columns(continuity_group=pl.lit(d)) for d, ds in enumerate(datasets)]  # test_offset is the length of test data
         
         if self.verbose:
