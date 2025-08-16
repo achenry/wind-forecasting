@@ -416,9 +416,10 @@ class DataModule():
                 del cg_counts
                 self.continuity_groups = dataset.select(pl.col("continuity_group").unique()).collect().to_numpy().flatten()
                 # generate an iterablelazy frame for each continuity group and split within it
-                self.train_dataset, self.val_dataset, self.test_dataset = \
-                    self.split_dataset([dataset.filter(pl.col("continuity_group") == cg) for cg in self.continuity_groups])
-                
+                datasets = self.split_dataset([dataset.filter(pl.col("continuity_group") == cg) for cg in self.continuity_groups], splits)
+                for split in splits:
+                    setattr(self, f"{split}_dataset", datasets[split])
+                    
                 if self.as_lazyframe:
                     for split in splits:
                         # split_ds = getattr(self, f"{split}_dataset")
@@ -435,6 +436,7 @@ class DataModule():
                         for d in range(len(split_ds)):
                             item_id = f"SPLIT{d}"
                             start_time = pd.Period(split_ds[d].select(pl.col("time").first()).item(), freq=self.freq)
+                            logging.info(f"START_TIME = {start_time}")
                             if verbose:
                                 logging.info(f"Transforming {split} dataset {item_id} into polars form.")
                             ds = split_ds[d].select([pl.col("time")] + self.feat_dynamic_real_cols + self.target_cols)
