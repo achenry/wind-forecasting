@@ -272,7 +272,7 @@ def main():
             freq=config["dataset"]["resample_freq"],
             target_suffixes=config["dataset"]["target_turbine_ids"],
             per_turbine_target=config["dataset"]["per_turbine_target"],
-            as_lazyframe=True, # TESTING TODO
+            as_lazyframe=True,
             dtype=pl.Float32,
             normalized=use_normalization,  # TACTiS-2 requires denormalized input for internal scaling
             normalization_consts_path=config["dataset"]["normalization_consts_path"], # Needed for denormalization

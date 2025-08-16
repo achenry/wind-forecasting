@@ -329,8 +329,10 @@ class DataModule():
                 
                 self.continuity_groups = dataset.select(pl.col("continuity_group").unique()).collect().to_numpy().flatten()
                 
-                self.train_dataset, self.val_dataset, self.test_dataset = \
-                    self.split_dataset([dataset.filter(pl.col("continuity_group") == cg) for cg in self.continuity_groups]) 
+                datasets = self.split_dataset([dataset.filter(pl.col("continuity_group") == cg) for cg in self.continuity_groups], splits)
+                    
+                for split in splits:
+                    setattr(self, f"{split}_dataset", datasets[split])
                 
                 if self.as_lazyframe:
                     # static_index = [f"TURBINE{turbine_id}_SPLIT{cg}" for turbine_id in self.target_suffixes for cg in self.train_dataset["continuity_group"].unique().collect()]
@@ -600,7 +602,7 @@ class DataModule():
     #     assert split in ["train", "test", "val"]
     #     ds = getattr(self, f"{split}_dataset")
         
-    def split_dataset(self, dataset):
+    def split_dataset(self, dataset, splits):
         train_datasets = []
         test_datasets = []
         val_datasets = []
@@ -612,7 +614,7 @@ class DataModule():
             if round(min(self.train_split, self.val_split, self.test_split) * self.rows_per_split[cg] * self.n_splits) < self.context_length + self.prediction_length:
                 logging.info(f"Can't split dataset corresponding to continuity group {cg} into training, validation, testing, the full dataset only has data points {round(self.rows_per_split[cg] * self.n_splits)}")
                 
-                if self.train_split * self.rows_per_split[cg] * self.n_splits >= self.context_length + self.prediction_length:
+                if "train" in splits and self.train_split * self.rows_per_split[cg] * self.n_splits >= self.context_length + self.prediction_length:
                     logging.info(f"Adding dataset corresponding to continuity group {cg} to training data, since it can't be split")
                     train_datasets += [ds] 
                 
@@ -645,25 +647,34 @@ class DataModule():
                     datasets.append(ds.select(pl.exclude("continuity_group")))
                     break
             
-            logging.info(f"Computing split offsets.")
-            train_offset = round(self.train_split * self.rows_per_split[cg])
-            val_offset = round(self.val_split * self.rows_per_split[cg])
-            test_offset = round(self.test_split * self.rows_per_split[cg])
-
-            logging.info(f"Creating {cg}th of {len(dataset)} train_datasets list.")
-            train_datasets += [ds.slice(0, train_offset).with_columns(continuity_group=pl.lit(d)) for d, ds in enumerate(datasets)]
+            if "train" in splits:
+                logging.info(f"Creating {cg}th of {len(dataset)} train_datasets list.")
+                train_offset = round(self.train_split * self.rows_per_split[cg])
+                train_datasets += [ds.slice(0, train_offset).with_columns(continuity_group=pl.lit(d)) for d, ds in enumerate(datasets)]
             
-            logging.info(f"Creating {cg}th of {len(dataset)} val_datasets list.")
-            val_datasets += [ds.slice(train_offset, val_offset).with_columns(continuity_group=pl.lit(d)) for d, ds in enumerate(datasets)]  # val_offset is the length of validation data
+            if "val" in splits:
+                logging.info(f"Creating {cg}th of {len(dataset)} val_datasets list.")
+                val_offset = round(self.val_split * self.rows_per_split[cg])
+                val_datasets += [ds.slice(train_offset, val_offset).with_columns(continuity_group=pl.lit(d)) for d, ds in enumerate(datasets)]  # val_offset is the length of validation data
             
-            logging.info(f"Creating {cg}th of {len(dataset)} test_datasets list.")
-            test_datasets += [ds.slice(train_offset + val_offset, test_offset).with_columns(continuity_group=pl.lit(d)) for d, ds in enumerate(datasets)]  # test_offset is the length of test data
+            if "test" in splits:
+                logging.info(f"Creating {cg}th of {len(dataset)} test_datasets list.")
+                test_offset = round(self.test_split * self.rows_per_split[cg])
+                test_datasets += [ds.slice(train_offset + val_offset, test_offset).with_columns(continuity_group=pl.lit(d)) for d, ds in enumerate(datasets)]  # test_offset is the length of test data
         
         if self.verbose:
             logging.info("Returning train/val/test datasets.")
             
         # return pl.concat(train_datasets, how="vertical"), pl.concat(val_datasets, how="vertical"), pl.concat(test_datasets, how="vertical")
-        return train_datasets, val_datasets, test_datasets
+        datasets = {}
+        if "train" in splits:
+            datasets["train"] = train_datasets
+        if "val" in splits:
+            datasets["val"] = val_datasets
+        if "test" in splits:
+            datasets["test"] = test_datasets
+            
+        return datasets
 
     def highlight_entry(self, entry, color, ax, vlines=None):
         start = entry["start"].to_timestamp()
