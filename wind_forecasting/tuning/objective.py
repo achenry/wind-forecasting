@@ -37,10 +37,13 @@ from wind_forecasting.tuning.utils.metrics_utils import (
 )
 
 
+import glob
+
 class MLTuningObjective:
     def __init__(self, *, model, config, lightning_module_class, estimator_class,
                  distr_output_class, max_epochs, limit_train_batches, data_module,
-                 metric, seed=42, tuning_phase=0, dynamic_params=None, study_config_params=None):
+                 metric, seed=42, tuning_phase=0, dynamic_params=None, study_config_params=None,
+                 storage=None, stage1_study_name=None):
         self.model = model
         self.config = config
         self.lightning_module_class = lightning_module_class
@@ -54,6 +57,8 @@ class MLTuningObjective:
         self.tuning_phase = tuning_phase
         self.dynamic_params = dynamic_params
         self.study_config_params = study_config_params or {}
+        self.storage = storage
+        self.stage1_study_name = stage1_study_name
 
         self.config["trainer"]["max_epochs"] = max_epochs
         self.config["trainer"]["limit_train_batches"] = limit_train_batches
@@ -102,6 +107,54 @@ class MLTuningObjective:
                     f"Peak: {max_allocated:.2f}GB, "
                     f"Total: {total:.2f}GB")
 
+    def _get_stage1_checkpoint(self):
+        """Get best checkpoint from Stage 1 study."""
+        if not self.stage1_study_name or not self.storage:
+            return None, None
+        
+        try:
+            # Get Stage 1 study
+            study_id = self.storage.get_study_id_from_name(self.stage1_study_name)
+            stage1_trials = self.storage.get_all_trials(study_id)
+            
+            # Find best trial (lowest value)
+            completed_trials = [t for t in stage1_trials if t.state == optuna.trial.TrialState.COMPLETE]
+            if not completed_trials:
+                logging.warning(f"No completed trials found in Stage 1 study {self.stage1_study_name}")
+                return None, None
+            
+            best_trial = min(completed_trials, key=lambda t: t.value if t.value else float('inf'))
+            
+            # Find checkpoint path - look for trial-specific checkpoints
+            checkpoint_base = self.config["logging"]["checkpoint_dir"]
+            project_name = self.config["experiment"]["project_name"]
+            
+            # Pattern: logs/project/run_id/checkpoints/suffix/trial_X/*.ckpt
+            checkpoint_patterns = [
+                os.path.join(checkpoint_base, project_name, f"*{self.stage1_study_name}*/checkpoints/*stage1*/trial_{best_trial.number}/*.ckpt"),
+                os.path.join(checkpoint_base, project_name, f"*{self.stage1_study_name}*/checkpoints/*_60/trial_{best_trial.number}/*.ckpt"),
+                os.path.join(checkpoint_base, project_name, f"*{self.stage1_study_name}*/checkpoints/trial_{best_trial.number}/*.ckpt"),
+            ]
+            
+            checkpoint_path = None
+            for pattern in checkpoint_patterns:
+                checkpoints = glob.glob(pattern)
+                if checkpoints:
+                    # Sort by modification time and get the latest
+                    checkpoint_path = max(checkpoints, key=os.path.getmtime)
+                    break
+            
+            if checkpoint_path:
+                logging.info(f"Found Stage 1 best checkpoint from trial {best_trial.number}: {checkpoint_path}")
+                return checkpoint_path, best_trial.params
+            else:
+                logging.warning(f"No checkpoint found for Stage 1 best trial {best_trial.number}")
+                return None, None
+                
+        except Exception as e:
+            logging.error(f"Error getting Stage 1 checkpoint: {e}")
+            return None, None
+    
     def __call__(self, trial):
         # Set random seeds for reproducibility
         trial_seed = set_trial_seeds(trial.number, self.seed)
@@ -114,6 +167,29 @@ class MLTuningObjective:
       
         params = self.estimator_class.get_params(trial, self.tuning_phase,
                                                  dynamic_kwargs=self.dynamic_params)
+        
+        # Handle Stage 2 initialization for TACTiS
+        stage1_checkpoint_path = None
+        if self.model == 'tactis' and self.stage1_study_name:
+            logging.info(f"Trial {trial.number}: Loading Stage 1 parameters for TACTiS Stage 2 tuning")
+            stage1_checkpoint_path, stage1_params = self._get_stage1_checkpoint()
+            
+            if stage1_params:
+                # Override marginal/flow parameters with Stage 1 best values
+                marginal_keys = ['marginal', 'flow', 'decoder_dsf', 'decoder_mlp', 
+                                'decoder_transformer', 'decoder_num_bins']
+                for key, value in stage1_params.items():
+                    # Check if this is a marginal/flow parameter
+                    if any(mk in key for mk in marginal_keys):
+                        params[key] = value
+                        logging.info(f"Trial {trial.number}: Fixed {key}={value} from Stage 1")
+                
+                # Ensure skip_copula and lock_skip_copula are set correctly for Stage 2
+                params['skip_copula'] = False
+                params['lock_skip_copula'] = True
+                params['initial_stage'] = 2
+                params['stage2_start_epoch'] = 0
+                logging.info(f"Trial {trial.number}: Set skip_copula=False, lock_skip_copula=True for Stage 2")
 
         # TODO this has been updated to not change splits for different context_length_factors, for consistency, may cause issues for longer context_length_factors
         # Update DataModule parameters based on trial tuned parameters
@@ -432,6 +508,38 @@ class MLTuningObjective:
                 logging.error(f"Trial {trial.number} - Error creating estimator: {str(e)}", exc_info=True)
                 raise
 
+            # Load Stage 1 checkpoint weights if available (for TACTiS Stage 2)
+            if stage1_checkpoint_path and os.path.exists(stage1_checkpoint_path):
+                logging.info(f"Trial {trial.number}: Loading Stage 1 checkpoint weights from {stage1_checkpoint_path}")
+                try:
+                    checkpoint = torch.load(stage1_checkpoint_path, map_location='cpu')
+                    
+                    # Create a predictor/model from the estimator to load weights
+                    # Note: This is a simplified approach - may need adjustment based on actual model structure
+                    temp_predictor = estimator.create_predictor(
+                        estimator.create_transformation(),
+                        estimator.create_lightning_module()
+                    )
+                    
+                    # Load state dict into the model
+                    if 'state_dict' in checkpoint:
+                        # Filter to only load marginal/flow weights
+                        state_dict = checkpoint['state_dict']
+                        filtered_state = {}
+                        for key, value in state_dict.items():
+                            if any(mk in key for mk in ['flow', 'marginal', 'dsf', 'decoder.marginal']):
+                                filtered_state[key] = value
+                        
+                        # Load the filtered state
+                        temp_predictor.prediction_net.load_state_dict(filtered_state, strict=False)
+                        logging.info(f"Trial {trial.number}: Loaded {len(filtered_state)} marginal/flow parameters from Stage 1")
+                    else:
+                        logging.warning(f"Trial {trial.number}: No state_dict found in checkpoint")
+                        
+                except Exception as e:
+                    logging.error(f"Trial {trial.number}: Failed to load Stage 1 checkpoint: {e}")
+                    # Continue without checkpoint - trial will train from scratch
+            
             # Log GPU stats before training
             self.log_gpu_stats(stage=f"Trial {trial.number} Before Training")
 

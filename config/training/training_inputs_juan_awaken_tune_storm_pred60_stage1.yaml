@@ -1,0 +1,194 @@
+experiment:
+  username: jmb0507
+  project_name: train_awaken_storm_2
+  run_name: tune_awaken_tactis_pred60_stage1_marginals
+  project_root: /user/taed7566/Forecasting/wind-forecasting
+  log_dir: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/
+  notes: "Stage 1 tuning for AWAKEN with TACTiS - marginals only (skip_copula=true)"
+  extra_tags: ["tune", "tactis", "stage1", "marginals", "pred60", "ctx600", "awaken"]
+
+logging:
+  entity: jmb0507-cu-boulder # Wandb entity (group name)
+  wandb_mode: online
+  save_code: false
+  wandb_dir: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs
+  optuna_dir: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/optuna
+  checkpoint_dir: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/checkpoints
+  chkp_dir_suffix: "_60_stage1"
+  slurm_output_dir: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/slurm_logs
+
+optuna:
+  save_trial_code: false
+  n_trials_per_worker: 50
+  total_study_trials: 100  # Total trials for Stage 1
+  max_epochs: 25  # Only train Stage 1 (marginals)
+  sampler: "random"
+  sampler_params:
+    tpe:
+      n_startup_trials: 8
+      multivariate: true
+      constant_liar: true
+      group: false
+  base_limit_train_batches: 5000
+  metric: "val_loss"
+  direction: "minimize"
+
+  resample_freq_choices: [15, 30, 45, 60] # Resample frequency in seconds
+  
+  # Pruning configuration
+  pruning:
+    enabled: true
+    type: "successivehalving"
+    min_resource: 5
+    reduction_factor: 2
+    min_early_stopping_rate: 0
+    bootstrap_count: 5
+
+  # Optuna visualization configuration
+  visualization:
+    enabled: true
+    output_dir: ${logging.optuna_dir}/visualizations
+    plots:
+      optimization_history: true
+      parameter_importance: true
+      slice_plot: true
+
+  # Storage backend configuration
+  storage:
+    backend: "postgresql"
+    use_tcp: true
+    use_socket: false
+    db_host: "pg-windforecasting-aiven-wind-forecasting.e.aivencloud.com"
+    db_port: 12472
+    db_name: "optuna"
+    db_user: "avnadmin"
+    db_password_env_var: "AIVEN_PG_PASSWORD"
+    sslmode: "require"
+    sslrootcert_path: "config/certs/aiven_pg_ca.pem"
+
+  # Optuna Dashboard
+  dashboard:
+    enabled: false
+    port: 8088
+    log_file: "${logging.optuna_dir}/optuna_dashboard.log"
+
+dataset:
+  sampler: "random"
+  data_path: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/DATA/preprocessed_awaken_data/awaken_processed_normalized.parquet
+  normalization_consts_path: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/DATA/preprocessed_awaken_data/awaken_processed_normalization_consts.csv
+  context_length: 600  # in seconds
+  prediction_length: 60  # in seconds
+  target_turbine_ids: # leave blank to capture all
+  normalize: true
+  batch_size: 128
+  base_batch_size: 128
+  workers: 4
+  overfit: false
+  test_split: 0.20
+  val_split: 0.10
+  resample_freq: 30s
+  n_splits: 1
+  per_turbine_target: true
+  use_pytorch_dataloader: true
+
+model:
+  distr_output: 
+    class: LowRankMultivariateNormalOutput
+    kwargs:
+      rank: 8
+
+  ############# TACTiS Stage 1 Configuration ##############
+  tactis:
+    # Stage 1 specific settings
+    skip_copula: true  # CRITICAL: Skip copula for Stage 1
+    lock_skip_copula: true  # CRITICAL: Prevent automatic updates
+    initial_stage: 1
+    stage2_start_epoch: 999  # Never reach Stage 2
+    
+    # Fixed parameters (not tuned)
+    ac_mlp_num_layers: 2  # Not used in Stage 1
+    ac_mlp_dim: 128  # Not used in Stage 1
+    stage1_activation_function: "relu"
+    stage2_activation_function: "relu"
+    input_encoding_normalization: true
+    scaling: "std"
+    loss_normalization: "both"
+    encoder_type: "standard"
+    bagging_size: null
+    num_parallel_samples: 200  # Inference only
+    
+    # Stage 1 hyperparameter ranges for tuning (marginal/flow)
+    # Learning rate and regularization
+    lr_stage1: 5e-6
+    weight_decay_stage1: 1e-5
+    dropout_rate: 0.1
+    gradient_clip_val_stage1: 1000.0
+    
+    # Marginal CDF Encoder
+    marginal_embedding_dim_per_head: 8
+    marginal_num_heads: 5
+    marginal_num_layers: 4
+    flow_input_encoder_layers: 6
+    flow_series_embedding_dim: 5
+    
+    # Decoder (marginal components)
+    decoder_dsf_num_layers: 2
+    decoder_dsf_hidden_dim: 256
+    decoder_mlp_num_layers: 3
+    decoder_mlp_hidden_dim: 16
+    decoder_transformer_num_layers: 3
+    decoder_transformer_embedding_dim_per_head: 16
+    decoder_transformer_num_heads: 6
+    decoder_num_bins: 50
+    
+    # Copula parameters (not used but needed for config structure)
+    copula_embedding_dim_per_head: 8
+    copula_num_heads: 5
+    copula_num_layers: 2
+    copula_input_encoder_layers: 1
+    copula_series_embedding_dim: 48
+    lr_stage2: 2e-6  # Not used in Stage 1
+    weight_decay_stage2: 1e-5  # Not used in Stage 1
+    gradient_clip_val_stage2: 1000.0  # Not used in Stage 1
+    
+    # Learning Rate Scheduler for Stage 1
+    warmup_steps_s1: 0.10  # Warmup as fraction of stage
+    steps_to_decay_s1: 0.90  # Cosine decay as fraction
+    eta_min_fraction_s1: 0.01
+    # Stage 2 scheduler params (not used)
+    warmup_steps_s2: 0.10
+    steps_to_decay_s2: 0.90
+    eta_min_fraction_s2: 0.01
+
+callbacks:
+  progress_bar:
+    class_path: lightning.pytorch.callbacks.TQDMProgressBar
+    init_args:
+      refresh_rate: 2048
+      leave: false
+  model_checkpoint:
+    class_path: lightning.pytorch.callbacks.ModelCheckpoint
+    init_args:
+      dirpath: ${logging.checkpoint_dir}
+      filename: '{epoch}-{step}-{val_loss:.2f}'
+      monitor: 'val_loss'
+      mode: 'min'
+      save_top_k: 1
+      save_last: true
+      verbose: true
+  lr_monitor:
+    class_path: lightning.pytorch.callbacks.LearningRateMonitor
+    init_args:
+      logging_interval: step
+      log_momentum: false
+  dead_neuron_monitor:
+    enabled: false
+
+trainer: 
+  val_check_interval: 1.0
+  accelerator: gpu
+  devices: auto
+  num_nodes: 1
+  strategy: ddp
+  max_epochs: 25  # Stage 1 only
+  limit_train_batches: 5000

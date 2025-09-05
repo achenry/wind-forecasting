@@ -80,6 +80,8 @@ def main():
     parser.add_argument("-rl", "--reload_data", action="store_true", help="Whether to reload train/test/val datasets from preprocessed parquets or not.")
     parser.add_argument("-ehc", "--extract_hparams_from_checkpoint", type=str, default=None,
                         help="Extract hyperparameters from checkpoint without loading training state. Can be 'latest', 'best', or a checkpoint path. Starts fresh training with extracted parameters.")
+    parser.add_argument("--stage1_study", type=str, default=None,
+                        help="Name of Stage 1 study to load best checkpoint from for Stage 2 tuning (TACTiS only)")
 
     args = parser.parse_args()
     
@@ -986,7 +988,8 @@ def main():
                    n_trials_per_worker=config["optuna"]["n_trials_per_worker"],
                    trial_protection_callback=handle_trial_with_oom_protection,
                    seed=args.seed, tuning_phase=args.tuning_phase,
-                   restart_tuning=args.restart_tuning) # Add restart_tuning parameter
+                   restart_tuning=args.restart_tuning,  # Add restart_tuning parameter
+                   stage1_study=args.stage1_study)  # Add stage1_study parameter for TACTiS Stage 2
 
         # After training completes
         torch.cuda.empty_cache()

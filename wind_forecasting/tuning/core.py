@@ -34,7 +34,8 @@ def tune_model(model, config, study_name, optuna_storage, lightning_module_class
                max_epochs, limit_train_batches,
                distr_output_class, data_module,
                metric="val_loss", direction="minimize", n_trials_per_worker=10, total_study_trials=100,
-               trial_protection_callback=None, seed=42, tuning_phase=0, restart_tuning=False, optimize_callbacks=None,):
+               trial_protection_callback=None, seed=42, tuning_phase=0, restart_tuning=False, optimize_callbacks=None,
+               stage1_study=None):
 
     # Log safely without credentials if they were included (they aren't for socket trust)
     if hasattr(optuna_storage, "url"):
@@ -448,7 +449,9 @@ def tune_model(model, config, study_name, optuna_storage, lightning_module_class
                                         seed=seed,
                                         tuning_phase=tuning_phase,
                                         dynamic_params=dynamic_params,
-                                        study_config_params=study_config_params)
+                                        study_config_params=study_config_params,
+                                        storage=optuna_storage,
+                                        stage1_study_name=stage1_study)
 
     # Use the trial protection callback if provided
     objective_fn = (lambda trial: trial_protection_callback(tuning_objective, trial)) if trial_protection_callback else tuning_objective
