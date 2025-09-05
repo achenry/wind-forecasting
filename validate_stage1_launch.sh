@@ -22,16 +22,32 @@ NC='\033[0m' # No Color
 VALIDATION_PASSED=true
 
 # ----------------------------------------
-# 1. Check Environment Variables
+# 1. Check Database Credentials
 # ----------------------------------------
-echo "1. Checking Environment Variables..."
+echo "1. Checking Database Credentials..."
 
-if [ -z "$AIVEN_PG_PASSWORD" ]; then
-    echo -e "${RED}✗ AIVEN_PG_PASSWORD not set${NC}"
-    echo "  Run: export AIVEN_PG_PASSWORD='your_password'"
-    VALIDATION_PASSED=false
+DB_LOGIN_FILE="/user/taed7566/Forecasting/Docs/db_login"
+
+if [ -f "$DB_LOGIN_FILE" ]; then
+    echo -e "${GREEN}✓ Database login file exists: $DB_LOGIN_FILE${NC}"
+    
+    # Check if we can parse it
+    if grep -q "^DB=" "$DB_LOGIN_FILE" && grep -q "^FQDN=" "$DB_LOGIN_FILE" && grep -q "^USER=" "$DB_LOGIN_FILE"; then
+        echo -e "${GREEN}  ✓ Login file has required fields${NC}"
+        
+        # Parse and display (without password)
+        DB_HOST=$(grep "^FQDN=" "$DB_LOGIN_FILE" | cut -d'=' -f2)
+        DB_USER=$(grep "^USER=" "$DB_LOGIN_FILE" | cut -d'=' -f2 | cut -d':' -f1)
+        echo -e "  Database: ${DB_HOST}"
+        echo -e "  User: ${DB_USER}"
+    else
+        echo -e "${RED}  ✗ Login file missing required fields${NC}"
+        VALIDATION_PASSED=false
+    fi
 else
-    echo -e "${GREEN}✓ AIVEN_PG_PASSWORD is set${NC}"
+    echo -e "${RED}✗ Database login file not found: $DB_LOGIN_FILE${NC}"
+    echo "  This file should contain database credentials"
+    VALIDATION_PASSED=false
 fi
 
 # ----------------------------------------
@@ -201,16 +217,24 @@ done
 echo ""
 echo "8. Database Connection Test..."
 
-if [ ! -z "$AIVEN_PG_PASSWORD" ]; then
-    echo "Testing PostgreSQL connection to Aiven..."
+if [ -f "$DB_LOGIN_FILE" ]; then
+    echo "Testing PostgreSQL connection to Oldenburg University database..."
+    
+    # Parse credentials
+    DB_HOST=$(grep "^FQDN=" "$DB_LOGIN_FILE" | cut -d'=' -f2)
+    DB_PORT=$(grep "^DBPORT=" "$DB_LOGIN_FILE" | cut -d'=' -f2)
+    DB_NAME=$(grep "^DB=" "$DB_LOGIN_FILE" | cut -d'=' -f2)
+    USER_LINE=$(grep "^USER=" "$DB_LOGIN_FILE" | cut -d'=' -f2)
+    DB_USER=$(echo "$USER_LINE" | cut -d':' -f1)
+    DB_PASSWORD=$(echo "$USER_LINE" | cut -d':' -f2)
     
     # Try to connect using psql if available
     if command -v psql &> /dev/null; then
-        export PGPASSWORD="$AIVEN_PG_PASSWORD"
-        psql -h pg-windforecasting-aiven-wind-forecasting.e.aivencloud.com \
-             -p 12472 \
-             -U avnadmin \
-             -d optuna \
+        export PGPASSWORD="$DB_PASSWORD"
+        psql -h "$DB_HOST" \
+             -p "$DB_PORT" \
+             -U "$DB_USER" \
+             -d "$DB_NAME" \
              -c "SELECT 1;" &>/dev/null
         
         if [ $? -eq 0 ]; then
@@ -224,7 +248,7 @@ if [ ! -z "$AIVEN_PG_PASSWORD" ]; then
         echo "  Connection will be tested when job runs"
     fi
 else
-    echo -e "${YELLOW}! Skipping database test (no password set)${NC}"
+    echo -e "${YELLOW}! Skipping database test (no credentials file)${NC}"
 fi
 
 # ----------------------------------------
@@ -256,7 +280,7 @@ else
     echo ""
     echo "Please fix the issues above before launching."
     echo "Common fixes:"
-    echo "  1. Export AIVEN_PG_PASSWORD environment variable"
+    echo "  1. Check database credentials file: /user/taed7566/Forecasting/Docs/db_login"
     echo "  2. Ensure data files are preprocessed"
     echo "  3. Check that code modifications are in place"
 fi

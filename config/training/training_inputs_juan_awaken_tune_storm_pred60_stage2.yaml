@@ -56,15 +56,15 @@ optuna:
   # Storage backend configuration
   storage:
     backend: "postgresql"
+    # --- TCP/IP PostgreSQL Settings (Oldenburg University) ---
     use_tcp: true
     use_socket: false
-    db_host: "pg-windforecasting-aiven-wind-forecasting.e.aivencloud.com"
-    db_port: 12472
+    db_host: "pg.optuna.uni-oldenburg.de"
+    db_port: 5432
     db_name: "optuna"
-    db_user: "avnadmin"
-    db_password_env_var: "AIVEN_PG_PASSWORD"
-    sslmode: "require"
-    sslrootcert_path: "config/certs/aiven_pg_ca.pem"
+    db_user: "optuna02"
+    db_password_env_var: "LOCAL_PG_PASSWORD"
+    # No SSL settings needed for local university database
 
   # Optuna Dashboard
   dashboard:

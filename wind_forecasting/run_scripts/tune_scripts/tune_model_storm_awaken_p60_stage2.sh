@@ -2,10 +2,10 @@
 
 #SBATCH --partition=all_gpu.p          # Partition for H100/A100 GPUs
 #SBATCH --nodes=1
-#SBATCH --ntasks-per-node=3         # Match number of GPUs requested below
-#SBATCH --cpus-per-task=8           # CPUs per task
-#SBATCH --mem-per-cpu=8016          # Memory per CPU
-#SBATCH --gres=gpu:3                # Request 3 GPUs
+#SBATCH --ntasks-per-node=4         # Match number of GPUs requested below
+#SBATCH --cpus-per-task=2           # CPUs per task (reduced from 8)
+#SBATCH --mem-per-cpu=4096          # Memory per CPU (reduced from 8016)
+#SBATCH --gres=gpu:4                # Request 3 GPUs
 #SBATCH --time=1-00:00              # Time limit
 #SBATCH --job-name=60awaken_tune_tactis_stage2
 #SBATCH --output=/dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/slurm_logs/awaken_tune_tactis60_stage2_%j.out
@@ -25,6 +25,36 @@ if [ -z "$STAGE1_STUDY_NAME" ]; then
 fi
 
 echo "Using Stage 1 Study: $STAGE1_STUDY_NAME"
+
+# --- Database Credentials File ---
+DB_LOGIN_FILE="/user/taed7566/Forecasting/Docs/db_login"
+
+# --- Parse Database Credentials ---
+echo "Reading database credentials from ${DB_LOGIN_FILE}..."
+if [ ! -f "${DB_LOGIN_FILE}" ]; then
+    echo "ERROR: Database login file not found: ${DB_LOGIN_FILE}"
+    exit 1
+fi
+
+# Parse the login file
+DB_NAME=$(grep "^DB=" "${DB_LOGIN_FILE}" | cut -d'=' -f2)
+DB_HOST=$(grep "^FQDN=" "${DB_LOGIN_FILE}" | cut -d'=' -f2)
+DB_PORT=$(grep "^DBPORT=" "${DB_LOGIN_FILE}" | cut -d'=' -f2)
+
+# Parse user credentials (format: username:password)
+USER_LINE=$(grep "^USER=" "${DB_LOGIN_FILE}" | cut -d'=' -f2)
+DB_USER=$(echo "${USER_LINE}" | cut -d':' -f1)
+DB_PASSWORD=$(echo "${USER_LINE}" | cut -d':' -f2)
+
+# Export the password as environment variable for the Python scripts
+export LOCAL_PG_PASSWORD="${DB_PASSWORD}"
+
+echo "Database connection info:"
+echo "  Host: ${DB_HOST}"
+echo "  Port: ${DB_PORT}"
+echo "  Database: ${DB_NAME}"
+echo "  User: ${DB_USER}"
+echo "  Password: [HIDDEN]"
 
 # --- Base Directories ---
 BASE_DIR="/user/taed7566/Forecasting/wind-forecasting"
@@ -118,7 +148,7 @@ fi
 export POSTGRES_BIN_DIR=$(dirname "$PG_INITDB_PATH")
 echo "Found PostgreSQL bin directory: ${POSTGRES_BIN_DIR}"
 echo "Setting PostgreSQL environment variables..."
-export PGPASSWORD="${AIVEN_PG_PASSWORD}"
+export PGPASSWORD="${LOCAL_PG_PASSWORD}"
 
 # --- End Main Environment Setup ---
 
@@ -139,7 +169,7 @@ for i in $(seq 0 $((${NUM_GPUS}-1))); do
 
     echo "Starting Stage 2 worker ${i} on assigned GPU ${i} with seed ${CURRENT_WORKER_SEED}"
     # Launch worker in the background using nohup and a dedicated bash shell
-    WORKER_RANK=${i} CUDA_VISIBLE_DEVICES=${i} nohup bash -c "
+    nohup bash -c "
         echo \"Stage 2 Worker ${i} starting environment setup...\"
         # --- Module loading ---
         module purge
@@ -155,6 +185,12 @@ for i in $(seq 0 $((${NUM_GPUS}-1))); do
         eval \"\$(conda shell.bash hook)\"
         conda activate wf_env_storm
         echo \"Stage 2 Worker ${i}: Conda environment 'wf_env_storm' activated.\"
+
+        # --- Set Worker-Specific Environment ---
+        export CUDA_VISIBLE_DEVICES=${i} # Assign specific GPU based on loop index
+        export WORKER_RANK=${i}          # Export rank for Python script - MUST be inside the subshell
+        
+        # Note: PYTHONPATH and WANDB_DIR are inherited via export from parent script
 
         echo \"Stage 2 Worker ${i}: Running python script with WORKER_RANK=\${WORKER_RANK}...\"
         echo \"Stage 2 Worker ${i}: Loading from Stage 1 study: ${STAGE1_STUDY_NAME}\"
