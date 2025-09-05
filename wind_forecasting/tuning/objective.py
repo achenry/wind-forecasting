@@ -403,11 +403,11 @@ class MLTuningObjective:
             estimator_kwargs["use_pytorch_dataloader"] = self.config["dataset"]["use_pytorch_dataloader"]
             logging.info(f"Trial {trial.number}: Setting use_pytorch_dataloader={self.config['dataset']['use_pytorch_dataloader']} from config")
 
-        # Get the metric key from config - use total NLL for TACTiS
+        # Get the metric key from config - use val_loss for TACTiS (available in evaluation metrics)
         if self.model == 'tactis':
-            # For TACTiS, use total NLL which is consistent across both stages
-            metric_to_return = "val_total_nll"
-            logging.info(f"Trial {trial.number}: Using val_total_nll metric for TACTiS optimization")
+            # For TACTiS, use val_loss which is available in both training and evaluation phases
+            metric_to_return = "val_loss"
+            logging.info(f"Trial {trial.number}: Using val_loss metric for TACTiS optimization")
         else:
             # For other models, use traditional metric
             metric_to_return = self.config.get("trainer", {}).get("monitor_metric", "val_loss")
@@ -616,9 +616,9 @@ class MLTuningObjective:
                 logging.info(f"Rank {os.environ.get('WORKER_RANK', 'N/A')}: Finishing trial-specific W&B run '{current_run_name}' for trial {trial.number if 'trial' in locals() else 'unknown'}")
                 wandb.finish()
 
-        # Return metric to Optuna - use total NLL for TACTiS
+        # Return metric to Optuna - use val_loss for TACTiS (available in evaluation metrics)
         if self.model == 'tactis':
-            metric_to_return = "val_total_nll"
+            metric_to_return = "val_loss"
         else:
             metric_to_return = self.config.get("trainer", {}).get("monitor_metric", "val_loss")
         
