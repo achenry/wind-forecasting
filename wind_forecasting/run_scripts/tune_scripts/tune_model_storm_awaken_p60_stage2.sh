@@ -16,7 +16,7 @@
 
 # --- CRITICAL: Stage 1 Study Name ---
 # YOU MUST SET THIS BEFORE RUNNING!
-# Example: export STAGE1_STUDY_NAME="tune_awaken_tactis_pred60_stage1_marginals_2025_01_05"
+# Example: export STAGE1_STUDY_NAME="tuning_tactis_tune_awaken_tactis_pred60_stage1"
 if [ -z "$STAGE1_STUDY_NAME" ]; then
     echo "ERROR: STAGE1_STUDY_NAME environment variable is not set!"
     echo "Please set it to the Stage 1 study name from the logs, e.g.:"

@@ -1,7 +1,7 @@
 experiment:
   username: jmb0507
-  project_name: train_awaken_storm_2
-  run_name: tune_awaken_tactis_pred60_stage1_marginals
+  project_name: train_awaken_storm_split_pred60
+  run_name: tune_awaken_tactis_pred60_stage1
   project_root: /user/taed7566/Forecasting/wind-forecasting
   log_dir: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/
   notes: "Stage 1 tuning for AWAKEN with TACTiS - marginals only (skip_copula=true)"

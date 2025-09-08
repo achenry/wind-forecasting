@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Stage 1 Monitoring Script
-JOB_ID=11614066
+JOB_ID=11616516
 LOG_DIR="/dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/slurm_logs"
 
 echo "============================================"

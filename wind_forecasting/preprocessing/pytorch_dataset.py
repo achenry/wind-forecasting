@@ -124,7 +124,30 @@ class WindForecastingDataset(IterableDataset):
         
         for entry in self.data:
             
-            sampled_indices = self.sampler(entry['target'])[:, :, self.skip_indices]
+            # Get sampled indices from the sampler
+            if self.sampler is not None:
+                # GluonTS samplers work on 1D arrays (time dimension)
+                # They return a 1D array of sampled time indices
+                target = entry['target']  # Shape: (num_series, time_steps)
+                _, ts_length = target.shape
+                
+                # The sampler needs the time series length, not the actual data
+                # Create a dummy 1D target for the sampler
+                dummy_target = np.zeros(ts_length)
+                sampled_indices = self.sampler(dummy_target)
+                
+                # Apply skip_indices if needed
+                if self.skip_indices > 1:
+                    sampled_indices = sampled_indices[::self.skip_indices]
+            else:
+                # If no sampler, use all valid time points
+                target = entry['target']
+                _, ts_length = target.shape
+                min_time = self.context_length
+                max_time = ts_length - self.prediction_length
+                if max_time < min_time:
+                    continue
+                sampled_indices = np.arange(min_time, max_time + 1, self.skip_indices)
             
             if len(sampled_indices) == 0:
                 continue
