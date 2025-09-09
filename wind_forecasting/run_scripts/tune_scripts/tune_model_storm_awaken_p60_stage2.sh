@@ -2,10 +2,10 @@
 
 #SBATCH --partition=all_gpu.p          # Partition for H100/A100 GPUs
 #SBATCH --nodes=1
-#SBATCH --ntasks-per-node=4         # Match number of GPUs requested below
-#SBATCH --cpus-per-task=2           # CPUs per task (reduced from 8)
-#SBATCH --mem-per-cpu=4096          # Memory per CPU (reduced from 8016)
-#SBATCH --gres=gpu:4                # Request 3 GPUs
+#SBATCH --ntasks-per-node=1         # Match number of GPUs requested below
+#SBATCH --cpus-per-task=4           # CPUs per task (reduced from 8)
+#SBATCH --mem-per-cpu=8192          # Memory per CPU (reduced from 8016)
+#SBATCH --gres=gpu:1                # Request 3 GPUs
 #SBATCH --time=1-00:00              # Time limit
 #SBATCH --job-name=60awaken_tune_tactis_stage2
 #SBATCH --output=/dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/slurm_logs/awaken_tune_tactis60_stage2_%j.out
@@ -16,7 +16,7 @@
 
 # --- CRITICAL: Stage 1 Study Name ---
 # YOU MUST SET THIS BEFORE RUNNING!
-# Example: export STAGE1_STUDY_NAME="tuning_tactis_tune_awaken_tactis_pred60_stage1"
+export STAGE1_STUDY_NAME="tuning_tactis_tune_awaken_tactis_pred60_stage1"
 if [ -z "$STAGE1_STUDY_NAME" ]; then
     echo "ERROR: STAGE1_STUDY_NAME environment variable is not set!"
     echo "Please set it to the Stage 1 study name from the logs, e.g.:"
@@ -151,6 +151,29 @@ echo "Setting PostgreSQL environment variables..."
 export PGPASSWORD="${LOCAL_PG_PASSWORD}"
 
 # --- End Main Environment Setup ---
+
+# --- Clean Previous Stage 2 Sampler/Pruner State ---
+echo "=== CLEANING PREVIOUS STAGE 2 SAMPLER STATE ==="
+OPTUNA_PICKLES_DIR="${OUTPUT_DIR}/optuna/pickles"
+STAGE2_SAMPLER_FILE="${OPTUNA_PICKLES_DIR}/tuning_tactis_tune_awaken_tactis_pred60_stage2_sampler.pkl"
+STAGE2_PRUNER_FILE="${OPTUNA_PICKLES_DIR}/tuning_tactis_tune_awaken_tactis_pred60_stage2_pruner.pkl"
+
+if [ -f "${STAGE2_SAMPLER_FILE}" ]; then
+    echo "Removing previous Stage 2 sampler file: ${STAGE2_SAMPLER_FILE}"
+    rm -f "${STAGE2_SAMPLER_FILE}"
+else
+    echo "No previous Stage 2 sampler file found (this is normal for first run)"
+fi
+
+if [ -f "${STAGE2_PRUNER_FILE}" ]; then
+    echo "Removing previous Stage 2 pruner file: ${STAGE2_PRUNER_FILE}"
+    rm -f "${STAGE2_PRUNER_FILE}"
+else
+    echo "No previous Stage 2 pruner file found (this is normal for first run)"
+fi
+
+echo "Stage 2 sampler/pruner cleanup complete. Fresh random sampler will be used."
+echo "========================================================="
 
 echo "=== STARTING STAGE 2 PARALLEL OPTUNA TUNING WORKERS ==="
 date +"%Y-%m-%d %H:%M:%S"

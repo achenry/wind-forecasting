@@ -125,23 +125,44 @@ class MLTuningObjective:
             
             best_trial = min(completed_trials, key=lambda t: t.value if t.value else float('inf'))
             
-            # Find checkpoint path - look for trial-specific checkpoints
+            # Find checkpoint path using actual save structure: {model}{chkp_dir_suffix}/trial_X/
             checkpoint_base = self.config["logging"]["checkpoint_dir"]
-            project_name = self.config["experiment"]["project_name"]
             
-            # Pattern: logs/project/run_id/checkpoints/suffix/trial_X/*.ckpt
+            # Derive Stage 1 checkpoint suffix from Stage 2 suffix
+            stage2_suffix = self.config["logging"]["chkp_dir_suffix"]  # e.g., "_60_stage2"
+            stage1_suffix = stage2_suffix.replace("stage2", "stage1")  # e.g., "_60_stage1"
+            
+            # Pattern: checkpoints/{model}{stage1_suffix}/trial_X/*.ckpt (matches actual save structure)
             checkpoint_patterns = [
-                os.path.join(checkpoint_base, project_name, f"*{self.stage1_study_name}*/checkpoints/*stage1*/trial_{best_trial.number}/*.ckpt"),
-                os.path.join(checkpoint_base, project_name, f"*{self.stage1_study_name}*/checkpoints/*_60/trial_{best_trial.number}/*.ckpt"),
-                os.path.join(checkpoint_base, project_name, f"*{self.stage1_study_name}*/checkpoints/trial_{best_trial.number}/*.ckpt"),
+                os.path.join(checkpoint_base, f"{self.model}{stage1_suffix}/trial_{best_trial.number}/*.ckpt"),
+                os.path.join(checkpoint_base, f"*{stage1_suffix}/trial_{best_trial.number}/*.ckpt"),
             ]
             
             checkpoint_path = None
             for pattern in checkpoint_patterns:
                 checkpoints = glob.glob(pattern)
                 if checkpoints:
-                    # Sort by modification time and get the latest
-                    checkpoint_path = max(checkpoints, key=os.path.getmtime)
+                    # Prefer checkpoint with best validation loss matching the trial value
+                    best_checkpoint = None
+                    for ckpt in checkpoints:
+                        # Look for checkpoint filename containing val_loss that matches trial value
+                        if "val_loss=" in ckpt and best_trial.value is not None:
+                            try:
+                                # Extract val_loss from filename (e.g., "val_loss=-26.42")
+                                val_loss_str = ckpt.split("val_loss=")[1].split(".ckpt")[0]
+                                val_loss = float(val_loss_str)
+                                # Match within reasonable tolerance (0.1)
+                                if abs(val_loss - best_trial.value) < 0.1:
+                                    best_checkpoint = ckpt
+                                    break
+                            except (IndexError, ValueError):
+                                continue
+                    
+                    # If no val_loss match found, use the most recent checkpoint
+                    if not best_checkpoint:
+                        best_checkpoint = max(checkpoints, key=os.path.getmtime)
+                    
+                    checkpoint_path = best_checkpoint
                     break
             
             if checkpoint_path:
