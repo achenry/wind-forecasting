@@ -1,0 +1,246 @@
+experiment:
+  username: jmb0507
+  project_name: train_awaken_storm_pred60
+  run_name: train_awaken_tactis_pred60_unified
+  project_root: /user/taed7566/Forecasting/wind-forecasting
+  log_dir: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/
+  notes: "Unified training for AWAKEN with TACTiS p60 - both stages in one job using trial 122 hyperparameters"
+  extra_tags: ["train", "tactis", "unified", "pred60", "ctx600", "awaken", "trial122"]
+
+logging:
+  entity: jmb0507-cu-boulder # Wandb entity (group name)
+  wandb_mode: online
+  save_code: false # Do not save code to W&B
+  wandb_dir: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs # Let WandB create the 'wandb' subdir here
+  optuna_dir: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/optuna
+  checkpoint_dir: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/checkpoints
+  chkp_dir_suffix: "_60"
+  slurm_output_dir: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/slurm_logs
+
+optuna:
+  save_trial_code: false      # Default false
+  n_trials_per_worker: 50   # Not used in training mode
+  total_study_trials: 200     # Not used in training mode
+  max_epochs: 100              # Total epochs for unified training
+  sampler: "random"           # Not used in training mode
+  sampler_params:
+    tpe:
+      n_startup_trials: 8
+      multivariate: true
+      constant_liar: true
+      group: false
+  base_limit_train_batches: 25000    # Random sample 25k training examples per epoch (~23% coverage)
+  metric: "val_loss"          # The metric to optimize (NLL)
+  direction: "minimize"       # Whether to minimize or maximize the metric
+
+  resample_freq_choices: [15, 30, 45, 60] # Resample frequency in seconds
+  
+  # Pruning configuration (not used in training)
+  pruning:
+    enabled: false
+
+  # Optuna visualization configuration (not used in training)
+  visualization:
+    enabled: false
+
+  # Storage backend configuration (not used in training)
+  storage:
+    backend: "postgresql"
+    use_tcp: true
+    use_socket: false
+    db_host: "pg-windforecasting-aiven-wind-forecasting.e.aivencloud.com"
+    db_port: 12472
+    db_name: "optuna"
+    db_user: "avnadmin"
+    db_password_env_var: "AIVEN_PG_PASSWORD"
+    sslmode: "require"
+    sslrootcert_path: "config/certs/aiven_pg_ca.pem"
+
+  # Optuna Dashboard auto-launch configuration
+  dashboard:
+    enabled: false
+
+dataset:
+    sampler: "random"    # Use random sampling for better temporal coverage
+    data_path: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/DATA/preprocessed_awaken_data/awaken_processed_normalized.parquet
+    normalization_consts_path:  /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/DATA/preprocessed_awaken_data/awaken_processed_normalization_consts.csv
+    context_length: 600 # in seconds (10 minutes)
+    prediction_length: 60 # in seconds (1 minute)
+    target_turbine_ids: # or leave blank to capture all
+    normalize: true # Using normalized data with TACTiS-2's internal scaling 
+    batch_size: 64 # From trial 122
+    base_batch_size: 64  # Base batch size for scaling calculations
+    workers: 4 # Consider adjusting based on CPU cores per task
+    overfit: false
+    test_split: 0.20
+    val_split: 0.10
+    resample_freq: 30s
+    n_splits: 1 # how many divisions of each continuity group to make which is further subdivided into training test and validation data
+    per_turbine_target: true
+    use_pytorch_dataloader: true # Use PyTorch DataLoader for training and validation
+
+model:
+  distr_output: 
+    class: LowRankMultivariateNormalOutput
+    kwargs:
+      rank: 8
+
+  ############# MODEL-SPECIFIC PARAMETERS ##############
+  # [ TACTiS-2 ] - Optimized hyperparameters from trial 122
+  tactis:
+    # General TACTiS settings
+    initial_stage: 1
+    stage2_start_epoch: 50 # Epoch to start stage 2 (copula training) - 50/50 split for 100 epochs
+    input_encoding_normalization: true
+    scaling: "std"
+    loss_normalization: "both"
+    encoder_type: "standard"
+    bagging_size: null
+    num_parallel_samples: 200 # Inference only setting
+    lock_skip_copula: true  # Prevent automatic updates
+    
+    # Stage 1 & 2 Learning Rates (from trial 122)
+    lr_stage1: 3.6144144947637856e-06
+    lr_stage2: 8.342534333424264e-06
+    
+    # Weight Decay (from trial 122)
+    weight_decay_stage1: 0.0
+    weight_decay_stage2: 0.0
+    
+    # Dropout & Clipping (from trial 122)
+    dropout_rate: 0.005
+    gradient_clip_val_stage1: 0.0
+    gradient_clip_val_stage2: 1.0
+    
+    # Activation Functions (from trial 122)
+    stage1_activation_function: "relu"
+    stage2_activation_function: "relu"
+    
+    # Marginal CDF Encoder (from trial 122)
+    marginal_embedding_dim_per_head: 128
+    marginal_num_heads: 6
+    marginal_num_layers: 5
+    flow_input_encoder_layers: 3
+    flow_series_embedding_dim: 8
+    
+    # Attentional Copula Encoder (from trial 122)
+    copula_embedding_dim_per_head: 256
+    copula_num_heads: 5
+    copula_num_layers: 3
+    copula_input_encoder_layers: 3
+    copula_series_embedding_dim: 128
+    ac_mlp_num_layers: 5
+    ac_mlp_dim: 128
+    
+    # Decoder (from trial 122)
+    decoder_dsf_num_layers: 2
+    decoder_dsf_hidden_dim: 256
+    decoder_mlp_num_layers: 2
+    decoder_mlp_hidden_dim: 128
+    decoder_transformer_num_layers: 4
+    decoder_transformer_embedding_dim_per_head: 128
+    decoder_transformer_num_heads: 3
+    decoder_num_bins: 50
+    
+    # Learning Rate Scheduler for Stage 1 (adapted from trial 122 for 50 epochs)
+    warmup_steps_s1: 0.10 # Warmup as fraction of stage (10% of 50 epochs = 5 epochs)
+    steps_to_decay_s1: 0.90 # Cosine decay as fraction (90% of 50 epochs = 45 epochs)
+    eta_min_fraction_s1: 0.002398408254422984  # From trial 122
+    
+    # Learning Rate Scheduler for Stage 2 (adapted from trial 122 for 50 epochs)  
+    warmup_steps_s2: 0.10 # Warmup as fraction of stage (10% of 50 epochs = 5 epochs)
+    steps_to_decay_s2: 0.90 # Cosine decay as fraction (90% of 50 epochs = 45 epochs)
+    eta_min_fraction_s2: 0.00582622810691985  # From trial 122
+  
+  # [ Informer ]
+  informer:
+    # embedding_dimension: 32 # Determines dimension of the embedding space
+    num_encoder_layers: 2 # Number of transformer blocks stacked
+    num_decoder_layers: 1 # Number of transformer blocks stacked
+    n_heads: 8 # Number of heads for spatio-temporal attention
+    d_model: 512
+    dim_feedforward: 2048
+    activation: relu
+    warmup_steps: 50000 # Warmup steps
+    steps_to_decay: 50000 # T_max = (steps_per_epoch [282] * epochs_in_stage [30]) - warmup_steps
+    eta_min_fraction: 0.01  # Fraction of initial LR for eta_min cosine decay
+  autoformer:
+    # embedding_dimension: 32 # Determines dimension of the embedding space
+    num_encoder_layers: 2 # Number of transformer blocks stacked
+    num_decoder_layers: 1 # Number of transformer blocks stacked
+    n_heads: 8 # Number of heads for spatio-temporal attention
+    dim_feedforward: 2048
+    activation: gelu
+    warmup_steps: 50000 # Warmup steps
+    steps_to_decay: 50000 # T_max = (steps_per_epoch [282] * epochs_in_stage [30]) - warmup_steps
+    eta_min_fraction: 0.01  # Fraction of initial LR for eta_min cosine decay
+  spacetimeformer:
+    # embedding_dimension: 32 # Determines dimension of the embedding space
+    num_encoder_layers: 3 # Number of transformer blocks stacked
+    num_decoder_layers: 3 # Number of transformer blocks stacked
+    n_heads: 3 # Number of heads for spatio-temporal attention
+    d_model: 200
+    dim_feedforward: 800
+    d_queries_keys: 30
+    d_values: 30
+    dropout_emb: 0.2
+    dropout_attn_matrix: 0.0
+    dropout_attn_out: 0.0
+    dropout_ff: 0.3
+    dropout_qkv: 0.0
+    start_token_len: 0
+    performer_redraw_interval: 100
+    use_shifted_time_windows: False
+    # decay_factor: 0.25
+    # l2_coeff: 1e-6
+    # class_loss_imp: 0.1
+    pos_emb_type: abs
+    embed_method: spatio-temporal
+    activation: gelu
+    use_given: False
+    warmup_steps: 50000 # Warmup steps
+    steps_to_decay: 50000 # T_max = (steps_per_epoch [282] * epochs_in_stage [30]) - warmup_steps
+    eta_min_fraction: 0.01  # Fraction of initial LR for eta_min cosine decay
+########### END OF MODEL-SPECIFIC PARAMETERS ###########
+
+callbacks:
+    progress_bar:
+      class_path: lightning.pytorch.callbacks.TQDMProgressBar
+      init_args:
+        refresh_rate: 200  # every n steps
+        leave: false
+    # early_stopping:
+    #   class_path: lightning.pytorch.callbacks.EarlyStopping
+    #   init_args:
+    #     monitor: 'val_loss'
+    #     patience: 100 # Number of epochs to wait before stopping (val>epochs to disable)
+    #     min_delta: 0.01 # Minimum change to be considered an improvement
+    #     mode: 'min'
+    #     check_finite: true
+    model_checkpoint:
+      class_path: lightning.pytorch.callbacks.ModelCheckpoint
+      init_args:
+        dirpath: ${logging.checkpoint_dir}
+        filename: '{epoch}-{step}-{val_loss:.2f}'
+        monitor: 'val_loss'
+        mode: 'min'
+        save_top_k: 1
+        save_last: true
+        verbose: true
+    lr_monitor: # Log learning rate
+      class_path: lightning.pytorch.callbacks.LearningRateMonitor
+      init_args:
+        logging_interval: step # Log every step/epoch
+        log_momentum: false
+    dead_neuron_monitor:
+      enabled: false
+
+trainer:
+    val_check_interval: 1.0
+    accelerator: gpu
+    devices: auto
+    num_nodes: 1
+    strategy: ddp
+    max_epochs: 100 # Maximum number of epochs to train - 50 Stage 1 + 50 Stage 2
+    limit_train_batches: null # Use full dataset instead of 5000 batch limit
+    log_every_n_steps: 100

@@ -1,0 +1,136 @@
+#!/bin/bash
+
+#SBATCH --partition=cfdg.p          # Partition for H100/A100 GPUs cfdg.p / all_gpu.p / mpcg.p(not allowed)
+#SBATCH --nodes=1
+#SBATCH --ntasks-per-node=4         # Match number of GPUs requested below (for DDP training)
+#SBATCH --cpus-per-task=8           # CPUs per task (adjust if needed for data loading)
+#SBATCH --mem-per-cpu=8192          # Memory per CPU
+#SBATCH --gres=gpu:4
+#SBATCH --time=5-00:00              # Time limit (5 days for full 100-epoch training)
+#SBATCH --job-name=awaken_train_tactis_p60      # Updated job name for p60
+#SBATCH --output=/dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/slurm_logs/awaken_train_tactis_p60_%j.out # Updated output log path
+#SBATCH --error=/dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/slurm_logs/awaken_train_tactis_p60_%j.err  # Updated error log path
+#SBATCH --hint=nomultithread        # Disable hyperthreading
+#SBATCH --distribution=block:block  # Improve GPU-CPU affinity
+#SBATCH --gres-flags=enforce-binding # Enforce binding of GPUs to tasks
+
+# --- Base Directories ---
+BASE_DIR="/user/taed7566/Forecasting/wind-forecasting" # Absolute path to the base directory
+OUTPUT_DIR="/dss/work/taed7566/Forecasting_Outputs/wind-forecasting"
+export WORK_DIR="${BASE_DIR}/wind_forecasting"
+export LOG_DIR="${OUTPUT_DIR}/logs"
+export CONFIG_FILE="${BASE_DIR}/config/training/training_inputs_juan_awaken_train_storm_pred60.yaml"
+export MODEL_NAME="tactis"
+export RESTART_TUNING_FLAG="" # "" Or "--restart_tuning"
+export AUTO_EXIT_WHEN_DONE="true"  # Set to "true" to exit script when all workers finish, "false" to keep running until timeout
+export NUMEXPR_MAX_THREADS=128
+# export NCCL_DEBUG=INFO # Enable verbose logging for the NCCL backend for debugging
+
+# --- Create Logging Directories ---
+# Create the main SLURM log directory if it doesn't exist
+mkdir -p ${LOG_DIR}/slurm_logs
+mkdir -p ${LOG_DIR}/checkpoints
+
+# --- Change to Working Directory ---
+cd ${WORK_DIR} || exit 1 # Exit if cd fails
+
+# --- Set Shared Environment Variables ---
+export PYTHONPATH=${WORK_DIR}:${PYTHONPATH}
+export WANDB_DIR=${LOG_DIR} # WandB will create a 'wandb' subdirectory here automatically
+
+# --- Print Job Info ---
+echo "--- SLURM JOB INFO (P60 Unified Training) ---"
+echo "JOB ID: ${SLURM_JOB_ID}"
+echo "JOB NAME: ${SLURM_JOB_NAME}"
+echo "PARTITION: ${SLURM_JOB_PARTITION}"
+echo "NODE LIST: ${SLURM_JOB_NODELIST}"
+echo "NUM NODES: ${SLURM_JOB_NUM_NODES}"
+echo "NUM TASKS PER NODE (GPUs for DDP): ${SLURM_NTASKS_PER_NODE}"
+echo "CPUS PER TASK: ${SLURM_CPUS_PER_TASK}"
+GPU_TYPE=$(nvidia-smi --query-gpu=name --format=csv,noheader | uniq)
+echo "GPU TYPE: ${GPU_TYPE}"
+echo "------------------------"
+echo "BASE_DIR: ${BASE_DIR}"
+echo "WORK_DIR: ${WORK_DIR}"
+echo "LOG_DIR: ${LOG_DIR}"
+echo "CONFIG_FILE: ${CONFIG_FILE}"
+echo "MODEL_NAME: ${MODEL_NAME}"
+echo "------------------------"
+echo "P60 UNIFIED TRAINING CONFIGURATION:"
+echo "  - Prediction length: 60s"
+echo "  - Context length: 600s" 
+echo "  - Total epochs: 100 (50 Stage 1 + 50 Stage 2)"
+echo "  - Stage transition: epoch 50"
+echo "  - Using trial 122 optimized hyperparameters"
+echo "  - Random sampling: 25,000 batches/epoch (~23% dataset coverage)"
+echo "  - Expected time: ~3.5 hours per epoch, ~14.5 days total"
+echo "------------------------"
+
+# --- Setup Main Environment ---
+echo "Setting up main environment..."
+module purge
+module load slurm/hpc-2023/23.02.7
+module load hpc-env/13.1
+module load Mamba/24.3.0-0
+module load CUDA/12.4.0
+module load git
+echo "Modules loaded."
+
+eval "$(conda shell.bash hook)"
+conda activate wf_env_storm
+echo "Conda environment 'wf_env_storm' activated."
+export CAPTURED_LD_LIBRARY_PATH=$LD_LIBRARY_PATH
+export CUDA_VISIBLE_DEVICES=$SLURM_JOB_GPUS
+echo "CUDA_VISIBLE_DEVICES set to: $CUDA_VISIBLE_DEVICES"
+
+# --- End Main Environment Setup ---
+
+echo "=== STARTING P60 UNIFIED MODEL TRAINING ==="
+echo "Training both Stage 1 (marginals) and Stage 2 (copula) in single job"
+date +"%Y-%m-%d %H:%M:%S"
+
+# Use srun to launch the training script. PyTorch Lightning's SLURMEnvironment
+# should detect the environment variables set by srun for distributed training (DDP).
+# The hyperparameters are now in the unified config file based on trial 122
+
+srun python ${WORK_DIR}/run_scripts/run_model.py \
+  --config ${CONFIG_FILE} \
+  --model ${MODEL_NAME} \
+  --mode train \
+  --seed 666
+
+TRAIN_EXIT_CODE=$?
+
+echo "=== P60 UNIFIED TRAINING SCRIPT FINISHED WITH EXIT CODE: ${TRAIN_EXIT_CODE} ==="
+date +"%Y-%m-%d %H:%M:%S"
+
+if [ $TRAIN_EXIT_CODE -eq 0 ]; then
+    echo "SUCCESS: P60 unified training completed successfully!"
+    echo ""
+    echo "Training Summary:"
+    echo "  - Completed both Stage 1 (marginals) and Stage 2 (copula) training"
+    echo "  - Total epochs: 100 (50 + 50)"
+    echo "  - Used trial 122 optimized hyperparameters"
+    echo "  - Random sampling: 25,000 batches/epoch (~23% coverage)"
+    echo "  - Prediction length: 60s, Context length: 600s"
+    echo ""
+    echo "Next steps:"
+    echo "  1. Check final validation loss in WandB"
+    echo "  2. Checkpoint saved in: ${OUTPUT_DIR}/checkpoints/tactis_60/"
+    echo "  3. Use this model for inference or further validation"
+else
+    echo "ERROR: Training failed with exit code ${TRAIN_EXIT_CODE}"
+    echo "Check the SLURM error log: ${LOG_DIR}/slurm_logs/awaken_train_tactis_p60_${SLURM_JOB_ID}.err"
+fi
+
+# --- Move main SLURM logs if needed (optional, SLURM might handle this) ---
+# Consider if you want to move the main .out/.err files after completion
+# mkdir -p "${LOG_DIR}/slurm_logs/${SLURM_JOB_ID}"
+# mv "${LOG_DIR}/slurm_logs/awaken_train_tactis_p60_${SLURM_JOB_ID}.out" "${LOG_DIR}/slurm_logs/${SLURM_JOB_ID}/" 2>/dev/null
+# mv "${LOG_DIR}/slurm_logs/awaken_train_tactis_p60_${SLURM_JOB_ID}.err" "${LOG_DIR}/slurm_logs/${SLURM_JOB_ID}/" 2>/dev/null
+# echo "--------------------------------------------------"
+
+exit $TRAIN_EXIT_CODE
+
+# Example usage:
+# sbatch wind-forecasting/wind_forecasting/run_scripts/train_scripts/train_awaken_storm_p60.sh

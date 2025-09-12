@@ -153,26 +153,31 @@ export PGPASSWORD="${LOCAL_PG_PASSWORD}"
 # --- End Main Environment Setup ---
 
 # --- Clean Previous Stage 2 Sampler/Pruner State ---
+# NOTE: If you get 'IntersectionSearchSpace' errors, manually delete these files:
+#   rm -f /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/optuna/pickles/tuning_tactis_tune_awaken_tactis_pred60_stage2_sampler.pkl
+#   rm -f /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/optuna/pickles/tuning_tactis_tune_awaken_tactis_pred60_stage2_pruner.pkl
 echo "=== CLEANING PREVIOUS STAGE 2 SAMPLER STATE ==="
 OPTUNA_PICKLES_DIR="${OUTPUT_DIR}/optuna/pickles"
 STAGE2_SAMPLER_FILE="${OPTUNA_PICKLES_DIR}/tuning_tactis_tune_awaken_tactis_pred60_stage2_sampler.pkl"
 STAGE2_PRUNER_FILE="${OPTUNA_PICKLES_DIR}/tuning_tactis_tune_awaken_tactis_pred60_stage2_pruner.pkl"
 
 if [ -f "${STAGE2_SAMPLER_FILE}" ]; then
-    echo "Removing previous Stage 2 sampler file: ${STAGE2_SAMPLER_FILE}"
-    rm -f "${STAGE2_SAMPLER_FILE}"
+    echo "Found existing Stage 2 sampler file: ${STAGE2_SAMPLER_FILE}"
+    echo "Preserving TPE learning from previous Stage 2 runs"
+    # rm -f "${STAGE2_SAMPLER_FILE}"  # Commented out - preserves TPE learning
 else
     echo "No previous Stage 2 sampler file found (this is normal for first run)"
 fi
 
 if [ -f "${STAGE2_PRUNER_FILE}" ]; then
-    echo "Removing previous Stage 2 pruner file: ${STAGE2_PRUNER_FILE}"
-    rm -f "${STAGE2_PRUNER_FILE}"
+    echo "Found existing Stage 2 pruner file: ${STAGE2_PRUNER_FILE}"
+    echo "Preserving pruner state from previous Stage 2 runs"
+    # rm -f "${STAGE2_PRUNER_FILE}"  # Commented out - preserves pruner state
 else
     echo "No previous Stage 2 pruner file found (this is normal for first run)"
 fi
 
-echo "Stage 2 sampler/pruner cleanup complete. Fresh random sampler will be used."
+echo "Stage 2 sampler/pruner state preserved. TPE will continue learning from previous trials."
 echo "========================================================="
 
 echo "=== STARTING STAGE 2 PARALLEL OPTUNA TUNING WORKERS ==="
