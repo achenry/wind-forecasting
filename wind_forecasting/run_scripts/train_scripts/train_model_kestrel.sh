@@ -1,12 +1,12 @@
 #!/bin/bash 
 #SBATCH --account=awaken
-#SBATCH --output=%j-%x-2gpu3cpu.out
-#SBATCH --time=04:00:00
-#SBATCH --cpus-per-task=3 # 2-5 is usually good
+#SBATCH --output=%j-%x-4gpu8cpu_test.out
+#SBATCH --time=48:00:00
+#SBATCH --cpus-per-task=8 # 2-5 is usually good
 #SBATCH --nodes=1 # this needs to match Trainer(num_nodes...)
-#SBATCH --gres=gpu:2
-#SBATCH --ntasks-per-node=2 # this needs to match Trainer(devices=...), and number of GPUs
-#SBATCH --mem-per-cpu=8192
+#SBATCH --gres=gpu:4
+#SBATCH --ntasks-per-node=4 # this needs to match Trainer(devices=...), and number of GPUs
+#SBATCH --mem=80G #8192
 
 ##SBATCH --partition=debug
 ##SBATCH --time=01:00:00
@@ -45,10 +45,11 @@ echo "SLURM_JOB_GRES=${SLURM_JOB_GRES}"
 ulimit -n 65535
 echo "Open file limit is now: $(ulimit -n)"
 
-srun python ../run_model.py --config $MODEL_CONFIG_FILE --mode train --model $MODEL --use_tuned_parameters \
+# trainer.limit_val_batches=100 \
+srun bash -c "LINE_PROFILE=0 python ../run_model.py --config $MODEL_CONFIG_FILE --mode train --model $MODEL --use_tuned_parameters --checkpoint latest \
                             --override dataset.context_length_factor=10 \
                                        dataset.sampler=sequential \
-                                       trainer.max_epochs=40 \
+                                       trainer.max_epochs=100 \
                                        trainer.limit_train_batches=null \
                                        trainer.val_check_interval=1.0 \
-                                       dataset.batch_size=1024
+                                       dataset.batch_size=512"
