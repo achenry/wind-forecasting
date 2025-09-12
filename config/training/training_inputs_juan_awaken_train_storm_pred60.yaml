@@ -97,7 +97,7 @@ model:
     encoder_type: "standard"
     bagging_size: null
     num_parallel_samples: 200 # Inference only setting
-    lock_skip_copula: true  # Prevent automatic updates
+    lock_skip_copula: false  # Allow automatic stage switching for unified training
     
     # Stage 1 & 2 Learning Rates (from trial 122)
     lr_stage1: 3.6144144947637856e-06

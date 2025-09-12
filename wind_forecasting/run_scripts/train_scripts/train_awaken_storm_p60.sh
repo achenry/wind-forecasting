@@ -5,8 +5,8 @@
 #SBATCH --ntasks-per-node=4         # Match number of GPUs requested below (for DDP training)
 #SBATCH --cpus-per-task=8           # CPUs per task (adjust if needed for data loading)
 #SBATCH --mem-per-cpu=8192          # Memory per CPU
-#SBATCH --gres=gpu:4
-#SBATCH --time=5-00:00              # Time limit (5 days for full 100-epoch training)
+#SBATCH --gres=gpu:H100:4
+#SBATCH --time=7-00:00              # Time limit (5 days for full 100-epoch training)
 #SBATCH --job-name=awaken_train_tactis_p60      # Updated job name for p60
 #SBATCH --output=/dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/slurm_logs/awaken_train_tactis_p60_%j.out # Updated output log path
 #SBATCH --error=/dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/slurm_logs/awaken_train_tactis_p60_%j.err  # Updated error log path
