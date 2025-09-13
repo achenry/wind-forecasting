@@ -876,7 +876,12 @@ def main():
         
         # TODO JUAN PATCH
         estimator_kwargs["num_batches_per_epoch"] = n_training_steps
-            
+
+        # FIX: TACTiS estimator expects 'true_num_batches_per_epoch' parameter name
+        if args.model == 'tactis':
+            estimator_kwargs["true_num_batches_per_epoch"] = n_training_steps
+            logging.info(f"TACTiS: Setting true_num_batches_per_epoch={n_training_steps} (will be adjusted internally for DDP)")
+
         # Log warning if using random sampler with null limit_train_batches
         if (config["dataset"].get("sampler", "sequential") == "random" and
             estimator_kwargs["num_batches_per_epoch"] is None):
