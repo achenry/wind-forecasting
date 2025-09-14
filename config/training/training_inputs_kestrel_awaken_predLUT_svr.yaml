@@ -10,25 +10,26 @@ experiment:
 logging:
   entity: jmb0507-cu-boulder # Wandb entity (group name)
   wandb_mode: online
-  save_code: true # Save code to wandb
+  save_code: false # Save code to wandb
   wandb_dir: /projects/ssc/ahenry/wind_forecasting/logging/ # WandB will create a 'wandb' subdirectory here automatically
   optuna_dir: /projects/ssc/ahenry/wind_forecasting/logging/optuna/
   checkpoint_dir: /projects/ssc/ahenry/wind_forecasting/logging/checkpoints/
+  chkp_dir_suffix: "_60"
   slurm_output_dir: /projects/ssc/ahenry/wind_forecasting/logging/slurm_logs/
 
 optuna:
   save_trial_code: false      # Default false
   n_trials_per_worker: 100     # Test a total of 4*12=48 trials
-  total_study_trials:
-  max_epochs: 10              # epochs per trial
+  total_study_trials: 200
+  max_epochs: 25              # epochs per trial
   sampler: "random"           # Options: "random" (ExpectedNumInstanceSampler), "sequential" (SequentialSampler)
   sampler_params:
     tpe:
-      n_startup_trials: 16
+      n_startup_trials: 8
       multivariate: true
       constant_liar: true
       group: false
-  limit_train_batches: 5000    # batches per epoch - INFO: For "random" sampler, use explicit integer value
+  base_limit_train_batches: 5000    # batches per epoch - INFO: For "random" sampler, use explicit integer value
   metric: "val_loss"          # The metric to optimize (NLL)
   direction: "minimize"  
 
@@ -37,14 +38,18 @@ optuna:
   # Pruning configuration
   pruning:
     enabled: true
-    type: "patient"
-    patience: 2               # Configure PatientPruner: number of steps to wait (epochs) before pruning
-    min_delta: 0.0            # Configure PatientPruner: tolerance for improvement (default 0.0)
-    wrapped_pruner:
-      type: "percentile"      # Set the wrapped pruner type
-      percentile: 50.0        # Configure PercentilePruner: prune trials below this percentile
-      n_startup_trials: 4     # Configure PercentilePruner: wait for this many trials before pruning
-      n_warmup_steps: 4      # Configure PercentilePruner: wait for this many steps (epochs) before pruning
+    type: "successivehalving"
+    min_resource: 5
+    reduction_factor: 2
+    min_early_stopping_rate: 0
+    bootstrap_count: 5
+    # patience: 2               # Configure PatientPruner: number of steps to wait (epochs) before pruning
+    # min_delta: 0.0            # Configure PatientPruner: tolerance for improvement (default 0.0)
+    # wrapped_pruner:
+    #   type: "percentile"      # Set the wrapped pruner type
+    #   percentile: 50.0        # Configure PercentilePruner: prune trials below this percentile
+    #   n_startup_trials: 4     # Configure PercentilePruner: wait for this many trials before pruning
+    #   n_warmup_steps: 4      # Configure PercentilePruner: wait for this many steps (epochs) before pruning
     # type: "hyperband"
       # type: "successivehalving"
       # min_resource: 8             # Applies to SuccessiveHalving and Hyperband
@@ -97,9 +102,9 @@ dataset:
     target_turbine_ids: # or leave blank to capture all
     normalize: True 
     batch_size: 128
-    workers: 12
-    overfit: False
-    test_split: 0.20
+    workers: 4
+    overfit: false
+    test_split: 0.10
     val_split: 0.1
     resample_freq: 15s
     n_splits: 1 # how many divisions of each continuity group to make which is further subdivided into training test and validation data

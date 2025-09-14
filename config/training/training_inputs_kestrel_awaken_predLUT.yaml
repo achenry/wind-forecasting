@@ -10,17 +10,18 @@ experiment:
 logging:
   entity: jmb0507-cu-boulder # Wandb entity (group name)
   wandb_mode: online
-  save_code: true # Save code to wandb
+  save_code: false # Save code to wandb
   wandb_dir: /projects/ssc/ahenry/wind_forecasting/logging/ # WandB will create a 'wandb' subdirectory here automatically
   optuna_dir: /projects/ssc/ahenry/wind_forecasting/logging/optuna/
   checkpoint_dir: /projects/ssc/ahenry/wind_forecasting/logging/checkpoints/
+  chkp_dir_suffix: "_60"
   slurm_output_dir: /projects/ssc/ahenry/wind_forecasting/logging/slurm_logs/
 
 optuna:
   save_trial_code: false      # Default false
-  n_trials_per_worker: 50   # Replaced by total_study_trials for global trial limit
+  n_trials_per_worker: 100   # Replaced by total_study_trials for global trial limit
   total_study_trials: 200     # Global maximum number of trials across all workers, takes precedence over n_trials_per_worker
-  max_epochs: 40              # epochs per trial
+  max_epochs: 25              # epochs per trial
   sampler: "random"           # Options: "random" (ExpectedNumInstanceSampler), "sequential" (SequentialSampler)
   sampler_params:
     tpe:
@@ -38,10 +39,10 @@ optuna:
   pruning:
     enabled: true
     type: "successivehalving"
-    min_resource: 12
+    min_resource: 5
     reduction_factor: 2
     min_early_stopping_rate: 0
-    bootstrap_count: 8
+    bootstrap_count: 5
     # enabled: true
     # type: "patient"
     # patience: 2               # Configure PatientPruner: number of steps to wait (epochs) before pruning
@@ -104,8 +105,8 @@ dataset:
     normalize: True 
     batch_size: 128
     base_batch_size: 128  # Base batch size for scaling calculations
-    workers: 12
-    overfit: False
+    workers: 4
+    overfit: false
     test_split: 0.1
     val_split: 0.1
     resample_freq: 15s
