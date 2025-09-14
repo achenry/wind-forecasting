@@ -910,6 +910,7 @@ def main():
             elif sampler_type == "sequential":
                 estimator_kwargs["true_num_batches_per_epoch"] = n_training_steps
         else:
+            logging.warning(f"true_num_batches_per_epoch is set to {estimator_kwargs['num_batches_per_epoch']}")
             n_training_steps = min(n_training_steps, estimator_kwargs["num_batches_per_epoch"])
             estimator_kwargs["true_num_batches_per_epoch"] = n_training_steps #estimator_kwargs["num_batches_per_epoch"]
         
