@@ -12,7 +12,8 @@ import torch
 import gc
 import inspect
 import numpy as np
-import pandas as pd
+import polars as pl
+
 import wandb
 from lightning.pytorch.loggers import WandbLogger
 import optuna
@@ -361,15 +362,17 @@ class MLTuningObjective:
         logging.info(f"  - trainer limit_train_batches: {trial_trainer_kwargs.get('limit_train_batches', 'NOT SET')}")
         logging.info(f"  - Expected total batches: {trial_trainer_kwargs.get('max_epochs', 0) * estimator_kwargs['num_batches_per_epoch']}")
         
-        # Calculate actual number of training samples TODO this will not work with expectednumsampler...
-        n_training_samples = 0
-        for ds in self.data_module.train_dataset:
-            a, b = estimator_kwargs["train_sampler"]._get_bounds(ds["target"])
-            n_training_samples += (b - a + 1)
-        actual_batches = np.ceil(n_training_samples / estimator_kwargs['batch_size']).astype(int)
-        logging.info(f"  - Total training samples: {n_training_samples}")
-        logging.info(f"  - Actual batches from data: {actual_batches}")
-        logging.info(f"  - DataLoader will provide: min({actual_batches}, {estimator_kwargs['num_batches_per_epoch']}) = {min(actual_batches, estimator_kwargs['num_batches_per_epoch'])} batches/epoch")
+        # Calculate actual number of training samples TODO this only works with SequentialSampler
+        # n_training_samples = 0
+        # # for ds in self.data_module.train_dataset:
+        # for target_len in self.data_module.train_dataset.group_by("item_id").agg(pl.len())["len"]:
+        #     # a, b = estimator_kwargs["train_sampler"]._get_bounds(ds["target"])
+        #     a, b = estimator_kwargs["train_sampler"]._get_bounds(np.zeros((1, target_len)))
+        #     n_training_samples += (b - a + 1)
+        # actual_batches = np.ceil(n_training_samples / estimator_kwargs['batch_size']).astype(int)
+        # logging.info(f"  - Total training samples: {n_training_samples}")
+        # logging.info(f"  - Actual batches from data: {actual_batches}")
+        # logging.info(f"  - DataLoader will provide: min({actual_batches}, {estimator_kwargs['num_batches_per_epoch']}) = {min(actual_batches, estimator_kwargs['num_batches_per_epoch'])} batches/epoch")
         
         # CRITICAL: Check if we're using ExpectedNumInstanceSampler with Cyclic wrapper
         if isinstance(estimator_kwargs["train_sampler"], ExpectedNumInstanceSampler):
