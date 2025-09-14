@@ -355,7 +355,18 @@ class WindForecastingDataset(IterableDataset):
             feat_static_cat = self.data_fsc[ds_idx, :]
             observed = self.data_observed[start_addr:end_addr, :]
             
-            sampled_indices = self.sampler(target.T)[::self.skip_indices]
+            # Get sampled indices from the sampler
+            if self.sampler is not None:
+                sampled_indices = self.sampler(target.T)
+                if self.skip_indices > 1:
+                    sampled_indices = sampled_indices[::self.skip_indices]
+            else:
+                
+                # Default to all valid indices
+                sampled_indices = np.arange(self.context_length, target.shape[0] - self.prediction_length + 1, self.skip_indices)
+                
+            if target.shape[0] - self.prediction_length < self.context_length:
+                continue
             
             for idx in sampled_indices:
                 # Extract data
@@ -364,9 +375,6 @@ class WindForecastingDataset(IterableDataset):
                 # Find all valid time points
                 # min_time = self.context_length
                 # max_time = ts_length - self.prediction_length
-                
-                if target.shape[0] - self.prediction_length < self.context_length:
-                    continue
                 
                 # Split into past and future windows
                 context_slice, pred_slice = slice(idx - self.context_length, idx), slice(idx, idx + self.prediction_length)
