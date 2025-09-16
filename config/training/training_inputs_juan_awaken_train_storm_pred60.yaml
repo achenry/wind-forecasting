@@ -242,5 +242,5 @@ trainer:
     num_nodes: 1
     strategy: ddp
     max_epochs: 100 # Maximum number of epochs to train - 50 Stage 1 + 50 Stage 2
-    limit_train_batches: null # Use full dataset instead of 5000 batch limit
+    limit_train_batches: 108359 # Random sample 25k training examples per epoch (~23% coverage)
     log_every_n_steps: 100
