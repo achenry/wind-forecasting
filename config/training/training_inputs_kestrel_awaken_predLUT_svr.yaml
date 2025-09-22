@@ -208,7 +208,7 @@ model:
     cache_size: 200
     n_neighboring_turbines: 5
   sf:
-    n_neighboring_turbines: 6
+    n_neighboring_turbines: 5
 
 callbacks:
     progress_bar:

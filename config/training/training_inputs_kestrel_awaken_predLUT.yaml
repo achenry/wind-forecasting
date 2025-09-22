@@ -3,7 +3,7 @@ experiment:
   project_name: wind_forecasting_awaken_pred60
   run_name: kestrel_awaken_pred60
   log_dir: /projects/ssc/ahenry/wind_forecasting/logging/
-  project_root: /projects/ssc/ahenry/wind_forecasting/
+  project_root: c
   notes: "Tuning AWAKEN with Informer+"
   extra_tags: ["awaken", "pred60"] # By default already has GPU id, model and mode.
 
