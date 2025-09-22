@@ -2,10 +2,10 @@
 
 #SBATCH --partition=all_gpu.p          # Partition for H100/A100 GPUs
 #SBATCH --nodes=1
-#SBATCH --ntasks-per-node=4         # Match number of GPUs requested below
+#SBATCH --ntasks-per-node=1         # Match number of GPUs requested below
 #SBATCH --cpus-per-task=8           # CPUs per task
 #SBATCH --mem-per-cpu=8192          # Memory per CPU
-#SBATCH --gres=gpu:4                # Request 3 GPUs
+#SBATCH --gres=gpu:1                # Request 1 GPU
 #SBATCH --time=1-00:00              # Time limit
 #SBATCH --job-name=60awaken_tune_tactis_stage1
 #SBATCH --output=/dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/slurm_logs/awaken_tune_tactis60_stage1_%j.out
@@ -181,6 +181,7 @@ for i in $(seq 0 $((${NUM_GPUS}-1))); do
           --config ${CONFIG_FILE} \\
           --model ${MODEL_NAME} \\
           --mode tune \\
+          --tuning_phase 1 \\
           --seed ${CURRENT_WORKER_SEED} \\
           ${RESTART_TUNING_FLAG} \\
           --single_gpu # Crucial for making Lightning use only the assigned GPU

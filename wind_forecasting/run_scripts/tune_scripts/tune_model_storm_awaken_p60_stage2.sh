@@ -227,6 +227,7 @@ for i in $(seq 0 $((${NUM_GPUS}-1))); do
           --config ${CONFIG_FILE} \\
           --model ${MODEL_NAME} \\
           --mode tune \\
+          --tuning_phase 2 \\
           --seed ${CURRENT_WORKER_SEED} \\
           --stage1_study ${STAGE1_STUDY_NAME} \\
           ${RESTART_TUNING_FLAG} \\

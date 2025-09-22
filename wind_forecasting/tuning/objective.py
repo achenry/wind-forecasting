@@ -194,23 +194,54 @@ class MLTuningObjective:
         if self.model == 'tactis' and self.stage1_study_name:
             logging.info(f"Trial {trial.number}: Loading Stage 1 parameters for TACTiS Stage 2 tuning")
             stage1_checkpoint_path, stage1_params = self._get_stage1_checkpoint()
-            
+
             if stage1_params:
+                # Log initial parameter counts for validation
+                initial_param_count = len(params)
+                copula_params_tuned = [k for k in params.keys() if 'copula' in k or 'ac_mlp' in k]
+                marginal_params_tuned = [k for k in params.keys() if any(mk in k for mk in ['marginal', 'flow', 'decoder'])]
+
+                logging.info(f"Trial {trial.number}: Stage 2 validation - Initial Optuna params: {initial_param_count}")
+                logging.info(f"Trial {trial.number}: Stage 2 validation - Copula params to be tuned: {len(copula_params_tuned)}")
+                logging.info(f"Trial {trial.number}: Stage 2 validation - Marginal params from Optuna (will be overridden): {len(marginal_params_tuned)}")
+
                 # Override marginal/flow parameters with Stage 1 best values
-                marginal_keys = ['marginal', 'flow', 'decoder_dsf', 'decoder_mlp', 
+                marginal_keys = ['marginal', 'flow', 'decoder_dsf', 'decoder_mlp',
                                 'decoder_transformer', 'decoder_num_bins']
+                fixed_count = 0
                 for key, value in stage1_params.items():
                     # Check if this is a marginal/flow parameter
                     if any(mk in key for mk in marginal_keys):
                         params[key] = value
-                        logging.info(f"Trial {trial.number}: Fixed {key}={value} from Stage 1")
-                
+                        fixed_count += 1
+                        logging.debug(f"Trial {trial.number}: Fixed {key}={value} from Stage 1")
+
+                logging.info(f"Trial {trial.number}: Stage 2 validation - Fixed {fixed_count} marginal parameters from Stage 1")
+
                 # Ensure skip_copula and lock_skip_copula are set correctly for Stage 2
                 params['skip_copula'] = False
                 params['lock_skip_copula'] = True
                 params['initial_stage'] = 2
                 params['stage2_start_epoch'] = 0
+
+                # Final validation: count final parameter types
+                final_copula_params = [k for k in params.keys() if 'copula' in k or 'ac_mlp' in k]
+                final_marginal_params = [k for k in params.keys() if any(mk in k for mk in ['marginal', 'flow', 'decoder'])]
+                stage2_optimizer_params = [k for k in params.keys() if 'stage2' in k]
+
+                logging.info(f"Trial {trial.number}: Stage 2 validation - Final copula params: {len(final_copula_params)}")
+                logging.info(f"Trial {trial.number}: Stage 2 validation - Final marginal params (fixed): {len(final_marginal_params)}")
+                logging.info(f"Trial {trial.number}: Stage 2 validation - Stage 2 optimizer params: {len(stage2_optimizer_params)}")
                 logging.info(f"Trial {trial.number}: Set skip_copula=False, lock_skip_copula=True for Stage 2")
+
+                # Validate that we have both types of parameters
+                if len(final_copula_params) == 0:
+                    logging.warning(f"Trial {trial.number}: Stage 2 validation - WARNING: No copula parameters found!")
+                if len(final_marginal_params) == 0:
+                    logging.warning(f"Trial {trial.number}: Stage 2 validation - WARNING: No marginal parameters found!")
+
+            else:
+                logging.warning(f"Trial {trial.number}: Stage 1 parameters not found - Stage 2 will start from scratch")
 
         # TODO this has been updated to not change splits for different context_length_factors, for consistency, may cause issues for longer context_length_factors
         # Update DataModule parameters based on trial tuned parameters
