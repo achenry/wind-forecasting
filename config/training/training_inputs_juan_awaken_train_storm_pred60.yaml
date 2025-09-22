@@ -1,11 +1,11 @@
 experiment:
   username: jmb0507
-  project_name: train_awaken_storm_pred60
-  run_name: train_awaken_tactis_pred60_unified
+  project_name: train_awaken_storm_pred60_15s
+  run_name: train_awaken_tactis_pred60_15s_unified
   project_root: /user/taed7566/Forecasting/wind-forecasting
   log_dir: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/
-  notes: "Unified training for AWAKEN with TACTiS p60 - both stages in one job using trial 122 hyperparameters"
-  extra_tags: ["train", "tactis", "unified", "pred60", "ctx600", "awaken", "trial122"]
+  notes: "Unified training for AWAKEN with TACTiS p60 at 15s frequency (4 steps) - both stages in one job"
+  extra_tags: ["train", "tactis", "unified", "pred60", "ctx600", "awaken", "15s", "freq15"]
 
 logging:
   entity: jmb0507-cu-boulder # Wandb entity (group name)
@@ -74,7 +74,7 @@ dataset:
     overfit: false
     test_split: 0.20
     val_split: 0.10
-    resample_freq: 30s
+    resample_freq: 15s
     n_splits: 1 # how many divisions of each continuity group to make which is further subdivided into training test and validation data
     per_turbine_target: true
     use_pytorch_dataloader: true # Use PyTorch DataLoader for training and validation

@@ -2,10 +2,10 @@
 
 #SBATCH --partition=all_gpu.p          # Partition for H100/A100 GPUs
 #SBATCH --nodes=1
-#SBATCH --ntasks-per-node=1         # Match number of GPUs requested below
+#SBATCH --ntasks-per-node=4         # Match number of GPUs requested below
 #SBATCH --cpus-per-task=4           # CPUs per task (reduced from 8)
 #SBATCH --mem-per-cpu=8192          # Memory per CPU (reduced from 8016)
-#SBATCH --gres=gpu:1                # Request 3 GPUs
+#SBATCH --gres=gpu:4                # Request 3 GPUs
 #SBATCH --time=1-00:00              # Time limit
 #SBATCH --job-name=60awaken_tune_tactis_stage2
 #SBATCH --output=/dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/slurm_logs/awaken_tune_tactis60_stage2_%j.out
@@ -16,11 +16,11 @@
 
 # --- CRITICAL: Stage 1 Study Name ---
 # YOU MUST SET THIS BEFORE RUNNING!
-export STAGE1_STUDY_NAME="tuning_tactis_tune_awaken_tactis_pred60_stage1"
+export STAGE1_STUDY_NAME="tuning_tactis_tune_awaken_tactis_pred60_15s_stage1"
 if [ -z "$STAGE1_STUDY_NAME" ]; then
     echo "ERROR: STAGE1_STUDY_NAME environment variable is not set!"
     echo "Please set it to the Stage 1 study name from the logs, e.g.:"
-    echo "export STAGE1_STUDY_NAME=\"tune_awaken_tactis_pred60_stage1_marginals_2025_01_05\""
+    echo "export STAGE1_STUDY_NAME=\"tune_awaken_tactis_pred60_15s_stage1_marginals_2025_01_05\""
     exit 1
 fi
 
@@ -154,12 +154,12 @@ export PGPASSWORD="${LOCAL_PG_PASSWORD}"
 
 # --- Clean Previous Stage 2 Sampler/Pruner State ---
 # NOTE: If you get 'IntersectionSearchSpace' errors, manually delete these files:
-#   rm -f /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/optuna/pickles/tuning_tactis_tune_awaken_tactis_pred60_stage2_sampler.pkl
-#   rm -f /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/optuna/pickles/tuning_tactis_tune_awaken_tactis_pred60_stage2_pruner.pkl
+#   rm -f /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/optuna/pickles/tuning_tactis_tune_awaken_tactis_pred60_15s_stage2_sampler.pkl
+#   rm -f /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/optuna/pickles/tuning_tactis_tune_awaken_tactis_pred60_15s_stage2_pruner.pkl
 echo "=== CLEANING PREVIOUS STAGE 2 SAMPLER STATE ==="
 OPTUNA_PICKLES_DIR="${OUTPUT_DIR}/optuna/pickles"
-STAGE2_SAMPLER_FILE="${OPTUNA_PICKLES_DIR}/tuning_tactis_tune_awaken_tactis_pred60_stage2_sampler.pkl"
-STAGE2_PRUNER_FILE="${OPTUNA_PICKLES_DIR}/tuning_tactis_tune_awaken_tactis_pred60_stage2_pruner.pkl"
+STAGE2_SAMPLER_FILE="${OPTUNA_PICKLES_DIR}/tuning_tactis_tune_awaken_tactis_pred60_15s_stage2_sampler.pkl"
+STAGE2_PRUNER_FILE="${OPTUNA_PICKLES_DIR}/tuning_tactis_tune_awaken_tactis_pred60_15s_stage2_pruner.pkl"
 
 if [ -f "${STAGE2_SAMPLER_FILE}" ]; then
     echo "Found existing Stage 2 sampler file: ${STAGE2_SAMPLER_FILE}"

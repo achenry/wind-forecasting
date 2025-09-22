@@ -1,11 +1,11 @@
 experiment:
   username: jmb0507
-  project_name: train_awaken_storm_split_pred60
-  run_name: tune_awaken_tactis_pred60_stage1
+  project_name: train_awaken_storm_split_pred60_15s
+  run_name: tune_awaken_tactis_pred60_15s_stage1
   project_root: /user/taed7566/Forecasting/wind-forecasting
   log_dir: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/
-  notes: "Stage 1 tuning for AWAKEN with TACTiS - marginals only (skip_copula=true)"
-  extra_tags: ["tune", "tactis", "stage1", "marginals", "pred60", "ctx600", "awaken"]
+  notes: "Stage 1 tuning for AWAKEN with TACTiS at 15s frequency (4 steps) - marginals only (skip_copula=true)"
+  extra_tags: ["tune", "tactis", "stage1", "marginals", "pred60", "ctx600", "awaken", "15s", "freq15"]
 
 logging:
   entity: jmb0507-cu-boulder # Wandb entity (group name)
@@ -86,7 +86,7 @@ dataset:
   overfit: false
   test_split: 0.20
   val_split: 0.10
-  resample_freq: 30s
+  resample_freq: 15s
   n_splits: 1
   per_turbine_target: true
   use_pytorch_dataloader: true
