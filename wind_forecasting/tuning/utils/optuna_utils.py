@@ -15,7 +15,6 @@ import os
 import pickle
 import shutil
 import tempfile
-import time
 import logging
 import datetime
 import subprocess
@@ -24,7 +23,6 @@ import getpass
 import socket
 from pathlib import Path
 
-import optuna
 import wandb
 import plotly.io as pio
 from optuna.samplers import TPESampler
@@ -33,12 +31,7 @@ from optuna.visualization import (
     plot_optimization_history,
     plot_param_importances,
     plot_slice,
-    plot_parallel_coordinate,
-    plot_contour,
-    plot_intermediate_values,
-    plot_edf,
-    plot_timeline,
-    plot_rank
+    plot_parallel_coordinate
 )
 
 # Global variable for dashboard process management
@@ -47,30 +40,55 @@ _dashboard_process = None
 
 class OptunaSamplerPrunerPersistence:
     """
-    Manages persistence of Optuna samplers and pruners across distributed workers.
-    
-    This class handles saving/loading sampler and pruner state to enable:
-    - Consistent behavior across multiple workers
-    - Recovery from worker failures
-    - Maintaining TPE sampler algorithmic state
+    Manages creation of Optuna samplers and pruners for distributed workers.
+
+    This class creates fresh sampler and pruner instances for each worker, enabling:
+    - Proper distributed optimization without pickle state conflicts
+    - Diverse hyperparameter suggestions during TPE startup phase
+    - Shared learning through database-backed study coordination
+
+    Note: Pickle persistence has been removed to fix identical hyperparameter issues.
     """
     
     def __init__(self, config, seed):
         self.config = config
         self.seed = seed
 
-    def _create_new_sampler_pruner(self, pruner):
+    def _create_new_sampler_pruner(self, pruner, worker_id=0):
         """
-        Create new sampler and pruner instances with full configuration.
-        
+        Create new sampler and pruner instances with job-aware worker-specific seeds.
+
+        This ensures that different SLURM jobs explore different hyperparameter regions
+        while maintaining worker diversity within each job.
+
         Args:
             pruner: Pre-configured pruner instance
-            
+            worker_id: Worker ID for generating unique seed
+
         Returns:
             tuple: (sampler, pruner)
         """
+        # Generate job-aware worker-specific seed
+        job_id = os.environ.get('SLURM_JOB_ID', '0')
+        worker_id_int = int(worker_id) if isinstance(worker_id, str) else worker_id
+        job_id_int = int(job_id)
+
+        if self.seed is not None:
+            # Generate job-aware seed using hash to stay within numpy seed limits (0 to 2^32-1)
+            import hashlib
+
+            # Create a string combining base seed, job ID, and worker ID
+            seed_string = f"{self.seed}_{job_id_int}_{worker_id_int}"
+
+            # Hash and convert to valid seed range
+            hash_object = hashlib.md5(seed_string.encode())
+            # Take first 4 bytes and convert to integer within numpy's seed range
+            worker_seed = int.from_bytes(hash_object.digest()[:4], byteorder='big') % (2**32)
+        else:
+            worker_seed = None
+
         sampler = TPESampler(
-            seed=self.seed,
+            seed=worker_seed,
             n_startup_trials=self.config["optuna"]["sampler_params"]["tpe"].get("n_startup_trials", 16),
             multivariate=self.config["optuna"]["sampler_params"]["tpe"].get("multivariate", True),
             constant_liar=self.config["optuna"]["sampler_params"]["tpe"].get("constant_liar", True),
@@ -128,70 +146,65 @@ class OptunaSamplerPrunerPersistence:
             logging.warning(f"Failed to load sampler/pruner: {e}")
             return None
 
-    def get_sampler_pruner_objects(self, worker_id, pruner, restart_tuning, final_study_name, optuna_storage, pickle_dir):
+    def get_sampler_pruner_objects(self, worker_id, pruner, restart_tuning=None, final_study_name=None, optuna_storage=None, pickle_dir=None):
         """
-        Get sampler and pruner objects, either from pickle files or create new ones.
-        
+        Get sampler and pruner objects by creating fresh instances for each worker.
+
+        This approach ensures proper distributed optimization without pickle persistence,
+        allowing each worker to create its own TPESampler instance while still benefiting
+        from shared study history through the database backend.
+
         Args:
             worker_id: ID of the current worker
             pruner: Configured pruner instance
-            restart_tuning: Whether this is a fresh start
+            restart_tuning: Whether this is a fresh start (not used anymore)
             final_study_name: Name of the Optuna study
             optuna_storage: Optuna storage backend
-            pickle_dir: Directory for pickle files
-            
+            pickle_dir: Directory for pickle files (not used anymore)
+
         Returns:
             tuple: (sampler, pruner)
         """
-        # Define pickle file paths
-        sampler_path = os.path.join(pickle_dir, f"{final_study_name}_sampler.pkl")
-        pruner_path = os.path.join(pickle_dir, f"{final_study_name}_pruner.pkl")
-        
-        if restart_tuning or not os.path.exists(sampler_path) or not os.path.exists(pruner_path):
-            logging.info(f"Worker {worker_id}: Creating new sampler/pruner objects")
-            sampler, pruner_for_study = self._create_new_sampler_pruner(pruner)
-            
-            # Save initial state
-            self._save_sampler_pruner_atomic(sampler, pruner_for_study, sampler_path, pruner_path)
+        # Calculate seed for logging (matches the calculation in _create_new_sampler_pruner)
+        job_id = os.environ.get('SLURM_JOB_ID', '0')
+        worker_id_int = int(worker_id) if isinstance(worker_id, str) else worker_id
+        job_id_int = int(job_id)
+
+        if self.seed is not None:
+            # Calculate seed using same hash method as _create_new_sampler_pruner
+            import hashlib
+
+            seed_string = f"{self.seed}_{job_id_int}_{worker_id_int}"
+            hash_object = hashlib.md5(seed_string.encode())
+            calculated_seed = int.from_bytes(hash_object.digest()[:4], byteorder='big') % (2**32)
         else:
-            logging.info(f"Worker {worker_id}: Loading existing sampler/pruner objects")
-            loaded = self._load_sampler_pruner_atomic(sampler_path, pruner_path)
-            if loaded:
-                sampler, pruner_for_study = loaded
-            else:
-                logging.warning(f"Worker {worker_id}: Failed to load, creating new objects")
-                sampler, pruner_for_study = self._create_new_sampler_pruner(pruner)
-                self._save_sampler_pruner_atomic(sampler, pruner_for_study, sampler_path, pruner_path)
-        
+            calculated_seed = None
+
+        logging.info(f"Worker {worker_id} (Job {job_id}): Creating fresh sampler/pruner objects with job-aware seed {calculated_seed}")
+        sampler, pruner_for_study = self._create_new_sampler_pruner(pruner, worker_id=worker_id)
+
         return sampler, pruner_for_study
 
-    def create_trial_completion_callback(self, worker_id, save_frequency=1):
+    def create_trial_completion_callback(self, worker_id=None, save_frequency=None):
         """
-        Create a callback that saves sampler/pruner state after trial completion.
-        
+        Create a callback for trial completion (no longer saves pickle state).
+
+        With the removal of pickle persistence, this callback no longer saves sampler state.
+        Each worker maintains its own fresh TPESampler instance and relies on the shared
+        database for coordinated optimization.
+
         Args:
             worker_id: ID of the current worker
-            save_frequency: Save state every N completed trials
-            
+            save_frequency: Not used anymore but kept for API compatibility
+
         Returns:
-            Callback function for study.optimize()
+            Callback function for study.optimize() (currently a no-op)
         """
-        def save_state_callback(study, trial):
-            if trial.state in (TrialState.COMPLETE, TrialState.PRUNED, TrialState.FAIL):
-                completed_trials = len([t for t in study.trials if t.state in (TrialState.COMPLETE, TrialState.PRUNED)])
-                
-                if completed_trials % save_frequency == 0:
-                    pickle_dir = os.path.join(self.config.get("logging", {}).get("optuna_dir", "logging/optuna"), "pickles")
-                    sampler_path = os.path.join(pickle_dir, f"{study.study_name}_sampler.pkl")
-                    pruner_path = os.path.join(pickle_dir, f"{study.study_name}_pruner.pkl")
-                    
-                    try:
-                        self._save_sampler_pruner_atomic(study.sampler, study.pruner, sampler_path, pruner_path)
-                        logging.info(f"Worker {worker_id}: Saved sampler/pruner state after trial {trial.number}")
-                    except Exception as e:
-                        logging.error(f"Worker {worker_id}: Failed to save sampler/pruner state: {e}")
-        
-        return save_state_callback
+        def no_op_callback(study=None, trial=None):
+            # No longer saving pickle state - distributed optimization works through database
+            pass
+
+        return no_op_callback
 
 
 def _terminate_optuna_dashboard():
@@ -260,7 +273,7 @@ def launch_optuna_dashboard(config, storage_url):
         logging.error(f"Failed to launch optuna-dashboard: {e}")
 
 
-def generate_visualizations(study, output_dir, vis_config):
+def generate_visualizations(study, output_dir, vis_config=None):
     """
     Generate comprehensive Optuna visualizations.
     
