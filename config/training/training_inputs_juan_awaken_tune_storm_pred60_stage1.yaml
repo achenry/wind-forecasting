@@ -1,7 +1,7 @@
 experiment:
   username: jmb0507
-  project_name: train_awaken_storm_split_pred60_15s_3
-  run_name: tune_awaken_tactis_pred60_15s_stage1_3
+  project_name: train_awaken_storm_split_pred60_15s_5
+  run_name: tune_awaken_tactis_pred60_15s_stage1_5
   project_root: /user/taed7566/Forecasting/wind-forecasting
   log_dir: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/
   notes: "Stage 1 tuning for AWAKEN with TACTiS at 15s frequency (4 steps) - marginals only (skip_copula=true)"
@@ -38,11 +38,17 @@ optuna:
   # Pruning configuration
   pruning:
     enabled: true
-    type: "successivehalving"
-    min_resource: 5
-    reduction_factor: 2
-    min_early_stopping_rate: 0
-    bootstrap_count: 5
+    # type: "successivehalving"
+    # min_resource: 5
+    # reduction_factor: 2
+    # min_early_stopping_rate: 0
+    # bootstrap_count: 5
+    type: "percentile"
+    percentile: 50
+    n_startup_trials: 20
+    n_warmup_steps: 8
+    interval_steps: 2
+    n_min_trials: 8   
 
   # Optuna visualization configuration
   visualization:
