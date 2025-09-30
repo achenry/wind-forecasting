@@ -254,7 +254,7 @@ def main():
         # %% CREATE DATASET
         logging.info("Creating datasets")
         use_normalization = False if args.model == "tactis" else config["dataset"].get("normalize", True)
-        logging.info(f"Instantiating DataModule with normalized={use_normalization} (Forced False for TACTiS-2 which requires denormalized input)")
+        logging.info(f"Instantiating DataModule with use_normalization={use_normalization} (Forced False for TACTiS-2 which requires denormalized input)")
         
         persistent_workers = num_workers > 0
         
@@ -274,7 +274,7 @@ def main():
             per_turbine_target=config["dataset"]["per_turbine_target"],
             as_lazyframe=True,
             dtype=pl.Float32,
-            normalized=use_normalization,  # TACTiS-2 requires denormalized input for internal scaling
+            use_normalization=use_normalization,  # TACTiS-2 requires denormalized input for internal scaling
             normalization_consts_path=config["dataset"]["normalization_consts_path"], # Needed for denormalization
             batch_size=config["dataset"].get("batch_size", 128),
             workers=num_workers,
@@ -778,12 +778,12 @@ def main():
         # Prepare all arguments in a dictionary for the Estimator
     
     if args.mode == "dataset":
-        # TODO this won't consider varying context length factors or resample frequencies
+        # NOTE must generate mutlitple model_config yamls for different values of context length and/or resample frequencies
         dm_params = []
         for cnf_path, mdl in zip(args.config, args.model):
             with open(cnf_path, "r") as file:
                 cnf = yaml.safe_load(file)
-            dm_normalized = False if mdl == "tactis" else cnf["dataset"].get("normalize", True)
+            dm_use_normalization = False if mdl == "tactis" else cnf["dataset"].get("normalize", True)
             dm_param_set = (cnf["dataset"]["data_path"], 
                             cnf["dataset"]["n_splits"], 
                               cnf["dataset"]["val_split"],
@@ -793,7 +793,7 @@ def main():
                               cnf["dataset"]["resample_freq"], 
                               cnf["dataset"]["target_turbine_ids"],
                               cnf["dataset"]["per_turbine_target"], 
-                              dm_normalized,
+                              dm_use_normalization,
                               cnf["dataset"]["normalization_consts_path"])
             
             if dm_param_set in dm_params:
@@ -816,9 +816,9 @@ def main():
                 freq=cnf["dataset"]["resample_freq"],
                 target_suffixes=cnf["dataset"]["target_turbine_ids"],
                 per_turbine_target=cnf["dataset"]["per_turbine_target"],
-                as_lazyframe=True, # TESTING TODO
+                as_lazyframe=True,
                 dtype=pl.Float32,
-                normalized=dm_normalized,  # TACTiS-2 requires denormalized input for internal scaling
+                use_normalization=dm_use_normalization,  # TACTiS-2 requires denormalized input for internal scaling
                 normalization_consts_path=cnf["dataset"]["normalization_consts_path"], # Needed for denormalization
                 batch_size=cnf["dataset"].get("batch_size", 128),
                 workers=num_workers,

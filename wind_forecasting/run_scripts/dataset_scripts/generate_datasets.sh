@@ -3,7 +3,8 @@
 #SBATCH --time=02:00:00
 #SBATCH --output=%j-%x.out
 #SBATCH --nodes=1
-#SBATCH --ntasks-per-node=104
+##SBATCH --ntasks-per-node=1
+##SBATCH --cpus-per-task=104
 #SBATCH --ntasks=104
 #SBATCH --mem=0
 #SBATCH --exclusive
