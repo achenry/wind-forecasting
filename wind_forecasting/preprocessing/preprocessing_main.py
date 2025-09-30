@@ -224,8 +224,7 @@ def main():
             
             logging.info(f"Making directory to save_path {os.path.dirname(data_loader.save_path)}")
             os.makedirs(os.path.dirname(data_loader.save_path), exist_ok=True)
-        
-        # TODO HIGH if different files have intervals between them, don't forward fill, leave as NaN
+
         df_query = data_loader.read_multi_files(temp_save_dir, read_single_files=True, first_merge=True, second_merge=True) 
         
         if RUN_ONCE:
@@ -1321,7 +1320,7 @@ def main():
         if RUN_ONCE:
              logging.info("Impute/interpolate turbine missing data from correlated measurements.")
         
-        if True or args.reload_data or args.regenerate_filters or not os.path.exists(config["processed_data_path"].replace(".parquet", "_imputed.parquet")):
+        if args.reload_data or args.regenerate_filters or not os.path.exists(config["processed_data_path"].replace(".parquet", "_imputed.parquet")):
             
             # else, for each of those split datasets, impute the values using the imputing.impute_all_assets_by_correlation function
             # fill data on single concatenated dataset
@@ -1434,7 +1433,32 @@ def main():
             logging.error(f"Error during power curve fitting: {str(e)}")
         finally:
             del df_unpivoted
-
+    
+    # %% TODO add SMOOTHING
+    if "smooth" in config["filters"]:
+        if RUN_ONCE:
+            if args.reload_data or args.regenerate_filters or not os.path.exists(config["processed_data_path"].replace(".parquet", "_smoothed.parquet")): 
+                # Normalization & Feature Selection
+                logging.info("Smoothing features.")
+                smoothing_func = config["filters"]["smooth"].get("smoothing_function", "butterworth")
+                if smoothing_func == "butterworth":
+                    pass
+                elif smoothing_func == "moving_average":
+                    pass
+                elif smoothing_func == "savitzky_golay":
+                    pass
+                
+                smoothing_params = config["filters"]["smooth"].get("smoothing_params", {"freq_cutoff": 0.0011, "order": 1})
+                df_query = data_filter.smooth_features(
+                    df=df_query, 
+                    feature_types=["ws_horz", "ws_vert"], 
+                    smoothing_function=smoothing_func, 
+                    smoothing_params=smoothing_params
+                )
+                
+            else:
+                df_query = pl.scan_parquet(config["processed_data_path"].replace(".parquet", "_smoothed.parquet"))
+    
     # %%
     if "normalize" in config["filters"]:
         if RUN_ONCE:
@@ -1444,11 +1468,19 @@ def main():
                 
                 # store min/max of each column to rescale later
                 feature_types = ["nd_cos", "nd_sin", "ws_horz", "ws_vert"]
+                cols = [c for c in df_query.collect_schema().names() if any(c.startswith(ft) for ft in feature_types)]
+                # ws_horz_cols = [col for col in df_query.collect_schema().names() if col.startswith("ws_horz")]
+                # ws_vert_cols = [col for col in df_query.collect_schema().names() if col.startswith("ws_vert")]
                 
+                # TODO HIGH CHANGE TO sklearn.preprocessing.StandardScaler
                 norm_vals = {}
-                for feature_type in feature_types:
-                    norm_vals[f"{feature_type}_max"] = df_query.select(pl.max_horizontal(cs.starts_with(feature_type).max())).collect().item()
-                    norm_vals[f"{feature_type}_min"] = df_query.select(pl.min_horizontal(cs.starts_with(feature_type).min())).collect().item()
+                # for feature_type in feature_types:
+                    
+                    # norm_vals[f"{feature_type}_max"] = df_query.select(pl.max_horizontal(cs.starts_with(feature_type).max())).collect().item()
+                    # norm_vals[f"{feature_type}_min"] = df_query.select(pl.min_horizontal(cs.starts_with(feature_type).min())).collect().item()
+                for col in cols:
+                    norm_vals[f"{col}_mean"] = df_query.select(cs.starts_with(feature_type).mean()).collect().item()
+                    norm_vals[f"{col}_std"] = df_query.select(cs.starts_with(feature_type).std()).collect().item()
 
                 norm_vals = pl.DataFrame(norm_vals).select(pl.all().round(2))
                 norm_vals.write_csv(config["processed_data_path"].replace(".parquet", "_normalization_consts.csv"))
@@ -1459,10 +1491,16 @@ def main():
                 else:
                     time_cols = [pl.col("time")]
 
+                
+                # TODO HIGH CHANGE TO sklearn.preprocessing.StandardScaler
+                # df_query = df_query.select(time_cols 
+                #                         + [((2.0 * ((cs.starts_with(feature_type) - norm_vals.select(f"{feature_type}_min").item()) 
+                #                         / (norm_vals.select(f"{feature_type}_max").item() - norm_vals.select(f"{feature_type}_min").item()))) - 1.0).name.keep()
+                #                         for feature_type in feature_types])
                 df_query = df_query.select(time_cols 
-                                        + [((2.0 * ((cs.starts_with(feature_type) - norm_vals.select(f"{feature_type}_min").item()) 
-                                        / (norm_vals.select(f"{feature_type}_max").item() - norm_vals.select(f"{feature_type}_min").item()))) - 1.0).name.keep()
-                                        for feature_type in feature_types])
+                                        + [((((pl.col(col) - norm_vals.select(f"{col}_mean").item()) 
+                                                / norm_vals.select(f"{col}_std").item()))).name.keep()
+                                        for col in cols])
                 
                 df_query.collect().write_parquet(config["processed_data_path"].replace(".parquet", "_normalized.parquet"), statistics=False)
                 logging.info("Finished normalizing features.")

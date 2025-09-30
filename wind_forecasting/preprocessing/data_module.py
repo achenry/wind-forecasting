@@ -51,7 +51,7 @@ class DataModule():
     dtype: Type = pl.Float32
     as_lazyframe: bool = False
     verbose: bool = False
-    normalized: bool = True
+    use_normalization: bool = True
     normalization_consts_path: Optional[str] = None
     batch_size: int = 128
     workers: int = 4
@@ -123,16 +123,20 @@ class DataModule():
     
     def compute_scaler_params(self):
         norm_consts = pd.read_csv(self.normalization_consts_path, index_col=None)
-        norm_min_cols = [col for col in norm_consts if "_min" in col]
-        norm_max_cols = [col for col in norm_consts if "_max" in col]
-        data_min = norm_consts[norm_min_cols].values.flatten()
-        data_max = norm_consts[norm_max_cols].values.flatten()
-        norm_min_cols = [col.replace("_min", "") for col in norm_min_cols]
-        norm_max_cols = [col.replace("_max", "") for col in norm_max_cols]
-        feature_range = (-1, 1)
-        self.norm_scale = ((feature_range[1] - feature_range[0]) / (data_max - data_min))
-        self.norm_min = feature_range[0] - (data_min * self.norm_scale)
-        return {"min_": dict(zip(norm_min_cols, self.norm_min)), "scale_": dict(zip(norm_min_cols, self.norm_scale))}
+        norm_mean_cols = [col for col in norm_consts if col.endswith("_mean")]
+        norm_scale_cols = [col for col in norm_consts if col.endswith("_std")]
+        return {"min_": norm_consts[norm_mean_cols], "scale_": norm_consts[norm_scale_cols]}
+        
+        # norm_min_cols = [col for col in norm_consts if "_min" in col]
+        # norm_max_cols = [col for col in norm_consts if "_max" in col]
+        # data_min = norm_consts[norm_min_cols].values.flatten()
+        # data_max = norm_consts[norm_max_cols].values.flatten()
+        # norm_min_cols = [col.replace("_min", "") for col in norm_min_cols]
+        # norm_max_cols = [col.replace("_max", "") for col in norm_max_cols]
+        # feature_range = (-1, 1)
+        # self.norm_scale = ((feature_range[1] - feature_range[0]) / (data_max - data_min))
+        # self.norm_min = feature_range[0] - (data_min * self.norm_scale)
+        # return {"min_": dict(zip(norm_min_cols, self.norm_min)), "scale_": dict(zip(norm_min_cols, self.norm_scale))}
      
     def generate_datasets(self):
         
@@ -146,12 +150,15 @@ class DataModule():
                     .group_by("time").agg(cs.numeric().mean())\
                     .sort(["continuity_group", "time"])
                     
-        if not self.normalized:
+        if not self.use_normalization:
+            # if we don't want the normalized data generated in preprocessing_main, we need to denormalize/inverse transform it here
             scaler_params = self.compute_scaler_params()
-            feat_types = list(scaler_params["min_"])
-            dataset = dataset.with_columns([(cs.starts_with(feat_type) - scaler_params["min_"][feat_type]) 
-                                                        / scaler_params["scale_"][feat_type] 
-                                                        for feat_type in feat_types])
+            # feat_types = list(scaler_params["min_"])
+            # dataset = dataset.with_columns([(cs.starts_with(feat_type) - scaler_params["min_"][feat_type]) 
+            #                                             / scaler_params["scale_"][feat_type] 
+            #                                             for feat_type in feat_types])
+            features = list(scaler_params["mean_"])
+            dataset = dataset.with_columns([(pl.col(feat) * scaler_params["scale_"][feat]) + scaler_params["mean_"][feat] for feat in features])
                     
         # TODO if resampling requieres upsampling: historic_measurements.upsample(time_column="time", every=self.data_module.freq).fill_null(strategy="forward")
         # dataset = IterableLazyFrame(data_path=self.train_ready_data_path, dtype=self.dtype) # data stored in RAM
@@ -728,33 +735,3 @@ class DataModule():
             # plt.legend(["sub dataset", "test input", "test label"], loc="upper left")
         
         fig.show()
-        
-    # def train_dataloader(self):
-    #     return DataLoader(
-    #         self.train_dataset,
-    #         batch_size=self.batch_size,
-    #         num_workers=self.workers,
-    #         pin_memory=self.pin_memory,
-    #         persistent_workers=self.persistent_workers,
-    #         shuffle=True
-    #     )
-
-    # def val_dataloader(self):
-    #     return DataLoader(
-    #         self.val_dataset,
-    #         batch_size=self.batch_size,
-    #         num_workers=self.workers,
-    #         pin_memory=self.pin_memory,
-    #         persistent_workers=self.persistent_workers,
-    #         shuffle=False
-    #     )
-
-    # def test_dataloader(self):
-    #     return DataLoader(
-    #         self.test_dataset,
-    #         batch_size=self.batch_size,
-    #         num_workers=self.workers,
-    #         pin_memory=self.pin_memory,
-    #         persistent_workers=self.persistent_workers,
-    #         shuffle=False
-    #     )

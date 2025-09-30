@@ -303,15 +303,18 @@ class DataLoader:
                             
                             logging.info(f"Number of columns of merged df {i} = {len(df_query[i].collect_schema().names())}")
                             logging.info(f"Time bounds of merged df {i} before time col expansion: ({start_time_1}, {end_time_1})")
-                            logging.info(f"Time bounds of merged df {i + 1}: ({start_time_2}, {end_time_2})")
+                            logging.info(f"Time bounds of merged df {i + 1} before time col expansion: ({start_time_2}, {end_time_2})")
                             
-                            if start_time_2 == end_time_1:
+                            if start_time_2 == end_time_1: # if the datasets from different merged datasets are contiguous, average the overlapping timestamp
+                                logging.info(f"Averaging overlapping timestamp between merged df {i} and merged df {i + 1}.")
                                 df_query[i] = pl.concat([df_query[i], df_query[i + 1].slice(0, 1)], how="diagonal")\
                                                 .group_by("time").agg(cs.numeric().mean()).sort(by="time")
                                 df_query[i + 1] = df_query[i + 1].slice(1, None)
-                            elif (start_time_2 - end_time_1 != np.timedelta64(self.dt, 's')):
-                                if df_query[i].select(pl.col("file_set_idx").first()).collect().item() == df_query[i + 1].select(pl.col("file_set_idx").first()).collect().item():
-                                    df_query[i] = pl.concat([df_query[i],
+                            elif (start_time_2 - end_time_1 != np.timedelta64(self.dt, 's')): 
+                                # elif there is a gap greater than dt between the two datasets
+                                if df_query[i].select(pl.col("file_set_idx").first()).collect().item() == df_query[i + 1].select(pl.col("file_set_idx").first()).collect().item(): # if from same file set, we want to interpolate the missing timestamps, so fill with NaNs for now
+                                    logging.info(f"Filling gap between merged df {i} and merged df {i + 1} with NaNs to be interpolated, since they are from the same file set.")
+                                    df_query[i] = pl.concat([df_query[i], # 
                                             df_query[i].select(pl.datetime_range(
                                                 start=end_time_1,
                                                 end=start_time_2,
@@ -320,9 +323,9 @@ class DataLoader:
                                                 time_unit=df_query[i].collect_schema()["time"].time_unit).alias("time"))], how="diagonal")
                                     
                                 else:
-                                    # if from different file sets, we just want NaNs, with file_set_idx=-1
-                                    # TODO TEST
-                                     df_query[i] = pl.concat([df_query[i],
+                                    logging.info(f"Filling gap between merged df {i} and merged df {i + 1} with NaNs without interpolation, since they are from different file sets.")
+                                    # if there is a gap greater than dt, and the merged files are from different file sets, we just want NaNs without interpolation, with file_set_idx=-1 so they are not considered in forward filling
+                                    df_query[i] = pl.concat([df_query[i],
                                             df_query[i].select(pl.datetime_range(
                                                 start=end_time_1,
                                                 end=start_time_2,
@@ -336,6 +339,8 @@ class DataLoader:
                             
                             start_time_1 = df_query[i].select(pl.col("time").first()).collect().item() 
                             end_time_1 = df_query[i].select(pl.col("time").last()).collect().item() 
+                            start_time_2 = df_query[i + 1].select(pl.col("time").first()).collect().item()
+                            end_time_2 = df_query[i + 1].select(pl.col("time").last()).collect().item()
                             
                             logging.info(f"Time bounds of merged df {i} after time col expansion: ({start_time_1}, {end_time_1})")
                             logging.info(f"Time bounds of merged df {i + 1} after time col expansion: ({start_time_2}, {end_time_2})")
@@ -345,25 +350,30 @@ class DataLoader:
                              
                         # concatenate intermediary dataframes
                         logging.info(f"Concatenating final, used ram = {virtual_memory().percent}%")
-                        df_query = pl.concat(df_query, how="diagonal_relaxed").collect().lazy()
+                        df_query = pl.concat(df_query, how="diagonal_relaxed")
                         
                         if not df_query.select("time").collect().to_series().is_sorted():
                             logging.info(f"Sorting final, used ram = {virtual_memory().percent}%")
-                            df_query = df_query.sort(by="time").collect().lazy()
+                            df_query = df_query.sort(by="time")
+                        
+                        df_query = df_query.collect().lazy()
+                        # .write_parquet(self.save_path, statistics=False)
+                        # df_query = pl.scan_parquet(self.save_path)
                         
                         assert df_query.select((pl.col("time").diff().slice(1) == pl.col("time").diff().last()).all()).collect().item(), "dt is non-uniform, even after resampling"
                         
                         logging.info(f"Filling final, used ram = {virtual_memory().percent}%")
-                        # for data with different file_set_idx, don't forward fill
-                        # TODO TEST
+                        # for data with different file_set_idx or gaps inbetween file_set_idx, don't forward fill
+                        
+                        # df_query = pl.concat([(df_query.filter(pl.col("file_set_idx") == file_set_idx) if file_set_idx ) for file_set_idx in range(-1, len(self.file_paths))], how="vertical")
                         for file_set_idx in range(len(self.file_paths)):
-                             df_query = df_query.with_columns(
-                                 pl.when(pl.col("file_set_idx") == file_set_idx)
-                                   .then(pl.all().fill_null(strategy="forward").fill_null(strategy="backward"))\
-                                    .otherwise(pl.all()))\
-                                     .collect().lazy()
-                        # df_query = df_query.fill_null(strategy="forward").fill_null(strategy="backward").collect().lazy()
-                        assert df_query.select(pl.all_horizontal((cs.numeric().is_null() | cs.numeric().is_nan()).sum() == 0)).collect().item(), "null values found in final dataframe"
+                            #.filter(pl.col("file_set_idx") != pl.lit(-1))\
+                            df_query = df_query.with_columns(
+                                                    pl.when(pl.col("file_set_idx") == file_set_idx)
+                                                      .then(pl.all().fill_null(strategy="forward").fill_null(strategy="backward"))\
+                                                      .otherwise(pl.all()))
+                        
+                        # assert df_query.select(pl.all_horizontal((cs.numeric().is_null() | cs.numeric().is_nan()).sum() == 0)).collect().item(), "null values found in final dataframe"
                         
                         logging.info(f"Sorting columns, used ram = {virtual_memory().percent}%") 
                         df_query = df_query.select([pl.col("time")] 
@@ -501,7 +511,7 @@ class DataLoader:
             
             # Ensure the directory exists
             self._ensure_dir_exists(self.save_path)
-
+            
             # df_query.sink_ipc(self.save_path)
             df_query.collect.write_parquet(self.save_path, statistics=False)
 
@@ -570,7 +580,7 @@ class DataLoader:
                             'time': time_var.tolist(),  # Convert to Polars datetime
                         },
                         **{k: dataset.variables[v][:] for k, v in self.feature_mapping[file_set_idx].items() if k not in ["time", "turbine_id"] and v in dataset.variables}
-                    }   
+                    } 
                     
                     # If wind_direction variable is not present, calculate it from nacelle_direction and yaw_offset
                     target_features = list(self.feature_mapping[file_set_idx])

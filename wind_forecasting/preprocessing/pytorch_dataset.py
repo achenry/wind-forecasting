@@ -292,7 +292,8 @@ class WindForecastingDataset(IterableDataset):
         
         self.data_time = data["time"]
         self.data_target = data["target"]
-        # self.data_fdr = data["feat_dynamic_real"]
+        # data[sorted([col for col in data.columns if col.startswith("target")], key=lambda col: int(col.split("_")[-1]))]
+        # self.data_fdr = data[sorted([col for col in data.columns if col.startswith("feat_dynamic_real")], key=lambda col: int(col.split("_")[-1]))]
         self.data_fsc = data["feat_static_cat"]
         self.time_addr = data["time_addr"]
         self.ds_addr = data["ds_addr"]
@@ -301,7 +302,7 @@ class WindForecastingDataset(IterableDataset):
         
         logging.info(f"Instantiating data attributes in WindForecastingDataset.__init__ with rank = {self.rank} and world_size = {self.world_size}")
     
-    @profile
+    # @profile
     def __iter__(self):
         
         # if self.world_size > 1:
@@ -324,7 +325,7 @@ class WindForecastingDataset(IterableDataset):
 
             yield from islice(self._base_iter(), global_worker_id, None, global_num_workers)
     
-    @profile
+    # @profile
     def _base_iter(self):
     
         """
@@ -351,7 +352,9 @@ class WindForecastingDataset(IterableDataset):
         for ds_idx, (start_addr, end_addr) in zip(ds_addr, pairwise(time_addr)):
             
             time = self.data_time[start_addr:end_addr, :]
+            # time = np.hstack([self.data_time[start_addr:end_addr, :], self.data_fdr[start_addr:end_addr, :]])
             target = self.data_target[start_addr:end_addr, :]
+            # feat_dynamic_real = self.data_fdr[start_addr:end_addr, :]
             feat_static_cat = self.data_fsc[ds_idx, :]
             observed = self.data_observed[start_addr:end_addr, :]
             
@@ -411,18 +414,17 @@ class WindForecastingInferenceDataset(WindForecastingDataset):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
     
-    @profile
+    # @profile
     def _base_iter(self):
         """Get a specific window for inference."""
         
         # logging.info(f"Running WindForecastingInferenceDataset._base_iter() on rank {self.rank} with world_size {self.world_size}")
-        
+        # n_samples = 0
         for ds_idx, (start_addr, end_addr) in zip(self.ds_addr, pairwise(self.time_addr)):
-            
             time = self.data_time[start_addr:end_addr, :]
+            # time = np.hstack([self.data_time[start_addr:end_addr, :], self.data_fdr[start_addr:end_addr, :]])
             target = self.data_target[start_addr:end_addr, :]
             observed = self.data_observed[start_addr:end_addr, :]
-            # feat_dynamic_real = self.data_fdr[start_addr:end_addr, :]
             feat_static_cat = self.data_fsc[ds_idx, :]
             
             # start_addr = end_addr
@@ -436,7 +438,8 @@ class WindForecastingInferenceDataset(WindForecastingDataset):
             
             # Fill time indices
             sample_indices = np.arange(self.context_length, target.shape[0] - self.prediction_length + 1, self.skip_indices)
-            
+            # n_samples += len(sample_indices)
+            # print(f"n_val_samples = {n_samples}", end="\r")
             for idx in sample_indices:
                 # Split into past and future windows at fixed time point t
                 context_slice = slice(idx - self.context_length, idx)
