@@ -104,6 +104,8 @@ def main():
             assert os.path.exists(config[path_key]), f"{config[path_key]} doesn't exist."
              
     for path_key in ["raw_data_directory", "processed_data_path", "turbine_input_path", "farm_input_path", "temp_storage_dir"]:
+        if RUN_ONCE:
+            logging.info(f"Parsing environment variables in {path_key}: {config[path_key]}")
         if isinstance(config[path_key], list):
             env_vars = [re.findall(r"(?:^|\/)\$(\w+)(?:\/|$)", d) for d in config[path_key]]
             for file_set_idx in range(len(env_vars)):
