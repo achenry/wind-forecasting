@@ -163,6 +163,54 @@ class DataFilter:
         logging.info(f"Finished generating std out of range filter for {df_query.collect_schema().names()}")
         return mask 
     
+    def smooth(self, df_query, dt, feature_types, function="butterworth", **kwargs):
+        
+        if function == "moving_average":
+            df_query = df_query.with_columns([cs.starts_with(feat_type).rolling_mean_by("time", window_size=kwargs["window_size"]) for feat_type in feature_types])
+            return df_query
+
+        sub_df = df_query.select([cs.starts_with(feat_type) for feat_type in feature_types])
+        features = sub_df.collect_schema().names()
+        
+        if function == "butterworth":
+            # smoothed = filters.butterworth_filter(data=df_query.select([pl.col(f"{feat_type}_{tid}") for feat_type in feature_types]).collect().to_pandas(),
+            #                                       **kwargs)
+            # sub_df = df_query.select([cs.starts_with(feat_type) for feat_type in feature_types])
+            # features = sub_df.collect_schema().names()
+            # dft = np.fft.fft(sub_df.collect().to_numpy(), axis=0)
+            # ts_len = df_query.select(pl.len()).collect().item()
+            # half_len = int(ts_len / 2)
+            # fs_1 = (1 / (ts_len * dt)) * np.arange(1, half_len)
+            # filter_coeffs_1 = 1 / np.sqrt(1 + (fs_1 / kwargs["freq_cutoff"])**(2 * kwargs["order"]))
+            # dft[1:half_len] *= filter_coeffs_1
+            
+            # fs_2 = 0.5 / dt
+            # filter_coeffs_2 = 1 / np.sqrt(1 + (fs_2 / kwargs["freq_cutoff"])**(2 * kwargs["order"]))
+            # if ts_len % 2 == 0:
+            #     dft[half_len + 1:] *= np.flip(filter_coeffs_2, axis=0)
+            # else:
+            #     dft[half_len:half_len+2, :] = np.sqrt(np.max([filter_coeffs_2, 0], axis=0))
+            #     dft[half_len + 2:, :] *= np.flip(dft, axis=0)
+            
+            # ts = np.real(np.fft.ifft(dft, axis=0))
+            # df_query = df_query.with_columns([pl.Series(name=feat, values=ts[:, i]) for i, feat in enumerate(features)])
+            
+            from scipy.signal import butter, sosfilt
+            
+            sos = butter(N=kwargs["order"], Wn=kwargs["freq_cutoff"], btype='low', fs=1/dt, output='sos')
+            ts = sosfilt(sos, sub_df.collect().to_numpy(), axis=0)
+            
+            
+        elif function == "savitzky_golay":
+            from scipy.signal import savgol_filter
+            
+            ts = savgol_filter(sub_df.collect().to_numpy(), window_length=kwargs["window_length"], polyorder=kwargs["polyorder"], axis=0)
+        else:
+            raise ValueError(f"Unknown smoothing function {function}")
+        
+        return df_query.with_columns([pl.Series(name=feat, values=ts[:, i]) for i, feat in enumerate(features)])
+        
+    
     def multi_generate_filter(self, df_query, filter_func, feature_types, turbine_ids, **kwargs):
         if self.multiprocessor:
             if self.multiprocessor == "mpi" and mpi_exists:
@@ -265,9 +313,12 @@ class DataFilter:
                 return [fut.result() for fut in futures if fut.result() is not None]
         else:
             logging.info("🔧 Using single process executor")
-            return [self._fill_single_missing_dataset(df_idx=df_idx, df=df, impute_missing_features=impute_missing_features, 
+            return [self._fill_single_missing_dataset(df_idx=df_idx, df=df, 
+                                                      impute_missing_features=impute_missing_features, 
             interpolate_missing_features=interpolate_missing_features, parallel="turbine_id", r2_threshold=r2_threshold) 
             for df_idx, df in enumerate(dfs)]
+    
+    
     
     def _impute_single_missing_dataset(self, df_idx, df, save_path, impute_missing_features, r2_threshold, parallel=False):
 

@@ -13,6 +13,7 @@ import re
 from shutil import move
 from psutil import virtual_memory
 from datetime import datetime
+import sys
 # from datetime.datetime import strptime
 from memory_profiler import profile
 
@@ -108,7 +109,15 @@ class DataLoader:
                                   key=lambda fp: (datetime.strptime(re.search(ds[0], os.path.basename(fp)).group(0), ds[1]) if ds is not None else 0,
                                                     re.search(ts, os.path.basename(fp)).group(0) if len(re.findall(ts, os.path.basename(fp))) else 0)) 
                            for dd, fs, ds, ts in zip(data_dir, file_signature, self.datetime_signature, self.turbine_signature)]
-         
+    
+    @staticmethod
+    def sizeof_fmt(num, suffix='B'):
+        ''' by Fred Cirera,  https://stackoverflow.com/a/1094933/1870254, modified'''
+        for unit in ['','Ki','Mi','Gi','Ti','Pi','Ei','Zi']:
+            if abs(num) < 1024.0:
+                return "%3.1f %s%s" % (num, unit, suffix)
+            num /= 1024.0
+        return "%.1f %s%s" % (num, 'Yi', suffix)
      
     def read_multi_files(self, temp_save_dir, read_single_files=True, first_merge=True, second_merge=True) -> pl.LazyFrame | None:
         read_start = time.time()
@@ -163,6 +172,7 @@ class DataLoader:
                                     [re.search(self.turbine_signature[file_set_idx], os.path.basename(fp)).group(0) 
                                      for fp in self.file_paths[file_set_idx] 
                                         if datetime_id == re.search(self.datetime_signature[file_set_idx][0], os.path.basename(fp)).group(0)])
+                                logging.info(f"Available turbine ids for datetime_id {datetime_id} = {available_turbine_ids}")
                               
                              # if we have not processed enough files to merge and we have sufficient ram, 
                              # or if we haven't processed any files yet 
@@ -202,6 +212,10 @@ class DataLoader:
                                 # merged_paths.append(self.merge_multiple_files(file_set_idx, processed_file_paths, merge_idx, temp_save_dir))
                                 merge_idx += 1
                                 processed_file_paths = []
+                                
+                            # for name, size in sorted(((name, sys.getsizeof(value)) for name, value in list(
+                            #                     locals().items())), key= lambda x: -x[1])[:3]:
+                            #     print("{:>30}: {:>8}".format(name, DataLoader.sizeof_fmt(size)))
                     
                     if not first_merge:
                         merged_paths = glob.glob(os.path.join(temp_save_dir, f"df_*_*.parquet"))
@@ -266,10 +280,15 @@ class DataLoader:
                             logging.info(f"Used RAM = {used_ram}%. Pause for FINAL merge/sort/resample/fill of {len(processed_file_paths)} files read so far from file set {file_set_idx} for a total of {n_files_merged} processed files.")
                         else:
                             logging.info(f"Used RAM = {used_ram}%. Pause to merge/sort/resample/fill {len(processed_file_paths)} files read so far from file set {file_set_idx} for a total of {n_files_merged} processed files.")
-                        
+                        # TODO HIGH RAM IS BUILDING UP HERE, maybe data copying due to use of srun over cf?
                         merged_paths.append(self.merge_multiple_files( file_set_idx, processed_file_paths, merge_idx, temp_save_dir))
+                        
                         merge_idx += 1
                         processed_file_paths = []
+                        
+                        # for name, size in sorted(((name, sys.getsizeof(value)) for name, value in list(
+                        #                         locals().items())), key= lambda x: -x[1])[:3]:
+                        #     print("{:>30}: {:>8}".format(name, DataLoader.sizeof_fmt(size)))
             
             if not first_merge:
                 merged_paths = glob.glob(os.path.join(temp_save_dir, f"df_*_*.parquet"))
@@ -406,13 +425,13 @@ class DataLoader:
     
     def sort_resample_refill(self, df_query):
         
-        logging.info(f"Started sorting.")
+        logging.info(f"Started sorting. Used RAM = {virtual_memory().percent}%.")
         df_query = df_query.sort("time")
-        logging.info(f"Finished sorting.")
+        logging.info(f"Finished sorting. Used RAM = {virtual_memory().percent}%.")
         
         # if df_query.select(pl.col("time").diff().slice(1).n_unique()).collect().item() > 1:
         if not df_query.select((pl.col("time").diff().slice(1) == pl.col("time").diff().last()).all()).collect().item():
-            logging.info(f"Started resampling.") 
+            logging.info(f"Started resampling. Used RAM = {virtual_memory().percent}%.") 
             bounds = df_query.select(pl.col("time").first().alias("first"),
                                      pl.col("time").last().alias("last")).collect()
             df_query = df_query.select(pl.datetime_range(
@@ -420,21 +439,21 @@ class DataLoader:
                                         end=bounds.select("last").item(),
                                         interval=f"{self.dt}s", time_unit=df_query.collect_schema()["time"].time_unit).alias("time"))\
                                 .join(df_query, on="time", how="left")
-            assert df_query.select((pl.col("time").diff().slice(1) == pl.col("time").diff().last()).all()).collect().item(), f"dt is non-uniform, even after resampling, for {df_query}" 
+            # assert df_query.select((pl.col("time").diff().slice(1) == pl.col("time").diff().last()).all()).collect().item(), f"dt is non-uniform, even after resampling, for {df_query}" 
             
             # df_query = full_datetime_range.join(df_query, on="time", how="left")
-            logging.info(f"Finished resampling.") 
+            logging.info(f"Finished resampling. Used RAM = {virtual_memory().percent}%.") 
 
-        logging.info(f"Started forward fill.") 
+        logging.info(f"Started forward fill. Used RAM = {virtual_memory().percent}%.") 
         df_query = df_query.fill_null(strategy="forward") #.fill_null(strategy="backward") # NOTE: @Aoife for KP data, need to fill forward null gaps, don't know about Juan's data
-        logging.info(f"Finished forward fill.") 
+        logging.info(f"Finished forward fill. Used RAM = {virtual_memory().percent}%.") 
         
         return df_query
     
      
     def merge_multiple_files(self, file_set_idx, processed_file_paths, i, temp_save_dir):
         
-        logging.info(f"✅ Started join of {len(processed_file_paths)} files.")
+        logging.info(f"✅ Started join of {len(processed_file_paths)} files for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
         df_queries = [pl.scan_parquet(fp) for fp in processed_file_paths]
         
         # For single file or files without timestamps, just get the dataframes
@@ -443,7 +462,7 @@ class DataLoader:
         else:
             df_queries = pl.concat(df_queries, how="diagonal").group_by("time").agg(cs.numeric().mean())
         
-        logging.info(f"Finished join of {len(processed_file_paths)} files for file set {file_set_idx}, merge index {i}.")
+        logging.info(f"Finished join of {len(processed_file_paths)} files for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
         
         # assert all(any(tid in col for col in df_queries.collect_schema().names() if col != "time") for tid in turbine_ids), \
             # f"merge_multiple_files should only merge collections of files that include every turbine's data, these file paths include:\n {'\n'.join(processed_file_paths)}"
@@ -457,7 +476,7 @@ class DataLoader:
                 and all ids found in the data, {turbine_ids}, should be included in the keys, {self.turbine_mapping[file_set_idx]}, 
                 for the set of processed file paths, {[os.path.basename(fp) for fp in processed_file_paths]} for file set {file_set_idx}""" 
             
-            logging.info(f"Renaming DataFrame for file set {file_set_idx}, merge index {i}, to common turbine_signature.") 
+            logging.info(f"Renaming DataFrame for file set {file_set_idx}, merge index {i}, to common turbine_signature. Used RAM = {virtual_memory().percent}%.") 
             df_queries = df_queries.rename({
                 col: 
                 re.sub(pattern=self.turbine_signature[file_set_idx], 
@@ -466,9 +485,11 @@ class DataLoader:
         
         assert os.path.exists(temp_save_dir), f"temp_save_dir={temp_save_dir} is not available for file set {file_set_idx}, merge index {i}"
         merged_path = os.path.join(temp_save_dir, f"df_{file_set_idx}_{i}.parquet")
+        
         df_queries = self.sort_resample_refill(df_queries)
         assert df_queries.select((pl.col("time").diff().slice(1) == pl.col("time").diff().last()).all()).collect().item() 
         df_queries = df_queries.with_columns(file_set_idx=pl.lit(file_set_idx))
+        
         df_queries.collect().write_parquet(merged_path, statistics=False)
         
         return merged_path
