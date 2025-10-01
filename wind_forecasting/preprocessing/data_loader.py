@@ -203,7 +203,7 @@ class DataLoader:
                                 and (not is_file_per_turbine or (turbine_id == available_turbine_ids[-1])):
                                 # process what we have so far and dump processed lazy frames
                                 n_files_merged += num_files_to_merge
-                                logging(f"turbine_id = {turbine_id}, available_turbine_ids = {available_turbine_ids}, is_file_per_turbine = {is_file_per_turbine}, num_files_to_merge = {num_files_to_merge}, used_ram = {used_ram}, merge_chunk = {self.merge_chunk}, f = {f}, len(self.file_paths[file_set_idx]) - 1 = {len(self.file_paths[file_set_idx]) - 1}")
+                                logging(f"turbine_id = {turbine_id}, available_turbine_ids = {available_turbine_ids}, \nis_file_per_turbine = {is_file_per_turbine}, \nnum_files_to_merge = {num_files_to_merge}, \nused_ram = {used_ram}, \nmerge_chunk = {self.merge_chunk}, \nf = {f}, \nlen(self.file_paths[file_set_idx]) - 1 = {len(self.file_paths[file_set_idx]) - 1}")
                                 if f == len(self.file_paths[file_set_idx]) - 1:
                                     logging.info(f"Used RAM = {used_ram}%. Pause for FINAL merge/sort/resample/fill of {len(processed_file_paths)} files read so far from file set {file_set_idx} for a total of {n_files_merged} processed files.")
                                 else:
