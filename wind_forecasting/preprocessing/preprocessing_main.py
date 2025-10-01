@@ -106,6 +106,7 @@ def main():
     for path_key in ["raw_data_directory", "processed_data_path", "turbine_input_path", "farm_input_path", "temp_storage_dir"]:
         if RUN_ONCE:
             logging.info(f"Parsing environment variables in {path_key}: {config[path_key]}")
+            assert config[path_key] is not None, f"{path_key} must be specified in config file."
         if isinstance(config[path_key], list):
             env_vars = [re.findall(r"(?:^|\/)\$(\w+)(?:\/|$)", d) for d in config[path_key]]
             for file_set_idx in range(len(env_vars)):
@@ -126,7 +127,7 @@ def main():
             
     if RUN_ONCE:
         assert all(filt in 
-                   ["nacelle_calibration", "unresponsive_sensor", "inoperational", "range_flag", "window_range_flag", "bin_filter", "std_range_flag", "split", "impute_missing_data", "normalize"] 
+                   ["nacelle_calibration", "unresponsive_sensor", "inoperational", "range_flag", "window_range_flag", "bin_filter", "std_range_flag", "split", "impute_missing_data", "smooth", "normalize"] 
                    for filt in config["filters"])
 
     config["data_format"] = []
@@ -1442,15 +1443,16 @@ def main():
             if args.reload_data or args.regenerate_filters or not os.path.exists(config["processed_data_path"].replace(".parquet", "_smoothed.parquet")): 
                 # Normalization & Feature Selection
                 logging.info("Smoothing features.")
-                smoothing_func = config["filters"]["smooth"].get("smoothing_function", "butterworth")
+                smoothing_func = config["filters"]["smooth"].get("function", "butterworth")
                 if smoothing_func == "butterworth":
-                    pass
+                    dt=data_loader.dt
                 elif smoothing_func == "moving_average":
                     pass
                 elif smoothing_func == "savitzky_golay":
                     pass
                 
-                smoothing_params = config["filters"]["smooth"].get("smoothing_params", {"freq_cutoff": 0.0011, "order": 1})
+                smoothing_params = {k: v for k, v in config["filters"]["smooth"].items() if k != "function"}
+                
                 df_query = data_filter.smooth_features(
                     df=df_query, 
                     feature_types=["ws_horz", "ws_vert"], 

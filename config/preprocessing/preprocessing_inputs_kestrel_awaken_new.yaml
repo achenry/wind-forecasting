@@ -30,6 +30,10 @@ filters:
     minimum_not_missing_duration: 1200 # minimum duration that any retained continuous subset of data must be to be useful, seconds, i.e. should contain at least the intended context length and prediction length
   impute_missing_data:
     r2_threshold: 0.7
+  smooth:
+    function: butterworth
+    order: 1
+    freq_cutoff: 0.0011
   normalize:
 
 feature_mapping:
