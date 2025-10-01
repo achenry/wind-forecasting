@@ -1,12 +1,12 @@
 #!/bin/bash
 
-#SBATCH --partition=cfdg.p          # Partition for H100/A100 GPUs
+#SBATCH --partition=all_gpu.p          # Partition for H100/A100 GPUs
 #SBATCH --nodes=1
-#SBATCH --ntasks-per-node=8         # Match number of GPUs requested below
+#SBATCH --ntasks-per-node=3         # Match number of GPUs requested below
 #SBATCH --cpus-per-task=8           # CPUs per task (reduced from 8)
 #SBATCH --mem-per-cpu=8192          # Memory per CPU (reduced from 8016)
-#SBATCH --gres=gpu:8                # Request 3 GPUs
-#SBATCH --time=7-00:00              # Time limit
+#SBATCH --gres=gpu:3                # Request 3 GPUs
+#SBATCH --time=1-00:00              # Time limit
 #SBATCH --job-name=60awaken_tune_tactis_stage2
 #SBATCH --output=/dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/slurm_logs/awaken_tune_tactis60_stage2_%j.out
 #SBATCH --error=/dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/slurm_logs/awaken_tune_tactis60_stage2_%j.err

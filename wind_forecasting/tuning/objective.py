@@ -350,6 +350,8 @@ class MLTuningObjective:
         try:
 
             # Clean and flatten the parameters for logging without duplicates
+            # IMPORTANT: Use 'params' (with overrides) instead of 'trial.params' (Optuna suggestions)
+            # so that WandB logs the actual parameters used in training
             cleaned_params = {}
             model_prefix = f"{self.model}."
             config_prefix = "model_config."
@@ -357,8 +359,8 @@ class MLTuningObjective:
             # First pass: collect all non-prefixed keys and model-prefixed keys
             non_prefixed_params = {}
             model_prefixed_params = {}
-            
-            for k, v in trial.params.items():
+
+            for k, v in params.items():  # Changed from trial.params to params
                 # Remove model prefix if present
                 if k.startswith(model_prefix):
                     stripped_key = k[len(model_prefix):]
