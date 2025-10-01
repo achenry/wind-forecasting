@@ -186,70 +186,92 @@ class MLTuningObjective:
         # Log GPU stats at the beginning of the trial
         self.log_gpu_stats(stage=f"Trial {trial.number} Start")
       
-        params = self.estimator_class.get_params(trial, self.tuning_phase,
-                                                 dynamic_kwargs=self.dynamic_params)
-        
-        # Handle Stage 2 initialization for TACTiS
+        # Handle Stage 2 initialization for TACTiS - prepare fixed params BEFORE get_params()
         stage1_checkpoint_path = None
+        stage1_params = None
+        dynamic_kwargs_for_trial = self.dynamic_params.copy() if self.dynamic_params else {}
+
         if self.model == 'tactis' and self.stage1_study_name:
             logging.info(f"Trial {trial.number}: Loading Stage 1 parameters for TACTiS Stage 2 tuning")
             stage1_checkpoint_path, stage1_params = self._get_stage1_checkpoint()
 
             if stage1_params:
-                # Log initial parameter counts for validation
-                initial_param_count = len(params)
-                copula_params_tuned = [k for k in params.keys() if 'copula' in k or 'ac_mlp' in k]
-                marginal_params_tuned = [k for k in params.keys() if any(mk in k for mk in ['marginal', 'flow', 'decoder'])]
-
-                logging.info(f"Trial {trial.number}: Stage 2 validation - Initial Optuna params: {initial_param_count}")
-                logging.info(f"Trial {trial.number}: Stage 2 validation - Copula params to be tuned: {len(copula_params_tuned)}")
-                logging.info(f"Trial {trial.number}: Stage 2 validation - Marginal params from Optuna (will be overridden): {len(marginal_params_tuned)}")
-
-                # Override marginal/flow AND common architectural parameters with Stage 1 best values
-                marginal_keys = ['marginal', 'flow', 'decoder_dsf', 'decoder_mlp',
-                                'decoder_transformer', 'decoder_num_bins']
-                # Common architectural parameters that must match Stage 1 for proper transfer learning
+                # Common architectural parameters that must be fixed from Stage 1
                 common_arch_keys = ['context_length_factor', 'encoder_type', 'dropout_rate', 'batch_size']
 
-                fixed_count = 0
-                common_fixed_count = 0
-                for key, value in stage1_params.items():
-                    # Check if this is a marginal/flow parameter OR a common architectural parameter
-                    if any(mk in key for mk in marginal_keys):
+                # Extract fixed common params and pass to get_params() to prevent Optuna from suggesting them
+                stage1_fixed_params = {key: stage1_params[key] for key in common_arch_keys if key in stage1_params}
+                if stage1_fixed_params:
+                    dynamic_kwargs_for_trial['stage1_fixed_params'] = stage1_fixed_params
+                    logging.info(f"Trial {trial.number}: Passing {len(stage1_fixed_params)} fixed common params to get_params(): {list(stage1_fixed_params.keys())}")
+
+        # Call get_params with potentially updated dynamic_kwargs containing fixed Stage 1 params
+        params = self.estimator_class.get_params(trial, self.tuning_phase,
+                                                 dynamic_kwargs=dynamic_kwargs_for_trial)
+
+        # Continue Stage 2 handling: add marginal/decoder params from Stage 1
+        if self.model == 'tactis' and self.stage1_study_name and stage1_params:
+            # Log initial parameter counts for validation
+            initial_param_count = len(params)
+            copula_params_tuned = [k for k in params.keys() if 'copula' in k or 'ac_mlp' in k]
+            marginal_params_tuned = [k for k in params.keys() if any(mk in k for mk in ['marginal', 'flow', 'decoder'])]
+
+            logging.info(f"Trial {trial.number}: Stage 2 validation - Initial Optuna params: {initial_param_count}")
+            logging.info(f"Trial {trial.number}: Stage 2 validation - Copula params to be tuned: {len(copula_params_tuned)}")
+            logging.info(f"Trial {trial.number}: Stage 2 validation - Marginal params from Optuna (will be overridden): {len(marginal_params_tuned)}")
+
+            # Add marginal/flow/decoder parameters from Stage 1 (not suggested by get_params for Stage 2)
+            # Common params are now passed via dynamic_kwargs and used directly (not suggested)
+            marginal_keys = ['marginal', 'flow', 'decoder_dsf', 'decoder_mlp',
+                            'decoder_transformer', 'decoder_num_bins']
+            common_arch_keys = ['context_length_factor', 'encoder_type', 'dropout_rate', 'batch_size']
+
+            marginal_added_count = 0
+            common_verified_count = 0
+            for key, value in stage1_params.items():
+                if any(mk in key for mk in marginal_keys):
+                    # Add marginal/flow/decoder params (not in get_params output for Stage 2)
+                    params[key] = value
+                    marginal_added_count += 1
+                    logging.debug(f"Trial {trial.number}: Added marginal param {key}={value} from Stage 1")
+                elif key in common_arch_keys:
+                    # Verify common params match (should already be correct from get_params)
+                    if params.get(key) == value:
+                        common_verified_count += 1
+                        logging.debug(f"Trial {trial.number}: Verified common param {key}={value} matches Stage 1")
+                    else:
+                        # Fallback: override if somehow different (shouldn't happen with new logic)
+                        logging.warning(f"Trial {trial.number}: Overriding common param {key} from {params.get(key)} to {value}")
                         params[key] = value
-                        fixed_count += 1
-                        logging.debug(f"Trial {trial.number}: Fixed marginal param {key}={value} from Stage 1")
-                    elif key in common_arch_keys:
-                        params[key] = value
-                        common_fixed_count += 1
-                        logging.info(f"Trial {trial.number}: Fixed common architectural param {key}={value} from Stage 1")
+                        common_verified_count += 1
 
-                logging.info(f"Trial {trial.number}: Stage 2 validation - Fixed {fixed_count} marginal parameters from Stage 1")
-                logging.info(f"Trial {trial.number}: Stage 2 validation - Fixed {common_fixed_count} common architectural parameters from Stage 1")
+            logging.info(f"Trial {trial.number}: Stage 2 validation - Added {marginal_added_count} marginal/decoder parameters from Stage 1")
+            logging.info(f"Trial {trial.number}: Stage 2 validation - Verified {common_verified_count} common architectural parameters match Stage 1")
 
-                # Ensure skip_copula and lock_skip_copula are set correctly for Stage 2
-                params['skip_copula'] = False
-                params['lock_skip_copula'] = True
-                params['initial_stage'] = 2
-                params['stage2_start_epoch'] = 0
+            # Ensure skip_copula and lock_skip_copula are set correctly for Stage 2
+            params['skip_copula'] = False
+            params['lock_skip_copula'] = True
+            params['initial_stage'] = 2
+            params['stage2_start_epoch'] = 0
 
-                # Final validation: count final parameter types
-                final_copula_params = [k for k in params.keys() if 'copula' in k or 'ac_mlp' in k]
-                final_marginal_params = [k for k in params.keys() if any(mk in k for mk in ['marginal', 'flow', 'decoder'])]
-                stage2_optimizer_params = [k for k in params.keys() if 'stage2' in k]
+            # Final validation: count final parameter types
+            final_copula_params = [k for k in params.keys() if 'copula' in k or 'ac_mlp' in k]
+            final_marginal_params = [k for k in params.keys() if any(mk in k for mk in ['marginal', 'flow', 'decoder'])]
+            stage2_optimizer_params = [k for k in params.keys() if 'stage2' in k]
 
-                logging.info(f"Trial {trial.number}: Stage 2 validation - Final copula params: {len(final_copula_params)}")
-                logging.info(f"Trial {trial.number}: Stage 2 validation - Final marginal params (fixed): {len(final_marginal_params)}")
-                logging.info(f"Trial {trial.number}: Stage 2 validation - Stage 2 optimizer params: {len(stage2_optimizer_params)}")
-                logging.info(f"Trial {trial.number}: Set skip_copula=False, lock_skip_copula=True for Stage 2")
+            logging.info(f"Trial {trial.number}: Stage 2 validation - Final copula params: {len(final_copula_params)}")
+            logging.info(f"Trial {trial.number}: Stage 2 validation - Final marginal params (fixed): {len(final_marginal_params)}")
+            logging.info(f"Trial {trial.number}: Stage 2 validation - Stage 2 optimizer params: {len(stage2_optimizer_params)}")
+            logging.info(f"Trial {trial.number}: Set skip_copula=False, lock_skip_copula=True for Stage 2")
 
-                # Validate that we have both types of parameters
-                if len(final_copula_params) == 0:
-                    logging.warning(f"Trial {trial.number}: Stage 2 validation - WARNING: No copula parameters found!")
-                if len(final_marginal_params) == 0:
-                    logging.warning(f"Trial {trial.number}: Stage 2 validation - WARNING: No marginal parameters found!")
+            # Validate that we have both types of parameters
+            if len(final_copula_params) == 0:
+                logging.warning(f"Trial {trial.number}: Stage 2 validation - WARNING: No copula parameters found!")
+            if len(final_marginal_params) == 0:
+                logging.warning(f"Trial {trial.number}: Stage 2 validation - WARNING: No marginal parameters found!")
 
-            else:
+        else:
+            if self.model == 'tactis' and self.stage1_study_name:
                 logging.warning(f"Trial {trial.number}: Stage 1 parameters not found - Stage 2 will start from scratch")
 
         # TODO this has been updated to not change splits for different context_length_factors, for consistency, may cause issues for longer context_length_factors
