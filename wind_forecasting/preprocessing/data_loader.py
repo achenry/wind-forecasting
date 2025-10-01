@@ -203,7 +203,7 @@ class DataLoader:
                                 and (not is_file_per_turbine or (turbine_id == available_turbine_ids[-1])):
                                 # process what we have so far and dump processed lazy frames
                                 n_files_merged += num_files_to_merge
-                                logging(f"turbine_id = {turbine_id}, available_turbine_ids = {available_turbine_ids}, \nis_file_per_turbine = {is_file_per_turbine}, \nnum_files_to_merge = {num_files_to_merge}, \nused_ram = {used_ram}, \nmerge_chunk = {self.merge_chunk}, \nf = {f}, \nlen(self.file_paths[file_set_idx]) - 1 = {len(self.file_paths[file_set_idx]) - 1}")
+                                logging.info(f"turbine_id = {turbine_id}, available_turbine_ids = {available_turbine_ids}, \nis_file_per_turbine = {is_file_per_turbine}, \nnum_files_to_merge = {num_files_to_merge}, \nused_ram = {used_ram}, \nmerge_chunk = {self.merge_chunk}, \nf = {f}, \nlen(self.file_paths[file_set_idx]) - 1 = {len(self.file_paths[file_set_idx]) - 1}")
                                 if f == len(self.file_paths[file_set_idx]) - 1:
                                     logging.info(f"Used RAM = {used_ram}%. Pause for FINAL merge/sort/resample/fill of {len(processed_file_paths)} files read so far from file set {file_set_idx} for a total of {n_files_merged} processed files.")
                                 else:
@@ -385,7 +385,7 @@ class DataLoader:
                         logging.info(f"Filling final, used ram = {virtual_memory().percent}%")
                         # for data with different file_set_idx or gaps inbetween file_set_idx, don't forward fill
                         
-                        # df_query = pl.concat([(df_query.filter(pl.col("file_set_idx") == file_set_idx) if file_set_idx ) for file_set_idx in range(-1, len(self.file_paths))], how="vertical")
+                        df_query = pl.concat([(df_query.filter(pl.col("file_set_idx") == file_set_idx) if file_set_idx != -1) for file_set_idx in range(-1, len(self.file_paths))], how="vertical")
                         for file_set_idx in range(len(self.file_paths)):
                             #.filter(pl.col("file_set_idx") != pl.lit(-1))\
                             df_query = df_query.with_columns(

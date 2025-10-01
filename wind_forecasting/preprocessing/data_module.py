@@ -70,7 +70,7 @@ class DataModule():
     
     def set_train_ready_path(self):
         sfx = f"ctx{self.context_length}_pred{self.prediction_length}"
-        if self.normalized:
+        if self.use_normalization:
             self.train_ready_data_path = self.data_path.replace(
                 ".parquet", f"_train_ready_{self.freq}_{'per_turbine' if self.per_turbine_target else 'all_turbine'}_{sfx}.parquet")
         else:
@@ -122,21 +122,29 @@ class DataModule():
         logging.info(f"Rank {rank}: Validation passed for loaded splits with context_length={self.context_length}, prediction_length={self.prediction_length}")
     
     def compute_scaler_params(self):
+        # TODO add option for different normalizers and include in yaml
         norm_consts = pd.read_csv(self.normalization_consts_path, index_col=None)
+        
         norm_mean_cols = [col for col in norm_consts if col.endswith("_mean")]
         norm_scale_cols = [col for col in norm_consts if col.endswith("_std")]
-        return {"min_": norm_consts[norm_mean_cols], "scale_": norm_consts[norm_scale_cols]}
+
+        if len(norm_mean_cols) > 0 and len(norm_scale_cols) > 0:
+            norm_mean_cols = [col.replace("_mean", "") for col in norm_mean_cols]
+            norm_scale_cols = [col.replace("_std", "") for col in norm_scale_cols]
+            return {"offset_": norm_consts[norm_mean_cols].to_dict(), "scale_": norm_consts[norm_scale_cols].to_dict()}
         
-        # norm_min_cols = [col for col in norm_consts if "_min" in col]
-        # norm_max_cols = [col for col in norm_consts if "_max" in col]
-        # data_min = norm_consts[norm_min_cols].values.flatten()
-        # data_max = norm_consts[norm_max_cols].values.flatten()
-        # norm_min_cols = [col.replace("_min", "") for col in norm_min_cols]
-        # norm_max_cols = [col.replace("_max", "") for col in norm_max_cols]
-        # feature_range = (-1, 1)
-        # self.norm_scale = ((feature_range[1] - feature_range[0]) / (data_max - data_min))
-        # self.norm_min = feature_range[0] - (data_min * self.norm_scale)
-        # return {"min_": dict(zip(norm_min_cols, self.norm_min)), "scale_": dict(zip(norm_min_cols, self.norm_scale))}
+        norm_min_cols = [col for col in norm_consts if col.endswith("_min")]
+        norm_max_cols = [col for col in norm_consts if col.endswith("_max")]
+        data_min = norm_consts[norm_min_cols].values.flatten()
+        data_max = norm_consts[norm_max_cols].values.flatten()
+
+        if len(norm_min_cols) > 0 and len(norm_max_cols) > 0:
+            norm_min_cols = [col.replace("_min", "") for col in norm_min_cols]
+            norm_max_cols = [col.replace("_max", "") for col in norm_max_cols]
+            feature_range = (-1, 1)
+            norm_scale = ((feature_range[1] - feature_range[0]) / (data_max - data_min))
+            norm_min = feature_range[0] - (data_min * norm_scale)
+            return {"offset_": dict(zip(norm_min_cols, norm_min)), "scale_": dict(zip(norm_min_cols, norm_scale))}
      
     def generate_datasets(self):
         
@@ -157,10 +165,10 @@ class DataModule():
             # dataset = dataset.with_columns([(cs.starts_with(feat_type) - scaler_params["min_"][feat_type]) 
             #                                             / scaler_params["scale_"][feat_type] 
             #                                             for feat_type in feat_types])
-            features = list(scaler_params["mean_"])
-            dataset = dataset.with_columns([(pl.col(feat) * scaler_params["scale_"][feat]) + scaler_params["mean_"][feat] for feat in features])
+            features = list(scaler_params["offset_"])
+            dataset = dataset.with_columns([(pl.col(feat) * scaler_params["scale_"][feat]) + scaler_params["offset_"][feat] for feat in features])
                     
-        # TODO if resampling requieres upsampling: historic_measurements.upsample(time_column="time", every=self.data_module.freq).fill_null(strategy="forward")
+        # TODO if resampling requires upsampling: historic_measurements.upsample(time_column="time", every=self.data_module.freq).fill_null(strategy="forward")
         # dataset = IterableLazyFrame(data_path=self.train_ready_data_path, dtype=self.dtype) # data stored in RAM
         # gc.collect()
         
