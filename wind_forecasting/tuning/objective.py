@@ -205,18 +205,27 @@ class MLTuningObjective:
                 logging.info(f"Trial {trial.number}: Stage 2 validation - Copula params to be tuned: {len(copula_params_tuned)}")
                 logging.info(f"Trial {trial.number}: Stage 2 validation - Marginal params from Optuna (will be overridden): {len(marginal_params_tuned)}")
 
-                # Override marginal/flow parameters with Stage 1 best values
+                # Override marginal/flow AND common architectural parameters with Stage 1 best values
                 marginal_keys = ['marginal', 'flow', 'decoder_dsf', 'decoder_mlp',
                                 'decoder_transformer', 'decoder_num_bins']
+                # Common architectural parameters that must match Stage 1 for proper transfer learning
+                common_arch_keys = ['context_length_factor', 'encoder_type', 'dropout_rate', 'batch_size']
+
                 fixed_count = 0
+                common_fixed_count = 0
                 for key, value in stage1_params.items():
-                    # Check if this is a marginal/flow parameter
+                    # Check if this is a marginal/flow parameter OR a common architectural parameter
                     if any(mk in key for mk in marginal_keys):
                         params[key] = value
                         fixed_count += 1
-                        logging.debug(f"Trial {trial.number}: Fixed {key}={value} from Stage 1")
+                        logging.debug(f"Trial {trial.number}: Fixed marginal param {key}={value} from Stage 1")
+                    elif key in common_arch_keys:
+                        params[key] = value
+                        common_fixed_count += 1
+                        logging.info(f"Trial {trial.number}: Fixed common architectural param {key}={value} from Stage 1")
 
                 logging.info(f"Trial {trial.number}: Stage 2 validation - Fixed {fixed_count} marginal parameters from Stage 1")
+                logging.info(f"Trial {trial.number}: Stage 2 validation - Fixed {common_fixed_count} common architectural parameters from Stage 1")
 
                 # Ensure skip_copula and lock_skip_copula are set correctly for Stage 2
                 params['skip_copula'] = False

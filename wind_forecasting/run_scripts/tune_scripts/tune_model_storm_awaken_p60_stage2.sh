@@ -1,12 +1,12 @@
 #!/bin/bash
 
-#SBATCH --partition=all_gpu.p          # Partition for H100/A100 GPUs
+#SBATCH --partition=cfdg.p          # Partition for H100/A100 GPUs
 #SBATCH --nodes=1
-#SBATCH --ntasks-per-node=4         # Match number of GPUs requested below
-#SBATCH --cpus-per-task=4           # CPUs per task (reduced from 8)
+#SBATCH --ntasks-per-node=8         # Match number of GPUs requested below
+#SBATCH --cpus-per-task=8           # CPUs per task (reduced from 8)
 #SBATCH --mem-per-cpu=8192          # Memory per CPU (reduced from 8016)
-#SBATCH --gres=gpu:4                # Request 3 GPUs
-#SBATCH --time=1-00:00              # Time limit
+#SBATCH --gres=gpu:8                # Request 3 GPUs
+#SBATCH --time=7-00:00              # Time limit
 #SBATCH --job-name=60awaken_tune_tactis_stage2
 #SBATCH --output=/dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/slurm_logs/awaken_tune_tactis60_stage2_%j.out
 #SBATCH --error=/dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/slurm_logs/awaken_tune_tactis60_stage2_%j.err
@@ -16,7 +16,7 @@
 
 # --- CRITICAL: Stage 1 Study Name ---
 # YOU MUST SET THIS BEFORE RUNNING!
-export STAGE1_STUDY_NAME="tuning_tactis_tune_awaken_tactis_pred60_15s_stage1"
+export STAGE1_STUDY_NAME="tuning_tactis_tune_awaken_tactis_pred60_15s_stage1_5"
 if [ -z "$STAGE1_STUDY_NAME" ]; then
     echo "ERROR: STAGE1_STUDY_NAME environment variable is not set!"
     echo "Please set it to the Stage 1 study name from the logs, e.g.:"

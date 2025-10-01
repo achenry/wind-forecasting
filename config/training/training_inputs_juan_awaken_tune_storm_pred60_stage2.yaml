@@ -1,7 +1,7 @@
 experiment:
   username: jmb0507
-  project_name: train_awaken_storm_split_pred60_15s_stage2_3
-  run_name: tune_awaken_tactis_pred60_15s_stage2_3
+  project_name: train_awaken_storm_split_pred60_15s_stage2_5
+  run_name: tune_awaken_tactis_pred60_15s_stage2_5
   project_root: /user/taed7566/Forecasting/wind-forecasting
   log_dir: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/
   notes: "Stage 2 tuning for AWAKEN with TACTiS at 15s frequency (4 steps) - copula only (loading Stage 1 marginals)"
