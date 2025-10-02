@@ -362,7 +362,7 @@ class DataLoader:
                                 #                 .group_by("time").agg(cs.numeric().mean()).sort(by="time")
                                 # add the first row of the next merged df to the current merged df, average overlapping timestamp
                                 df_query[i] = pl.concat([df_query[i], df_query[i + 1].slice(0, 1)], how="diagonal")\
-                                                .group_by("time", maintain_order=True).agg(cs.numeric().exclude("file_set_idx").mean())
+                                                .group_by("time", maintain_order=True).agg(cs.numeric().mean()).with_columns(pl.col("file_set_idx").cast(pl.Int32))
                                 # add the rest of the rows from the next merged df and forward fill its null values from the current merged df
                                 df_query[i] = pl.concat([df_query[i], df_query[i + 1].slice(1, None)], how="diagonal").fill_null(strategy="forward")
                                 
@@ -385,16 +385,16 @@ class DataLoader:
                                     
                                     
                                 else:
-                                    logging.info(f"Filling gap between merged df {i} and merged df {i + 1} with NaNs without interpolation, since they are from different file sets.")
+                                    # logging.info(f"Filling gap between merged df {i} and merged df {i + 1} with NaNs without interpolation, since they are from different file sets.")
                                     # if there is a gap greater than dt, and the merged files are from different file sets, we just want NaNs without interpolation, with file_set_idx=-1 so they are not considered in forward filling
-                                    df_query[i] = pl.concat([df_query[i],
-                                            df_query[i].select(pl.datetime_range(
-                                                start=end_time_1,
-                                                end=start_time_2,
-                                                interval=f"{self.dt}s", 
-                                                closed="none",
-                                                time_unit=df_query[i].collect_schema()["time"].time_unit).alias("time"))\
-                                                    .with_columns(file_set_idx=pl.lit(-1))], how="diagonal")
+                                    # df_query[i] = pl.concat([df_query[i],
+                                    #         df_query[i].select(pl.datetime_range(
+                                    #             start=end_time_1,
+                                    #             end=start_time_2,
+                                    #             interval=f"{self.dt}s", 
+                                    #             closed="none",
+                                    #             time_unit=df_query[i].collect_schema()["time"].time_unit).alias("time"))\
+                                    #                 .with_columns(file_set_idx=pl.lit(-1))], how="diagonal")
                                     inc = True
                             
                             # assert df_query[i].select((pl.col("time").diff().slice(1) == pl.col("time").diff().last()).all()).collect().item() and \
