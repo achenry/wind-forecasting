@@ -1,10 +1,10 @@
 #!/bin/bash
 
 #SBATCH --nodes=1
-#SBATCH --ntasks-per-node=104
+#SBATCH --ntasks=104
 #SBATCH --mem=0
 #SBATCH --account=awaken
-#SBATCH --time=02:00:00
+#SBATCH --time=06:00:00
 #SBATCH --partition=bigmem
 ##SBATCH --partition=standard
 #SBATCH --output=load_data-%j.out
@@ -12,7 +12,7 @@
 #SBATCH --exclusive
 
 module purge
-module load mamba
+ml PrgEnv-intel mamba
 mamba activate wind_forecasting_env
 #echo $SLURM_NNODES * $SLURM_NTASKS
 echo $SLURM_NTASKS
@@ -20,7 +20,7 @@ echo $SLURM_NTASKS
 #echo $ntasks
 #module load openmpi/4.1.6-intel
 #export MPICC=$(which mpicc)
-
+export NUMEXPR_MAX_THREADS=104
 # export RUST_BACKTRACE=full
 # salloc --partition=debug --mem=0 --time=00:30:00 --ntasks=104 --account=awaken
 #export MPICH_SHARED_MEM_COLL_OPT=mpi_bcast,mpi_barrier 
@@ -30,8 +30,9 @@ echo $SLURM_NTASKS
 # cd $LARGE_STORAGE/ahenry/wind_forecasting_env/wind-forecasting/wind_forecasting/preprocessing
 # conda activate wind_forecasting_preprocessing
 # python preprocessing_main.py --config /srv/data/nfs/ahenry/wind_forecasting_env/wind-forecasting/examples/inputs/preprocessing_inputs_server_awaken_new.yaml --reload_data --multiprocessor cf 
-
-mpirun --npernode $SLURM_NTASKS_PER_NODE python preprocessing_main.py --config /$HOME/toolboxes/wind_forecasting_env/wind-forecasting/examples/inputs/preprocessing_inputs_kestrel_awaken_new.yaml --reload_data --multiprocessor mpi
+# /home/ahenry/toolboxes/wind_forecasting_env/wind-forecasting/config/preprocessing/preprocessing_inputs_kestrel_awaken_new.yaml 
+# mpirun -np $SLURM_NTASKS
+srun python ../preprocessing_main.py --config $HOME/toolboxes/wind_forecasting_env/wind-forecasting/config/preprocessing/preprocessing_inputs_kestrel_awaken_new.yaml --reload_data --multiprocessor mpi
 
 #srun python preprocessing_main.py --config /$HOME/toolboxes/wind_forecasting_env/wind-forecasting/examples/inputs/preprocessing_inputs_kestrel_awaken_new.yaml --reload_data --multiprocessor mpi
 #srun python preprocessing_main.py --config /$HOME/toolboxes/wind_forecasting_env/wind-forecasting/examples/inputs/preprocessing_inputs_rc_awaken.yaml --reload_data --multiprocessor mpi

@@ -11,7 +11,7 @@
 export MODEL_NAME=$1
 export CONFIG_FILE=$2
 
-#export CONFIG_FILE=$HOME/toolboxes/wind_forecasting_env/wind-forecasting/config/training/training_inputs_kestrel_awaken_pred60.yaml
+#export CONFIG_FILE=$HOME/toolboxes/wind_forecasting_env/wind-forecasting/config/training/training_inputs_aoifemac_awaken_predLUT.yaml
 #export MODEL_NAME=informer
 
 # --- Base Directories ---
