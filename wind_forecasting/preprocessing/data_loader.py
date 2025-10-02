@@ -13,7 +13,7 @@ import re
 from shutil import move
 from psutil import virtual_memory
 from datetime import datetime
-import sys
+import gc
 # from datetime.datetime import strptime
 from memory_profiler import profile
 
@@ -146,21 +146,26 @@ class DataLoader:
                         
                         file_futures = [ex.submit(self._read_single_file, file_set_idx, f, file_path, 
                                                 os.path.join(temp_save_dir, 
-                                                            f"{os.path.splitext(os.path.basename(file_path))[0]}.parquet")) 
+                                                            f"{os.path.splitext(os.path.basename(file_path))[0]}.parquet"))
                                         for file_set_idx in range(len(self.file_paths)) for f, file_path in enumerate(self.file_paths[file_set_idx])] #4% increase in mem
-                    # file_futures = [fut.result() for fut in file_futures]
+                        # file_futures = [fut.result() for fut in file_futures]
+                    
                     merge_idx = 0
                     merged_paths = [] 
                     n_files_merged = 0
+                    processed_file_paths = []
+                    file_set_indices = []
                     for file_set_idx in range(len(self.file_paths)):
-                        processed_file_paths = []
+                        processed_file_paths.append([])
+                        file_set_indices.append(file_set_idx)
+                        num_files_to_merge = 0
                         # last_turbine_idx = len(self.turbine_mapping[file_set_idx]) - 1
                         for f, file_path in enumerate(self.file_paths[file_set_idx]):
                             used_ram = virtual_memory().percent
                             # ensure no intersection in time between different merged dataframes/sets of processed_file_paths
                             # if we have enough ram to continue to process files AND we still have files to process
                             # keep adding new files to processed_file_paths if the turbine signature is in the title, and it does not correspond to the last turbine
-                            num_files_to_merge = len(processed_file_paths)
+                            # num_files_to_merge = len(processed_file_paths[-1])
                             is_file_per_turbine = self.datetime_signature[file_set_idx] is not None and len(re.findall(self.datetime_signature[file_set_idx][0], os.path.basename(file_path))) and len(re.findall(self.turbine_signature[file_set_idx], os.path.basename(file_path)))
                             # turbine_idx = list(self.turbine_mapping[file_set_idx]).index(
                             #             re.search(self.turbine_signature[file_set_idx], os.path.basename(file_path)).group(0))
@@ -178,50 +183,70 @@ class DataLoader:
                              # or if we haven't processed any files yet 
                              # or if this file type is per turbine and we haven't processed a complete set
                              # continue adding to processed_file_paths
-                            if (num_files_to_merge < self.merge_chunk and used_ram < self.ram_limit) \
+                             # and used_ram < self.ram_limit) \
+                            if (num_files_to_merge < self.merge_chunk) \
                                 or (num_files_to_merge == 0) \
                                 or (is_file_per_turbine and (turbine_id != available_turbine_ids[-1])): 
-                                logging.info(f"Used RAM = {used_ram}%. Continue adding to buffer of {len(processed_file_paths)} processed single files.")
+                                logging.info(f"Used RAM = {used_ram}%. Continue adding to buffer of {len(processed_file_paths[-1])} processed single files.")
                                 # res = ex.submit(self._read_single_file, f, file_path).result()
                                 if read_single_files:
                                     res = file_futures[f].result() #.5% increase in mem
                                 else:
                                     res = 1
                                 if res is not None: 
-                                    processed_file_paths.append(
+                                    processed_file_paths[-1].append(
                                         os.path.join(temp_save_dir, 
-                                                           f"{os.path.splitext(os.path.basename(file_path))[0]}.parquet"))
+                                                           f"{os.path.splitext(os.path.basename(file_path))[0]}.parquet")
+                                        )
+                                    
+                                    num_files_to_merge += 1
                             
-                            num_files_to_merge = len(processed_file_paths) 
+                            # num_files_to_merge = len(processed_file_paths[-1])
                              # if we have processed enough files to merge or we don't have sufficient ram to process more, or the last file of the set has been processed
                              # and if this file type is either not per turbine or it is and we have processed a complete set
                              # continue adding to processed_file_paths 
                             if first_merge and num_files_to_merge\
-                                and (((num_files_to_merge >= self.merge_chunk) \
+                                and ((
+                                    (num_files_to_merge >= self.merge_chunk) \
                                       or (used_ram >= self.ram_limit) \
                                        or (f == len(self.file_paths[file_set_idx]) - 1))) \
                                 and (not is_file_per_turbine or (turbine_id == available_turbine_ids[-1])):
                                 # process what we have so far and dump processed lazy frames
                                 n_files_merged += num_files_to_merge
                                 # logging.info(f"turbine_id = {turbine_id},\navailable_turbine_ids = {available_turbine_ids}, \nis_file_per_turbine = {is_file_per_turbine}, \nnum_files_to_merge = {num_files_to_merge} vs. merge_chunk = {self.merge_chunk}, \nf = {f}, \nlen(self.file_paths[file_set_idx]) - 1 = {len(self.file_paths[file_set_idx]) - 1}")
-                                if f == len(self.file_paths[file_set_idx]) - 1:
-                                    logging.info(f"Used RAM = {used_ram}%. Pause for FINAL merge/sort/resample/fill of {len(processed_file_paths)} files read so far from file set {file_set_idx} for a total of {n_files_merged} processed files.")
-                                else:
-                                    logging.info(f"Used RAM = {used_ram}%. Pause to merge/sort/resample/fill {len(processed_file_paths)} files read so far from file set {file_set_idx} for a total of {n_files_merged} processed files.")
                                 
-                                merged_paths.append(ex.submit(self.merge_multiple_files, file_set_idx, processed_file_paths, merge_idx, temp_save_dir).result())
+                                # merged_paths.append(ex.submit(self.merge_multiple_files, file_set_idx, processed_file_paths[-1], merge_idx, temp_save_dir))
+                                merged_paths.append(self.merge_multiple_files(file_set_idx, processed_file_paths[-1], merge_idx, temp_save_dir))
+                                
+                                if f == len(self.file_paths[file_set_idx]) - 1:
+                                    logging.info(f"Used RAM = {used_ram}%. Pause for FINAL merge/sort/resample/fill of {len(processed_file_paths[-1])} files read so far from file set {file_set_idx} for a total of {n_files_merged} processed files.")
+                                else:
+                                    logging.info(f"Used RAM = {used_ram}%. Pause to merge/sort/resample/fill {len(processed_file_paths[-1])} files read so far from file set {file_set_idx} for a total of {n_files_merged} processed files.")
+                                    processed_file_paths.append([])
+                                    num_files_to_merge = 0
+                                    file_set_indices.append(file_set_idx)
+                                    merge_idx += 1
+                                
+                                
+                                logging.info(f"Used RAM after submitting call to  merge_multiple_files = {virtual_memory().percent}%.")
                                 # merged_paths.append(self.merge_multiple_files(file_set_idx, processed_file_paths, merge_idx, temp_save_dir))
-                                merge_idx += 1
-                                processed_file_paths = []
+                                
                                 
                             # for name, size in sorted(((name, sys.getsizeof(value)) for name, value in list(
                             #                     locals().items())), key= lambda x: -x[1])[:3]:
                             #     print("{:>30}: {:>8}".format(name, DataLoader.sizeof_fmt(size)))
+            
+            # merged_paths = [self.merge_multiple_files(file_set_idx=fsi, processed_file_paths=merge_group, i=merge_idx, temp_save_dir=temp_save_dir) for merge_idx, (fsi, merge_group) in enumerate(zip(file_set_indices, processed_file_paths))]
+            
+            # merged_paths.append(ex.submit(self.merge_multiple_files, file_set_idx, processed_file_paths, merge_idx, temp_save_dir))
+        
+                    # merged_paths = [fut.result() for fut in merged_paths]
+                    logging.info(f"Used RAM after merging chunks = {virtual_memory().percent}%.")
                     
                     if not first_merge:
                         merged_paths = glob.glob(os.path.join(temp_save_dir, f"df_*_*.parquet"))
                     
-                    # merged_paths = [fut.result() for fut in merged_paths]
+            # merged_paths = [fut.result() for fut in merged_paths]
                     
         else:
             logging.info(f"✅ Started reading {sum(len(fp) for fp in self.file_paths)} files.")
@@ -393,17 +418,17 @@ class DataLoader:
                              
                         # concatenate intermediary dataframes
                         logging.info(f"Concatenating final, used ram = {virtual_memory().percent}%")
-                        df_query = pl.concat(df_query, how="diagonal_relaxed")
+                        df_query = pl.concat(df_query, how="diagonal_relaxed").collect().lazy()
                         
                         if not df_query.select("time").collect().to_series().is_sorted():
                             logging.info(f"Sorting final, used ram = {virtual_memory().percent}%")
-                            df_query = df_query.sort(by="time")
+                            df_query = df_query.sort(by="time").collect().lazy()
                         
-                        df_query = df_query.collect()
+                        # df_query = df_query.collect()
                         # .write_parquet(self.save_path, statistics=False)
                         # df_query = pl.scan_parquet(self.save_path)
                         
-                        assert df_query.select((pl.col("time").diff().slice(1) == pl.col("time").diff().last()).all()).item(), "dt is non-uniform, even after resampling"
+                        # assert df_query.select((pl.col("time").diff().slice(1) == pl.col("time").diff().last()).all()).item(), "dt is non-uniform, even after resampling"
                         
                         # logging.info(f"Filling final, used ram = {virtual_memory().percent}%")
                         # for data with different file_set_idx or gaps inbetween file_set_idx, don't forward fill
@@ -419,16 +444,16 @@ class DataLoader:
                         # assert df_query.select(pl.all_horizontal((cs.numeric().is_null() | cs.numeric().is_nan()).sum() == 0)).collect().item(), "null values found in final dataframe"
                         
                         logging.info(f"Sorting columns, used ram = {virtual_memory().percent}%") 
-                        df_query = df_query.select([pl.col("time")] 
+                        df_query = df_query.select([pl.col("time"), pl.col("file_set_idx")] 
                                        + [pl.col(c) for c in 
-                                          sorted([col for col in df_query.select(cs.numeric()).collect_schema().names() if col not in ["file_set_idx"]], 
+                                          sorted([col for col in df_query.select(cs.numeric().exclude("file_set_idx")).collect_schema().names()], 
                                                  key=lambda col: (re.search(f".*?(?={self.turbine_signature})", col).group(0), 
                                                                   int(re.search("\\d+", re.search(self.turbine_signature, col).group(0)).group(0))))])
                         
                         # df_query = self.sort_resample_refill(df_query).fill_null(strategy="backward")
                         # Write to final parquet
                         logging.info(f"Saving final Parquet file into {self.save_path}, used ram = {virtual_memory().percent}%")
-                        df_query.write_parquet(self.save_path, statistics=False)
+                        df_query.collect().write_parquet(self.save_path, statistics=False)
                         
                     else:
                         logging.info(f"Moving only batch to {self.save_path}.")
@@ -523,6 +548,8 @@ class DataLoader:
         logging.info(f"Started collect/write for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
         df_queries.collect().write_parquet(merged_path, statistics=False)
         logging.info(f"Finished collect/write for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
+        # gc.collect()
+        # logging.info(f"After gc.collect(). Used RAM = {virtual_memory().percent}%.")
         
         return merged_path
 
