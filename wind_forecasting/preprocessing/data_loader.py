@@ -172,7 +172,7 @@ class DataLoader:
                                     [re.search(self.turbine_signature[file_set_idx], os.path.basename(fp)).group(0) 
                                      for fp in self.file_paths[file_set_idx] 
                                         if datetime_id == re.search(self.datetime_signature[file_set_idx][0], os.path.basename(fp)).group(0)])
-                                logging.info(f"Available turbine ids for file_set_idx {file_set_idx}: {available_turbine_ids}")
+                                # logging.info(f"Available turbine ids for file_set_idx {file_set_idx}: {available_turbine_ids}")
                               
                              # if we have not processed enough files to merge and we have sufficient ram, 
                              # or if we haven't processed any files yet 
@@ -203,7 +203,7 @@ class DataLoader:
                                 and (not is_file_per_turbine or (turbine_id == available_turbine_ids[-1])):
                                 # process what we have so far and dump processed lazy frames
                                 n_files_merged += num_files_to_merge
-                                logging.info(f"turbine_id = {turbine_id},\navailable_turbine_ids = {available_turbine_ids}, \nis_file_per_turbine = {is_file_per_turbine}, \nnum_files_to_merge = {num_files_to_merge} vs. merge_chunk = {self.merge_chunk}, \nf = {f}, \nlen(self.file_paths[file_set_idx]) - 1 = {len(self.file_paths[file_set_idx]) - 1}")
+                                # logging.info(f"turbine_id = {turbine_id},\navailable_turbine_ids = {available_turbine_ids}, \nis_file_per_turbine = {is_file_per_turbine}, \nnum_files_to_merge = {num_files_to_merge} vs. merge_chunk = {self.merge_chunk}, \nf = {f}, \nlen(self.file_paths[file_set_idx]) - 1 = {len(self.file_paths[file_set_idx]) - 1}")
                                 if f == len(self.file_paths[file_set_idx]) - 1:
                                     logging.info(f"Used RAM = {used_ram}%. Pause for FINAL merge/sort/resample/fill of {len(processed_file_paths)} files read so far from file set {file_set_idx} for a total of {n_files_merged} processed files.")
                                 else:
@@ -399,11 +399,11 @@ class DataLoader:
                             logging.info(f"Sorting final, used ram = {virtual_memory().percent}%")
                             df_query = df_query.sort(by="time")
                         
-                        df_query = df_query.collect().lazy()
+                        df_query = df_query.collect()
                         # .write_parquet(self.save_path, statistics=False)
                         # df_query = pl.scan_parquet(self.save_path)
                         
-                        assert df_query.select((pl.col("time").diff().slice(1) == pl.col("time").diff().last()).all()).collect().item(), "dt is non-uniform, even after resampling"
+                        assert df_query.select((pl.col("time").diff().slice(1) == pl.col("time").diff().last()).all()).item(), "dt is non-uniform, even after resampling"
                         
                         # logging.info(f"Filling final, used ram = {virtual_memory().percent}%")
                         # for data with different file_set_idx or gaps inbetween file_set_idx, don't forward fill
@@ -428,7 +428,7 @@ class DataLoader:
                         # df_query = self.sort_resample_refill(df_query).fill_null(strategy="backward")
                         # Write to final parquet
                         logging.info(f"Saving final Parquet file into {self.save_path}, used ram = {virtual_memory().percent}%")
-                        df_query.collect().write_parquet(self.save_path, statistics=False)
+                        df_query.write_parquet(self.save_path, statistics=False)
                         
                     else:
                         logging.info(f"Moving only batch to {self.save_path}.")
@@ -510,11 +510,19 @@ class DataLoader:
         assert os.path.exists(temp_save_dir), f"temp_save_dir={temp_save_dir} is not available for file set {file_set_idx}, merge index {i}"
         merged_path = os.path.join(temp_save_dir, f"df_{file_set_idx}_{i}.parquet")
         
+        logging.info(f"Started sort/resample/refill for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
         df_queries = self.sort_resample_refill(df_queries)
-        assert df_queries.select((pl.col("time").diff().slice(1) == pl.col("time").diff().last()).all()).collect().item() 
-        df_queries = df_queries.with_columns(file_set_idx=pl.lit(file_set_idx))
+        logging.info(f"Finished sort/resample/refill for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
         
+        # assert df_queries.select((pl.col("time").diff().slice(1) == pl.col("time").diff().last()).all()).collect().item() 
+        
+        logging.info(f"Started setting files_set_idx for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
+        df_queries = df_queries.with_columns(file_set_idx=pl.lit(file_set_idx))
+        logging.info(f"Finished setting files_set_idx for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
+        
+        logging.info(f"Started collect/write for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
         df_queries.collect().write_parquet(merged_path, statistics=False)
+        logging.info(f"Finished collect/write for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
         
         return merged_path
 
