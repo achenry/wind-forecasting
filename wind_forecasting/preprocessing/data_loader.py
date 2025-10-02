@@ -203,7 +203,7 @@ class DataLoader:
                                 and (not is_file_per_turbine or (turbine_id == available_turbine_ids[-1])):
                                 # process what we have so far and dump processed lazy frames
                                 n_files_merged += num_files_to_merge
-                                logging.info(f"turbine_id = {turbine_id}, available_turbine_ids = {available_turbine_ids}, \nis_file_per_turbine = {is_file_per_turbine}, \nnum_files_to_merge = {num_files_to_merge}, \nused_ram = {used_ram}, \nmerge_chunk = {self.merge_chunk}, \nf = {f}, \nlen(self.file_paths[file_set_idx]) - 1 = {len(self.file_paths[file_set_idx]) - 1}")
+                                logging.info(f"turbine_id = {turbine_id},\navailable_turbine_ids = {available_turbine_ids}, \nis_file_per_turbine = {is_file_per_turbine}, \nnum_files_to_merge = {num_files_to_merge} vs. merge_chunk = {self.merge_chunk}, \nf = {f}, \nlen(self.file_paths[file_set_idx]) - 1 = {len(self.file_paths[file_set_idx]) - 1}")
                                 if f == len(self.file_paths[file_set_idx]) - 1:
                                     logging.info(f"Used RAM = {used_ram}%. Pause for FINAL merge/sort/resample/fill of {len(processed_file_paths)} files read so far from file set {file_set_idx} for a total of {n_files_merged} processed files.")
                                 else:
@@ -317,7 +317,7 @@ class DataLoader:
                         start_time_1 = df_query[0].select(pl.col("time").first()).collect().item() 
                         end_time_1 = df_query[0].select(pl.col("time").last()).collect().item()
                         # the earliest merged df may have null values at the beginning, so backfill first
-                        df_query[0].fill_null(strategy="backward")
+                        df_query[0] = df_query[0].fill_null(strategy="backward")
                         
                         i = 0
                         
@@ -337,7 +337,7 @@ class DataLoader:
                                 #                 .group_by("time").agg(cs.numeric().mean()).sort(by="time")
                                 # add the first row of the next merged df to the current merged df, average overlapping timestamp
                                 df_query[i] = pl.concat([df_query[i], df_query[i + 1].slice(0, 1)], how="diagonal")\
-                                                .group_by("time").agg(cs.numeric().mean()).sort(by="time")
+                                                .group_by("time", maintain_order=True).agg(cs.numeric().exclude("file_set_idx").mean())
                                 # add the rest of the rows from the next merged df and forward fill its null values from the current merged df
                                 df_query[i] = pl.concat([df_query[i], df_query[i + 1].slice(1, None)], how="diagonal").fill_null(strategy="forward")
                                 
