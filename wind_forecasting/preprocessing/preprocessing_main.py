@@ -194,7 +194,7 @@ def main():
         else:
             data_loader.turbine_signature = data_loader.turbine_signature[0]
         
-        df_query = df_query.select([pl.col("time")] 
+        df_query = df_query.select([pl.col("time"), pl.col("file_set_idx")] 
                                     + [pl.col(c) for c in 
                                         sorted(df_query.select(cs.numeric()).select(pl.exclude("file_set_idx")).collect_schema().names(), 
                                                 key=lambda col: (re.search(f".*?(?={data_loader.turbine_signature})", col).group(0), 
@@ -355,6 +355,7 @@ def main():
     ws_cols = data_inspector.get_features(df_query, "wind_speed")
     wd_cols = data_inspector.get_features(df_query, "wind_direction")
     pwr_cols = data_inspector.get_features(df_query, "power_output")
+    file_set_indices = df_query.select(pl.col("file_set_idx").unique()).collect().to_numpy().flatten()
     
     # Create a mapping from turbine ID to its index
     turbine_id_to_index = {tid: idx for idx, tid in enumerate(data_loader.turbine_ids)}
@@ -393,22 +394,27 @@ def main():
             cols = ws_cols + wd_cols
             
             if args.reload_data or args.regenerate_filters \
-                or not all(os.path.join(frozen_sensor_filter_temp_path, f"{feat}.npy") for feat in cols):
+                or not all(os.path.join(frozen_sensor_filter_temp_path, f"{feat}_fs{file_set_idx}.npy") for file_set_idx in file_set_indices for feat in cols):
                 thr = int(np.timedelta64(config["filters"]["unresponsive_sensor"]["frozen_sensor_limit"], 's') / np.timedelta64(data_loader.dt, 's'))
-                frozen_sensors = filters.unresponsive_flag(
-                    data_pl=df_query.select(cs.starts_with("wind_speed"), cs.starts_with("wind_direction")), 
-                    threshold=thr)
-                mask = lambda feat: frozen_sensors(feat).collect().to_numpy().flatten()
+                
+                frozen_sensors = {}
+                for file_set_idx in file_set_indices:
+                    frozen_sensors[file_set_idx] = filters.unresponsive_flag(
+                        data_pl=df_query.filter(pl.col("file_set_idx") == file_set_idx).select(cs.starts_with("wind_speed"), cs.starts_with("wind_direction")), 
+                        threshold=thr)
+                
+                mask = lambda file_set_idx, feat: frozen_sensors[file_set_idx](feat).collect().to_numpy().flatten()
                 
                 if RUN_ONCE:
-                    for feat in cols:
-                        np.save(os.path.join(frozen_sensor_filter_temp_path, f"{feat}.npy"), 
-                                    frozen_sensors(feat).collect().to_numpy().flatten())
+                    for file_set_idx in file_set_indices:
+                        for feat in cols:
+                            np.save(os.path.join(frozen_sensor_filter_temp_path, f"{feat}_fs{file_set_idx}.npy"), 
+                                        frozen_sensors[file_set_idx](feat).collect().to_numpy().flatten())
                         
                     # move from temp location to permanent
                     move(frozen_sensor_filter_temp_path, frozen_sensor_filter_target_path)
             else:
-                mask = lambda feat: np.load(os.path.join(frozen_sensor_filter_target_path, f"{feat}.npy")) 
+                mask = lambda file_set_idx, feat: np.load(os.path.join(frozen_sensor_filter_target_path, f"{feat}_fs{file_set_idx}.npy")) 
         
             # check time series
             if args.verbose:
@@ -433,12 +439,12 @@ def main():
                 #     )
                 
                 
-                data_inspector.plot_nulled_vs_remaining(df_query.slice(0, ROW_LIMIT), mask,
+                data_inspector.plot_nulled_vs_remaining(df_query.slice(0, ROW_LIMIT), mask, file_set_indices,
                                                         mask_input_features=ws_cols,
                                                         output_features=ws_cols, 
                                                         feature_types=["wind_speed"], 
                                                         feature_labels=["Wind Speed (m/s) after Unresponsive Sensor Filter"])
-                data_inspector.plot_nulled_vs_remaining(df_query.slice(0, ROW_LIMIT), mask,
+                data_inspector.plot_nulled_vs_remaining(df_query.slice(0, ROW_LIMIT), mask, file_set_indices,
                                                         mask_input_features=wd_cols,
                                                         output_features=wd_cols, 
                                                         feature_types=["wind_direction"], 
@@ -451,7 +457,7 @@ def main():
             if RUN_ONCE:
                 logging.info("Nullifying wind speed/direction frozen sensor measurements in dataframe.")
                 
-            df_query = data_filter.conditional_filter(df_query, threshold, mask, 
+            df_query = data_filter.conditional_filter(df_query, threshold, mask, file_set_indices,
                                                         mask_input_features=ws_cols+wd_cols,
                                                         output_features=ws_cols+wd_cols, 
                                                         filter_type="unresponsive sensor",

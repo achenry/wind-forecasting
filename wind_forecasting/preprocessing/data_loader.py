@@ -347,11 +347,13 @@ class DataLoader:
                         i = 0
                         
                         while i < len(df_query) - 1:
-                        # for i in range():
+                            
+                            logging.info(f"351. Used RAM = {virtual_memory().percent}%")
                             inc = False
                             start_time_2 = df_query[i + 1].select(pl.col("time").first()).collect().item()
                             end_time_2 = df_query[i + 1].select(pl.col("time").last()).collect().item()
                             
+                            logging.info(f"356. Used RAM = {virtual_memory().percent}%")
                             logging.info(f"Number of columns of merged df {i} = {len(df_query[i].collect_schema().names())}")
                             logging.info(f"Time bounds of merged df {i} before time col expansion: ({start_time_1}, {end_time_1})")
                             logging.info(f"Time bounds of merged df {i + 1} before time col expansion: ({start_time_2}, {end_time_2})")
@@ -364,7 +366,7 @@ class DataLoader:
                                 # add the last row of the current merged df to the next merged df, average overlapping timestamp
                                 df_query[i + 1] = pl.concat([df_query[i].slice(-1, 1), df_query[i + 1]], how="diagonal")\
                                                 .group_by("time", maintain_order=True).agg(cs.numeric().mean()).with_columns(pl.col("file_set_idx").cast(pl.Int32)).fill_null(strategy="forward")
-                                          
+                                logging.info(f"369. Used RAM = {virtual_memory().percent}%")
                                 # add the rest of the rows from the next merged df and forward fill its null values from the current merged df
                                 # df_query[i] = pl.concat([df_query[i], df_query[i + 1].slice(1, None)], how="diagonal").fill_null(strategy="forward")
                                 
@@ -378,7 +380,7 @@ class DataLoader:
                                 # df_query[i + 1] = df_query[i + 1].slice(1, None)
                             elif (start_time_2 - end_time_1 != np.timedelta64(self.dt, 's')): 
                                 # elif there is a gap greater than dt between the two datasets
-                                
+                                logging.info(f"383. Used RAM = {virtual_memory().percent}%")
                                 if df_query[i].select(pl.col("file_set_idx").first()).collect().item() == df_query[i + 1].select(pl.col("file_set_idx").first()).collect().item(): 
                                     
                                     # if from same file set, we want to fill the missing timestamps between the two merged dataframes, then concat them together and forward fill the next merged df's null values from the current merged df
@@ -393,7 +395,7 @@ class DataLoader:
                                                 closed="none",
                                                 time_unit=df_query[i].collect_schema()["time"].time_unit).alias("time")),
                                             df_query[i + 1]], how="diagonal").fill_null(strategy="forward")
-                                    
+                                    logging.info(f"398. Used RAM = {virtual_memory().percent}%")
                                     df_query[i] = df_query[i].slice(0, df_query[i].select(pl.len()).collect().item()-1)
                                     
                                     # concatenate the first N-1 rows of df_query[i] with df_query[i + 1]
@@ -401,39 +403,33 @@ class DataLoader:
                                     logging.info(f"Finished filling gap between merged df {i} and merged df {i + 1}. Used RAM = {virtual_memory().percent}%")
                                     
                                     
-                                else:
-                                    # logging.info(f"Filling gap between merged df {i} and merged df {i + 1} with NaNs without interpolation, since they are from different file sets.")
-                                    # if there is a gap greater than dt, and the merged files are from different file sets, we just want NaNs without interpolation, with file_set_idx=-1 so they are not considered in forward filling
-                                    # df_query[i] = pl.concat([df_query[i],
-                                    #         df_query[i].select(pl.datetime_range(
-                                    #             start=end_time_1,
-                                    #             end=start_time_2,
-                                    #             interval=f"{self.dt}s", 
-                                    #             closed="none",
-                                    #             time_unit=df_query[i].collect_schema()["time"].time_unit).alias("time"))\
-                                    #                 .with_columns(file_set_idx=pl.lit(-1))], how="diagonal")
-                                    inc = True
+                                # else:
+                                #     # logging.info(f"Filling gap between merged df {i} and merged df {i + 1} with NaNs without interpolation, since they are from different file sets.")
+                                #     # if there is a gap greater than dt, and the merged files are from different file sets, we just want NaNs without interpolation, with file_set_idx=-1 so they are not considered in forward filling
+                                #     # df_query[i] = pl.concat([df_query[i],
+                                #     #         df_query[i].select(pl.datetime_range(
+                                #     #             start=end_time_1,
+                                #     #             end=start_time_2,
+                                #     #             interval=f"{self.dt}s", 
+                                #     #             closed="none",
+                                #     #             time_unit=df_query[i].collect_schema()["time"].time_unit).alias("time"))\
+                                #     #                 .with_columns(file_set_idx=pl.lit(-1))], how="diagonal")
+                                #     inc = True
                             
                             # assert df_query[i].select((pl.col("time").diff().slice(1) == pl.col("time").diff().last()).all()).collect().item() and \
                             #      (df_query[i + 1].select(pl.col("time").first()).collect().item() - df_query[i].select(pl.col("time").last()).collect().item() == np.timedelta64(self.dt, 's'))
                             
                             start_time_1 = df_query[i].select(pl.col("time").first()).collect().item() 
                             end_time_1 = df_query[i].select(pl.col("time").last()).collect().item() 
+                            logging.info(f"424. Used RAM = {virtual_memory().percent}%")
                             
-                            if inc:
-                                start_time_2 = df_query[i + 1].select(pl.col("time").first()).collect().item()
-                                end_time_2 = df_query[i + 1].select(pl.col("time").last()).collect().item()
-                                logging.info(f"Time bounds of merged df {i} after time col expansion: ({start_time_1}, {end_time_1})")
-                                logging.info(f"Time bounds of merged df {i + 1} after time col expansion: ({start_time_2}, {end_time_2})")
-                                start_time_1 = start_time_2
-                                end_time_1 = end_time_2
-                                # i += 1
-                            else:
-                                logging.info(f"Time bounds of merged df {i} after time col expansion: ({start_time_1}, {end_time_1})")
-                                # end_time_1 = end_time_2 # we just extended merged df i to include the timestamps of merged df i + 1, start_time_1 remains the same
-                                # del df_query[i + 1]
+                            logging.info(f"Time bounds of merged df {i} after time col expansion: ({start_time_1}, {end_time_1})")
+                            logging.info(f"Time bounds of merged df {i + 1} after time col expansion: ({start_time_2}, {end_time_2})")
+                            start_time_1 = start_time_2
+                            end_time_1 = end_time_2
                             
                             i += 1
+                            
                         # concatenate intermediary dataframes
                         logging.info(f"Concatenating final, used ram = {virtual_memory().percent}%")
                         df_query = pl.concat(df_query, how="diagonal_relaxed")#.collect().lazy()
@@ -564,13 +560,10 @@ class DataLoader:
         logging.info(f"Finished setting files_set_idx for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
         
         logging.info(f"Started write for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
-        df_queries.sink_parquet(merged_path, statistics=False) # TODO this uses a lot of RAM, which is not recovered afterwards, maybe due to polars lazy evaluation
-        # del df_queries
+        df_queries.sink_parquet(merged_path, statistics=False)
+        gc.collect()
         logging.info(f"Finished write for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.") 
 
-        # gc.collect()
-        # logging.info(f"After gc.collect(). Used RAM = {virtual_memory().percent}%.")
-        
         return merged_path
 
     

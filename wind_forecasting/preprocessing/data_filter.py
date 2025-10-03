@@ -460,43 +460,44 @@ class DataFilter:
         
         return __class__._js_divergence(p, q)
 
-    def conditional_filter(self, df, threshold, mask, mask_input_features, output_features, filter_type, check_js=True):
+    def conditional_filter(self, df, threshold, mask, file_set_indices, mask_input_features, output_features, filter_type, check_js=True):
         """
         only applies mask to features if the Jensen-Shannon metric between filtered and unfiltered 
         data exceeds a threshold
         """
         if self.data_format == 'wide':
-            return self._conditional_filter_wide(df, threshold, mask, mask_input_features, output_features, filter_type, check_js)
+            return self._conditional_filter_wide(df, threshold, mask, file_set_indices, mask_input_features, output_features, filter_type, check_js)
         else:
-            return self._conditional_filter_long(df, threshold, mask, mask_input_features, output_features, filter_type, check_js)
+            return self._conditional_filter_long(df, threshold, mask, file_set_indices, mask_input_features, output_features, filter_type, check_js)
 
-    def _conditional_filter_wide(self, df, threshold, mask, mask_input_features, output_features, filter_type, check_js):
+    def _conditional_filter_wide(self, df, threshold, mask, file_set_indices, mask_input_features, output_features, filter_type, check_js):
         if check_js:
             js_scores = []
-            for inp_feat, opt_feat in zip(mask_input_features, output_features):
-                filt_expr = mask(inp_feat)
-                js_score = self._compute_js_divergence(
-                    train_sample=df.filter(filt_expr).select(opt_feat).drop_nulls().collect().to_numpy().flatten(),
-                    test_sample=df.select(opt_feat).drop_nulls().collect().to_numpy().flatten()
-                )
-                logging.info(f"JS Score for feature {opt_feat} = {js_score} with filter {filter_type}")
-                js_scores.append(js_score)
-                
-                if js_score > threshold:
-                    # new_data = 
-                    # df = df.with_columns(**{feat: 
-                    #     ma.filled(ma.array(df.select(pl.col(feat)).collect().to_numpy().flatten(), mask=mask(tid), fill_value=np.nan))
-                    #                         }).with_columns(pl.col(feat).fill_nan(None).alias(feat))
-                    df = df.with_columns(pl.when(pl.Series(filt_expr)).then(None).otherwise(pl.col(opt_feat)).alias(opt_feat))
-                    logging.info(f"Applied filter {filter_type} to feature {opt_feat}.")
-                
-                # if js_score > threshold:
-                    # df = df.with_columns(pl.when(mask(tid)).then(pl.col(feat)).otherwise(None).alias(feat))
+            for file_set_idx in file_set_indices:
+                for inp_feat, opt_feat in zip(mask_input_features, output_features):
+                    js_score = self._compute_js_divergence(
+                        train_sample=df.filter((pl.col("file_set_idx") == file_set_idx)).filter(pl.Series(mask(file_set_idx, inp_feat))).select(opt_feat).drop_nulls().collect().to_numpy().flatten(),
+                        test_sample=df.select(opt_feat).drop_nulls().collect().to_numpy().flatten()
+                    )
+                    logging.info(f"JS Score for feature {opt_feat} = {js_score} with filter {filter_type}")
+                    js_scores.append(js_score)
+                    
+                    if js_score > threshold:
+                        # new_data = 
+                        # df = df.with_columns(**{feat: 
+                        #     ma.filled(ma.array(df.select(pl.col(feat)).collect().to_numpy().flatten(), mask=mask(tid), fill_value=np.nan))
+                        #                         }).with_columns(pl.col(feat).fill_nan(None).alias(feat))
+                        df = df.with_columns(pl.when(filt_expr).then(None).otherwise(pl.col(opt_feat)).alias(opt_feat))
+                        logging.info(f"Applied filter {filter_type} to feature {opt_feat}.")
+                    
+                    # if js_score > threshold:
+                        # df = df.with_columns(pl.when(mask(tid)).then(pl.col(feat)).otherwise(None).alias(feat))
             # df = df.with_columns({feat: pl.when(mask(feat.split("_")[-1]) & js_score > threshold).then(pl.col(feat)).otherwise(None) for js_score, feat in zip(js_scores, features)})
                     
         else:
             # df = df.with_columns({feat: pl.when(mask(feat.split("_")[-1])).then(pl.col(feat)).otherwise(None) for feat in features})
-            df = df.with_columns(**{opt_feat: pl.when(pl.Series(mask(inp_feat))).then(None).otherwise(pl.col(opt_feat)) for inp_feat, opt_feat in zip(mask_input_features, output_features)})
+            for file_set_idx in file_set_indices:
+                df = df.with_columns(**{opt_feat: pl.when(pl.Series(mask(file_set_idx, inp_feat)) & (pl.col("file_set_idx") == file_set_idx)).then(None).otherwise(pl.col(opt_feat)) for inp_feat, opt_feat in zip(mask_input_features, output_features)})
             # for inp_feat, opt_feat in zip(mask_input_features, output_features):
             #     filt_expr = mask(inp_feat)
             #     # new_data = ma.filled(ma.array(df.select(pl.col(feat)).collect().to_numpy().flatten(), mask=mask(tid), fill_value=np.nan))
@@ -509,25 +510,28 @@ class DataFilter:
         
         return df
 
-    def _conditional_filter_long(self, df, threshold, mask, mask_input_features, output_features, filter_type, check_js):
+    def _conditional_filter_long(self, df, threshold, mask, file_set_indices, mask_input_features, output_features, filter_type, check_js):
         # TODO test this
         if check_js:
-            js_scores = []
-            for inp_feat, opt_feat in zip(mask_input_features, output_features):
-                filt_expr = mask(inp_feat).collect().to_numpy().flatten()
-                js_score = self._compute_js_divergence(
-                    train_sample=df.filter(pl.Series(filt_expr)).select(opt_feat).drop_nulls().collect().to_numpy().flatten(),
-                    test_sample=df.select(opt_feat).drop_nulls().collect().to_numpy().flatten()
-                )
-                logging.info(f"JS Score for feature {opt_feat} = {js_score} with filter {filter_type}")
-                js_scores.append(js_score)
-                # if js_score > threshold:
-                #     df = df.with_columns(pl.when(mask).then(pl.col(feat)).otherwise(None).alias(feat))
-                #     
+            js_scores = {}
+            for file_set_idx in file_set_indices:
+                js_scores[file_set_idx] = []
+                for inp_feat, opt_feat in zip(mask_input_features, output_features):
+                    js_score = self._compute_js_divergence(
+                        train_sample=df.filter(pl.col("file_set_idx") == file_set_idx).filter(pl.Series(mask(inp_feat))).select(opt_feat).drop_nulls().collect().to_numpy().flatten(),
+                        test_sample=df.select(opt_feat).drop_nulls().collect().to_numpy().flatten()
+                    )
+                    logging.info(f"JS Score for feature {opt_feat} = {js_score} with filter {filter_type}")
+                    js_scores[file_set_idx].append(js_score)
+                    # if js_score > threshold:
+                    #     df = df.with_columns(pl.when(mask).then(pl.col(feat)).otherwise(None).alias(feat))
+                    #     
                 
-            df = df.with_columns(**{opt_feat: pl.when(mask(inp_feat) & js_score > threshold).then(None).otherwise(pl.col(opt_feat)) for js_score, inp_feat, opt_feat in zip(js_scores, mask_input_features, output_features)})
+            for file_set_idx in file_set_indices:
+                df = df.with_columns(**{opt_feat: pl.when(pl.Series(mask(file_set_idx, inp_feat) & (js_score > threshold)) & (pl.col("file_set_idx") == file_set_idx)).then(None).otherwise(pl.col(opt_feat)) for js_score, inp_feat, opt_feat in zip(js_scores[file_set_idx], mask_input_features, output_features)})
         else:
-            df = df.with_columns(**{opt_feat: pl.when(mask(inp_feat)).then(None).otherwise(pl.col(opt_feat)).alias(opt_feat) for inp_feat, opt_feat in zip(mask_input_features, output_features)})
+            for file_set_idx in file_set_indices:
+                df = df.with_columns(**{opt_feat: pl.when(pl.Series(mask(file_set_idx, inp_feat)) & (pl.col("file_set_idx") == file_set_idx)).then(None).otherwise(pl.col(opt_feat)).alias(opt_feat) for file_set_idx in file_set_indices for inp_feat, opt_feat in zip(mask_input_features, output_features)})
             
         return df
     
