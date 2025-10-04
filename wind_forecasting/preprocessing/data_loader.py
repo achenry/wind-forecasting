@@ -153,10 +153,11 @@ class DataLoader:
                     merge_idx = 0
                     merged_paths = [] 
                     n_files_merged = 0
-                    processed_file_paths = []
+                    # processed_file_paths = []
                     file_set_indices = []
                     for file_set_idx in range(len(self.file_paths)):
-                        processed_file_paths.append([])
+                        # processed_file_paths.append([])
+                        processed_file_paths = []
                         file_set_indices.append(file_set_idx)
                         num_files_to_merge = 0
                         # last_turbine_idx = len(self.turbine_mapping[file_set_idx]) - 1
@@ -187,19 +188,20 @@ class DataLoader:
                             if (num_files_to_merge < self.merge_chunk) \
                                 or (num_files_to_merge == 0) \
                                 or (is_file_per_turbine and (turbine_id != available_turbine_ids[-1])): 
-                                logging.info(f"Used RAM = {used_ram}%. Continue adding to buffer of {len(processed_file_paths[-1])} processed single files.")
+                                    
+                                fn = f"{os.path.splitext(os.path.basename(file_path))[0]}.parquet"
+                                # logging.info(f"Used RAM = {used_ram}%. Continue to add {file_path} to buffer of {len(processed_file_paths)} processed single files.")
                                 # res = ex.submit(self._read_single_file, f, file_path).result()
                                 if read_single_files:
                                     res = file_futures[f].result() #.5% increase in mem
                                 else:
                                     res = 1
-                                if res is not None: 
-                                    processed_file_paths[-1].append(
-                                        os.path.join(temp_save_dir, 
-                                                           f"{os.path.splitext(os.path.basename(file_path))[0]}.parquet")
-                                        )
                                     
+                                if res is not None: 
+                                    processed_file_paths.append(os.path.join(temp_save_dir, fn))
                                     num_files_to_merge += 1
+                                else:
+                                    logging.warning(f"File {file_path} could not be processed, skipping.")
                             
                             # num_files_to_merge = len(processed_file_paths[-1])
                              # if we have processed enough files to merge or we don't have sufficient ram to process more, or the last file of the set has been processed
@@ -216,15 +218,16 @@ class DataLoader:
                                 # logging.info(f"turbine_id = {turbine_id},\navailable_turbine_ids = {available_turbine_ids}, \nis_file_per_turbine = {is_file_per_turbine}, \nnum_files_to_merge = {num_files_to_merge} vs. merge_chunk = {self.merge_chunk}, \nf = {f}, \nlen(self.file_paths[file_set_idx]) - 1 = {len(self.file_paths[file_set_idx]) - 1}")
                                 
                                 # merged_paths.append(ex.submit(self.merge_multiple_files, file_set_idx, processed_file_paths[-1], merge_idx, temp_save_dir))
-                                merged_paths.append(self.merge_multiple_files(file_set_idx, processed_file_paths[-1], merge_idx, temp_save_dir))
+                                merged_paths.append(self.merge_multiple_files(file_set_idx, processed_file_paths, merge_idx, temp_save_dir))
                                 
                                 if f == len(self.file_paths[file_set_idx]) - 1:
-                                    logging.info(f"Used RAM = {used_ram}%. Pause for FINAL merge/sort/resample/fill of {len(processed_file_paths[-1])} files read so far from file set {file_set_idx} for a total of {n_files_merged} processed files.")
+                                    logging.info(f"Used RAM = {used_ram}%. Pause for FINAL merge/sort/resample/fill of {len(processed_file_paths)} files read so far from file set {file_set_idx} for a total of {n_files_merged} processed files.")
                                 else:
-                                    logging.info(f"Used RAM = {used_ram}%. Pause to merge/sort/resample/fill {len(processed_file_paths[-1])} files read so far from file set {file_set_idx} for a total of {n_files_merged} processed files.")
-                                    processed_file_paths.append([])
+                                    logging.info(f"Used RAM = {used_ram}%. Pause to merge/sort/resample/fill {len(processed_file_paths)} files read so far from file set {file_set_idx} for a total of {n_files_merged} processed files.")
+                                    # processed_file_paths.append([])
+                                    processed_file_paths = []
                                     num_files_to_merge = 0
-                                    file_set_indices.append(file_set_idx)
+                                    # file_set_indices.append(file_set_idx)
                                     merge_idx += 1
                                 
                                 
@@ -306,7 +309,7 @@ class DataLoader:
                             logging.info(f"Used RAM = {used_ram}%. Pause for FINAL merge/sort/resample/fill of {len(processed_file_paths)} files read so far from file set {file_set_idx} for a total of {n_files_merged} processed files.")
                         else:
                             logging.info(f"Used RAM = {used_ram}%. Pause to merge/sort/resample/fill {len(processed_file_paths)} files read so far from file set {file_set_idx} for a total of {n_files_merged} processed files.")
-                        # TODO HIGH RAM IS BUILDING UP HERE, maybe data copying due to use of srun over cf?
+                        
                         merged_paths.append(self.merge_multiple_files( file_set_idx, processed_file_paths, merge_idx, temp_save_dir))
                         
                         merge_idx += 1
@@ -335,12 +338,13 @@ class DataLoader:
                         
                         # Concatenate the different merged and sorted files by ordering them by time, and then finding the missing timestamps between them,
                         # this is more memory efficient than joining all the files at once by a long time series
-                        df_query = sorted([pl.scan_parquet(bp) for bp in merged_paths], 
+                        df_query = sorted([pl.scan_parquet(bp).sort("time") for bp in merged_paths], 
                                         key=lambda df: 
                                             df.select(pl.col("time").first()).collect().item())
                         
                         start_time_1 = df_query[0].select(pl.col("time").first()).collect().item() 
                         end_time_1 = df_query[0].select(pl.col("time").last()).collect().item()
+                        
                         # the earliest merged df may have null values at the beginning, so backfill first
                         df_query[0] = df_query[0].fill_null(strategy="backward")
                         
@@ -349,7 +353,6 @@ class DataLoader:
                         while i < len(df_query) - 1:
                             
                             logging.info(f"351. Used RAM = {virtual_memory().percent}%")
-                            inc = False
                             start_time_2 = df_query[i + 1].select(pl.col("time").first()).collect().item()
                             end_time_2 = df_query[i + 1].select(pl.col("time").last()).collect().item()
                             
@@ -381,10 +384,10 @@ class DataLoader:
                             elif (start_time_2 - end_time_1 != np.timedelta64(self.dt, 's')): 
                                 # elif there is a gap greater than dt between the two datasets
                                 logging.info(f"383. Used RAM = {virtual_memory().percent}%")
-                                if df_query[i].select(pl.col("file_set_idx").first()).collect().item() == df_query[i + 1].select(pl.col("file_set_idx").first()).collect().item(): 
+                                if (file_set_idx := df_query[i].select(pl.col("file_set_idx").first()).collect().item()) == df_query[i + 1].select(pl.col("file_set_idx").first()).collect().item(): 
                                     
                                     # if from same file set, we want to fill the missing timestamps between the two merged dataframes, then concat them together and forward fill the next merged df's null values from the current merged df
-                                    logging.info(f"Started filling gap between merged df {i} and merged df {i + 1}, since they are from the same file set. Used RAM = {virtual_memory().percent}%")
+                                    logging.info(f"Started filling gap between merged df {i} and merged df {i + 1}, since they are from the same file set {file_set_idx}. Used RAM = {virtual_memory().percent}%")
                                     
                                     # concatenate the last (filled) row of df_query[i] with the time join in between, and then the rest of df_query[i + 1]
                                     df_query[i + 1] = pl.concat([df_query[i].slice(-1, 1), # 
@@ -418,6 +421,9 @@ class DataLoader:
                             
                             # assert df_query[i].select((pl.col("time").diff().slice(1) == pl.col("time").diff().last()).all()).collect().item() and \
                             #      (df_query[i + 1].select(pl.col("time").first()).collect().item() - df_query[i].select(pl.col("time").last()).collect().item() == np.timedelta64(self.dt, 's'))
+                            
+                            # assert df_query[i].select(pl.col("time").n_unique()).collect().item() == df_query[i].select(pl.len()).collect().item()
+                            # assert df_query[i+1].select(pl.col("time").n_unique()).collect().item() == df_query[i+1].select(pl.len()).collect().item()
                             
                             start_time_1 = df_query[i].select(pl.col("time").first()).collect().item() 
                             end_time_1 = df_query[i].select(pl.col("time").last()).collect().item() 
@@ -467,13 +473,13 @@ class DataLoader:
                         # df_query = self.sort_resample_refill(df_query).fill_null(strategy="backward")
                         # Write to final parquet
                         logging.info(f"Saving final Parquet file into {self.save_path}, used ram = {virtual_memory().percent}%")
-                        df_query.sink_parquet(self.save_path, statistics=False)
+                        df_query.sink_parquet(self.save_path, maintain_order=True, statistics=False)
                         
                     else:
                         logging.info(f"Moving only batch to {self.save_path}.")
                         move(merged_paths[0], self.save_path)
                     
-                df_query = pl.scan_parquet(self.save_path)
+                df_query = pl.scan_parquet(self.save_path).sort("time")
                     
                 # turbine ids found in all files so far
                 self.turbine_ids = self.get_turbine_ids(self.turbine_signature, df_query, sort=True)
@@ -494,16 +500,16 @@ class DataLoader:
         
         # if df_query.select(pl.col("time").diff().slice(1).n_unique()).collect().item() > 1:
         if not df_query.select((pl.col("time").diff().slice(1) == pl.col("time").diff().last()).all()).collect().item():
-            logging.info(f"Started resampling. Used RAM = {virtual_memory().percent}%.") 
-            bounds = df_query.select(pl.col("time").first().alias("first"),
-                                     pl.col("time").last().alias("last")).collect()
+            start = df_query.select(pl.col("time").first()).collect().item()
+            end = df_query.select(pl.col("time").last()).collect().item()
+            logging.info(f"Started resampling from {start} to {end}. Used RAM = {virtual_memory().percent}%.") 
             df_query = df_query.select(pl.datetime_range(
-                                        start=bounds.select("first").item(),
-                                        end=bounds.select("last").item(),
+                                        start=start,
+                                        end=end,
                                         interval=f"{self.dt}s", time_unit=df_query.collect_schema()["time"].time_unit).alias("time"))\
                                 .join(df_query, on="time", how="left")
             # assert df_query.select((pl.col("time").diff().slice(1) == pl.col("time").diff().last()).all()).collect().item(), f"dt is non-uniform, even after resampling, for {df_query}" 
-            
+            # assert df_query.select(pl.col("time").n_unique()).collect().item() == df_query.select(pl.len()).collect().item()
             # df_query = full_datetime_range.join(df_query, on="time", how="left")
             logging.info(f"Finished resampling. Used RAM = {virtual_memory().percent}%.") 
 
@@ -516,9 +522,12 @@ class DataLoader:
      
     def merge_multiple_files(self, file_set_idx, processed_file_paths, i, temp_save_dir):
         
-        logging.info(f"✅ Started join of {len(processed_file_paths)} files for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
+        logging.info(f"✅ Started join of {len(processed_file_paths)} files for file set {file_set_idx}, merge index {i}:")
+        for fp in processed_file_paths:
+            logging.info(f"    {os.path.basename(fp)}")
+        logging.info(f"Used RAM = {virtual_memory().percent}%.")
         df_queries = [pl.scan_parquet(fp) for fp in processed_file_paths]
-        
+        # all([df.select(pl.col("time").n_unique()).collect().item() == df.select(pl.len()).collect().item() for df in df_queries])
         # For single file or files without timestamps, just get the dataframes
         if len(df_queries) == 1:
             df_queries = df_queries[0]  # If single file, no need to join
@@ -553,14 +562,14 @@ class DataLoader:
         df_queries = self.sort_resample_refill(df_queries)
         logging.info(f"Finished sort/resample/refill for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
         
-        # assert df_queries.select((pl.col("time").diff().slice(1) == pl.col("time").diff().last()).all()).collect().item() 
-        
+        # assert df_queries.select((pl.col("time").diff().slice(1) == pl.col("time").diff().last()).all()).collect().item()
+        # assert df_queries.select((pl.col("time").n_unique())).collect().item() == df_queries.select(pl.len()).collect().item()
         logging.info(f"Started setting files_set_idx for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
         df_queries = df_queries.with_columns(file_set_idx=pl.lit(file_set_idx))
         logging.info(f"Finished setting files_set_idx for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
         
         logging.info(f"Started write for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
-        df_queries.sink_parquet(merged_path, statistics=False)
+        df_queries.sink_parquet(merged_path, maintain_order=True, statistics=False)
         gc.collect()
         logging.info(f"Finished write for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.") 
 
@@ -659,7 +668,7 @@ class DataLoader:
             start_time = time.time()
             if self.data_format[file_set_idx] == "netcdf":
                 with nc.Dataset(raw_file_path, 'r') as dataset:
-                    logging.info(f"✅ Scanned {file_number + 1}-th {raw_file_path}")
+                    # logging.info(f"✅ Scanned {file_number + 1}-th {raw_file_path}")
                     time_var = dataset.variables[self.feature_mapping[file_set_idx]["time"]]
                     time_var = nc.num2date(times=time_var[:], 
                                     units=time_var.units, 
@@ -806,19 +815,27 @@ class DataLoader:
                 # forward fill missing values
                 # counts, bins = np.histogram(df_query.collect().select(pl.col("time").dt.round(f"{self.dt}s").alias("time").cast(pl.Datetime(time_unit="us")).unique()).sort("time").select(pl.all().diff()).to_pandas()["time"].astype('timedelta64[s]').astype('int').iloc[1:])
                 df_query = df_query.with_columns(pl.col("time").dt.round(f"{self.dt}s").alias("time"))\
-                                    .select([cs.contains(feat) for feat in target_features])\
-                                    .filter(pl.any_horizontal(cs.numeric().is_not_null()))
+                                    .select([cs.contains(feat) for feat in target_features])
+                                    # .filter(pl.any_horizontal(cs.numeric().is_not_null()))
                 
             # pivot table to have columns for each turbine and measurement if not originally in wide format
             is_already_wide = all(f"{feature}_{tid}" in available_columns 
                 for feature in target_features for tid in turbine_ids if feature != "time")
             if not is_already_wide:
                 pivot_features = [col for col in available_columns if col not in ['time', 'turbine_id']]
+                # unique_cols = [f"{col}_{tid}" for col in pivot_features for tid in turbine_ids]
+                # agg_func = lambda col: col.mean()
+                # index = pl.col("time")
+                # on = pl.col("turbine_id")
+                # values = pl.col(pivot_features)
+                # df_query = df_query.group_by(index).agg(
+                #     agg_func(values.filter(on == value)).alias(value) for value in unique_cols)
+                
                 df_query = df_query.collect().pivot(
                     index="time",
                     on="turbine_id",
                     values=pivot_features,
-                    aggregate_function=pl.element().drop_nulls().first(),
+                    aggregate_function="mean", # if there are multiple values for a single time stamp, average them #pl.element().drop_nulls().first(),
                     sort_columns=True
                 ).lazy().sort("time")
             

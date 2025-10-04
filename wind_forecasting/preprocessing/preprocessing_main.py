@@ -248,7 +248,7 @@ def main():
         assert all(any(prefix in col for col in df_query.collect_schema().names()) for prefix in ["time", "wind_speed_", "wind_direction_", "nacelle_direction_", "power_output_"]), "DataFrame must contain columns 'time', then columns with prefixes 'wind_speed_', 'wind_direction_', 'power_output_', 'nacelle_direction_'"
         assert df_query.select("time").collect().to_series().is_sorted(), "Loaded data should be sorted by time!"
         assert all(any(f"{prefix}{tid}" in col for col in df_query.collect_schema().names() if col != "time") for prefix in ["wind_speed_", "wind_direction_", "nacelle_direction_", "power_output_"] for tid in data_loader.turbine_ids), "DataFrame must contain columns with prefixes 'wind_speed_', 'wind_direction_', 'power_output_', 'nacelle_direction_' and suffixes for each turbine id" 
-
+        assert df_query.select("time").collect().to_series().is_sorted()
     # df_query = df_query.group_by("time").agg(cs.numeric().mean())
     # df_query.collect().write_parquet(config["processed_data_path"], statistics=False)
     
@@ -382,19 +382,21 @@ def main():
             frozen_sensor_filter_target_path = os.path.join(os.path.dirname(config["processed_data_path"]), 
                                             os.path.basename(config["processed_data_path"]).replace(".parquet", "_frozen_sensor"))
             
+            regen = args.reload_data or args.regenerate_filters \
+                or not all(os.path.join(frozen_sensor_filter_temp_path, f"{feat}_fs{file_set_idx}.npy") for file_set_idx in file_set_indices for feat in cols)
+            
             if RUN_ONCE:
                 if os.path.exists(frozen_sensor_filter_temp_path):
                     rmtree(frozen_sensor_filter_temp_path) 
                 
                 os.makedirs(frozen_sensor_filter_temp_path, exist_ok=True)
                 
-                if args.regenerate_filters and os.path.exists(frozen_sensor_filter_target_path):
+                if regen:
                     rmtree(frozen_sensor_filter_target_path)
             
             cols = ws_cols + wd_cols
             
-            if args.reload_data or args.regenerate_filters \
-                or not all(os.path.join(frozen_sensor_filter_temp_path, f"{feat}_fs{file_set_idx}.npy") for file_set_idx in file_set_indices for feat in cols):
+            if regen:
                 thr = int(np.timedelta64(config["filters"]["unresponsive_sensor"]["frozen_sensor_limit"], 's') / np.timedelta64(data_loader.dt, 's'))
                 
                 frozen_sensors = {}
@@ -462,6 +464,9 @@ def main():
                                                         output_features=ws_cols+wd_cols, 
                                                         filter_type="unresponsive sensor",
                                                         check_js=False)
+            
+            # assert df_query.select(pl.col("time").n_unique()).collect().item() == df_query.select(pl.len()).collect().item()
+            
             if RUN_ONCE:
                 del mask
                 if "frozen_sensors" in locals():
@@ -507,10 +512,12 @@ def main():
                 logging.info("Nullifying inoperational turbine measurements in dataframe.")
                 
             # turbine_status_cols = data_inspector.get_features(df_query, "turbine_status")
-            df_query = data_filter.conditional_filter(df_query, threshold, mask, 
+            df_query = data_filter.conditional_filter(df_query, threshold, mask, None,
                                                         mask_input_features=sorted(list(data_loader.turbine_ids))*2, 
                                                         output_features=ws_cols+wd_cols, 
                                                         filter_type="inoperational turbine status", check_js=False)
+            
+            # assert df_query.select(pl.col("time").n_unique()).collect().item() == df_query.select(pl.len()).collect().item()
             
             if RUN_ONCE:
                 del mask
@@ -587,25 +594,28 @@ def main():
                 # fill out_of_range measurements with Null st they are marked for interpolation via impute or linear/forward fill interpolation later
                 threshold = 0.01
                 
-                if RUN_ONCE:
-                    logging.info("Nullifying wind speed out of range measurements in dataframe.")
-                    
-                df_query = data_filter.conditional_filter(df_query, threshold, mask, 
-                                                            mask_input_features=sorted(data_loader.turbine_ids), 
-                                                            output_features=ws_cols, 
-                                                            filter_type="wind speed range", check_js=False)
-                if RUN_ONCE:
-                    del out_of_range, mask
-                    
-                    df_query.collect().write_parquet(config["processed_data_path"].replace(".parquet", "_filtered.parquet"), statistics=False)
-                    df_query = pl.scan_parquet(config["processed_data_path"].replace(".parquet", "_filtered.parquet"))
-                    logging.info("Finished nullifying wind speed out of range measurements in dataframe.") 
+            if RUN_ONCE:
+                logging.info("Nullifying wind speed out of range measurements in dataframe.")
+                
+            df_query = data_filter.conditional_filter(df_query, threshold, mask, None,
+                                                        mask_input_features=sorted(data_loader.turbine_ids), 
+                                                        output_features=ws_cols, 
+                                                        filter_type="wind speed range", check_js=False)
             
-                if args.verbose:
-                    DataInspector.print_df_state(df_query, ["wind_speed", "wind_direction", "nacelle_direction"])
-                    
-                if args.plot:
-                    data_inspector.plot_time_series(df_query.slice(0, ROW_LIMIT), feature_types=["wind_speed", "wind_direction"], turbine_ids=data_loader.turbine_ids, continuity_groups=None, label="after_out_of_range")
+            # assert df_query.select(pl.col("time").n_unique()).collect().item() == df_query.select(pl.len()).collect().item()
+            
+            if RUN_ONCE:
+                del out_of_range, mask
+                
+                df_query.collect().write_parquet(config["processed_data_path"].replace(".parquet", "_filtered.parquet"), statistics=False)
+                df_query = pl.scan_parquet(config["processed_data_path"].replace(".parquet", "_filtered.parquet"))
+                logging.info("Finished nullifying wind speed out of range measurements in dataframe.") 
+        
+            if args.verbose:
+                DataInspector.print_df_state(df_query, ["wind_speed", "wind_direction", "nacelle_direction"])
+                
+            if args.plot:
+                data_inspector.plot_time_series(df_query.slice(0, ROW_LIMIT), feature_types=["wind_speed", "wind_direction"], turbine_ids=data_loader.turbine_ids, continuity_groups=None, label="after_out_of_range")
         
         # %%
         if "window_range_flag" in config["filters"]:
@@ -678,10 +688,12 @@ def main():
             if RUN_ONCE:
                 logging.info("Nullifying wind speed-power curve out-of-window measurements in dataframe.")
                 
-            df_query = data_filter.conditional_filter(df_query, threshold, mask, 
+            df_query = data_filter.conditional_filter(df_query, threshold, mask, None,
                                                         mask_input_features=sorted(data_loader.turbine_ids),
                                                         output_features=ws_cols, 
                                                         filter_type="power-wind speed window range", check_js=False)
+            
+            # assert df_query.select(pl.col("time").n_unique()).collect().item() == df_query.select(pl.len()).collect().item()
             
             if RUN_ONCE:
                 del out_of_window, mask
@@ -785,11 +797,13 @@ def main():
             if RUN_ONCE:
                 logging.info("Nullifying wind speed-power curve bin outlier measurements in dataframe.")
                 
-            df_query = data_filter.conditional_filter(df_query, threshold, mask, 
+            df_query = data_filter.conditional_filter(df_query, threshold, mask, None,
                                                         mask_input_features=sorted(data_loader.turbine_ids),
                                                         output_features=ws_cols, 
                                                         filter_type="power-wind speed bin",
                                                         check_js=False)
+            
+            # assert df_query.select(pl.col("time").n_unique()).collect().item() == df_query.select(pl.len()).collect().item()
             
             if RUN_ONCE:
                 del bin_outliers, mask
@@ -968,7 +982,7 @@ def main():
             .with_columns(**{f"ws_vert_{tid}": (pl.col(f"wind_speed_{tid}") * ((pl.col(f"wind_direction_{tid}") + 180.0).radians().cos())) for tid in data_loader.turbine_ids})\
             .with_columns(**{f"nd_cos_{tid}": ((pl.col(f"nacelle_direction_{tid}")).radians().cos()) for tid in data_loader.turbine_ids})\
             .with_columns(**{f"nd_sin_{tid}": ((pl.col(f"nacelle_direction_{tid}")).radians().sin()) for tid in data_loader.turbine_ids})\
-            .select(pl.col("time"), cs.starts_with("ws_horz"), cs.starts_with("ws_vert"), cs.starts_with("nd_sin"), cs.starts_with("nd_cos"), cs.starts_with("power_output"))
+            .select(pl.col("time"), pl.col("file_set_idx"), cs.starts_with("ws_horz"), cs.starts_with("ws_vert"), cs.starts_with("nd_sin"), cs.starts_with("nd_cos"), cs.starts_with("power_output"))
         
         # df_query2.filter(pl.col("continuity_group") == 5).select("time", "ws_horz_1", "ws_vert_1").filter((pl.col("time") > datetime(2020, 5, 24, 4, 30)) & (pl.col("time") < datetime(2020, 5, 24, 6, 30))).collect().to_numpy()[:, 1].flatten() 
         if False:
@@ -1138,11 +1152,13 @@ def main():
             if RUN_ONCE:
                 logging.info("Nullifying horizontal/vertical wind speed standard deviation measurements in dataframe.")
                 
-            df_query = data_filter.conditional_filter(df_query, threshold, mask, 
+            df_query = data_filter.conditional_filter(df_query, threshold, mask, None,
                                                         mask_input_features=ws_horz_cols+ws_vert_cols,
                                                         output_features=ws_horz_cols+ws_vert_cols, 
                                                         filter_type="standard deviation", 
                                                         check_js=False)
+            
+            # assert df_query.select(pl.col("time").n_unique()).collect().item() == df_query.select(pl.len()).collect().item()
             
             if RUN_ONCE:
                 del std_dev_outliers
@@ -1178,100 +1194,104 @@ def main():
             minimum_not_missing_duration = np.timedelta64(config["filters"]["split"]["minimum_not_missing_duration"], "s")
             missing_data_cols = ["ws_horz", "ws_vert"]
             
+            df_query = [df_query.filter(pl.col("file_set_idx") == file_set_idx) for file_set_idx in file_set_indices]
+            
             # check for any periods of time for which more than 'missing_col_thr' features have missing data
-            df_query2 = df_query\
-                    .with_columns(*[cs.contains(col).is_null().name.prefix("is_missing_") for col in missing_data_cols])\
-                    .with_columns(**{f"num_missing_{col}": pl.sum_horizontal((cs.contains(col) & cs.starts_with("is_missing"))) for col in missing_data_cols})
+            for f, file_set_idx in enumerate(file_set_indices):
+                df_query2 = df_query[f] \
+                        .with_columns(*[cs.contains(col).is_null().name.prefix("is_missing_") for col in missing_data_cols])\
+                        .with_columns(**{f"num_missing_{col}": pl.sum_horizontal((cs.contains(col) & cs.starts_with("is_missing"))) for col in missing_data_cols})
 
-            # subset of data, indexed by time, which has <= the threshold number of missing columns
-            # check that the number of missing wind dir/speed measurements (over all turbines) is less or equal to missing_col_thr (i.e. both the number of missing wind dirs and wind speeds must be <= missing_col_thr)
-            df_query_not_missing_times = add_df_continuity_columns(df_query2, 
+                # subset of data, indexed by time, which has <= the threshold number of missing columns
+                # check that the number of missing wind dir/speed measurements (over all turbines) is less or equal to missing_col_thr (i.e. both the number of missing wind dirs and wind speeds must be <= missing_col_thr)
+                df_query_not_missing_times = add_df_continuity_columns(df_query2, 
+                                                                    dt=data_loader.dt,
+                                                                    mask=pl.all_horizontal(cs.starts_with("num_missing") <= missing_col_thr) 
+                                                                    #    mask=pl.sum_horizontal(cs.starts_with("num_missing")) <= missing_col_thr, 
+                                                                    )
+
+                # subset of data, indexed by time, which has > the threshold number of missing wind speed or wind dir
+                df_query_missing_times = add_df_continuity_columns(df_query2, 
                                                                 dt=data_loader.dt,
-                                                                mask=pl.all_horizontal(cs.starts_with("num_missing") <= missing_col_thr) 
-                                                                #    mask=pl.sum_horizontal(cs.starts_with("num_missing")) <= missing_col_thr, 
+                                                                mask=pl.any_horizontal(cs.starts_with("num_missing") > missing_col_thr)
+                                                                #    mask=pl.sum_horizontal(cs.starts_with("num_missing")) > missing_col_thr, 
                                                                 )
 
-            # subset of data, indexed by time, which has > the threshold number of missing wind speed or wind dir
-            df_query_missing_times = add_df_continuity_columns(df_query2, 
-                                                            dt=data_loader.dt,
-                                                            mask=pl.any_horizontal(cs.starts_with("num_missing") > missing_col_thr)
-                                                            #    mask=pl.sum_horizontal(cs.starts_with("num_missing")) > missing_col_thr, 
-                                                            )
+                # start times, end times, and durations of each of the continuous subsets of data in df_query_missing_times 
+                df_query_not_missing = add_df_agg_continuity_columns(df_query_not_missing_times) 
+                df_query_missing = add_df_agg_continuity_columns(df_query_missing_times)
+                
+                # start times, end times, and durations of each of the continuous subsets of data in df_query_not_missing_times 
+                # AND of each of the continuous subsets of data in df_query_missing_times that are under the threshold duration time 
+                df_query_not_missing = pl.concat([df_query_not_missing, 
+                                                        df_query_missing.filter(pl.col("duration") <= missing_duration_thr)])\
+                                        .sort("start_time")
 
-            # start times, end times, and durations of each of the continuous subsets of data in df_query_missing_times 
-            df_query_not_missing = add_df_agg_continuity_columns(df_query_not_missing_times) 
-            df_query_missing = add_df_agg_continuity_columns(df_query_missing_times)
-            
-            # start times, end times, and durations of each of the continuous subsets of data in df_query_not_missing_times 
-            # AND of each of the continuous subsets of data in df_query_missing_times that are under the threshold duration time 
-            df_query_not_missing = pl.concat([df_query_not_missing, 
-                                                    df_query_missing.filter(pl.col("duration") <= missing_duration_thr)])\
-                                    .sort("start_time")
+                df_query_missing = df_query_missing.filter(pl.col("duration") > missing_duration_thr)
+                
+                if df_query_not_missing.select(pl.len()).collect().item() == 0:
+                    raise Exception("Parameters 'missing_col_thr' or 'missing_duration_thr' are too stringent, can't find any eligible durations of time.")
 
-            df_query_missing = df_query_missing.filter(pl.col("duration") > missing_duration_thr)
+                df_query_missing = merge_adjacent_periods(agg_df=df_query_missing, dt=data_loader.dt)
+                df_query_not_missing = merge_adjacent_periods(agg_df=df_query_not_missing, dt=data_loader.dt)
+                
+                df_query_missing = group_df_by_continuity(df=df_query2, agg_df=df_query_missing, missing_data_cols=missing_data_cols)
+                df_query_not_missing = group_df_by_continuity(df=df_query2, agg_df=df_query_not_missing, missing_data_cols=missing_data_cols)
+                df_query_not_missing = df_query_not_missing.filter(pl.col("duration") >= minimum_not_missing_duration)
+                
+                # filter out the continuity groups for which any measurement has 0 non-null values, can't impute then
+                df_query_not_missing = df_query_not_missing.select(pl.col("duration"), pl.col("start_time"), pl.col("end_time"), pl.col("continuity_group"), 
+                                            cs.starts_with("is_missing") & cs.matches(data_loader.turbine_signature))\
+                                    .filter(pl.all_horizontal(cs.starts_with("is_missing") 
+                                                            < ((pl.col("duration") / np.timedelta64(data_loader.dt, 's')).cast(pl.Int64))))
+                                    
+                # df_query_not_missing.collect().select(pl.col("duration"), pl.col("start_time"), pl.col("end_time"), pl.col("continuity_group"), cs.contains("3"))\
+                #                     .select(cs.starts_with("is_missing") / (pl.col("duration") / np.timedelta64(data_loader.dt, 's')).cast(pl.Int64))
+                
+                logging.info("Starting to split by continuity group.") 
+                df_query[f] = get_continuity_group_index(continuity_groups_df=df_query_not_missing, time_series_df=df_query2)
+                
+                logging.info("Finished splitting by continuity group.")
             
-            if df_query_not_missing.select(pl.len()).collect().item() == 0:
-                raise Exception("Parameters 'missing_col_thr' or 'missing_duration_thr' are too stringent, can't find any eligible durations of time.")
+                if args.plot:
+                    # Plot number of missing wind dir/wind speed data for each wind turbine (missing duration on x axis, turbine id on y axis, color for wind direction/wind speed)
+                    from matplotlib import colormaps
+                    from matplotlib.ticker import MaxNLocator
+                    fig, ax = plt.subplots(1, 1)
+                    for feature_type, marker in zip(missing_data_cols, ["o", "^"]):
+                        for turbine_id, color in zip(data_loader.turbine_ids, colormaps["tab20c"](np.linspace(0, 1, len(data_loader.turbine_ids)))):
+                            df = df_query_missing.select("duration", f"is_missing_{feature_type}_{turbine_id}").collect().to_pandas()
+                            ax.scatter(x=df["duration"].dt.seconds / 3600,
+                                        y=df[f"is_missing_{feature_type}_{turbine_id}"].astype(int),  
+                            marker=marker, label=turbine_id, s=400, color=color)
+                    ax.set_title("Occurence of Missing Wind Speed (circle) and Wind Direction (triangle) Values vs. Missing Duration, for each Turbine")
+                    ax.set_xlabel("Duration of Missing Values (hrs)")
+                    ax.set_ylabel("Number of Missing Values over this Duration")
+                    h, l = ax.get_legend_handles_labels()
+                    # ax.legend(h[:len(data_loader.turbine_ids)], l[:len(data_loader.turbne_ids)], ncol=8)
+                    ax.yaxis.set_major_locator(MaxNLocator(integer=True))
 
-            df_query_missing = merge_adjacent_periods(agg_df=df_query_missing, dt=data_loader.dt)
-            df_query_not_missing = merge_adjacent_periods(agg_df=df_query_not_missing, dt=data_loader.dt)
-            
-            df_query_missing = group_df_by_continuity(df=df_query2, agg_df=df_query_missing, missing_data_cols=missing_data_cols)
-            df_query_not_missing = group_df_by_continuity(df=df_query2, agg_df=df_query_not_missing, missing_data_cols=missing_data_cols)
-            df_query_not_missing = df_query_not_missing.filter(pl.col("duration") >= minimum_not_missing_duration)
-            
-            # filter out the continuity groups for which any measurement has 0 non-null values, can't impute then
-            df_query_not_missing = df_query_not_missing.select(pl.col("duration"), pl.col("start_time"), pl.col("end_time"), pl.col("continuity_group"), 
-                                        cs.starts_with("is_missing") & cs.matches(data_loader.turbine_signature))\
-                                .filter(pl.all_horizontal(cs.starts_with("is_missing") 
-                                                        < ((pl.col("duration") / np.timedelta64(data_loader.dt, 's')).cast(pl.Int64))))
-                                
-            # df_query_not_missing.collect().select(pl.col("duration"), pl.col("start_time"), pl.col("end_time"), pl.col("continuity_group"), cs.contains("3"))\
-            #                     .select(cs.starts_with("is_missing") / (pl.col("duration") / np.timedelta64(data_loader.dt, 's')).cast(pl.Int64))
-            
-            logging.info("Starting to split by continuity group.") 
-            df_query = get_continuity_group_index(continuity_groups_df=df_query_not_missing, time_series_df=df_query2)
-            del df_query2
-            logging.info("Finished splitting by continuity group.")
-            
-            df_query = df_query.filter(pl.col("continuity_group") != -1)\
-                                .drop(cs.contains("is_missing") | cs.contains("num_missing"))\
-                                .sort("time")\
-                                .select(*[cs.starts_with(feat_type) for feat_type in ["time", "continuity_group", "ws_horz", "ws_vert", "nd_cos", "nd_sin", "power_output"]])
-            
-            if args.plot:
-                # Plot number of missing wind dir/wind speed data for each wind turbine (missing duration on x axis, turbine id on y axis, color for wind direction/wind speed)
-                from matplotlib import colormaps
-                from matplotlib.ticker import MaxNLocator
-                fig, ax = plt.subplots(1, 1)
-                for feature_type, marker in zip(missing_data_cols, ["o", "^"]):
-                    for turbine_id, color in zip(data_loader.turbine_ids, colormaps["tab20c"](np.linspace(0, 1, len(data_loader.turbine_ids)))):
-                        df = df_query_missing.select("duration", f"is_missing_{feature_type}_{turbine_id}").collect().to_pandas()
+                    # Plot missing duration on x axis, number of missing turbines on y-axis, marker for wind speed vs wind direction,
+                    fig, ax = plt.subplots(1, 1)
+                    for feature_type, marker in zip(missing_data_cols, ["o", "^"]):
+                        df = df_query_missing.select("duration", (cs.contains(feature_type) & cs.starts_with("is_missing")))\
+                                                .with_columns(pl.sum_horizontal([f"is_missing_{feature_type}_{tid}" for tid in data_loader.turbine_ids]).alias(f"is_missing_{feature_type}")).collect().to_pandas()
                         ax.scatter(x=df["duration"].dt.seconds / 3600,
-                                    y=df[f"is_missing_{feature_type}_{turbine_id}"].astype(int),  
-                        marker=marker, label=turbine_id, s=400, color=color)
-                ax.set_title("Occurence of Missing Wind Speed (circle) and Wind Direction (triangle) Values vs. Missing Duration, for each Turbine")
-                ax.set_xlabel("Duration of Missing Values (hrs)")
-                ax.set_ylabel("Number of Missing Values over this Duration")
-                h, l = ax.get_legend_handles_labels()
-                # ax.legend(h[:len(data_loader.turbine_ids)], l[:len(data_loader.turbne_ids)], ncol=8)
-                ax.yaxis.set_major_locator(MaxNLocator(integer=True))
-
-                # Plot missing duration on x axis, number of missing turbines on y-axis, marker for wind speed vs wind direction,
-                fig, ax = plt.subplots(1, 1)
-                for feature_type, marker in zip(missing_data_cols, ["o", "^"]):
-                    df = df_query_missing.select("duration", (cs.contains(feature_type) & cs.starts_with("is_missing")))\
-                                            .with_columns(pl.sum_horizontal([f"is_missing_{feature_type}_{tid}" for tid in data_loader.turbine_ids]).alias(f"is_missing_{feature_type}")).collect().to_pandas()
-                    ax.scatter(x=df["duration"].dt.seconds / 3600,
-                                y=df[f"is_missing_{feature_type}"].astype(int),  
-                    marker=marker, label=feature_type, s=400)
-                ax.set_title("Occurence of Missing Wind Speed (circle) and Wind Direction (triangle) Values vs. Missing Duration, for all Turbines")
-                ax.set_xlabel("Duration of Missing Values [hrs]")
-                ax.set_ylabel("Number of Missing Values over this Duration")
-                h, l = ax.get_legend_handles_labels()
-                # ax.legend(h[:len(missing_data_cols)], l[:len(missing_data_cols)], ncol=8)
-                ax.yaxis.set_major_locator(MaxNLocator(integer=True))
-
+                                    y=df[f"is_missing_{feature_type}"].astype(int),  
+                        marker=marker, label=feature_type, s=400)
+                    ax.set_title("Occurence of Missing Wind Speed (circle) and Wind Direction (triangle) Values vs. Missing Duration, for all Turbines")
+                    ax.set_xlabel("Duration of Missing Values [hrs]")
+                    ax.set_ylabel("Number of Missing Values over this Duration")
+                    h, l = ax.get_legend_handles_labels()
+                    # ax.legend(h[:len(missing_data_cols)], l[:len(missing_data_cols)], ncol=8)
+                    ax.yaxis.set_major_locator(MaxNLocator(integer=True))
+                    
+            df_query = pl.concat(df_query, how="vertical").filter(pl.col("continuity_group") != -1)\
+                    .drop(cs.contains("is_missing") | cs.contains("num_missing"))\
+                    .sort("time")\
+                    .select(*[cs.starts_with(feat_type) for feat_type in ["time", "continuity_group", "ws_horz", "ws_vert", "nd_cos", "nd_sin", "power_output"]])
+            del df_query2
+            
             # if more than 'missing_col_thr' columns are missing data for more than 'missing_timesteps_thr', split the dataset at the point of temporal discontinuity
             # df_query = [df.lazy() for df in df_query.with_columns(get_continuity_group_index(df_query_not_missing).alias("continuity_group"))\
             #                           .filter(pl.col("continuity_group") != -1)\
