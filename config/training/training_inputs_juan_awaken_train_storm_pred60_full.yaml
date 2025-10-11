@@ -1,0 +1,155 @@
+experiment:
+  username: jmb0507
+  project_name: train_awaken_storm_full_pred60_15s_sequential
+  run_name: train_awaken_tactis_pred60_15s_full_sequential
+  project_root: /user/taed7566/Forecasting/wind-forecasting
+  log_dir: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/
+  notes: "Full sequential training (Stage 1→2) for AWAKEN with TACTiS at 15s - Best hyperparameters from tuning (Trial 157+146)"
+  extra_tags: ["train", "tactis", "sequential", "stage1+2", "pred60", "ctx600", "awaken", "15s", "freq15", "full_data"]
+
+logging:
+  entity: jmb0507-cu-boulder # Wandb entity (group name)
+  wandb_mode: online
+  save_code: false
+  wandb_dir: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs
+  checkpoint_dir: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/checkpoints
+  chkp_dir_suffix: "_60_sequential_full"
+  slurm_output_dir: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/slurm_logs
+
+dataset:
+  sampler: "sequential"  # Deterministic training order
+  data_path: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/DATA/preprocessed_awaken_data/awaken_processed_normalized.parquet
+  normalization_consts_path: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/DATA/preprocessed_awaken_data/awaken_processed_normalization_consts.csv
+  context_length: 600  # in seconds (25 steps × 15s × 1.6 = 600s)
+  prediction_length: 60  # in seconds (4 steps × 15s = 60s)
+  target_turbine_ids: # leave blank to capture all
+  normalize: true
+  batch_size: 64  # From tuning (trial 157)
+  base_batch_size: 64  # For scheduler calculations
+  workers: 4
+  overfit: false
+  test_split: 0.20
+  val_split: 0.10
+  resample_freq: 15s
+  n_splits: 1
+  per_turbine_target: true
+  use_pytorch_dataloader: true
+
+model:
+  distr_output:
+    class: LowRankMultivariateNormalOutput
+    kwargs:
+      rank: 8
+
+  ############# TACTiS Sequential Stage 1→2 Configuration ##############
+  tactis:
+    # Sequential training settings
+    skip_copula: false  # CRITICAL: Allow both stages (copula initialized from start)
+    lock_skip_copula: false  # CRITICAL: Allow automatic stage transition
+    initial_stage: 1  # Start in Stage 1
+    stage2_start_epoch: 50  # Switch to Stage 2 at epoch 50 (50 epochs per stage)
+
+    # Common architectural parameters (from tuning trial 157)
+    context_length_factor: 25  # Best from tuning
+    encoder_type: "temporal"  # Best from tuning
+    dropout_rate: 0.008  # Best from tuning
+
+    # Fixed parameters
+    input_encoding_normalization: true
+    scaling: "std"
+    loss_normalization: "both"
+    bagging_size: null
+    num_parallel_samples: 200  # Inference only
+
+    # Stage 1 activation function
+    stage1_activation_function: "relu"  # From trial 157
+
+    # Stage 2 activation function
+    stage2_activation_function: "relu"  # From trial 146
+
+    # === STAGE 1 PARAMETERS (Marginal/Flow/Decoder) - Trial 157 ===
+    # Marginal CDF Encoder
+    marginal_embedding_dim_per_head: 16
+    marginal_num_heads: 6
+    marginal_num_layers: 3
+
+    # Flow
+    flow_input_encoder_layers: 4
+    flow_series_embedding_dim: 16
+
+    # Decoder
+    decoder_dsf_num_layers: 3
+    decoder_dsf_hidden_dim: 512
+    decoder_mlp_num_layers: 5
+    decoder_mlp_hidden_dim: 48
+    decoder_transformer_num_layers: 3
+    decoder_transformer_embedding_dim_per_head: 32
+    decoder_transformer_num_heads: 3
+    decoder_num_bins: 300
+
+    # Stage 1 optimizer parameters
+    lr_stage1: 0.00038131523885318063
+    weight_decay_stage1: 0.0
+    gradient_clip_val_stage1: 0
+
+    # === STAGE 2 PARAMETERS (Copula) - Trial 146 ===
+    # Attentional Copula Encoder
+    copula_embedding_dim_per_head: 16
+    copula_num_heads: 3
+    copula_num_layers: 1
+    copula_input_encoder_layers: 4
+    copula_series_embedding_dim: 32
+
+    # Attentional Copula MLP
+    ac_mlp_num_layers: 4
+    ac_mlp_dim: 256
+
+    # Stage 2 optimizer parameters
+    lr_stage2: 0.0003859695454267361
+    weight_decay_stage2: 2e-05
+    gradient_clip_val_stage2: 0
+
+    # Learning Rate Scheduler Parameters
+    # Stage 1 scheduler (epochs 0-49)
+    warmup_steps_s1: 0.10  # 10% warmup
+    steps_to_decay_s1: 0.90  # 90% decay
+    eta_min_fraction_s1: 0.003952326076561751  # From trial 157
+
+    # Stage 2 scheduler (epochs 50-99)
+    warmup_steps_s2: 0.10  # 10% warmup
+    steps_to_decay_s2: 0.90  # 90% decay
+    eta_min_fraction_s2: 0.008193894992454554  # From trial 146
+
+callbacks:
+  progress_bar:
+    class_path: lightning.pytorch.callbacks.TQDMProgressBar
+    init_args:
+      refresh_rate: 2048
+      leave: false
+  model_checkpoint:
+    class_path: lightning.pytorch.callbacks.ModelCheckpoint
+    init_args:
+      dirpath: ${logging.checkpoint_dir}
+      filename: 'seq_train_epoch={epoch}-step={step}-val_loss={val_loss:.2f}'
+      monitor: 'val_loss'
+      mode: 'min'
+      save_top_k: 3  # Keep top 3 checkpoints
+      save_last: true
+      verbose: true
+      every_n_epochs: 5  # Save every 5 epochs to track progression
+  lr_monitor:
+    class_path: lightning.pytorch.callbacks.LearningRateMonitor
+    init_args:
+      logging_interval: step
+      log_momentum: false
+  dead_neuron_monitor:
+    enabled: false
+
+trainer:
+  val_check_interval: 1.0  # Validate after each full epoch
+  accelerator: gpu
+  devices: auto
+  num_nodes: 1
+  strategy: ddp
+  max_epochs: 100  # 50 for Stage 1 (0-49), 50 for Stage 2 (50-99)
+  limit_train_batches: null  # Use FULL dataset (no subsampling)

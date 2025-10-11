@@ -291,8 +291,9 @@ def main():
         # TODO resolve all keys that end in _dir or _path with recursion
         # for k0 in config:
         #     if k0
-        
-        if config["optuna"]["visualization"]["enabled"] and "output_dir" in config["optuna"]["visualization"]:
+
+        # Only process optuna visualization if optuna config exists (tuning mode)
+        if "optuna" in config and "visualization" in config["optuna"] and config["optuna"]["visualization"].get("enabled", False) and "output_dir" in config["optuna"]["visualization"]:
             if cap := re.search(r"(?<=\${).*(?=})", config["optuna"]["visualization"]["output_dir"]):
                 cap = cap.group(0)
                 key_list = cap.split(".")
