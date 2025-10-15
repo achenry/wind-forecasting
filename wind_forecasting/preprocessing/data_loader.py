@@ -409,7 +409,7 @@ class DataLoader:
                 j += 1
         df_queries = df_queries.drop("index")
         num_files_set_indices = len(file_set_indices)
-        logging.info(f"Finished concatenation of {len(processed_file_paths)} files for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
+        logging.info(f"Finished merging {len(processed_file_paths)} files for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
         
         # assert all(any(tid in col for col in df_queries.collect_schema().names() if col != "time") for tid in turbine_ids), \
             # f"merge_multiple_files should only merge collections of files that include every turbine's data, these file paths include:\n {'\n'.join(processed_file_paths)}"
@@ -440,10 +440,11 @@ class DataLoader:
         #     df_queries = df_queries.filter(pl.col("file_set_idx") != fsi)
         #     logging.info(f"Finished writing continuous file set {fsi} of {num_files_set_indices} to file. Used RAM = {virtual_memory().percent}%.")
         
-        logging.info(f"Started sorting dfs. Used RAM = {virtual_memory().percent}%.") 
-        df_queries = sorted([df_queries.filter(pl.col("file_set_idx") == fsi).sort("time") for fsi in file_set_indices], 
-                            key=lambda df: df.select(pl.col("time").first()).collect().item())
-        logging.info(f"Finished sorting dfs. Used RAM = {virtual_memory().percent}%.") 
+        # logging.info(f"Started sorting dfs. Used RAM = {virtual_memory().percent}%.") 
+        # df_queries = sorted([df_queries.filter(pl.col("file_set_idx") == fsi) for fsi in file_set_indices], 
+        #                     key=lambda df: df.select(pl.col("time").first()).collect().item())
+        df_queries = [df_queries.filter(pl.col("file_set_idx") == fsi) for fsi in file_set_indices]
+        # logging.info(f"Finished sorting dfs. Used RAM = {virtual_memory().percent}%.") 
         
         for j in range(num_files_set_indices):
             if not df_queries[j].select((pl.col("time").diff().slice(1) == pl.col("time").diff().last()).all()).collect().item():
