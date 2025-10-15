@@ -133,13 +133,34 @@ def main():
         all_gpus = [f"{i}:{torch.cuda.get_device_name(i)}" for i in range(num_gpus)]
         logging.info(f"System has {num_gpus} CUDA device(s): {all_gpus}")
 
+        # Check for SLURM-native DDP with PyTorch distributed variables
+        slurm_ntasks = int(os.environ.get("SLURM_NTASKS", "1"))
+        world_size = int(os.environ.get("WORLD_SIZE", "1"))
+        rank = int(os.environ.get("RANK", "-1"))
+
+        if slurm_ntasks > 1 and world_size > 1 and rank >= 0:
+            # SLURM-native DDP with PyTorch distributed variables properly set
+            # Each task sees exactly 1 GPU via --gpu-bind, so set devices=1
+            # For SLURM-native DDP, srun has already launched the processes, so use strategy="auto"
+            # Lightning will auto-detect the existing distributed environment
+            logging.info(f"SLURM-native DDP detected: WORLD_SIZE={world_size}, RANK={rank}, SLURM_NTASKS={slurm_ntasks}")
+            config["trainer"]["devices"] = 1  # Each task uses exactly 1 visible GPU
+            config["trainer"]["strategy"] = "auto"  # Auto-detect existing DDP environment, don't launch subprocesses
+            logging.info(f"Set devices=1 and strategy='auto' for SLURM-native DDP (auto-detect)")
+        elif slurm_ntasks > 1:
+            # SLURM multi-task but PyTorch variables not set - fall back to auto
+            logging.warning(f"SLURM multi-task detected ({slurm_ntasks}) but PyTorch distributed variables not set. Using auto detection.")
+            config["trainer"]["devices"] = "auto"
+            config["trainer"]["strategy"] = "auto"
+
         # Verify current device setup
         if torch.cuda.is_available():
             device = torch.cuda.current_device()
             logging.info(f"Using GPU {device}: {torch.cuda.get_device_name(device)}")
 
             # Check if CUDA_VISIBLE_DEVICES is set and contains only a single GPU
-            if "CUDA_VISIBLE_DEVICES" in os.environ:
+            # Skip this logic if in SLURM-native DDP mode (handled above)
+            if "CUDA_VISIBLE_DEVICES" in os.environ and slurm_ntasks == 1:
                 cuda_devices = os.environ["CUDA_VISIBLE_DEVICES"] # Note: must 'export' variable within nohup to find on Kestrel
                 logging.info(f"CUDA_VISIBLE_DEVICES is set to: '{cuda_devices}'")
                 try:
@@ -153,10 +174,15 @@ def main():
                             logging.warning(f"Adjusting trainer.devices from {config['trainer']['devices']} to {num_visible_gpus} based on CUDA_VISIBLE_DEVICES")
                             config["trainer"]["devices"] = num_visible_gpus
 
-                            # If only one GPU is visible, use auto strategy instead of distributed
-                            if num_visible_gpus == 1 and config["trainer"]["strategy"] != "auto":
-                                logging.warning("Setting strategy to 'auto' since only one GPU is visible")
+                            # Check if we're in SLURM-native DDP mode (ntasks > 1)
+                            slurm_ntasks = int(os.environ.get("SLURM_NTASKS", "1"))
+
+                            # If only one GPU is visible but we're NOT in multi-task SLURM mode, use auto strategy
+                            if num_visible_gpus == 1 and slurm_ntasks == 1 and config["trainer"]["strategy"] != "auto":
+                                logging.warning("Setting strategy to 'auto' since only one GPU is visible and not in SLURM multi-task mode")
                                 config["trainer"]["strategy"] = "auto"
+                            elif num_visible_gpus == 1 and slurm_ntasks > 1:
+                                logging.info(f"SLURM-native DDP detected: {slurm_ntasks} tasks, each with 1 GPU. Keeping strategy={config['trainer']['strategy']}")
 
                         # Log actual GPU mapping information
                         if num_visible_gpus == 1:
@@ -187,21 +213,35 @@ def main():
             torch.cuda.empty_cache()
 
         # Final check to ensure configuration is valid for available GPUs
+        # In SLURM-native DDP mode, devices is already set to 1, so this check is mainly for non-SLURM cases
         if isinstance(config["trainer"]["devices"], int) and config["trainer"]["devices"] > num_gpus:
-            logging.warning(f"Requested {config['trainer']['devices']} GPUs but only {num_gpus} are available. Adjusting trainer.devices.")
-            config["trainer"]["devices"] = num_gpus
+            if slurm_ntasks == 1:
+                logging.warning(f"Requested {config['trainer']['devices']} GPUs but only {num_gpus} are available. Adjusting trainer.devices.")
+                config["trainer"]["devices"] = num_gpus
+            else:
+                # This shouldn't happen with our SLURM detection above, but log if it does
+                logging.warning(f"Unexpected: In SLURM multi-task mode but devices={config['trainer']['devices']} > num_gpus={num_gpus}. Keeping devices as is.")
 
-        if num_gpus == 1 and config["trainer"]["strategy"] != "auto":
-            logging.warning(f"Adjusting trainer.strategy from {config['trainer']['strategy']} to 'auto' for single machine GPU.")
-            config["trainer"]["strategy"] = "auto"
+        # Final check: ensure single-GPU non-SLURM uses 'auto' strategy
+        slurm_ntasks = int(os.environ.get("SLURM_NTASKS", "1"))
+        if num_gpus == 1 and slurm_ntasks == 1:
+            # Single GPU, not in SLURM multi-task - use auto
+            if not isinstance(config["trainer"]["strategy"], str) or config["trainer"]["strategy"] != "auto":
+                logging.warning(f"Adjusting trainer.strategy from {config['trainer']['strategy']} to 'auto' for single GPU (not in SLURM multi-task mode).")
+                config["trainer"]["strategy"] = "auto"
+        elif slurm_ntasks > 1:
+            logging.info(f"SLURM-native DDP: strategy={config['trainer']['strategy']}, devices={config['trainer']['devices']} ({slurm_ntasks} tasks)")
 
         logging.info(f"Trainer config: devices={config['trainer']['devices']}, strategy={config['trainer'].get('strategy', 'auto')}")
 
         gc.collect()
 
-        # Multi-GPU configuration from SLURM environment variables (if not overridden above)
-        if "SLURM_NTASKS_PER_NODE" in os.environ:
-            config["trainer"]["devices"] = int(os.environ["SLURM_NTASKS_PER_NODE"])
+        # Multi-GPU configuration from SLURM environment variables
+        # NOTE: For SLURM-native DDP (ntasks-per-node > 1), each task sees only its assigned GPU.
+        # Lightning auto-detects SLURM coordination and uses SLURM_PROCID/SLURM_NTASKS for ranks.
+        # The 'devices' setting should reflect GPUs visible to THIS task (usually 1 per task).
+        # For other modes, CUDA_VISIBLE_DEVICES parsing above (lines 142-154) handles it correctly.
+        # Only set num_nodes from SLURM if present:
         if "SLURM_NNODES" in os.environ:
             config["trainer"]["num_nodes"] = int(os.environ["SLURM_NNODES"])
 
@@ -209,14 +249,25 @@ def main():
     # Use .get() with default to avoid KeyError if 'strategy' not in config['trainer']
     current_strategy_setting = config.get("trainer", {}).get("strategy", "auto")
 
-    if isinstance(current_strategy_setting, str) and current_strategy_setting.lower() == "ddp" and args.model in ["tactis", "spacetimeformer"]:
-        logging.warning("Instantiating DDPStrategy with find_unused_parameters=True for TACTiS-2.")
-        # Instantiate the strategy object with the flag
-        strategy_object = DDPStrategy(find_unused_parameters=True)
-        # Store the object back into the config dictionary
-        # Ensure config['trainer'] exists
-        if "trainer" not in config: config["trainer"] = {}
-        config["trainer"]["strategy"] = strategy_object
+    # For SLURM-native DDP with PyTorch variables, keep strategy as string "ddp"
+    slurm_ntasks = int(os.environ.get("SLURM_NTASKS", "1"))
+    world_size = int(os.environ.get("WORLD_SIZE", "1"))
+
+    if args.model in ["tactis", "spacetimeformer"]:
+        if slurm_ntasks > 1 and world_size > 1:
+            # SLURM-native DDP: Strategy already set to "auto" to let Lightning auto-detect
+            # Lightning will detect the existing distributed environment from RANK/WORLD_SIZE
+            logging.info(f"SLURM-native DDP detected ({world_size} processes). Using strategy='auto' (auto-detect) for TACTiS-2.")
+            # Strategy is already "auto" from the earlier section, no need to change it
+        elif current_strategy_setting is not None and isinstance(current_strategy_setting, str) and current_strategy_setting.lower() in ["ddp", "auto"]:
+            # Non-SLURM or single-task: Instantiate DDPStrategy with find_unused_parameters
+            logging.warning("Instantiating DDPStrategy with find_unused_parameters=True for TACTiS-2.")
+            # Instantiate the strategy object with the flag
+            strategy_object = DDPStrategy(find_unused_parameters=True)
+            # Store the object back into the config dictionary
+            # Ensure config['trainer'] exists
+            if "trainer" not in config: config["trainer"] = {}
+            config["trainer"]["strategy"] = strategy_object
         
     
     # Dynamically set DataLoader workers based on SLURM_CPUS_PER_TASK
@@ -753,6 +804,28 @@ def main():
         config["trainer"]["callbacks"] = instantiated_callbacks
         logging.info(f"Assigned {len(instantiated_callbacks)} callbacks to config['trainer']['callbacks'].")
 
+        # Add Multi-GPU monitoring callback for DDP training
+        # This monitors all GPUs (not just GPU 0) and logs metrics to WandB
+        try:
+            from wind_forecasting.callbacks import MultiGPUMonitor
+
+            # Determine if we're in multi-GPU mode
+            slurm_ntasks = int(os.environ.get("SLURM_NTASKS", "1"))
+            world_size = int(os.environ.get("WORLD_SIZE", "1"))
+            devices = config.get("trainer", {}).get("devices", 1)
+
+            # Enable multi-GPU monitoring if using DDP or multiple GPUs
+            if slurm_ntasks > 1 or world_size > 1 or (isinstance(devices, int) and devices > 1):
+                gpu_monitor = MultiGPUMonitor(log_interval=10)
+                config["trainer"]["callbacks"].append(gpu_monitor)
+                logging.info("Added MultiGPUMonitor callback for multi-GPU metrics logging")
+            else:
+                logging.info("Single GPU detected, skipping MultiGPUMonitor callback")
+        except ImportError as e:
+            logging.warning(f"Could not import MultiGPUMonitor callback: {e}")
+        except Exception as e:
+            logging.warning(f"Error adding MultiGPUMonitor callback: {e}")
+
         # Prepare all arguments in a dictionary for the Estimator
     
     if args.mode == "dataset":
@@ -917,6 +990,7 @@ def main():
             logging.info(f"Setting use_pytorch_dataloader={config['dataset']['use_pytorch_dataloader']} from config")
         
         logging.info(f"Using final estimator_kwargs:\n {estimator_kwargs}")
+
         estimator = EstimatorClass(**estimator_kwargs)
 
         # Conditionally Create Forecast Generator
@@ -1010,35 +1084,59 @@ def main():
         
         # Check if we should use PyTorch dataloaders
         use_pytorch_dataloader = config["dataset"].get("use_pytorch_dataloader", False)
-        
-        if use_pytorch_dataloader:
-            # For PyTorch dataloaders, pass file paths instead of datasets
-            train_data_path = data_module.get_split_file_path("train")
-            val_data_path = data_module.get_split_file_path("val")
-            
-            logging.info(f"Using PyTorch DataLoader with file paths:")
-            logging.info(f"  Training data: {train_data_path}")
-            logging.info(f"  Validation data: {val_data_path}")
-            
-            estimator.train(
-                training_data=train_data_path,
-                validation_data=val_data_path,
-                forecast_generator=forecast_generator,
-                ckpt_path=checkpoint_path,
-                # Pass additional kwargs that might be needed for PyTorch dataloaders
-                num_workers=num_workers,
-                pin_memory=True,
-                persistent_workers=True
-            )
-        else:
-            # Original GluonTS data loading
-            estimator.train(
-                training_data=data_module.train_dataset,
-                validation_data=data_module.val_dataset,
-                forecast_generator=forecast_generator,
-                ckpt_path=checkpoint_path
-                # shuffle_buffer_length=1024
-            )
+
+        # For SLURM-native DDP: mask SLURM variables during training to bypass Lightning validation
+        # Lightning validates against these variables, but we've configured DDP via PyTorch env vars (RANK, WORLD_SIZE, etc.)
+        slurm_ntasks = int(os.environ.get("SLURM_NTASKS", "1"))
+        world_size = int(os.environ.get("WORLD_SIZE", "1"))
+        saved_slurm_ntasks_per_node = None
+        saved_slurm_ntasks = None
+        if slurm_ntasks > 1 and world_size > 1:
+            # Mask both SLURM_NTASKS_PER_NODE and SLURM_NTASKS
+            saved_slurm_ntasks_per_node = os.environ.pop("SLURM_NTASKS_PER_NODE", None)
+            saved_slurm_ntasks = os.environ.pop("SLURM_NTASKS", None)
+            if saved_slurm_ntasks_per_node or saved_slurm_ntasks:
+                logging.info(f"Masking SLURM variables for SLURM-native DDP training:")
+                logging.info(f"  SLURM_NTASKS_PER_NODE: {saved_slurm_ntasks_per_node}")
+                logging.info(f"  SLURM_NTASKS: {saved_slurm_ntasks}")
+
+        try:
+            if use_pytorch_dataloader:
+                # For PyTorch dataloaders, pass file paths instead of datasets
+                train_data_path = data_module.get_split_file_path("train")
+                val_data_path = data_module.get_split_file_path("val")
+
+                logging.info(f"Using PyTorch DataLoader with file paths:")
+                logging.info(f"  Training data: {train_data_path}")
+                logging.info(f"  Validation data: {val_data_path}")
+
+                estimator.train(
+                    training_data=train_data_path,
+                    validation_data=val_data_path,
+                    forecast_generator=forecast_generator,
+                    ckpt_path=checkpoint_path,
+                    # Pass additional kwargs that might be needed for PyTorch dataloaders
+                    num_workers=num_workers,
+                    pin_memory=True,
+                    persistent_workers=True
+                )
+            else:
+                # Original GluonTS data loading
+                estimator.train(
+                    training_data=data_module.train_dataset,
+                    validation_data=data_module.val_dataset,
+                    forecast_generator=forecast_generator,
+                    ckpt_path=checkpoint_path
+                    # shuffle_buffer_length=1024
+                )
+        finally:
+            # Restore SLURM variables after training completes
+            if saved_slurm_ntasks_per_node:
+                os.environ["SLURM_NTASKS_PER_NODE"] = saved_slurm_ntasks_per_node
+                logging.info(f"Restored SLURM_NTASKS_PER_NODE={saved_slurm_ntasks_per_node}")
+            if saved_slurm_ntasks:
+                os.environ["SLURM_NTASKS"] = saved_slurm_ntasks
+                logging.info(f"Restored SLURM_NTASKS={saved_slurm_ntasks}")
         # train_output.trainer.checkpoint_callback.best_model_path
         logging.info("Model training completed.")
     elif args.mode == "test":

@@ -2,11 +2,11 @@
 
 #SBATCH --partition=cfdg.p          # Partition for H100/A100 GPUs
 #SBATCH --nodes=1
-#SBATCH --ntasks-per-node=1            # 1 main process (Lightning spawns DDP workers)
-#SBATCH --cpus-per-task=32             # Total CPUs for all 4 GPUs
-#SBATCH --mem=256G                     # Total memory
-#SBATCH --gres=gpu:H100:4              # Request 4 GPUs
-#SBATCH --time=7-00:00:00              # 7 days for 100 epochs full data
+#SBATCH --ntasks-per-node=3            # 4 tasks (SLURM launches 4 processes for DDP)
+#SBATCH --cpus-per-task=8              # CPUs per GPU task
+#SBATCH --mem-per-cpu=8192             # Memory per CPU
+#SBATCH --gres=gpu:H100:3              # Request 4 H100 GPUs total
+#SBATCH --time=5-00:00:00              # 7 days for 100 epochs full data
 #SBATCH --job-name=awaken_train_tactis_60_seq_full
 #SBATCH --output=/dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/slurm_logs/awaken_train_tactis_60_seq_full_%j.out
 #SBATCH --error=/dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/slurm_logs/awaken_train_tactis_60_seq_full_%j.err
@@ -66,8 +66,9 @@ echo "JOB NAME: ${SLURM_JOB_NAME}"
 echo "PARTITION: ${SLURM_JOB_PARTITION}"
 echo "NODE LIST: ${SLURM_JOB_NODELIST}"
 echo "NUM NODES: ${SLURM_JOB_NUM_NODES}"
-echo "NUM TASKS PER NODE: ${SLURM_NTASKS_PER_NODE} (Lightning spawns DDP workers)"
+echo "NUM TASKS PER NODE: ${SLURM_NTASKS_PER_NODE} (SLURM-native DDP with srun)"
 echo "CPUS PER TASK: ${SLURM_CPUS_PER_TASK}"
+echo "GPUS PER TASK: 1 (3 GPUs total distributed across 3 tasks)"
 GPU_TYPE=$(nvidia-smi --query-gpu=name --format=csv,noheader | uniq)
 echo "GPU TYPE: ${GPU_TYPE}"
 echo "-----------------------------------------------------------------------"
@@ -129,14 +130,12 @@ eval "$(conda shell.bash hook)"
 conda activate wf_env_storm
 echo "Conda environment 'wf_env_storm' activated."
 export CAPTURED_LD_LIBRARY_PATH=$LD_LIBRARY_PATH
-# Set CUDA_VISIBLE_DEVICES to make all allocated GPUs visible
-if [ -n "$SLURM_JOB_GPUS" ]; then
-    export CUDA_VISIBLE_DEVICES=$SLURM_JOB_GPUS
-else
-    # Fallback: Use all available GPUs (0,1,2,3)
-    export CUDA_VISIBLE_DEVICES=0,1,2,3
-fi
-echo "CUDA_VISIBLE_DEVICES set to: $CUDA_VISIBLE_DEVICES"
+
+# SLURM-native DDP: Using --gpu-bind ensures each task sees exactly 1 GPU
+# SLURM will automatically set CUDA_VISIBLE_DEVICES correctly for each task
+# srun will launch 3 processes (one per task), each coordinated by Lightning DDP
+echo "SLURM-native DDP: Each of 3 tasks will see 1 GPU (--gpu-bind=map_gpu:0,1,2)"
+echo "Using srun to launch coordinated processes for PyTorch Lightning DDP"
 
 # --- GPU Monitoring Instructions ---
 echo ""
@@ -153,12 +152,28 @@ echo "=== STARTING SEQUENTIAL TRAINING ==="
 date +"%Y-%m-%d %H:%M:%S"
 echo ""
 
-# Launch training directly - Lightning handles DDP worker spawning
-python ${WORK_DIR}/run_scripts/run_model.py \
-  --config ${CONFIG_FILE} \
-  --model ${MODEL_NAME} \
-  --mode train \
-  --seed 666
+# Launch training with srun - SLURM will spawn 3 coordinated processes for DDP
+# Use --gpu-bind=map_gpu to bind each task to a specific GPU (0,1,2)
+# This ensures each of the 3 tasks sees exactly 1 GPU
+
+# Set PyTorch distributed environment variables for DDP
+# These are required for PyTorch/Lightning to detect the distributed setup
+export MASTER_ADDR=$(scontrol show hostname ${SLURM_NODELIST} | head -n 1)
+export MASTER_PORT=29500
+
+# Use srun with --export=ALL to pass environment variables to all tasks
+# srun will automatically set SLURM_PROCID (0,1,2) which we'll map to RANK
+srun --export=ALL --gpu-bind=map_gpu:0,1,2 bash -c '
+  export RANK=${SLURM_PROCID}
+  export LOCAL_RANK=${SLURM_LOCALID}
+  export WORLD_SIZE=${SLURM_NTASKS}
+  echo "Task ${SLURM_PROCID}: RANK=${RANK}, LOCAL_RANK=${LOCAL_RANK}, WORLD_SIZE=${WORLD_SIZE}"
+  python ${WORK_DIR}/run_scripts/run_model.py \
+    --config ${CONFIG_FILE} \
+    --model ${MODEL_NAME} \
+    --mode train \
+    --seed 666
+'
 
 TRAIN_EXIT_CODE=$?
 
