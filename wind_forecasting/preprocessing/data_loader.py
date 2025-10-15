@@ -459,7 +459,7 @@ class DataLoader:
                                       time_unit=df_queries[j].collect_schema()["time"].time_unit).alias("time"))\
                                     .join(df_queries[j], on="time", how="left")
                 
-                logging.info(f"Finished {j}th of {num_files_set_indices} resampling. Used RAM = {virtual_memory().percent}%.") 
+                logging.info(f"Finished resampling for {j}th of {num_files_set_indices}. Used RAM = {virtual_memory().percent}%.") 
 
             logging.info(f"Started {j}th of {num_files_set_indices} forward fill. Used RAM = {virtual_memory().percent}%.") 
             df_queries[j] = df_queries[j].fill_null(strategy="forward").fill_null(strategy="backward") # NOTE: @Aoife for KP data, need to fill forward null gaps, don't know about Juan's data
