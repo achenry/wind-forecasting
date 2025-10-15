@@ -432,16 +432,16 @@ class DataLoader:
         
         assert os.path.exists(temp_save_dir), f"temp_save_dir={temp_save_dir} is not available for file set {file_set_idx}, merge index {i}"
         
-        processed_file_paths = []
-        for fsi in file_set_indices:
-            logging.info(f"Started writing continuous file set {fsi} of {num_files_set_indices}) to file. Used RAM = {virtual_memory().percent}%.")
-            processed_file_paths.append(os.path.join(temp_save_dir, f"df_{fsi}.parquet"))
-            df_queries.filter(pl.col("file_set_idx") == fsi).sink_parquet(processed_file_paths[-1], maintain_order=True, statistics=False)
-            df_queries = df_queries.filter(pl.col("file_set_idx") != fsi)
-            logging.info(f"Finished writing continuous file set {fsi} of {num_files_set_indices} to file. Used RAM = {virtual_memory().percent}%.")
+        # processed_file_paths = []
+        # for fsi in file_set_indices:
+        #     logging.info(f"Started writing continuous file set {fsi} of {num_files_set_indices}) to file. Used RAM = {virtual_memory().percent}%.")
+        #     processed_file_paths.append(os.path.join(temp_save_dir, f"df_{fsi}.parquet"))
+        #     df_queries.filter(pl.col("file_set_idx") == fsi).sink_parquet(processed_file_paths[-1], maintain_order=True, statistics=False)
+        #     df_queries = df_queries.filter(pl.col("file_set_idx") != fsi)
+        #     logging.info(f"Finished writing continuous file set {fsi} of {num_files_set_indices} to file. Used RAM = {virtual_memory().percent}%.")
         
         logging.info(f"Started sorting dfs. Used RAM = {virtual_memory().percent}%.") 
-        df_queries = sorted([pl.scan_parquet(fp).sort("time") for fp in processed_file_paths], 
+        df_queries = sorted([df_queries.filter(pl.col("file_set_idx") == fsi).sort("time") for fsi in file_set_indices], 
                             key=lambda df: df.select(pl.col("time").first()).collect().item())
         logging.info(f"Finished sorting dfs. Used RAM = {virtual_memory().percent}%.") 
         
