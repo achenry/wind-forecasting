@@ -289,12 +289,12 @@ def main():
                 turbine_group_colors=["darkorange", "royalblue", "lime"],
                 turbine_labels=[None, "LUT us", "LUT ds", "G"])
         
-        from datetime import datetime
+        # from datetime import datetime
         # # plotting_interval = pl.datetime_range(start=datetime(2024, 2, 20), end=datetime(2024, 12, 19)).alias("time")
-        df_query = df_query.with_columns(
-            file_set_idx=pl.when(pl.col("time").is_between(
-                lower_bound=datetime(year=2024, month=2, day=20), 
-                upper_bound=datetime(year=2024, month=12, day=20))).then(pl.lit(1)).otherwise(pl.lit(0)))
+        # df_query = df_query.with_columns(
+        #     file_set_idx=pl.when(pl.col("time").is_between(
+        #         lower_bound=datetime(year=2024, month=2, day=20), 
+        #         upper_bound=datetime(year=2024, month=12, day=20))).then(pl.lit(1)).otherwise(pl.lit(0)))
         # file_set_idx=0 (2022/01/01 to 2023/06/30), file_set_idx=1 (2024/02/20 to 2024/12/19)
         if "file_set_idx" in df_query.collect_schema().names():
             file_set_indices = df_query.select("file_set_idx").unique().collect().to_numpy().flatten()
@@ -304,19 +304,23 @@ def main():
         
             
             # data_inspector.plot_wind_rose(df_query2, feature_type="wind_direction", turbine_ids="all", fig_label=f"wind_rose_awaken")
-            data_inspector.plot_wind_speed_weibull(df_query2.filter(pl.col("file_set_idx") == 1), turbine_ids="all", fig_label=file_set_idx)
             
+            # data_inspector.plot_wind_speed_weibull(df_query2.filter(pl.col("file_set_idx") == 1), turbine_ids="all", fig_label=file_set_idx)
+            
+            # NOTE: USE THIS CODE TO GENERATE FIG. 4 IN PAPER   
             for file_set_idx in file_set_indices:
                 data_inspector.plot_wind_rose(df_query2.filter(pl.col("file_set_idx") == file_set_idx).slice(0, ROW_LIMIT), 
                                             feature_type="wind_direction", turbine_ids="all", fig_label=f"wind_rose_{file_set_idx}")
+
                 # data_inspector.plot_wind_rose(df_query2.filter(pl.col("file_set_idx") == file_set_idx).slice(0, ROW_LIMIT), 
                 #                               feature_type="nacelle_direction", turbine_ids="all", fig_label=f"nacelle_rose_{file_set_idx}")
             
             for file_set_idx in file_set_indices:
-                data_inspector.plot_wind_speed_power(df_query2.filter(pl.col("file_set_idx") == file_set_idx).slice(0, ROW_LIMIT), turbine_ids=data_loader.turbine_ids, fig_label=file_set_idx)
+                data_inspector.plot_wind_speed_power(df_query2.filter(pl.col("file_set_idx") == file_set_idx).slice(0, ROW_LIMIT), turbine_ids=data_loader.turbine_ids, fig_label=f"power_curve_{file_set_idx}")
             
+            # NOTE: USE THIS CODE TO GENERATE FIG. 5 IN PAPER, perhaps without row_limit
             for file_set_idx in file_set_indices:
-                data_inspector.plot_wind_speed_weibull(df_query2.filter(pl.col("file_set_idx") == file_set_idx).slice(0, ROW_LIMIT), turbine_ids="all", fig_label=file_set_idx)
+                data_inspector.plot_wind_speed_weibull(df_query2.filter(pl.col("file_set_idx") == file_set_idx).slice(0, ROW_LIMIT), turbine_ids="all", fig_label=f"weibull_{file_set_idx}")
                 
             for file_set_idx in file_set_indices:
                 fig, _ = plot.column_histograms(data_inspector.collect_data(
@@ -747,8 +751,8 @@ def main():
                                                         mask_input_features=sorted(data_loader.turbine_ids),
                                                         output_features=ws_cols,
                                                         filter_type="power-wind speed bin")
-            # NOT USE THIS CODE TO GENERATE FIG 8 IN PAPER
-            if args.plot:
+            # NOTE USE THIS CODE TO GENERATE FIG. 8 IN PAPER
+            if True or args.plot:
                 data_inspector.plot_nulled_vs_remaining(df_query.slice(0, ROW_LIMIT), mask, 
                                                         mask_input_features=sorted(data_loader.turbine_ids),
                                                         output_features=ws_cols, 
@@ -921,10 +925,10 @@ def main():
             # and direction of peak wake losses. Use the average offset found this way 
             # to identify the Northing correction that should be applied to all turbines 
             # in the wind farm.
-            
+            # NOTE: Fig. 9 generated here
             dir_offsets = compute_offsets(df_query_10min, data_inspector.fmodel, turbine_ids=data_loader.turbine_ids,
                                         turbine_pairs=config["nacelle_calibration_turbine_pairs"],
-                                        plot=args.plot,
+                                        plot=[(18_19)], #args.plot,
                                         save_path=os.path.join(os.path.dirname(config["processed_data_path"]), "pre_correction.png")
                                         )
             
