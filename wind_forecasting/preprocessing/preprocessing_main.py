@@ -67,7 +67,9 @@ from floris import FlorisModel
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # ROW_LIMIT = 2 * 60 * 60 * 24 * 30 * 18
-ROW_LIMIT = 60 * 60 * 24 * 30 * 3
+ROW_LIMIT = None #60 * 60 * 24 * 30 * 3
+from datetime import datetime
+ROW_BOUNDS = (datetime(year=2024, month=2, day=20), datetime(year=2025, month=3, day=27))
 
 # %%
 
@@ -177,8 +179,8 @@ def main():
 
     # %%
     # INFO: Print netcdf structure
-    if args.verbose and config["data_format"] == "netcdf":
-        data_loader.print_netcdf_structure(data_loader.file_paths[0])
+    if args.verbose and "netcdf" in config["data_format"]:
+        data_loader.print_netcdf_structure(data_loader.file_paths[config["data_format"].index("netcdf")][0])
 
     # %%
     
@@ -295,6 +297,7 @@ def main():
         #     file_set_idx=pl.when(pl.col("time").is_between(
         #         lower_bound=datetime(year=2024, month=2, day=20), 
         #         upper_bound=datetime(year=2024, month=12, day=20))).then(pl.lit(1)).otherwise(pl.lit(0)))
+        df_query2 = df_query.filter(pl.col("time").is_between(lower_bound=ROW_BOUNDS[0], upper_bound=ROW_BOUNDS[1], closed="both"))
         # file_set_idx=0 (2022/01/01 to 2023/06/30), file_set_idx=1 (2024/02/20 to 2024/12/19)
         if "file_set_idx" in df_query.collect_schema().names():
             file_set_indices = df_query.select("file_set_idx").unique().collect().to_numpy().flatten()
@@ -316,7 +319,8 @@ def main():
                 #                               feature_type="nacelle_direction", turbine_ids="all", fig_label=f"nacelle_rose_{file_set_idx}")
             
             for file_set_idx in file_set_indices:
-                data_inspector.plot_wind_speed_power(df_query2.filter(pl.col("file_set_idx") == file_set_idx).slice(0, ROW_LIMIT), turbine_ids=data_loader.turbine_ids, fig_label=f"power_curve_{file_set_idx}")
+                data_inspector.plot_wind_speed_power(df_query2.filter(pl.col("file_set_idx") == file_set_idx).slice(0, ROW_LIMIT), 
+                                                     turbine_ids=data_loader.turbine_ids, fig_label=f"power_curve_{file_set_idx}")
             
             # NOTE: USE THIS CODE TO GENERATE FIG. 5 IN PAPER, perhaps without row_limit
             for file_set_idx in file_set_indices:
@@ -752,13 +756,15 @@ def main():
                                                         output_features=ws_cols,
                                                         filter_type="power-wind speed bin")
             # NOTE USE THIS CODE TO GENERATE FIG. 8 IN PAPER
-            if True or args.plot:
+            if args.plot:
                 data_inspector.plot_nulled_vs_remaining(df_query.slice(0, ROW_LIMIT), mask, 
                                                         mask_input_features=sorted(data_loader.turbine_ids),
                                                         output_features=ws_cols, 
                                                         feature_types=["wind_speed"], 
                                                         feature_labels=["Wind Speed (m/s) after Wind Speed-Power Bin Outlier Filter"])
 
+            if True or args.plot:
+                
                 # plot values outside the power-wind speed bin filter
                 bin_outliers = np.load(config["processed_data_path"].replace(".parquet", "_bin_outliers.npy"))
                 out_of_window = np.load(config["processed_data_path"].replace(".parquet", "_out_of_window.npy"))
@@ -769,14 +775,19 @@ def main():
                     # 58, 83, 20, 76, 55, 84, 19, 75, 64, 56, 53, 36, 52, 78, 62,  3, 86,
                     # 23, 57,  7, 17, 29, 74, 43, 59,  9, 39])
                 target_turbine_id = list(data_loader.turbine_mapping[0].values())[target_turbine_idx]
+                
+                df_query2 = df_query.with_row_index().select([f"wind_speed_{target_turbine_id}", f"power_output_{target_turbine_id}"]).filter(pl.col("time").is_between(lower_bound=ROW_BOUNDS[0], upper_bound=ROW_BOUNDS[1], closed="both")).slice(0, ROW_LIMIT).collect()
+                slc = slice(df_query2.select(pl.col("index").first()).item(), df_query2.select(pl.col("index").last()).item())
+                # .filter(pl.col("time").is_between(lower_bound=ROW_BOUNDS[0], upper_bound=ROW_BOUNDS[1], closed="both"))
+                
                 # other_outputs[0][target_turbine_idx] # TODO plot median, mean, need wind speed bins too...
                 fig, axs = plot.plot_power_curve(
-                    df_query.select(f"wind_speed_{target_turbine_id}").slice(0, ROW_LIMIT).collect().to_numpy(),
-                    df_query.select(f"power_output_{target_turbine_id}").slice(0, ROW_LIMIT).collect().to_numpy(),
+                    df_query2.select(f"wind_speed_{target_turbine_id}").to_numpy(),
+                    df_query2.select(f"power_output_{target_turbine_id}").to_numpy(),
                     # df_query.select(f"wind_speed_{target_turbine_id}").filter(~out_of_window[:, target_turbine_idx]).slice(0, ROW_LIMIT).collect().to_numpy(),
                     # df_query.select(f"power_output_{target_turbine_id}").filter(~out_of_window[:, target_turbine_idx]).slice(0, ROW_LIMIT).collect().to_numpy(),
                     # flag=bin_outliers[~out_of_window[:, target_turbine_idx], target_turbine_idx][:ROW_LIMIT],
-                    flag=(bin_outliers[:, target_turbine_idx] | out_of_window[:, target_turbine_idx])[:ROW_LIMIT],
+                    flag=(bin_outliers[:, target_turbine_idx] | out_of_window[:, target_turbine_idx])[slc],
                     flag_labels=("Bad Measurements", "Normal Measurements"),
                     xlim=(-1, 30),
                     ylim=(-100, 3000),

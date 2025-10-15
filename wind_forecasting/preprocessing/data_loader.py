@@ -74,7 +74,16 @@ class DataLoader:
         self.data_format = [df.lower() for df in data_format]
         assert all(df in ["netcdf", "csv", "parquet"] for df in self.data_format)
         self.feature_mapping = feature_mapping
-        self.reverse_feature_mapping = [dict((src, tgt) for tgt, src in fm.items()) for fm in self.feature_mapping]
+        self.reverse_feature_mapping = []
+        for fm in self.feature_mapping:
+            self.reverse_feature_mapping.append({})
+            for tgt, src in fm.items():
+                if type(src) is list:
+                    for s in src:
+                        self.reverse_feature_mapping[-1][s] = tgt
+                else:
+                    self.reverse_feature_mapping[-1][src] = tgt
+        # self.reverse_feature_mapping = [dict((src, tgt) for tgt, src in fm.items()) for fm in self.feature_mapping]
         self.merge_chunk = merge_chunk # number of files above which processed files should be merged/sorted/resampled/filled
         self.ram_limit = ram_limit # percentage of used RAM above which processed files should be merged/sorted/resampled/filled
 
@@ -669,7 +678,14 @@ class DataLoader:
             if self.data_format[file_set_idx] == "netcdf":
                 with nc.Dataset(raw_file_path, 'r') as dataset:
                     # logging.info(f"✅ Scanned {file_number + 1}-th {raw_file_path}")
-                    time_var = dataset.variables[self.feature_mapping[file_set_idx]["time"]]
+                    if type(self.feature_mapping[file_set_idx]["time"]) is list:
+                        for var_name in self.feature_mapping[file_set_idx]["time"]:
+                            if var_name in dataset.variables:
+                                time_var = dataset.variables[var_name]
+                                break
+                    else:
+                        time_var = dataset.variables[self.feature_mapping[file_set_idx]["time"]]
+                        
                     time_var = nc.num2date(times=time_var[:], 
                                     units=time_var.units, 
                                     calendar=time_var.calendar, 
@@ -681,8 +697,17 @@ class DataLoader:
                             'turbine_id': re.findall(self.turbine_signature[file_set_idx], os.path.basename(raw_file_path)) * len(time_var),
                             'time': time_var.tolist(),  # Convert to Polars datetime
                         },
-                        **{k: dataset.variables[v][:] for k, v in self.feature_mapping[file_set_idx].items() if k not in ["time", "turbine_id"] and v in dataset.variables}
-                    } 
+                        # **{k: dataset.variables[v][:] for k, v in self.feature_mapping[file_set_idx].items() if k not in ["time", "turbine_id"] and v in dataset.variables}
+                    }
+                    
+                    for k, v in self.feature_mapping[file_set_idx].items():
+                        if k not in ["time", "turbine_id"]:
+                            if type(v) is list:
+                                for vv in v:
+                                    if vv in dataset.variables:
+                                        data[k] = dataset.variables[vv][:]
+                            elif v in dataset.variables:
+                                data[k] = dataset.variables[v][:]
                     
                     # If wind_direction variable is not present, calculate it from nacelle_direction and yaw_offset
                     target_features = list(self.feature_mapping[file_set_idx])

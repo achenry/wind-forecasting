@@ -37,7 +37,9 @@ filters:
   normalize:
 
 feature_mapping:
-  - time: date
+  - time:
+      - date
+      - WTUR.DateTime
     turbine_id: turbine_id
     turbine_status: WTUR.TurSt
     wind_direction: WMET.HorWdDir
