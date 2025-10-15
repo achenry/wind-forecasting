@@ -451,20 +451,17 @@ class DataLoader:
                 start = df_queries[j].select(pl.col("time").first()).collect().item()
                 end = df_queries[j].select(pl.col("time").last()).collect().item()
                 
-                logging.info(f"Started resampling from {start} to {end} for {j}th of {num_files_set_indices} dfs. Used RAM = {virtual_memory().percent}%.") 
+                logging.info(f"Started resampling and refill from {start} to {end} for {j}th of {num_files_set_indices} dfs. Used RAM = {virtual_memory().percent}%.") 
                 
                 df_queries[j] = df_queries[j].select(
                     pl.datetime_range(start=start,
                                       end=end,
                                       interval=f"{self.dt}s", 
                                       time_unit=df_queries[j].collect_schema()["time"].time_unit).alias("time"))\
-                                    .join(df_queries[j], on="time", how="left")
+                                    .join(df_queries[j], on="time", how="left")\
+                                        .fill_null(strategy="forward").fill_null(strategy="backward")
                 
-                logging.info(f"Finished resampling for {j}th of {num_files_set_indices}. Used RAM = {virtual_memory().percent}%.") 
-
-            logging.info(f"Started {j}th of {num_files_set_indices} forward fill. Used RAM = {virtual_memory().percent}%.") 
-            df_queries[j] = df_queries[j].fill_null(strategy="forward").fill_null(strategy="backward") # NOTE: @Aoife for KP data, need to fill forward null gaps, don't know about Juan's data
-            logging.info(f"Finished {j}th of {num_files_set_indices} forward fill. Used RAM = {virtual_memory().percent}%.") 
+                logging.info(f"Finished resampling and refill for {j}th of {num_files_set_indices}. Used RAM = {virtual_memory().percent}%.") 
         
         # assert df_queries.select((pl.col("time").diff().slice(1) == pl.col("time").diff().last()).all()).collect().item(), f"dt is non-uniform, even after resampling, for {df_query}" 
         # assert df_queries.select((pl.col("time").n_unique())).collect().item() == df_queries.select(pl.len()).collect().item()
