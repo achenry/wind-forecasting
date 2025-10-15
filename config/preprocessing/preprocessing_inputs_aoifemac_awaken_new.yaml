@@ -40,6 +40,7 @@ feature_mapping:
 - time: 
     - date
     - WTUR.DateTime
+    - index
   turbine_id: turbine_id
   turbine_status: WTUR.TurSt
   yaw_offset_cw: WMET.HorWdDir # wind_direction: WMET.HorWdDir
@@ -259,10 +260,11 @@ nacelle_calibration_turbine_pairs:
 - [59,60]
 
 dt: 1
+split_dt: 3600
 
 raw_data_directory: 
 # subsets of the data
-- /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/raw_awaken1_data/
+- /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/awaken_data/kp.turbine.z02.b0/
 # - /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/raw_awaken2_data/
 
 # processed_data_path: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/awaken_data/awaken_processed.parquet

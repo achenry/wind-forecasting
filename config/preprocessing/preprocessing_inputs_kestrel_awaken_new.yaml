@@ -40,6 +40,7 @@ feature_mapping:
   - time:
       - date
       - WTUR.DateTime
+      - index
     turbine_id: turbine_id
     turbine_status: WTUR.TurSt
     wind_direction: WMET.HorWdDir
@@ -258,6 +259,7 @@ nacelle_calibration_turbine_pairs:
 - [59,60]
 
 dt: 1
+split_dt: 3600
 
 raw_data_directory: 
   - /projects/awaken/ahenry/wind_forecasting/awaken_data/kp.turbine.z02.b0

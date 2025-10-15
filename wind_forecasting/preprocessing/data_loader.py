@@ -57,6 +57,7 @@ class DataLoader:
                  save_path: Path,
                  multiprocessor: str | None,
                  dt: int,
+                 split_dt: int,
                  feature_mapping: List[dict],
                  turbine_signature: List[str],
                  turbine_mapping: Optional[List[dict]],
@@ -71,6 +72,7 @@ class DataLoader:
         self.file_signature = file_signature
         self.multiprocessor = multiprocessor
         self.dt = dt
+        self.split_dt = split_dt
         self.data_format = [df.lower() for df in data_format]
         assert all(df in ["netcdf", "csv", "parquet"] for df in self.data_format)
         self.feature_mapping = feature_mapping
@@ -155,18 +157,18 @@ class DataLoader:
                         
                         file_futures = [ex.submit(self._read_single_file, file_set_idx, f, file_path, 
                                                 os.path.join(temp_save_dir, 
-                                                            f"{os.path.splitext(os.path.basename(file_path))[0]}.parquet"))
+                                                            f"{os.path.splitext(os.path.basename(file_path))[0]}.parquet"), len(self.file_paths[file_set_idx]))
                                         for file_set_idx in range(len(self.file_paths)) for f, file_path in enumerate(self.file_paths[file_set_idx])] #4% increase in mem
                         # file_futures = [fut.result() for fut in file_futures]
                     
                     merge_idx = 0
                     merged_paths = [] 
                     n_files_merged = 0
-                    # processed_file_paths = []
+                    processed_file_paths = []
                     file_set_indices = []
                     for file_set_idx in range(len(self.file_paths)):
-                        # processed_file_paths.append([])
-                        processed_file_paths = []
+                        processed_file_paths.append([])
+                        # processed_file_paths = []
                         file_set_indices.append(file_set_idx)
                         num_files_to_merge = 0
                         # last_turbine_idx = len(self.turbine_mapping[file_set_idx]) - 1
@@ -194,71 +196,60 @@ class DataLoader:
                              # or if this file type is per turbine and we haven't processed a complete set
                              # continue adding to processed_file_paths
                              # and used_ram < self.ram_limit) \
-                            if (num_files_to_merge < self.merge_chunk) \
-                                or (num_files_to_merge == 0) \
-                                or (is_file_per_turbine and (turbine_id != available_turbine_ids[-1])): 
+                            # if (num_files_to_merge < self.merge_chunk) \
+                            #     or (num_files_to_merge == 0) \
+                            #     or (is_file_per_turbine and (turbine_id != available_turbine_ids[-1])): 
                                     
+                            
+                            # logging.info(f"Used RAM = {used_ram}%. Continue to add {file_path} to buffer of {len(processed_file_paths)} processed single files.")
+                            # res = ex.submit(self._read_single_file, f, file_path).result()
+                            if read_single_files:
+                                res = file_futures[f].result() #.5% increase in mem
+                            else:
+                                res = 1
+                                
+                            if res is not None: 
                                 fn = f"{os.path.splitext(os.path.basename(file_path))[0]}.parquet"
-                                # logging.info(f"Used RAM = {used_ram}%. Continue to add {file_path} to buffer of {len(processed_file_paths)} processed single files.")
-                                # res = ex.submit(self._read_single_file, f, file_path).result()
-                                if read_single_files:
-                                    res = file_futures[f].result() #.5% increase in mem
-                                else:
-                                    res = 1
-                                    
-                                if res is not None: 
-                                    processed_file_paths.append(os.path.join(temp_save_dir, fn))
-                                    num_files_to_merge += 1
-                                else:
-                                    logging.warning(f"File {file_path} could not be processed, skipping.")
+                                processed_file_paths[-1].append(os.path.join(temp_save_dir, fn))
+                                num_files_to_merge += 1
+                            else:
+                                logging.warning(f"File {file_path} could not be processed, skipping.")
                             
                             # num_files_to_merge = len(processed_file_paths[-1])
                              # if we have processed enough files to merge or we don't have sufficient ram to process more, or the last file of the set has been processed
                              # and if this file type is either not per turbine or it is and we have processed a complete set
                              # continue adding to processed_file_paths 
-                            if first_merge and num_files_to_merge\
-                                and ((
-                                    (num_files_to_merge >= self.merge_chunk) \
-                                      or (used_ram >= self.ram_limit) \
-                                       or (f == len(self.file_paths[file_set_idx]) - 1))) \
-                                and (not is_file_per_turbine or (turbine_id == available_turbine_ids[-1])):
-                                # process what we have so far and dump processed lazy frames
-                                n_files_merged += num_files_to_merge
-                                # logging.info(f"turbine_id = {turbine_id},\navailable_turbine_ids = {available_turbine_ids}, \nis_file_per_turbine = {is_file_per_turbine}, \nnum_files_to_merge = {num_files_to_merge} vs. merge_chunk = {self.merge_chunk}, \nf = {f}, \nlen(self.file_paths[file_set_idx]) - 1 = {len(self.file_paths[file_set_idx]) - 1}")
+                            # if first_merge and num_files_to_merge\
+                            #     and ((
+                            #         (num_files_to_merge >= self.merge_chunk) \
+                            #           or (used_ram >= self.ram_limit) \
+                            #            or (f == len(self.file_paths[file_set_idx]) - 1))) \
+                            #     and (not is_file_per_turbine or (turbine_id == available_turbine_ids[-1])):
+                            #     # process what we have so far and dump processed lazy frames
+                            #     n_files_merged += num_files_to_merge
+                            #     merged_paths.append(self.merge_multiple_files(file_set_idx, processed_file_paths, merge_idx, temp_save_dir))
                                 
-                                # merged_paths.append(ex.submit(self.merge_multiple_files, file_set_idx, processed_file_paths[-1], merge_idx, temp_save_dir))
-                                merged_paths.append(self.merge_multiple_files(file_set_idx, processed_file_paths, merge_idx, temp_save_dir))
-                                
-                                if f == len(self.file_paths[file_set_idx]) - 1:
-                                    logging.info(f"Used RAM = {used_ram}%. Pause for FINAL merge/sort/resample/fill of {len(processed_file_paths)} files read so far from file set {file_set_idx} for a total of {n_files_merged} processed files.")
-                                else:
-                                    logging.info(f"Used RAM = {used_ram}%. Pause to merge/sort/resample/fill {len(processed_file_paths)} files read so far from file set {file_set_idx} for a total of {n_files_merged} processed files.")
-                                    # processed_file_paths.append([])
-                                    processed_file_paths = []
-                                    num_files_to_merge = 0
-                                    # file_set_indices.append(file_set_idx)
-                                    merge_idx += 1
+                            #     if f == len(self.file_paths[file_set_idx]) - 1:
+                            #         logging.info(f"Used RAM = {used_ram}%. Pause for FINAL merge/sort/resample/fill of {len(processed_file_paths)} files read so far from file set {file_set_idx} for a total of {n_files_merged} processed files.")
+                            #     else:
+                            #         logging.info(f"Used RAM = {used_ram}%. Pause to merge/sort/resample/fill {len(processed_file_paths)} files read so far from file set {file_set_idx} for a total of {n_files_merged} processed files.")
+                            #         processed_file_paths = []
+                            #         num_files_to_merge = 0
+                            #         merge_idx += 1
                                 
                                 
-                                logging.info(f"Used RAM after submitting call to  merge_multiple_files = {virtual_memory().percent}%.")
-                                # merged_paths.append(self.merge_multiple_files(file_set_idx, processed_file_paths, merge_idx, temp_save_dir))
+                            #     logging.info(f"Used RAM after submitting call to  merge_multiple_files = {virtual_memory().percent}%.")
                                 
                                 
                             # for name, size in sorted(((name, sys.getsizeof(value)) for name, value in list(
                             #                     locals().items())), key= lambda x: -x[1])[:3]:
                             #     print("{:>30}: {:>8}".format(name, DataLoader.sizeof_fmt(size)))
-            
-            # merged_paths = [self.merge_multiple_files(file_set_idx=fsi, processed_file_paths=merge_group, i=merge_idx, temp_save_dir=temp_save_dir) for merge_idx, (fsi, merge_group) in enumerate(zip(file_set_indices, processed_file_paths))]
-            
-            # merged_paths.append(ex.submit(self.merge_multiple_files, file_set_idx, processed_file_paths, merge_idx, temp_save_dir))
-        
-                    # merged_paths = [fut.result() for fut in merged_paths]
-                    logging.info(f"Used RAM after merging chunks = {virtual_memory().percent}%.")
                     
-                    if not first_merge:
-                        merged_paths = glob.glob(os.path.join(temp_save_dir, f"df_*_*.parquet"))
+                    # logging.info(f"Used RAM after merging chunks = {virtual_memory().percent}%.")
                     
-            # merged_paths = [fut.result() for fut in merged_paths]
+                    # if not first_merge:
+                    #     merged_paths = glob.glob(os.path.join(temp_save_dir, f"df_*_*.parquet"))
+                    
                     
         else:
             logging.info(f"✅ Started reading {sum(len(fp) for fp in self.file_paths)} files.")
@@ -271,8 +262,9 @@ class DataLoader:
             merge_idx = 0
             n_files_merged = 0
             merged_paths = []
+            processed_file_paths = []
             for file_set_idx in range(len(self.file_paths)):
-                processed_file_paths = []
+                processed_file_paths.append([])
                 for f, file_path in enumerate(self.file_paths[file_set_idx]):
                     used_ram = virtual_memory().percent
                     
@@ -289,47 +281,47 @@ class DataLoader:
                                 for fp in self.file_paths[file_set_idx] 
                                 if datetime_id == re.search(self.datetime_signature[file_set_idx][0], os.path.basename(fp)).group(0)])
                     
-                    if (num_files_to_merge < self.merge_chunk and used_ram < self.ram_limit) \
-                                or (num_files_to_merge == 0) \
-                                or (is_file_per_turbine and (turbine_id != available_turbine_ids[-1])):
-                        logging.info(f"Used RAM = {used_ram}%. Continue adding to buffer of {len(processed_file_paths)} processed single files.")
-                        processed_fp = os.path.join(temp_save_dir, 
-                                                           f"{os.path.splitext(os.path.basename(file_path))[0]}.parquet")
-                        if read_single_files:
-                            res = self._read_single_file(file_set_idx, f, file_path, 
-                                                    processed_fp)
-                        else:
-                            res = 1
-                        if res is not None:
-                            processed_file_paths.append(processed_fp)
+                    # if (num_files_to_merge < self.merge_chunk and used_ram < self.ram_limit) \
+                    #             or (num_files_to_merge == 0) \
+                    #             or (is_file_per_turbine and (turbine_id != available_turbine_ids[-1])):
+                    logging.info(f"Used RAM = {used_ram}%. Continue adding to buffer of {len(processed_file_paths)} processed single files.")
+                    processed_fp = os.path.join(temp_save_dir, 
+                                                        f"{os.path.splitext(os.path.basename(file_path))[0]}.parquet")
+                    if read_single_files:
+                        res = self._read_single_file(file_set_idx, f, file_path, 
+                                                processed_fp, len(self.file_paths[file_set_idx]))
+                    else:
+                        res = 1
+                    if res is not None:
+                        processed_file_paths[-1].append(processed_fp)
                     
                     num_files_to_merge = len(processed_file_paths) 
                     # if we have processed enough files to merge or we don't have sufficient ram to process more, or the last file of the set has been processed
                     # and if this file type is either not per turbine or it is and we have processed a complete set
                     # continue adding to processed_file_paths 
-                    if first_merge and num_files_to_merge\
-                        and (((num_files_to_merge >= self.merge_chunk) \
-                                or (used_ram >= self.ram_limit) \
-                                or (f == len(self.file_paths[file_set_idx]) - 1))) \
-                        and (not is_file_per_turbine or (turbine_id == available_turbine_ids[-1])):
-                        # process what we have so far and dump processed lazy frames
-                        n_files_merged += num_files_to_merge
-                        if f == (len(self.file_paths[file_set_idx]) - 1):
-                            logging.info(f"Used RAM = {used_ram}%. Pause for FINAL merge/sort/resample/fill of {len(processed_file_paths)} files read so far from file set {file_set_idx} for a total of {n_files_merged} processed files.")
-                        else:
-                            logging.info(f"Used RAM = {used_ram}%. Pause to merge/sort/resample/fill {len(processed_file_paths)} files read so far from file set {file_set_idx} for a total of {n_files_merged} processed files.")
+                    # if first_merge and num_files_to_merge\
+                    #     and (((num_files_to_merge >= self.merge_chunk) \
+                    #             or (used_ram >= self.ram_limit) \
+                    #             or (f == len(self.file_paths[file_set_idx]) - 1))) \
+                    #     and (not is_file_per_turbine or (turbine_id == available_turbine_ids[-1])):
+                    #     # process what we have so far and dump processed lazy frames
+                    #     n_files_merged += num_files_to_merge
+                    #     if f == (len(self.file_paths[file_set_idx]) - 1):
+                    #         logging.info(f"Used RAM = {used_ram}%. Pause for FINAL merge/sort/resample/fill of {len(processed_file_paths)} files read so far from file set {file_set_idx} for a total of {n_files_merged} processed files.")
+                    #     else:
+                    #         logging.info(f"Used RAM = {used_ram}%. Pause to merge/sort/resample/fill {len(processed_file_paths)} files read so far from file set {file_set_idx} for a total of {n_files_merged} processed files.")
                         
-                        merged_paths.append(self.merge_multiple_files( file_set_idx, processed_file_paths, merge_idx, temp_save_dir))
+                    #     merged_paths.append(self.merge_multiple_files( file_set_idx, processed_file_paths, merge_idx, temp_save_dir))
                         
-                        merge_idx += 1
-                        processed_file_paths = []
+                    #     merge_idx += 1
+                    #     processed_file_paths = []
                         
                         # for name, size in sorted(((name, sys.getsizeof(value)) for name, value in list(
                         #                         locals().items())), key= lambda x: -x[1])[:3]:
                         #     print("{:>30}: {:>8}".format(name, DataLoader.sizeof_fmt(size)))
             
-            if not first_merge:
-                merged_paths = glob.glob(os.path.join(temp_save_dir, f"df_*_*.parquet"))
+            # if not first_merge:
+            #     merged_paths = glob.glob(os.path.join(temp_save_dir, f"df_*_*.parquet"))
             
         if self.turbine_mapping: # if not none, all turbine signatures have been transformed
             self.turbine_signature = "\\d+$"
@@ -339,154 +331,40 @@ class DataLoader:
         RUN_ONCE = (self.multiprocessor == "mpi" and mpi_exists and (MPI.COMM_WORLD.Get_rank()) == 0) or (self.multiprocessor != "mpi") or (self.multiprocessor is None)
 
         if RUN_ONCE:
-            if len(merged_paths):    
-                logging.info(f"🔗 Finished reading files. Time elapsed: {time.time() - read_start:.2f} s")
-                if second_merge:
-                    if len(merged_paths) > 1: 
-                        logging.info(f"Concatenating and running final sort/resample/fill.")
-                        
-                        # Concatenate the different merged and sorted files by ordering them by time, and then finding the missing timestamps between them,
-                        # this is more memory efficient than joining all the files at once by a long time series
-                        df_query = sorted([pl.scan_parquet(bp).sort("time") for bp in merged_paths], 
-                                        key=lambda df: 
-                                            df.select(pl.col("time").first()).collect().item())
-                        
-                        start_time_1 = df_query[0].select(pl.col("time").first()).collect().item() 
-                        end_time_1 = df_query[0].select(pl.col("time").last()).collect().item()
-                        
-                        # the earliest merged df may have null values at the beginning, so backfill first
-                        df_query[0] = df_query[0].fill_null(strategy="backward")
-                        
-                        i = 0
-                        
-                        while i < len(df_query) - 1:
-                            
-                            logging.info(f"351. Used RAM = {virtual_memory().percent}%")
-                            start_time_2 = df_query[i + 1].select(pl.col("time").first()).collect().item()
-                            end_time_2 = df_query[i + 1].select(pl.col("time").last()).collect().item()
-                            
-                            logging.info(f"356. Used RAM = {virtual_memory().percent}%")
-                            logging.info(f"Number of columns of merged df {i} = {len(df_query[i].collect_schema().names())}")
-                            logging.info(f"Time bounds of merged df {i} before time col expansion: ({start_time_1}, {end_time_1})")
-                            logging.info(f"Time bounds of merged df {i + 1} before time col expansion: ({start_time_2}, {end_time_2})")
-                            
-                            if start_time_2 == end_time_1:
-                                logging.info(f"Started averaging overlapping timestamp between merged df {i} and merged df {i + 1}. Used RAM = {virtual_memory().percent}%")
-                                # df_query[i] = pl.concat([df_query[i], df_query[i + 1].slice(0, 1)], how="diagonal")\
-                                #                 .group_by("time").agg(cs.numeric().mean()).sort(by="time")
-                                
-                                # add the last row of the current merged df to the next merged df, average overlapping timestamp
-                                df_query[i + 1] = pl.concat([df_query[i].slice(-1, 1), df_query[i + 1]], how="diagonal")\
-                                                .group_by("time", maintain_order=True).agg(cs.numeric().mean()).with_columns(pl.col("file_set_idx").cast(pl.Int32)).fill_null(strategy="forward")
-                                logging.info(f"369. Used RAM = {virtual_memory().percent}%")
-                                # add the rest of the rows from the next merged df and forward fill its null values from the current merged df
-                                # df_query[i] = pl.concat([df_query[i], df_query[i + 1].slice(1, None)], how="diagonal").fill_null(strategy="forward")
-                                
-                                df_query[i] = df_query[i].slice(0, df_query[i].select(pl.len()).collect().item()-1)
-                                
-                                # concatenate the first N-1 rows of df_query[i] with df_query[i + 1]
-                                # df_query[i] = pl.concat([df_query[i].head(-1), df_query[i + 1]], how="diagonal")
-                                
-                                logging.info(f"Finished averaging overlapping timestamp between merged df {i} and merged df {i + 1}. Used RAM = {virtual_memory().percent}%")
-                                
-                                # df_query[i + 1] = df_query[i + 1].slice(1, None)
-                            elif (start_time_2 - end_time_1 != np.timedelta64(self.dt, 's')): 
-                                # elif there is a gap greater than dt between the two datasets
-                                logging.info(f"383. Used RAM = {virtual_memory().percent}%")
-                                if (file_set_idx := df_query[i].select(pl.col("file_set_idx").first()).collect().item()) == df_query[i + 1].select(pl.col("file_set_idx").first()).collect().item(): 
-                                    
-                                    # if from same file set, we want to fill the missing timestamps between the two merged dataframes, then concat them together and forward fill the next merged df's null values from the current merged df
-                                    logging.info(f"Started filling gap between merged df {i} and merged df {i + 1}, since they are from the same file set {file_set_idx}. Used RAM = {virtual_memory().percent}%")
-                                    
-                                    # concatenate the last (filled) row of df_query[i] with the time join in between, and then the rest of df_query[i + 1]
-                                    df_query[i + 1] = pl.concat([df_query[i].slice(-1, 1), # 
-                                            df_query[i].select(pl.datetime_range(
-                                                start=end_time_1,
-                                                end=start_time_2,
-                                                interval=f"{self.dt}s", 
-                                                closed="none",
-                                                time_unit=df_query[i].collect_schema()["time"].time_unit).alias("time")),
-                                            df_query[i + 1]], how="diagonal").fill_null(strategy="forward")
-                                    logging.info(f"398. Used RAM = {virtual_memory().percent}%")
-                                    df_query[i] = df_query[i].slice(0, df_query[i].select(pl.len()).collect().item()-1)
-                                    
-                                    # concatenate the first N-1 rows of df_query[i] with df_query[i + 1]
-                                    # df_query[i] = pl.concat([df_query[i].head(-1), df_query[i + 1]], how="diagonal")
-                                    logging.info(f"Finished filling gap between merged df {i} and merged df {i + 1}. Used RAM = {virtual_memory().percent}%")
-                                    
-                                    
-                                # else:
-                                #     # logging.info(f"Filling gap between merged df {i} and merged df {i + 1} with NaNs without interpolation, since they are from different file sets.")
-                                #     # if there is a gap greater than dt, and the merged files are from different file sets, we just want NaNs without interpolation, with file_set_idx=-1 so they are not considered in forward filling
-                                #     # df_query[i] = pl.concat([df_query[i],
-                                #     #         df_query[i].select(pl.datetime_range(
-                                #     #             start=end_time_1,
-                                #     #             end=start_time_2,
-                                #     #             interval=f"{self.dt}s", 
-                                #     #             closed="none",
-                                #     #             time_unit=df_query[i].collect_schema()["time"].time_unit).alias("time"))\
-                                #     #                 .with_columns(file_set_idx=pl.lit(-1))], how="diagonal")
-                                #     inc = True
-                            
-                            # assert df_query[i].select((pl.col("time").diff().slice(1) == pl.col("time").diff().last()).all()).collect().item() and \
-                            #      (df_query[i + 1].select(pl.col("time").first()).collect().item() - df_query[i].select(pl.col("time").last()).collect().item() == np.timedelta64(self.dt, 's'))
-                            
-                            # assert df_query[i].select(pl.col("time").n_unique()).collect().item() == df_query[i].select(pl.len()).collect().item()
-                            # assert df_query[i+1].select(pl.col("time").n_unique()).collect().item() == df_query[i+1].select(pl.len()).collect().item()
-                            
-                            start_time_1 = df_query[i].select(pl.col("time").first()).collect().item() 
-                            end_time_1 = df_query[i].select(pl.col("time").last()).collect().item() 
-                            logging.info(f"424. Used RAM = {virtual_memory().percent}%")
-                            
-                            logging.info(f"Time bounds of merged df {i} after time col expansion: ({start_time_1}, {end_time_1})")
-                            logging.info(f"Time bounds of merged df {i + 1} after time col expansion: ({start_time_2}, {end_time_2})")
-                            start_time_1 = start_time_2
-                            end_time_1 = end_time_2
-                            
-                            i += 1
-                            
-                        # concatenate intermediary dataframes
-                        logging.info(f"Concatenating final, used ram = {virtual_memory().percent}%")
-                        df_query = pl.concat(df_query, how="diagonal_relaxed")#.collect().lazy()
-                        
-                        if not df_query.select("time").collect().to_series().is_sorted():
-                            logging.info(f"Sorting final, used ram = {virtual_memory().percent}%")
-                            df_query = df_query.sort(by="time")#.collect().lazy()
-                        
-                        # df_query = df_query.collect()
-                        # .write_parquet(self.save_path, statistics=False)
-                        # df_query = pl.scan_parquet(self.save_path)
-                        
-                        # assert df_query.select((pl.col("time").diff().slice(1) == pl.col("time").diff().last()).all()).item(), "dt is non-uniform, even after resampling"
-                        
-                        # logging.info(f"Filling final, used ram = {virtual_memory().percent}%")
-                        # for data with different file_set_idx or gaps inbetween file_set_idx, don't forward fill
-                        
-                        # df_query = pl.concat([df_query.filter(pl.col("file_set_idx") == file_set_idx) if file_set_idx != -1 else df_query for file_set_idx in range(-1, len(self.file_paths))], how="vertical")
-                        # for file_set_idx in range(len(self.file_paths)):
-                        #     #.filter(pl.col("file_set_idx") != pl.lit(-1))\
-                        #     df_query = df_query.with_columns(
-                        #                             pl.when(pl.col("file_set_idx") == file_set_idx)
-                        #                               .then(pl.all().fill_null(strategy="forward").fill_null(strategy="backward"))\
-                        #                               .otherwise(pl.all()))
-                        
-                        # assert df_query.select(pl.all_horizontal((cs.numeric().is_null() | cs.numeric().is_nan()).sum() == 0)).collect().item(), "null values found in final dataframe"
-                        
-                        logging.info(f"Sorting columns, used ram = {virtual_memory().percent}%") 
-                        df_query = df_query.select([pl.col("time"), pl.col("file_set_idx")] 
-                                       + [pl.col(c) for c in 
-                                          sorted([col for col in df_query.select(cs.numeric().exclude("file_set_idx")).collect_schema().names()], 
-                                                 key=lambda col: (re.search(f".*?(?={self.turbine_signature})", col).group(0), 
-                                                                  int(re.search("\\d+", re.search(self.turbine_signature, col).group(0)).group(0))))])
-                        
-                        # df_query = self.sort_resample_refill(df_query).fill_null(strategy="backward")
-                        # Write to final parquet
-                        logging.info(f"Saving final Parquet file into {self.save_path}, used ram = {virtual_memory().percent}%")
-                        df_query.sink_parquet(self.save_path, maintain_order=True, statistics=False)
-                        
-                    else:
-                        logging.info(f"Moving only batch to {self.save_path}.")
-                        move(merged_paths[0], self.save_path)
+            # if len(merged_paths):    
+            logging.info(f"🔗 Finished reading files. Time elapsed: {time.time() - read_start:.2f} s")
+            if second_merge:
+                # if len(merged_paths) > 1:
+                if sum(len(pfp) for pfp in processed_file_paths) > 1: 
+                    logging.info(f"Concatenating and running final sort/resample/fill.")
+                    
+                    df_queries = []
+                    for file_set_idx in range(len(self.file_paths)):
+                        df_queries += self.merge_multiple_files(file_set_idx, processed_file_paths[file_set_idx], file_set_idx, temp_save_dir)
+                    
+                    # concatenate intermediary dataframes
+                    logging.info(f"Concatenating final, used ram = {virtual_memory().percent}%")
+                    df_queries = pl.concat(df_queries, how="diagonal_relaxed")#.collect().lazy()
+                    
+                    if not df_queries.select("time").collect().to_series().is_sorted():
+                        logging.info(f"Sorting final, used ram = {virtual_memory().percent}%")
+                        df_queries = df_queries.sort(by="time")#.collect().lazy()
+                    
+                    logging.info(f"Sorting columns, used ram = {virtual_memory().percent}%") 
+                    df_queries = df_queries.select([pl.col("time"), pl.col("file_set_idx")] 
+                                    + [pl.col(c) for c in 
+                                        sorted([col for col in df_queries.select(cs.numeric().exclude("file_set_idx")).collect_schema().names()], 
+                                                key=lambda col: (re.search(f".*?(?={self.turbine_signature})", col).group(0), 
+                                                                int(re.search("\\d+", re.search(self.turbine_signature, col).group(0)).group(0))))])
+                    
+                    # Write to final parquet
+                    logging.info(f"Saving final Parquet file into {self.save_path}, used ram = {virtual_memory().percent}%")
+                    df_queries.sink_parquet(self.save_path, maintain_order=True, statistics=False)
+                    
+                else:
+                    logging.info(f"Moving only batch to {self.save_path}.")
+                    # move(merged_paths[0], self.save_path)
+                    move(processed_file_paths[0][0], self.save_path)
                     
                 df_query = pl.scan_parquet(self.save_path).sort("time")
                     
@@ -499,51 +377,39 @@ class DataLoader:
             else:
                 logging.error("No data successfully processed by read_multi_files.")
                 return None
-   
-    
-    def sort_resample_refill(self, df_query):
-        
-        logging.info(f"Started sorting. Used RAM = {virtual_memory().percent}%.")
-        df_query = df_query.sort("time")
-        logging.info(f"Finished sorting. Used RAM = {virtual_memory().percent}%.")
-        
-        # if df_query.select(pl.col("time").diff().slice(1).n_unique()).collect().item() > 1:
-        if not df_query.select((pl.col("time").diff().slice(1) == pl.col("time").diff().last()).all()).collect().item():
-            start = df_query.select(pl.col("time").first()).collect().item()
-            end = df_query.select(pl.col("time").last()).collect().item()
-            logging.info(f"Started resampling from {start} to {end}. Used RAM = {virtual_memory().percent}%.") 
-            df_query = df_query.select(pl.datetime_range(
-                                        start=start,
-                                        end=end,
-                                        interval=f"{self.dt}s", time_unit=df_query.collect_schema()["time"].time_unit).alias("time"))\
-                                .join(df_query, on="time", how="left")
-            # assert df_query.select((pl.col("time").diff().slice(1) == pl.col("time").diff().last()).all()).collect().item(), f"dt is non-uniform, even after resampling, for {df_query}" 
-            # assert df_query.select(pl.col("time").n_unique()).collect().item() == df_query.select(pl.len()).collect().item()
-            # df_query = full_datetime_range.join(df_query, on="time", how="left")
-            logging.info(f"Finished resampling. Used RAM = {virtual_memory().percent}%.") 
-
-        logging.info(f"Started forward fill. Used RAM = {virtual_memory().percent}%.") 
-        df_query = df_query.fill_null(strategy="forward") #.fill_null(strategy="backward") # NOTE: @Aoife for KP data, need to fill forward null gaps, don't know about Juan's data
-        logging.info(f"Finished forward fill. Used RAM = {virtual_memory().percent}%.") 
-        
-        return df_query
     
      
     def merge_multiple_files(self, file_set_idx, processed_file_paths, i, temp_save_dir):
         
-        logging.info(f"✅ Started join of {len(processed_file_paths)} files for file set {file_set_idx}, merge index {i}:")
-        for fp in processed_file_paths:
-            logging.info(f"    {os.path.basename(fp)}")
-        logging.info(f"Used RAM = {virtual_memory().percent}%.")
-        df_queries = [pl.scan_parquet(fp) for fp in processed_file_paths]
+        logging.info(f"✅ Started merging of {len(processed_file_paths)} files for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
+        # for fp in processed_file_paths:
+        #     logging.info(f"    {os.path.basename(fp)}")
+        
+        df_queries = sorted([pl.scan_parquet(fp).sort("time") for fp in processed_file_paths], 
+                            key=lambda df: df.select(pl.col("time").first()).collect().item())
         # all([df.select(pl.col("time").n_unique()).collect().item() == df.select(pl.len()).collect().item() for df in df_queries])
         # For single file or files without timestamps, just get the dataframes
         if len(df_queries) == 1:
             df_queries = df_queries[0]  # If single file, no need to join
         else:
-            df_queries = pl.concat(df_queries, how="diagonal").group_by("time").agg(cs.numeric().mean())
-        
-        logging.info(f"Finished join of {len(processed_file_paths)} files for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
+            # concatenate and forward fill file groups with continuous time spans
+            # split by discontinuity
+            df_queries = pl.concat(df_queries, how="diagonal")\
+                    .group_by("time").agg(cs.numeric().mean())\
+                    .sort("time")\
+                    .with_row_index().with_columns(file_set_idx=pl.lit(-1))
+                    
+            file_set_idx_offset = sum(len(file_set) for file_set in self.file_paths[:file_set_idx])
+            split_indices = [0] + list(df_queries.with_columns(dt=pl.col("time").diff()).slice(1).filter(pl.col("dt") > np.timedelta64(self.split_dt, 's')).select("index").collect().to_numpy().flatten()) + [df_queries.select(pl.len()).collect().item()]
+            j = 0
+            file_set_indices = []
+            while j < len(split_indices) - 1:
+                file_set_indices.append(file_set_idx_offset + j)
+                df_queries = df_queries.with_columns(file_set_idx=pl.when(pl.col("index").is_between(split_indices[j], split_indices[j + 1], closed="left")).then(pl.lit(file_set_indices[-1])).otherwise(pl.col("file_set_idx")))
+                j += 1
+        df_queries = df_queries.drop("index")
+        num_files_set_indices = len(file_set_indices)
+        logging.info(f"Finished concatenation of {len(processed_file_paths)} files for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
         
         # assert all(any(tid in col for col in df_queries.collect_schema().names() if col != "time") for tid in turbine_ids), \
             # f"merge_multiple_files should only merge collections of files that include every turbine's data, these file paths include:\n {'\n'.join(processed_file_paths)}"
@@ -565,24 +431,43 @@ class DataLoader:
                     string=col) for col in df_queries.collect_schema().names() if col != "time"})
         
         assert os.path.exists(temp_save_dir), f"temp_save_dir={temp_save_dir} is not available for file set {file_set_idx}, merge index {i}"
-        merged_path = os.path.join(temp_save_dir, f"df_{file_set_idx}_{i}.parquet")
         
-        logging.info(f"Started sort/resample/refill for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
-        df_queries = self.sort_resample_refill(df_queries)
-        logging.info(f"Finished sort/resample/refill for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
+        processed_file_paths = []
+        for fsi in file_set_indices:
+            logging.info(f"Started writing continuous file set {fsi} of {num_files_set_indices}) to file. Used RAM = {virtual_memory().percent}%.")
+            processed_file_paths.append(os.path.join(temp_save_dir, f"df_{fsi}.parquet"))
+            df_queries.filter(pl.col("file_set_idx") == fsi).sink_parquet(processed_file_paths[-1], maintain_order=True, statistics=False)
+            df_queries = df_queries.filter(pl.col("file_set_idx") != fsi)
+            logging.info(f"Finished writing continuous file set {fsi} of {num_files_set_indices} to file. Used RAM = {virtual_memory().percent}%.")
         
-        # assert df_queries.select((pl.col("time").diff().slice(1) == pl.col("time").diff().last()).all()).collect().item()
-        # assert df_queries.select((pl.col("time").n_unique())).collect().item() == df_queries.select(pl.len()).collect().item()
-        logging.info(f"Started setting files_set_idx for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
-        df_queries = df_queries.with_columns(file_set_idx=pl.lit(file_set_idx))
-        logging.info(f"Finished setting files_set_idx for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
+        logging.info(f"Started sorting dfs. Used RAM = {virtual_memory().percent}%.") 
+        df_queries = sorted([pl.scan_parquet(fp).sort("time") for fp in processed_file_paths], 
+                            key=lambda df: df.select(pl.col("time").first()).collect().item())
+        logging.info(f"Finished sorting dfs. Used RAM = {virtual_memory().percent}%.") 
         
-        logging.info(f"Started write for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
-        df_queries.sink_parquet(merged_path, maintain_order=True, statistics=False)
-        gc.collect()
-        logging.info(f"Finished write for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.") 
+        for j in range(num_files_set_indices):
+            if not df_queries[j].select((pl.col("time").diff().slice(1) == pl.col("time").diff().last()).all()).collect().item():
+                start = df_queries[j].select(pl.col("time").first()).collect().item()
+                end = df_queries[j].select(pl.col("time").last()).collect().item()
+                
+                logging.info(f"Started resampling from {start} to {end} for {j}th of {num_files_set_indices} dfs. Used RAM = {virtual_memory().percent}%.") 
+                
+                df_queries[j] = df_queries[j].select(
+                    pl.datetime_range(start=start,
+                                      end=end,
+                                      interval=f"{self.dt}s", 
+                                      time_unit=df_queries[j].collect_schema()["time"].time_unit).alias("time"))\
+                                    .join(df_queries[j], on="time", how="left")
+                
+                logging.info(f"Finished {j}th of {num_files_set_indices} resampling. Used RAM = {virtual_memory().percent}%.") 
 
-        return merged_path
+            logging.info(f"Started {j}th of {num_files_set_indices} forward fill. Used RAM = {virtual_memory().percent}%.") 
+            df_queries[j] = df_queries[j].fill_null(strategy="forward").fill_null(strategy="backward") # NOTE: @Aoife for KP data, need to fill forward null gaps, don't know about Juan's data
+            logging.info(f"Finished {j}th of {num_files_set_indices} forward fill. Used RAM = {virtual_memory().percent}%.") 
+        
+        # assert df_queries.select((pl.col("time").diff().slice(1) == pl.col("time").diff().last()).all()).collect().item(), f"dt is non-uniform, even after resampling, for {df_query}" 
+        # assert df_queries.select((pl.col("time").n_unique())).collect().item() == df_queries.select(pl.len()).collect().item()
+        return df_queries
 
     
     def _join_dfs(self, file_suffix, dfs):
@@ -671,7 +556,7 @@ class DataLoader:
             return turbine_ids
 
     
-    def _read_single_file(self, file_set_idx: int, file_number:int, raw_file_path: str, processed_file_path: str) -> pl.LazyFrame:
+    def _read_single_file(self, file_set_idx: int, file_number:int, raw_file_path: str, processed_file_path: str, num_file_paths: int) -> pl.LazyFrame:
         
         try:
             start_time = time.time()
@@ -867,7 +752,7 @@ class DataLoader:
             assert os.path.exists(os.path.dirname(processed_file_path)), f"Temporary save directory {os.path.dirname(processed_file_path)} does not exist." 
             # df_query.collect().write_parquet(processed_file_path, statistics=False)
             df_query.sink_parquet(processed_file_path, statistics=False)
-            logging.info(f"✅ Processed {file_number + 1}-th {raw_file_path} and saved to {processed_file_path}. Time: {time.time() - start_time:.2f} s")
+            logging.info(f"✅ Processed {file_number + 1}-th of {num_file_paths} {raw_file_path} and saved to {processed_file_path}. Time: {time.time() - start_time:.2f} s")
             return processed_file_path
         
         except Exception as e:

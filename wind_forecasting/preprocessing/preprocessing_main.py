@@ -165,6 +165,7 @@ def main():
         save_path=config["processed_data_path"],
         multiprocessor=args.multiprocessor,
         dt=config["dt"],
+        split_dt=config["split_dt"],
         ffill_limit=None,
         data_format=config["data_format"],
         feature_mapping=config["feature_mapping"],
@@ -306,41 +307,43 @@ def main():
                         .filter(pl.all_horizontal((cs.starts_with("wind_speed") >= 0) & (cs.starts_with("wind_speed") <= 25)))
         
             
-            # data_inspector.plot_wind_rose(df_query2, feature_type="wind_direction", turbine_ids="all", fig_label=f"wind_rose_awaken")
-            
-            # data_inspector.plot_wind_speed_weibull(df_query2.filter(pl.col("file_set_idx") == 1), turbine_ids="all", fig_label=file_set_idx)
-            
             # NOTE: USE THIS CODE TO GENERATE FIG. 4 IN PAPER   
-            for file_set_idx in file_set_indices:
-                data_inspector.plot_wind_rose(df_query2.filter(pl.col("file_set_idx") == file_set_idx).slice(0, ROW_LIMIT), 
-                                            feature_type="wind_direction", turbine_ids="all", fig_label=f"wind_rose_{file_set_idx}")
+            if True:
+                for file_set_idx in file_set_indices:
+                    data_inspector.plot_wind_rose(df_query2.filter(pl.col("file_set_idx") == file_set_idx).slice(0, ROW_LIMIT), 
+                                                feature_type="wind_direction", turbine_ids="all", fig_label=f"wind_rose_{file_set_idx}")
 
-                # data_inspector.plot_wind_rose(df_query2.filter(pl.col("file_set_idx") == file_set_idx).slice(0, ROW_LIMIT), 
-                #                               feature_type="nacelle_direction", turbine_ids="all", fig_label=f"nacelle_rose_{file_set_idx}")
-            
-            for file_set_idx in file_set_indices:
-                data_inspector.plot_wind_speed_power(df_query2.filter(pl.col("file_set_idx") == file_set_idx).slice(0, ROW_LIMIT), 
-                                                     turbine_ids=data_loader.turbine_ids, fig_label=f"power_curve_{file_set_idx}")
-            
-            # NOTE: USE THIS CODE TO GENERATE FIG. 5 IN PAPER, perhaps without row_limit
-            for file_set_idx in file_set_indices:
-                data_inspector.plot_wind_speed_weibull(df_query2.filter(pl.col("file_set_idx") == file_set_idx).slice(0, ROW_LIMIT), turbine_ids="all", fig_label=f"weibull_{file_set_idx}")
+                    # data_inspector.plot_wind_rose(df_query2.filter(pl.col("file_set_idx") == file_set_idx).slice(0, ROW_LIMIT), 
+                    #                               feature_type="nacelle_direction", turbine_ids="all", fig_label=f"nacelle_rose_{file_set_idx}")
                 
-            for file_set_idx in file_set_indices:
-                fig, _ = plot.column_histograms(data_inspector.collect_data(
-                    df=df_query2.filter(pl.col("file_set_idx") == file_set_idx).slice(0, ROW_LIMIT), feature_types=["wind_speed"]), 
-                                    return_fig=True)
-                fig.savefig(os.path.join(data_inspector.save_dir, f"wind_speed_histogram_{file_set_idx}.png"))
-                fig, _ = plot.column_histograms(data_inspector.collect_data(
-                    df=df_query2.filter(pl.col("file_set_idx") == file_set_idx).slice(0, ROW_LIMIT), feature_types=["wind_direction"]), 
-                                    return_fig=True)
-                fig.savefig(os.path.join(data_inspector.save_dir, f"wind_dir_histogram_{file_set_idx}.png"))
+                # NOTE: USE THIS CODE TO GENERATE FIG. 5 IN PAPER, perhaps without row_limit
+                for file_set_idx in file_set_indices:
+                    data_inspector.plot_wind_speed_weibull(df_query2.filter(pl.col("file_set_idx") == file_set_idx).slice(0, ROW_LIMIT), 
+                                                        turbine_ids="all", fig_label=f"weibull_{file_set_idx}")
+            
+            if False:
+                for file_set_idx in file_set_indices:
+                    data_inspector.plot_wind_speed_power(df_query2.filter(pl.col("file_set_idx") == file_set_idx).slice(0, ROW_LIMIT), 
+                                                        turbine_ids=data_loader.turbine_ids, fig_label=f"power_curve_{file_set_idx}")
+                
+                for file_set_idx in file_set_indices:
+                    fig, _ = plot.column_histograms(data_inspector.collect_data(
+                        df=df_query2.filter(pl.col("file_set_idx") == file_set_idx).slice(0, ROW_LIMIT), feature_types=["wind_speed"]), 
+                                        return_fig=True)
+                    fig.savefig(os.path.join(data_inspector.save_dir, f"wind_speed_histogram_{file_set_idx}.png"))
+                    fig, _ = plot.column_histograms(data_inspector.collect_data(
+                        df=df_query2.filter(pl.col("file_set_idx") == file_set_idx).slice(0, ROW_LIMIT), feature_types=["wind_direction"]), 
+                                        return_fig=True)
+                    fig.savefig(os.path.join(data_inspector.save_dir, f"wind_dir_histogram_{file_set_idx}.png"))
         else:
-            df_query2 = df_query.with_columns(pl.col("time").dt.round(f"{1}m").alias("time"))\
-                        .group_by("time").agg(cs.numeric().mean()).sort("time")\
-                        .filter(pl.all_horizontal((cs.starts_with("wind_speed") >= 3) & (cs.starts_with("wind_speed") <= 25)))
-            data_inspector.plot_wind_rose(df_query2.slice(0, ROW_LIMIT), 
-                                feature_type="wind_direction", turbine_ids="all", fig_label=f"wind_rose_{file_set_idx}")
+            df_query2 = df_query.filter(pl.col("time").is_between(lower_bound=ROW_BOUNDS[0], upper_bound=ROW_BOUNDS[1], closed="both"))\
+                                .with_columns(pl.col("time").dt.round(f"{1}m").alias("time"))\
+                                .group_by("time").agg(cs.numeric().mean()).sort("time")\
+                                .filter(pl.all_horizontal((cs.starts_with("wind_speed") >= 3) & (cs.starts_with("wind_speed") <= 25)))
+                                
+            data_inspector.plot_wind_rose(df_query2.slice(0, ROW_LIMIT), feature_type="wind_direction", turbine_ids="all", fig_label=f"wind_rose")
+            
+            data_inspector.plot_wind_speed_weibull(df_query2.slice(0, ROW_LIMIT), turbine_ids="all", fig_label=f"weibull")
                         
         # data_inspector.plot_correlation(df_query.slice(0, ROW_LIMIT), 
         # data_inspector.get_features(df_query.slice(0, ROW_LIMIT), feature_types=["wind_speed", "wind_direction", "nacelle_direction"], 
@@ -796,6 +799,7 @@ def main():
                     figure_kwargs=dict(figsize=(10, 6)),
                     return_fig=True
                 )
+                del df_query2
                 axs.tick_params(axis="x", labelsize=12*1.5)
                 axs.tick_params(axis="y", labelsize=12*1.5)
                 axs.set_xlabel("Wind Magnitude (m/s)")
