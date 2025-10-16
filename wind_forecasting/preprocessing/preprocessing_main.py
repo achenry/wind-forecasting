@@ -12,7 +12,7 @@
 # ! pip install polars windrose netCDF4 statsmodels h5pyd seaborn pyyaml memory_profiler numpy scikit-learn
 # ! python -m ipykernel install --user --name=wind_forecasting_env
 # ./run_jupyter_preprocessing.sh && http://localhost:7878/lab
-print("hi 1")
+
 import os
 import sys
 import logging
@@ -32,13 +32,13 @@ from shutil import rmtree, move
 from psutil import virtual_memory
 
 mpi_exists = False
-try:
-    print("hi 2")
-    logging.info("hi 2")
-    from mpi4py import MPI
-    mpi_exists = True
-except:
-    logging.info("No MPI available on system.")
+# try:
+#     logging.info("hi 1")
+#     from mpi4py import MPI
+#     logging.info("hi 2")
+#     mpi_exists = True
+# except:
+#     logging.info("No MPI available on system.")
 
 parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 sys.path.insert(0, parent_dir)
@@ -77,7 +77,7 @@ ROW_BOUNDS = (datetime(year=2024, month=2, day=20), datetime(year=2025, month=3,
 # %%
 
 def main():
-    if (not mpi_exists) or (mpi_exists and MPI.COMM_WORLD.Get_rank() == 0):
+    if (not mpi_exists): # or (mpi_exists and MPI.COMM_WORLD.Get_rank() == 0):
         logging.info("Parsing arguments...")
         
     parser = argparse.ArgumentParser(prog="WindFarmForecasting")
@@ -91,7 +91,7 @@ def main():
     parser.add_argument("-d", "--debug", action="store_true")
     args = parser.parse_args()
      
-    RUN_ONCE = (args.multiprocessor == "mpi" and mpi_exists and (MPI.COMM_WORLD.Get_rank()) == 0) or (args.multiprocessor != "mpi") or (args.multiprocessor is None)
+    RUN_ONCE =  (args.multiprocessor != "mpi") or (args.multiprocessor is None) # or (args.multiprocessor == "mpi" and mpi_exists and (MPI.COMM_WORLD.Get_rank()) == 0)
     args.verbose = args.verbose and RUN_ONCE
     args.plot = args.plot and RUN_ONCE
     
@@ -212,10 +212,10 @@ def main():
             data_loader.turbine_mapping = [{k: k for k in [re.findall("(?<=wind_speed_)(.+)", n)[0] for n in df_query.select(cs.starts_with("wind_speed_")).collect_schema().names()]}]
 
     elif RUN_ONCE:
-        if args.multiprocessor == "mpi" and mpi_exists:
-            comm_size = MPI.COMM_WORLD.Get_size()
-            logging.info(f"🚀 Using MPI executor with {comm_size} processes.")
-        elif args.multiprocessor == "cf":
+        # if args.multiprocessor == "mpi" and mpi_exists:
+        #     comm_size = MPI.COMM_WORLD.Get_size()
+        #     logging.info(f"🚀 Using MPI executor with {comm_size} processes.")
+        if args.multiprocessor == "cf":
             max_workers = multiprocessing.cpu_count()
             logging.info("🚀  Using ProcessPoolExecutor with %d workers.", max_workers)
         else:

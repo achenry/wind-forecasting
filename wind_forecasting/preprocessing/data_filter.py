@@ -6,7 +6,6 @@ Returns:
 
 import logging
 from datetime import timedelta
-import os
 
 import numpy as np
 import polars as pl
@@ -15,13 +14,14 @@ import polars.selectors as cs
 # from scipy.spatial.distance import jensenshannon
 # from scipy.special import kl_div
 from openoa.utils import imputing, filters
-mpi_exists = False
-try:
-    from mpi4py import MPI
-    from mpi4py.futures import MPICommExecutor
-    mpi_exists = True
-except:
-    print("No MPI available on system.")
+
+# mpi_exists = False
+# try:
+#     from mpi4py import MPI
+#     from mpi4py.futures import MPICommExecutor
+#     mpi_exists = True
+# except:
+#     logging.info("No MPI available on system.")
     
 from concurrent.futures import ProcessPoolExecutor
 import multiprocessing
@@ -226,14 +226,14 @@ class DataFilter:
     
     def multi_generate_filter(self, df_query, filter_func, feature_types, turbine_ids, **kwargs):
         if self.multiprocessor:
-            if self.multiprocessor == "mpi" and mpi_exists:
-                executor = MPICommExecutor(MPI.COMM_WORLD, root=0)
-                logging.info(f"🚀 Using MPI executor with {MPI.COMM_WORLD.Get_size()} processes")
-            else:  # "cf" case
-                max_workers = multiprocessing.cpu_count()
-                executor = ProcessPoolExecutor(max_workers=max_workers,
-                                               mp_context=multiprocessing.get_context("spawn"))
-                logging.info(f"🖥️  Using ProcessPoolExecutor with {max_workers} workers")
+            # if self.multiprocessor == "mpi" and mpi_exists:
+            #     executor = MPICommExecutor(MPI.COMM_WORLD, root=0)
+            #     logging.info(f"🚀 Using MPI executor with {MPI.COMM_WORLD.Get_size()} processes")
+            # else:  # "cf" case
+            max_workers = multiprocessing.cpu_count()
+            executor = ProcessPoolExecutor(max_workers=max_workers,
+                                            mp_context=multiprocessing.get_context("spawn"))
+            logging.info(f"🖥️  Using ProcessPoolExecutor with {max_workers} workers")
             with executor as ex:
                 futures = [ex.submit(filter_func, 
                                     df_query=df_query.select([pl.col(f"{feat_type}_{tid}") for feat_type in feature_types]), 
@@ -270,14 +270,14 @@ class DataFilter:
     
     def multi_compute_bias(self, df_query, turbine_ids):
         if self.multiprocessor:
-            if self.multiprocessor == "mpi" and mpi_exists:
-                executor = MPICommExecutor(MPI.COMM_WORLD, root=0)
-                logging.info(f"🚀 Using MPI executor with {MPI.COMM_WORLD.Get_size()} processes")
-            else:  # "cf" case
-                max_workers = multiprocessing.cpu_count()
-                executor = ProcessPoolExecutor(max_workers=max_workers,
-                                               mp_context=multiprocessing.get_context("spawn"))
-                logging.info(f"🖥️  Using ProcessPoolExecutor with {max_workers} workers")
+            # if self.multiprocessor == "mpi" and mpi_exists:
+            #     executor = MPICommExecutor(MPI.COMM_WORLD, root=0)
+            #     logging.info(f"🚀 Using MPI executor with {MPI.COMM_WORLD.Get_size()} processes")
+            # else:  # "cf" case
+            max_workers = multiprocessing.cpu_count()
+            executor = ProcessPoolExecutor(max_workers=max_workers,
+                                            mp_context=multiprocessing.get_context("spawn"))
+            logging.info(f"🖥️  Using ProcessPoolExecutor with {max_workers} workers")
             
             with executor as ex:
                 futures = [ex.submit(self._single_compute_bias, 
@@ -301,14 +301,14 @@ class DataFilter:
     
     def fill_multi_missing_datasets(self, dfs, impute_missing_features, interpolate_missing_features, r2_threshold):
         if self.multiprocessor:
-            if self.multiprocessor == "mpi" and mpi_exists:
-                executor = MPICommExecutor(MPI.COMM_WORLD, root=0)
-                logging.info(f"🚀 Using MPI executor with {MPI.COMM_WORLD.Get_size()} processes")
-            else:  # "cf" case
-                max_workers = multiprocessing.cpu_count()
-                executor = ProcessPoolExecutor(max_workers=max_workers,
-                                               mp_context=multiprocessing.get_context("spawn"))
-                logging.info(f"🖥️  Using ProcessPoolExecutor with {max_workers} workers")
+            # if self.multiprocessor == "mpi" and mpi_exists:
+            #     executor = MPICommExecutor(MPI.COMM_WORLD, root=0)
+            #     logging.info(f"🚀 Using MPI executor with {MPI.COMM_WORLD.Get_size()} processes")
+            # else:  # "cf" case
+            max_workers = multiprocessing.cpu_count()
+            executor = ProcessPoolExecutor(max_workers=max_workers,
+                                            mp_context=multiprocessing.get_context("spawn"))
+            logging.info(f"🖥️  Using ProcessPoolExecutor with {max_workers} workers")
             
             with executor as ex:
                 futures = [ex.submit(self._fill_single_missing_dataset, df_idx=df_idx, df=df, 
@@ -328,14 +328,14 @@ class DataFilter:
     def _impute_single_missing_dataset(self, df_idx, df, save_path, impute_missing_features, r2_threshold, parallel=False):
 
         if parallel == "feature":
-            if self.multiprocessor == "mpi" and mpi_exists:
-                executor = MPICommExecutor(MPI.COMM_WORLD, root=0)
-                logging.info(f"🚀 Using MPI executor with {MPI.COMM_WORLD.Get_size()} processes")
-            else:  # "cf" case
-                max_workers = multiprocessing.cpu_count()
-                executor = ProcessPoolExecutor(max_workers=max_workers,
-                                               mp_context=multiprocessing.get_context("spawn"))
-                logging.info(f"🖥️  Using ProcessPoolExecutor with {max_workers} workers")
+            # if self.multiprocessor == "mpi" and mpi_exists:
+            #     executor = MPICommExecutor(MPI.COMM_WORLD, root=0)
+            #     logging.info(f"🚀 Using MPI executor with {MPI.COMM_WORLD.Get_size()} processes")
+            # else:  # "cf" case
+            max_workers = multiprocessing.cpu_count()
+            executor = ProcessPoolExecutor(max_workers=max_workers,
+                                            mp_context=multiprocessing.get_context("spawn"))
+            logging.info(f"🖥️  Using ProcessPoolExecutor with {max_workers} workers")
             
             with executor as ex:
                 futures = {feature: ex.submit(imputing.impute_all_assets_by_correlation,

@@ -25,13 +25,13 @@ import polars.selectors as cs
 import numpy as np
 from sklearn.preprocessing import MinMaxScaler
 
-mpi_exists = False
-try:
-    from mpi4py import MPI
-    from mpi4py.futures import MPICommExecutor
-    mpi_exists = True
-except:
-    print("No MPI available on system.")
+# mpi_exists = False
+# try:
+#     from mpi4py import MPI
+#     from mpi4py.futures import MPICommExecutor
+#     mpi_exists = True
+# except:
+#     logging.info("No MPI available on system.")
 
 from concurrent.futures import ProcessPoolExecutor
 
@@ -134,10 +134,10 @@ class DataLoader:
         read_start = time.time()
         
         if self.multiprocessor is not None:
-            if self.multiprocessor == "mpi" and mpi_exists:
-                executor = MPICommExecutor(MPI.COMM_WORLD, root=0)
-            else:  # "cf" case
-                executor = ProcessPoolExecutor()
+            # if self.multiprocessor == "mpi" and mpi_exists:
+            #     executor = MPICommExecutor(MPI.COMM_WORLD, root=0)
+            # else:  # "cf" case
+            executor = ProcessPoolExecutor()
             with executor as ex:
    
                     
@@ -209,7 +209,7 @@ class DataLoader:
         else:
             self.turbine_signature = self.turbine_signature[0]
         
-        RUN_ONCE = (self.multiprocessor == "mpi" and mpi_exists and (MPI.COMM_WORLD.Get_rank()) == 0) or (self.multiprocessor != "mpi") or (self.multiprocessor is None)
+        RUN_ONCE = (self.multiprocessor != "mpi") or (self.multiprocessor is None) # or (self.multiprocessor == "mpi" and mpi_exists and (MPI.COMM_WORLD.Get_rank()) == 0)
 
         if RUN_ONCE:
             # if len(merged_paths):    
@@ -307,10 +307,10 @@ class DataLoader:
         start_time = time.time()
         
         if self.multiprocessor is not None:
-            if self.multiprocessor == "mpi" and mpi_exists:
-                executor = MPICommExecutor(MPI.COMM_WORLD, root=0)
-            else:  # "cf" case
-                executor = ProcessPoolExecutor()
+            # if self.multiprocessor == "mpi" and mpi_exists:
+            #     executor = MPICommExecutor(MPI.COMM_WORLD, root=0)
+            # else:  # "cf" case
+            executor = ProcessPoolExecutor()
             with executor as ex:
                 if ex is not None:
                     merge_futures = [ex.submit(self._resample_df, df_queries.filter(pl.col("file_set_idx") == fsi), j, num_files_set_indices) for j, fsi in enumerate(file_set_indices)]
