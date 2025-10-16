@@ -130,7 +130,7 @@ class DataLoader:
             num /= 1024.0
         return "%.1f %s%s" % (num, 'Yi', suffix)
      
-    def read_multi_files(self, temp_save_dir, read_single_files=True, first_merge=True, second_merge=True) -> pl.LazyFrame | None:
+    def read_multi_files(self, temp_save_dir, read_single_files=True) -> pl.LazyFrame | None:
         read_start = time.time()
         
         if self.multiprocessor is not None:
@@ -140,46 +140,45 @@ class DataLoader:
                 executor = ProcessPoolExecutor()
             with executor as ex:
    
-                if ex is not None:
                     
-                    if read_single_files:
-                        logging.info(f"✅ Started reading {sum(len(fp) for fp in self.file_paths)} files.")
-                        
-                        for file_set_idx, fp in enumerate(self.file_paths):
-                            if not fp:
-                                raise FileExistsError(f"⚠️ File with signature {self.file_signature[file_set_idx]} in directory {self.data_dir[file_set_idx]} doesn't exist.")
+                if read_single_files:
+                    logging.info(f"✅ Started reading {sum(len(fp) for fp in self.file_paths)} files.")
+                    
+                    for file_set_idx, fp in enumerate(self.file_paths):
+                        if not fp:
+                            raise FileExistsError(f"⚠️ File with signature {self.file_signature[file_set_idx]} in directory {self.data_dir[file_set_idx]} doesn't exist.")
 
-                       
-                        init_used_ram = virtual_memory().percent
-                        assert init_used_ram < self.ram_limit - 5, f"RAM limit in yaml config must be at least 5% greater than initial ram value of {init_used_ram}%."
-                        
-                        file_futures = [ex.submit(self._read_single_file, file_set_idx, f, file_path, 
-                                                os.path.join(temp_save_dir, 
-                                                            f"{os.path.splitext(os.path.basename(file_path))[0]}.parquet"), len(self.file_paths[file_set_idx]))
-                                        for file_set_idx in range(len(self.file_paths)) for f, file_path in enumerate(self.file_paths[file_set_idx])] #4% increase in mem
                     
-                    logging.info(f"Started fetching results from {sum(len(fp) for fp in self.file_paths)} files.")
-                    processed_file_paths = []
-                    file_set_indices = []
-                    for file_set_idx in range(len(self.file_paths)):
-                        processed_file_paths.append([])
-                        file_set_indices.append(file_set_idx)
-                        for f, file_path in enumerate(self.file_paths[file_set_idx]):
-                            used_ram = virtual_memory().percent
-                            if read_single_files:
-                                res = file_futures[f].result() #.5% increase in mem
-                            else:
-                                res = 1
-                                
-                            if res is not None: 
-                                fn = f"{os.path.splitext(os.path.basename(file_path))[0]}.parquet"
-                                processed_file_paths[-1].append(os.path.join(temp_save_dir, fn))
-                            else:
-                                logging.warning(f"File {file_path} could not be processed, skipping.")
+                    init_used_ram = virtual_memory().percent
+                    assert init_used_ram < self.ram_limit - 5, f"RAM limit in yaml config must be at least 5% greater than initial ram value of {init_used_ram}%."
+                    
+                    file_futures = [ex.submit(self._read_single_file, file_set_idx, f, file_path, 
+                                            os.path.join(temp_save_dir, 
+                                                        f"{os.path.splitext(os.path.basename(file_path))[0]}.parquet"), len(self.file_paths[file_set_idx]))
+                                    for file_set_idx in range(len(self.file_paths)) for f, file_path in enumerate(self.file_paths[file_set_idx])] #4% increase in mem
+                
+                logging.info(f"Started fetching results from {sum(len(fp) for fp in self.file_paths)} files.")
+                processed_file_paths = []
+                file_set_indices = []
+                for file_set_idx in range(len(self.file_paths)):
+                    processed_file_paths.append([])
+                    file_set_indices.append(file_set_idx)
+                    for f, file_path in enumerate(self.file_paths[file_set_idx]):
+                        used_ram = virtual_memory().percent
+                        if read_single_files:
+                            res = file_futures[f].result() #.5% increase in mem
+                        else:
+                            res = 1
                             
-                            # for name, size in sorted(((name, sys.getsizeof(value)) for name, value in list(
-                            #                     locals().items())), key= lambda x: -x[1])[:3]:
-                            #     print("{:>30}: {:>8}".format(name, DataLoader.sizeof_fmt(size)))
+                        if res is not None: 
+                            fn = f"{os.path.splitext(os.path.basename(file_path))[0]}.parquet"
+                            processed_file_paths[-1].append(os.path.join(temp_save_dir, fn))
+                        else:
+                            logging.warning(f"File {file_path} could not be processed, skipping.")
+                        
+                        # for name, size in sorted(((name, sys.getsizeof(value)) for name, value in list(
+                        #                     locals().items())), key= lambda x: -x[1])[:3]:
+                        #     print("{:>30}: {:>8}".format(name, DataLoader.sizeof_fmt(size)))
                     
                     
         else:
@@ -215,49 +214,45 @@ class DataLoader:
         if RUN_ONCE:
             # if len(merged_paths):    
             logging.info(f"🔗 Finished reading files. Time elapsed: {time.time() - read_start:.2f} s")
-            if second_merge:
-                # if len(merged_paths) > 1:
-                if sum(len(pfp) for pfp in processed_file_paths) > 1: 
-                    logging.info(f"Concatenating and running final sort/resample/fill.")
-                    
-                    df_queries = []
-                    for file_set_idx in range(len(self.file_paths)):
-                        df_queries += self.merge_multiple_files(file_set_idx, processed_file_paths[file_set_idx], file_set_idx, temp_save_dir)
-                    
-                    # concatenate intermediary dataframes
-                    logging.info(f"Concatenating final, used ram = {virtual_memory().percent}%")
-                    df_queries = pl.concat(df_queries, how="diagonal_relaxed")#.collect().lazy()
-                    
-                    if not df_queries.select("time").collect().to_series().is_sorted():
-                        logging.info(f"Sorting final, used ram = {virtual_memory().percent}%")
-                        df_queries = df_queries.sort(by="time")#.collect().lazy()
-                    
-                    logging.info(f"Sorting columns, used ram = {virtual_memory().percent}%") 
-                    df_queries = df_queries.select([pl.col("time"), pl.col("file_set_idx")] 
-                                    + [pl.col(c) for c in 
-                                        sorted([col for col in df_queries.select(cs.numeric().exclude("file_set_idx")).collect_schema().names()], 
-                                                key=lambda col: (re.search(f".*?(?={self.turbine_signature})", col).group(0), 
-                                                                int(re.search("\\d+", re.search(self.turbine_signature, col).group(0)).group(0))))])
-                    
-                    # Write to final parquet
-                    logging.info(f"Saving final Parquet file into {self.save_path}, used ram = {virtual_memory().percent}%")
-                    df_queries.sink_parquet(self.save_path, maintain_order=True, statistics=False)
-                    
-                else:
-                    logging.info(f"Moving only batch to {self.save_path}.")
-                    move(processed_file_paths[0][0], self.save_path)
-                    
-                df_query = pl.scan_parquet(self.save_path).sort("time")
-                    
-                # turbine ids found in all files so far
-                self.turbine_ids = self.get_turbine_ids(self.turbine_signature, df_query, sort=True)
+            # if len(merged_paths) > 1:
+            if sum(len(pfp) for pfp in processed_file_paths) > 1: 
+                logging.info(f"Concatenating and running final sort/resample/fill.")
                 
-                logging.info(f"Final Parquet file saved into {self.save_path}")
+                df_queries = []
+                for file_set_idx in range(len(self.file_paths)):
+                    df_queries += self.merge_multiple_files(file_set_idx, processed_file_paths[file_set_idx], file_set_idx, temp_save_dir)
                 
-                return df_query
+                # concatenate intermediary dataframes
+                logging.info(f"Concatenating final, used ram = {virtual_memory().percent}%")
+                df_queries = pl.concat(df_queries, how="diagonal_relaxed")#.collect().lazy()
+                
+                if not df_queries.select("time").collect().to_series().is_sorted():
+                    logging.info(f"Sorting final, used ram = {virtual_memory().percent}%")
+                    df_queries = df_queries.sort(by="time")#.collect().lazy()
+                
+                logging.info(f"Sorting columns, used ram = {virtual_memory().percent}%") 
+                df_queries = df_queries.select([pl.col("time"), pl.col("file_set_idx")] 
+                                + [pl.col(c) for c in 
+                                    sorted([col for col in df_queries.select(cs.numeric().exclude("file_set_idx")).collect_schema().names()], 
+                                            key=lambda col: (re.search(f".*?(?={self.turbine_signature})", col).group(0), 
+                                                            int(re.search("\\d+", re.search(self.turbine_signature, col).group(0)).group(0))))])
+                
+                # Write to final parquet
+                logging.info(f"Saving final Parquet file into {self.save_path}, used ram = {virtual_memory().percent}%")
+                df_queries.sink_parquet(self.save_path, maintain_order=True, statistics=False)
+                
             else:
-                logging.error("No data successfully processed by read_multi_files.")
-                return None
+                logging.info(f"Moving only batch to {self.save_path}.")
+                move(processed_file_paths[0][0], self.save_path)
+                    
+            df_query = pl.scan_parquet(self.save_path).sort("time")
+                
+            # turbine ids found in all files so far
+            self.turbine_ids = self.get_turbine_ids(self.turbine_signature, df_query, sort=True)
+            
+            logging.info(f"Final Parquet file saved into {self.save_path}")
+            
+            return df_query
     
      
     def merge_multiple_files(self, file_set_idx, processed_file_paths, i, temp_save_dir):
@@ -287,6 +282,7 @@ class DataLoader:
             split_indices = [0] + list(df_queries.with_columns(dt=pl.col("time").diff()).slice(1).filter(pl.col("dt") > np.timedelta64(self.split_dt, 's')).select("index").collect().to_numpy().flatten()) + [df_queries.select(pl.len()).collect().item()]
             j = 0
             file_set_indices = []
+            bounds = []
             while j < len(split_indices) - 1:
                 file_set_indices.append(file_set_idx_offset + j)
                 df_queries = df_queries.with_columns(file_set_idx=pl.when(pl.col("index").is_between(split_indices[j], split_indices[j + 1], closed="left")).then(pl.lit(file_set_indices[-1])).otherwise(pl.col("file_set_idx")))
@@ -316,41 +312,45 @@ class DataLoader:
         
         assert os.path.exists(temp_save_dir), f"temp_save_dir={temp_save_dir} is not available for file set {file_set_idx}, merge index {i}"
         
-        # processed_file_paths = []
-        # for fsi in file_set_indices:
-        #     logging.info(f"Started writing continuous file set {fsi} of {num_files_set_indices}) to file. Used RAM = {virtual_memory().percent}%.")
-        #     processed_file_paths.append(os.path.join(temp_save_dir, f"df_{fsi}.parquet"))
-        #     df_queries.filter(pl.col("file_set_idx") == fsi).sink_parquet(processed_file_paths[-1], maintain_order=True, statistics=False)
-        #     df_queries = df_queries.filter(pl.col("file_set_idx") != fsi)
-        #     logging.info(f"Finished writing continuous file set {fsi} of {num_files_set_indices} to file. Used RAM = {virtual_memory().percent}%.")
-        
-        # logging.info(f"Started sorting dfs. Used RAM = {virtual_memory().percent}%.") 
-        # df_queries = sorted([df_queries.filter(pl.col("file_set_idx") == fsi) for fsi in file_set_indices], 
-        #                     key=lambda df: df.select(pl.col("time").first()).collect().item())
+        logging.info(f"Started partitioning by file_set_idx and refill. Used RAM = {virtual_memory().percent}%.")
         df_queries = [df_queries.filter(pl.col("file_set_idx") == fsi) for fsi in file_set_indices]
-        # logging.info(f"Finished sorting dfs. Used RAM = {virtual_memory().percent}%.") 
+        logging.info(f"Finished partitioning by file_set_idx and refill. Used RAM = {virtual_memory().percent}%.")
+        start_time = time.time()
         
-        for j in range(num_files_set_indices):
-            if not df_queries[j].select((pl.col("time").diff().slice(1) == pl.col("time").diff().last()).all()).collect().item():
-                start = df_queries[j].select(pl.col("time").first()).collect().item()
-                end = df_queries[j].select(pl.col("time").last()).collect().item()
-                
-                logging.info(f"Started resampling and refill from {start} to {end} for {j}th of {num_files_set_indices} dfs. Used RAM = {virtual_memory().percent}%.") 
-                
-                df_queries[j] = df_queries[j].select(
-                    pl.datetime_range(start=start,
-                                      end=end,
-                                      interval=f"{self.dt}s", 
-                                      time_unit=df_queries[j].collect_schema()["time"].time_unit).alias("time"))\
-                                    .join(df_queries[j], on="time", how="left")\
-                                        .fill_null(strategy="forward").fill_null(strategy="backward")
-                
-                logging.info(f"Finished resampling and refill for {j}th of {num_files_set_indices}. Used RAM = {virtual_memory().percent}%.") 
+        if self.multiprocessor is not None:
+            if self.multiprocessor == "mpi" and mpi_exists:
+                executor = MPICommExecutor(MPI.COMM_WORLD, root=0)
+            else:  # "cf" case
+                executor = ProcessPoolExecutor()
+            with executor as ex:
+                if ex is not None:
+                    merge_futures = [ex.submit(self._resample_df, df_queries[j], j, num_files_set_indices) for j in range(num_files_set_indices)]
+                    df_queries = [fut.result() for fut in merge_futures]
+            logging.info(f"Parallel resampling took {time.time() - start_time:.2f} s")
+        else:
+            for j in range(num_files_set_indices):
+                # if not df_queries[j].select((pl.col("time").diff().slice(1) == pl.col("time").diff().last()).all()).collect().item():
+                df_queries[j] = self._resample_df(df_queries[j], j, num_files_set_indices)
         
+        logging.info(f"Sequential resampling took {time.time() - start_time:.2f} s")
+                
         # assert df_queries.select((pl.col("time").diff().slice(1) == pl.col("time").diff().last()).all()).collect().item(), f"dt is non-uniform, even after resampling, for {df_query}" 
         # assert df_queries.select((pl.col("time").n_unique())).collect().item() == df_queries.select(pl.len()).collect().item()
         return df_queries
-
+    
+    def _resample_df(self, df, i, num_files_set_indices):
+        bounds = df.select(pl.col("time").first().alias("first"), pl.col("time").last().alias("last")).collect()
+        logging.info(f"Started resampling and refill from {bounds['first'].item()} to {bounds['last'].item()} for {i}th of {num_files_set_indices} dfs. Used RAM = {virtual_memory().percent}%.") 
+        df = df.select(
+                    pl.datetime_range(start=bounds["first"].item(),
+                                        end=bounds["last"].item(),
+                                        interval=f"{self.dt}s", 
+                                        time_unit=df.collect_schema()["time"].time_unit).alias("time"))\
+                                    .join(df, on="time", how="left")\
+                                        .fill_null(strategy="forward").fill_null(strategy="backward")
+        logging.info(f"Finished resampling and refill for {i}th of {num_files_set_indices}. Used RAM = {virtual_memory().percent}%.") 
+        return df
+    
     def get_turbine_ids(self, turbine_signature, df_query, sort=False):
         turbine_ids = set()
         if "turbine_id" in df_query.collect_schema().names():
