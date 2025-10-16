@@ -6,24 +6,31 @@
 
 import glob
 import os
+import time
+from datetime import datetime
 from typing import List, Optional
 from pathlib import Path
 import logging
 import re
+
+logging.info("Hi 1")
+from concurrent.futures import ProcessPoolExecutor
+logging.info("Hi 2")
 from shutil import move
 from psutil import virtual_memory
-from datetime import datetime
-import gc
+logging.info("Hi 3")
+# import gc
 # from datetime.datetime import strptime
-from memory_profiler import profile
-
-import time
+# from memory_profiler import profile
 
 import netCDF4 as nc
+logging.info("Hi 4")
+
 import polars as pl
 import polars.selectors as cs
+logging.info("Hi 5")
 import numpy as np
-from sklearn.preprocessing import MinMaxScaler
+# from sklearn.preprocessing import MinMaxScaler
 
 # mpi_exists = False
 # try:
@@ -33,7 +40,6 @@ from sklearn.preprocessing import MinMaxScaler
 # except:
 #     logging.info("No MPI available on system.")
 
-from concurrent.futures import ProcessPoolExecutor
 
 SECONDS_PER_MINUTE = np.float64(60)
 SECONDS_PER_HOUR = SECONDS_PER_MINUTE * 60
@@ -41,9 +47,9 @@ SECONDS_PER_DAY = SECONDS_PER_HOUR * 24
 SECONDS_PER_YEAR = SECONDS_PER_DAY * 365  # non-leap year, 365 days
 FFILL_LIMIT = 10 * SECONDS_PER_MINUTE 
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+# logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 JOIN_CHUNK = 100 #int(2000)
-
+logging.info("Hi 6")
 class DataLoader:
     """_summary_
        - load the scada data, 
@@ -649,112 +655,112 @@ class DataLoader:
 
     # INFO: @Juan 10/02/24 Revamped this method to use Polars functions consistently, vectorized where possible, and using type casting for consistency and performance enhancements.
 
-    def convert_time_to_sin(self, df) -> pl.LazyFrame:
-        """_summary_
-            convert timestamp to cosine and sinusoidal components
-        Returns:
-            pl.LazyFrame: _description_
-        """
-        if df is None:
-            raise ValueError("⚠️ Data not loaded > call read_multi_netcdf() first.")
+    # def convert_time_to_sin(self, df) -> pl.LazyFrame:
+    #     """_summary_
+    #         convert timestamp to cosine and sinusoidal components
+    #     Returns:
+    #         pl.LazyFrame: _description_
+    #     """
+    #     if df is None:
+    #         raise ValueError("⚠️ Data not loaded > call read_multi_netcdf() first.")
         
-        df = self.df.with_columns([
-            pl.col('time').dt.hour().alias('hour'),
-            pl.col('time').dt.ordinal_day().alias('day'),
-            pl.col('time').dt.year().alias('year'),
-        ])
+    #     df = self.df.with_columns([
+    #         pl.col('time').dt.hour().alias('hour'),
+    #         pl.col('time').dt.ordinal_day().alias('day'),
+    #         pl.col('time').dt.year().alias('year'),
+    #     ])
 
-        # Normalize time features using sin/cos for capturing cyclic patterns using Polars vectorized operations
-        df = df.with_columns([
-            (2 * np.pi * pl.col('hour') / 24).sin().alias('hour_sin'),
-            (2 * np.pi * pl.col('hour') / 24).cos().alias('hour_cos'),
-            (2 * np.pi * pl.col('day') / 365).sin().alias('day_sin'),
-            (2 * np.pi * pl.col('day') / 365).cos().alias('day_cos'),
-            (2 * np.pi * pl.col('year') / 365).sin().alias('year_sin'),
-            (2 * np.pi * pl.col('year') / 365).cos().alias('year_cos'),
-        ])
+    #     # Normalize time features using sin/cos for capturing cyclic patterns using Polars vectorized operations
+    #     df = df.with_columns([
+    #         (2 * np.pi * pl.col('hour') / 24).sin().alias('hour_sin'),
+    #         (2 * np.pi * pl.col('hour') / 24).cos().alias('hour_cos'),
+    #         (2 * np.pi * pl.col('day') / 365).sin().alias('day_sin'),
+    #         (2 * np.pi * pl.col('day') / 365).cos().alias('day_cos'),
+    #         (2 * np.pi * pl.col('year') / 365).sin().alias('year_sin'),
+    #         (2 * np.pi * pl.col('year') / 365).cos().alias('year_cos'),
+    #     ])
 
-        return df
+    #     return df
 
     # DEBUG: @Juan 10/16/24 Check that this is reducing the features correctly.
-    def reduce_features(self, df) -> pl.LazyFrame:
-        """
-        Reduce the DataFrame to include only the specified features that exist in the DataFrame.
-        """
-        existing_features = [f for f in self.desired_feature_types if any(f in col for col in df.columns)]
-        df = df.select([pl.col(col) for col in df.columns if any(feature in col for feature in existing_features)])
+    # def reduce_features(self, df) -> pl.LazyFrame:
+    #     """
+    #     Reduce the DataFrame to include only the specified features that exist in the DataFrame.
+    #     """
+    #     existing_features = [f for f in self.desired_feature_types if any(f in col for col in df.columns)]
+    #     df = df.select([pl.col(col) for col in df.columns if any(feature in col for feature in existing_features)])
         
-        # Only filter rows if there are numeric columns
-        numeric_cols = df.select(cs.numeric()).columns
-        if numeric_cols:
-            df = df.filter(pl.any_horizontal(pl.col(numeric_cols).is_not_null()))
+    #     # Only filter rows if there are numeric columns
+    #     numeric_cols = df.select(cs.numeric()).columns
+    #     if numeric_cols:
+    #         df = df.filter(pl.any_horizontal(pl.col(numeric_cols).is_not_null()))
         
-        logging.info(f"Columns after reduce_features: {df.columns}")
-        logging.info(f"Shape after reduce_features: {df.shape}")
-        return df
+    #     logging.info(f"Columns after reduce_features: {df.columns}")
+    #     logging.info(f"Shape after reduce_features: {df.shape}")
+    #     return df
 
-    def normalize_features(self, df) -> pl.LazyFrame:
-        """_summary_
-            use minmax scaling to normalize non-temporal features
-        Returns:
-            pl.LazyFrame: _description_
-        """
-        if df is None:
-            raise ValueError("⚠️ Data not loaded > call read_multi_netcdf() first.")
+    # def normalize_features(self, df) -> pl.LazyFrame:
+    #     """_summary_
+    #         use minmax scaling to normalize non-temporal features
+    #     Returns:
+    #         pl.LazyFrame: _description_
+    #     """
+    #     if df is None:
+    #         raise ValueError("⚠️ Data not loaded > call read_multi_netcdf() first.")
         
-        features_to_normalize = [col for col in self.df.columns
-                                 if all(c not in col for c in ['time', 'hour', 'day', 'year'])]
+    #     features_to_normalize = [col for col in self.df.columns
+    #                              if all(c not in col for c in ['time', 'hour', 'day', 'year'])]
         
-        scaler = MinMaxScaler()
-        normalized_data = scaler.fit_transform(self.df.select(features_to_normalize).to_numpy())
-        normalized_df = pl.DataFrame(normalized_data, schema=features_to_normalize)
+    #     scaler = MinMaxScaler()
+    #     normalized_data = scaler.fit_transform(self.df.select(features_to_normalize).to_numpy())
+    #     normalized_df = pl.DataFrame(normalized_data, schema=features_to_normalize)
         
-        df = df.drop(features_to_normalize).hstack(normalized_df)
-        return df
+    #     df = df.drop(features_to_normalize).hstack(normalized_df)
+    #     return df
     
-    def create_sequences(self, df, target_turbine: str, 
-                         features: list[str] | None = None, 
-                         sequence_length: int = 600, 
-                         prediction_horizon: int = 240) -> tuple[np.ndarray, np.ndarray, list[str], int, int]:
+    # def create_sequences(self, df, target_turbine: str, 
+    #                      features: list[str] | None = None, 
+    #                      sequence_length: int = 600, 
+    #                      prediction_horizon: int = 240) -> tuple[np.ndarray, np.ndarray, list[str], int, int]:
         
-        features = [col for col in df.columns if col not in [f'TurbineWindMag_{target_turbine}_u', f'TurbineWindMag_{target_turbine}_v']]
-        y_columns = [f'TurbineWindMag_{target_turbine}_u', f'TurbineWindMag_{target_turbine}_v']
+    #     features = [col for col in df.columns if col not in [f'TurbineWindMag_{target_turbine}_u', f'TurbineWindMag_{target_turbine}_v']]
+    #     y_columns = [f'TurbineWindMag_{target_turbine}_u', f'TurbineWindMag_{target_turbine}_v']
         
-        X_data = df.select(features).collect(streaming=True).to_numpy()
-        y_data = df.select(y_columns).collect(streaming=True).to_numpy()
+    #     X_data = df.select(features).collect(streaming=True).to_numpy()
+    #     y_data = df.select(y_columns).collect(streaming=True).to_numpy()
         
-        X = np.array([X_data[i:i + sequence_length] for i in range(len(X_data) - sequence_length - prediction_horizon + 1)])
-        y = np.array([y_data[i:i + prediction_horizon] for i in range(sequence_length, len(y_data) - prediction_horizon + 1)])
+    #     X = np.array([X_data[i:i + sequence_length] for i in range(len(X_data) - sequence_length - prediction_horizon + 1)])
+    #     y = np.array([y_data[i:i + prediction_horizon] for i in range(sequence_length, len(y_data) - prediction_horizon + 1)])
         
-        return X, y, features, sequence_length, prediction_horizon
+    #     return X, y, features, sequence_length, prediction_horizon
 
     # INFO: @Juan 10/14/24 Added method to format SMARTEOLE data. (TEMPORARY)
-    def format_smarteole_data(self, df: pl.LazyFrame) -> pl.LazyFrame:
-        # Implement the formatting logic for SMARTEOLE data
-        # This method should apply the necessary transformations as shown in the format_dataframes function
+    # def format_smarteole_data(self, df: pl.LazyFrame) -> pl.LazyFrame:
+    #     # Implement the formatting logic for SMARTEOLE data
+    #     # This method should apply the necessary transformations as shown in the format_dataframes function
         
-        # Example of some transformations:
-        df = df.with_columns([
-            (pl.col("is_operation_normal_000").cast(pl.Boolean()).not_()).alias("is_operation_normal_000"),
-            (pl.col("is_operation_normal_001").cast(pl.Boolean()).not_()).alias("is_operation_normal_001"),
-            # ... (repeat for other turbines)
-        ])
+    #     # Example of some transformations:
+    #     df = df.with_columns([
+    #         (pl.col("is_operation_normal_000").cast(pl.Boolean()).not_()).alias("is_operation_normal_000"),
+    #         (pl.col("is_operation_normal_001").cast(pl.Boolean()).not_()).alias("is_operation_normal_001"),
+    #         # ... (repeat for other turbines)
+    #     ])
         
-        df = df.with_columns([
-            pl.when(pl.col("control_mode") == 0).then("baseline")
-              .when(pl.col("control_mode") == 1).then("controlled")
-              .otherwise(pl.col("control_mode")).alias("control_mode")
-        ])
+    #     df = df.with_columns([
+    #         pl.when(pl.col("control_mode") == 0).then("baseline")
+    #           .when(pl.col("control_mode") == 1).then("controlled")
+    #           .otherwise(pl.col("control_mode")).alias("control_mode")
+    #     ])
         
-        # Add more transformations as needed
+    #     # Add more transformations as needed
         
-        return df
+    #     return df
 
     # INFO: @Juan 10/14/24 Added method to load and process data. (TEMPORARY)
-    def load_and_process_data(self) -> pl.LazyFrame:
-        df = self.read_multi_files()
-        if df is not None:
-            df = self.format_smarteole_data(df)
-            df = self.convert_time_to_sin(df)
-            df = self.normalize_features(df)
-        return df
+    # def load_and_process_data(self) -> pl.LazyFrame:
+    #     df = self.read_multi_files()
+    #     if df is not None:
+    #         df = self.format_smarteole_data(df)
+    #         df = self.convert_time_to_sin(df)
+    #         df = self.normalize_features(df)
+    #     return df
