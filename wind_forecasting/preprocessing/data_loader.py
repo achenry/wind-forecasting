@@ -158,24 +158,24 @@ class DataLoader:
                                                             f"{os.path.splitext(os.path.basename(file_path))[0]}.parquet"), len(self.file_paths[file_set_idx]))
                                         for file_set_idx in range(len(self.file_paths)) for f, file_path in enumerate(self.file_paths[file_set_idx])] #4% increase in mem
                     
-                        logging.info(f"Started fetching results from {sum(len(fp) for fp in self.file_paths)} files.")
-                        processed_file_paths = []
-                        file_set_indices = []
-                        for file_set_idx in range(len(self.file_paths)):
-                            processed_file_paths.append([])
-                            file_set_indices.append(file_set_idx)
-                            for f, file_path in enumerate(self.file_paths[file_set_idx]):
-                                used_ram = virtual_memory().percent
-                                if read_single_files:
-                                    res = file_futures[f].result() #.5% increase in mem
-                                else:
-                                    res = 1
-                                    
-                                if res is not None: 
-                                    fn = f"{os.path.splitext(os.path.basename(file_path))[0]}.parquet"
-                                    processed_file_paths[-1].append(os.path.join(temp_save_dir, fn))
-                                else:
-                                    logging.warning(f"File {file_path} could not be processed, skipping.")
+                    logging.info(f"Started fetching results from {sum(len(fp) for fp in self.file_paths)} files.")
+                    processed_file_paths = []
+                    file_set_indices = []
+                    for file_set_idx in range(len(self.file_paths)):
+                        processed_file_paths.append([])
+                        file_set_indices.append(file_set_idx)
+                        for f, file_path in enumerate(self.file_paths[file_set_idx]):
+                            used_ram = virtual_memory().percent
+                            if read_single_files:
+                                res = file_futures[f].result() #.5% increase in mem
+                            else:
+                                res = 1
+                                
+                            if res is not None: 
+                                fn = f"{os.path.splitext(os.path.basename(file_path))[0]}.parquet"
+                                processed_file_paths[-1].append(os.path.join(temp_save_dir, fn))
+                            else:
+                                logging.warning(f"File {file_path} could not be processed, skipping.")
                             
                             # for name, size in sorted(((name, sys.getsizeof(value)) for name, value in list(
                             #                     locals().items())), key= lambda x: -x[1])[:3]:
