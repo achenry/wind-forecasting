@@ -12,10 +12,11 @@
 # ! pip install polars windrose netCDF4 statsmodels h5pyd seaborn pyyaml memory_profiler numpy scikit-learn
 # ! python -m ipykernel install --user --name=wind_forecasting_env
 # ./run_jupyter_preprocessing.sh && http://localhost:7878/lab
-
+print("hi 1")
 import os
 import sys
 import logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 import argparse
 import yaml
 import time
@@ -32,7 +33,8 @@ from psutil import virtual_memory
 
 mpi_exists = False
 try:
-    print("hi")
+    print("hi 2")
+    logging.info("hi 2")
     from mpi4py import MPI
     mpi_exists = True
 except:
@@ -65,7 +67,7 @@ import matplotlib.pyplot as plt
 from scipy.stats import norm
 from floris import FlorisModel
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
 
 # ROW_LIMIT = 2 * 60 * 60 * 24 * 30 * 18
 ROW_LIMIT = None #60 * 60 * 24 * 30 * 3
@@ -77,6 +79,7 @@ ROW_BOUNDS = (datetime(year=2024, month=2, day=20), datetime(year=2025, month=3,
 def main():
     if (not mpi_exists) or (mpi_exists and MPI.COMM_WORLD.Get_rank() == 0):
         logging.info("Parsing arguments...")
+        
     parser = argparse.ArgumentParser(prog="WindFarmForecasting")
     parser.add_argument("-cnf", "--config", type=str)
     parser.add_argument("-m", "--multiprocessor", type=str, choices=["cf", "mpi"], required=False, default=None)
