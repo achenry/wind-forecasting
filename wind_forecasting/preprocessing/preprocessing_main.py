@@ -20,7 +20,7 @@ import argparse
 import yaml
 import time
 import re
-from memory_profiler import profile
+# from memory_profiler import profile
 from shutil import rmtree, move
 # import pickle
 # from glob import glob
@@ -32,6 +32,7 @@ from psutil import virtual_memory
 
 mpi_exists = False
 try:
+    print("hi")
     from mpi4py import MPI
     mpi_exists = True
 except:
@@ -204,6 +205,8 @@ def main():
                                                                 int(re.search("\\d+", re.search(data_loader.turbine_signature, col).group(0)).group(0))))])
         # generate turbine ids
         data_loader.turbine_ids = data_loader.get_turbine_ids(data_loader.turbine_signature, df_query, sort=True)
+        if data_loader.turbine_mapping is None:
+            data_loader.turbine_mapping = [{k: k for k in [re.findall("(?<=wind_speed_)(.+)", n)[0] for n in df_query.select(cs.starts_with("wind_speed_")).collect_schema().names()]}]
 
     elif RUN_ONCE:
         if args.multiprocessor == "mpi" and mpi_exists:
@@ -250,7 +253,7 @@ def main():
     if RUN_ONCE:
         assert all(any(prefix in col for col in df_query.collect_schema().names()) for prefix in ["time", "wind_speed_", "wind_direction_", "nacelle_direction_", "power_output_"]), "DataFrame must contain columns 'time', then columns with prefixes 'wind_speed_', 'wind_direction_', 'power_output_', 'nacelle_direction_'"
         assert df_query.select("time").collect().to_series().is_sorted(), "Loaded data should be sorted by time!"
-        assert all(any(f"{prefix}{tid}" in col for col in df_query.collect_schema().names() if col != "time") for prefix in ["wind_speed_", "wind_direction_", "nacelle_direction_", "power_output_"] for tid in data_loader.turbine_ids), "DataFrame must contain columns with prefixes 'wind_speed_', 'wind_direction_', 'power_output_', 'nacelle_direction_' and suffixes for each turbine id" 
+        assert all(any(f"{prefix}{tid}" in col for col in df_query.collect_schema().names() if col not in ["time", "file_set_idx"]) for prefix in ["wind_speed_", "wind_direction_", "nacelle_direction_", "power_output_"] for tid in data_loader.turbine_ids), "DataFrame must contain columns with prefixes 'wind_speed_', 'wind_direction_', 'power_output_', 'nacelle_direction_' and suffixes for each turbine id" 
         assert df_query.select("time").collect().to_series().is_sorted()
         # assert df_query.select(pl.all_horizontal(cs.numeric().is_null().sum() == 0)).collect().item() # TODO df_query.select(["turbine_status_32", "turbine_status_41"]).collect() are null
     # df_query = df_query.group_by("time").agg(cs.numeric().mean())
@@ -403,7 +406,7 @@ def main():
                 
                 os.makedirs(frozen_sensor_filter_temp_path, exist_ok=True)
                 
-                if regen:
+                if regen and os.path.exists(frozen_sensor_filter_target_path):
                     rmtree(frozen_sensor_filter_target_path)
             
             cols = ws_cols + wd_cols
@@ -1374,8 +1377,8 @@ def main():
             # else, for each of those split datasets, impute the values using the imputing.impute_all_assets_by_correlation function
             # fill data on single concatenated dataset
             save_path = config["processed_data_path"].replace(".parquet", "_imputed.parquet")
-            if os.path.exists(save_path):
-                df_query = pl.scan_parquet(save_path)
+            # if os.path.exists(save_path):
+            #     df_query = pl.scan_parquet(save_path)
             # NOTE to truly repeat this process, must delete all impute, impute_ws_horz, impute_ws_vert parquets
             df_query2 = data_filter._fill_single_missing_dataset(
                 df_idx=0, 
@@ -1483,31 +1486,35 @@ def main():
         finally:
             del df_unpivoted
     
-    # %% TODO add SMOOTHING
+    # %% SMOOTHING
     if "smooth" in config["filters"]:
         if RUN_ONCE:
             if args.reload_data or args.regenerate_filters or not os.path.exists(config["processed_data_path"].replace(".parquet", "_smoothed.parquet")): 
                 # Normalization & Feature Selection
                 logging.info("Smoothing features.")
-                smoothing_func = config["filters"]["smooth"].get("function", "butterworth")
-                if smoothing_func == "butterworth":
-                    dt=data_loader.dt
-                elif smoothing_func == "moving_average":
-                    pass
-                elif smoothing_func == "savitzky_golay":
-                    pass
                 
+                smoothing_func = config["filters"]["smooth"].get("function", "butterworth")
                 smoothing_params = {k: v for k, v in config["filters"]["smooth"].items() if k != "function"}
                 
-                df_query = data_filter.smooth_features(
-                    df=df_query, 
-                    feature_types=["ws_horz", "ws_vert"], 
-                    smoothing_function=smoothing_func, 
-                    smoothing_params=smoothing_params
-                )
+                if smoothing_func == "butterworth":
+                    smoothing_params["dt"] = data_loader.dt
+                if smoothing_func == "moving_average":
+                    pass
+                if smoothing_func == "savitzky_golay":
+                    pass
+                
+                # for smoothing_func in ["butterworth", "moving_average", "savitzky_golay"]:
+                df_query = data_filter.smooth(
+                            df_query=df_query, 
+                            feature_types=["ws_horz", "ws_vert"], 
+                            smoothing_function=smoothing_func, 
+                            smoothing_params=smoothing_params,
+                            plot=False
+                        )
+                df_query.collect().write_parquet(config["processed_data_path"].replace(".parquet", f"_smoothed_{smoothing_func}.parquet"))
                 
             else:
-                df_query = pl.scan_parquet(config["processed_data_path"].replace(".parquet", "_smoothed.parquet"))
+                df_query = pl.scan_parquet(config["processed_data_path"].replace(".parquet", f"_smoothed_{smoothing_func}.parquet"))
     
     # %%
     if "normalize" in config["filters"]:
@@ -1516,46 +1523,60 @@ def main():
                 # Normalization & Feature Selection
                 logging.info("Normalizing features.")
                 
-                # store min/max of each column to rescale later
-                feature_types = ["nd_cos", "nd_sin", "ws_horz", "ws_vert"]
-                cols = [c for c in df_query.collect_schema().names() if any(c.startswith(ft) for ft in feature_types)]
-                # ws_horz_cols = [col for col in df_query.collect_schema().names() if col.startswith("ws_horz")]
-                # ws_vert_cols = [col for col in df_query.collect_schema().names() if col.startswith("ws_vert")]
+                dataset_labels = ["imputed", f"smoothed_{smoothing_func}"]
+                for l, ll in zip(dataset_labels, ["unsmoothed", "smoothed"]):
+                    fp = config["processed_data_path"].replace(".parquet", f"_{l}.parquet")
+                    dfq = pl.scan_parquet(fp)
                 
-                # TODO HIGH CHANGE TO sklearn.preprocessing.StandardScaler
-                norm_vals = {}
-                # for feature_type in feature_types:
+                    # store min/max of each column to rescale later
+                    feature_types = ["nd_cos", "nd_sin", "ws_horz", "ws_vert"]
+                    cols = [c for c in df_query.collect_schema().names() if any(c.startswith(ft) for ft in feature_types)]
+                    # ws_horz_cols = [col for col in df_query.collect_schema().names() if col.startswith("ws_horz")]
+                    # ws_vert_cols = [col for col in df_query.collect_schema().names() if col.startswith("ws_vert")]
                     
-                    # norm_vals[f"{feature_type}_max"] = df_query.select(pl.max_horizontal(cs.starts_with(feature_type).max())).collect().item()
-                    # norm_vals[f"{feature_type}_min"] = df_query.select(pl.min_horizontal(cs.starts_with(feature_type).min())).collect().item()
-                for col in cols:
-                    norm_vals[f"{col}_mean"] = df_query.select(cs.starts_with(feature_type).mean()).collect().item()
-                    norm_vals[f"{col}_std"] = df_query.select(cs.starts_with(feature_type).std()).collect().item()
+                    # sklearn.preprocessing.StandardScaler
+                    norm_vals = {}
+                    # for feature_type in feature_types:
+                        
+                        # norm_vals[f"{feature_type}_max"] = df_query.select(pl.max_horizontal(cs.starts_with(feature_type).max())).collect().item()
+                        # norm_vals[f"{feature_type}_min"] = df_query.select(pl.min_horizontal(cs.starts_with(feature_type).min())).collect().item()
+                    for col in cols:
+                        # feat_type = re.match(f".*(?=\_{data_loader.turbine_signature})", col).group(0)
+                        norm_vals[f"{col}_mean"] = df_query.select(pl.col(col).mean()).collect().item()
+                        norm_vals[f"{col}_std"] = df_query.select(pl.col(col).std()).collect().item()
 
-                norm_vals = pl.DataFrame(norm_vals).select(pl.all().round(2))
-                norm_vals.write_csv(config["processed_data_path"].replace(".parquet", "_normalization_consts.csv"))
-                
-                if "continuity_group" in df_query.collect_schema().names():
-                    df_query = df_query.select(pl.col("time"), pl.col("continuity_group"), cs.contains("nd_sin"), cs.contains("nd_cos"), cs.contains("ws_horz"), cs.contains("ws_vert"))
-                    time_cols = [pl.col("time"), pl.col("continuity_group")]
-                else:
-                    time_cols = [pl.col("time")]
+                    norm_vals = pl.DataFrame(norm_vals).select(pl.all())
+                    norm_vals.write_csv(config["processed_data_path"].replace(".parquet", f"_{ll}_normalization_consts.csv"))
+                    
+                    if "continuity_group" in df_query.collect_schema().names():
+                        df_query = df_query.select(pl.col("time"), pl.col("continuity_group"), cs.contains("nd_sin"), cs.contains("nd_cos"), cs.contains("ws_horz"), cs.contains("ws_vert"))
+                        time_cols = [pl.col("time"), pl.col("continuity_group")]
+                    else:
+                        time_cols = [pl.col("time")]
 
-                
-                # TODO HIGH CHANGE TO sklearn.preprocessing.StandardScaler
-                # df_query = df_query.select(time_cols 
-                #                         + [((2.0 * ((cs.starts_with(feature_type) - norm_vals.select(f"{feature_type}_min").item()) 
-                #                         / (norm_vals.select(f"{feature_type}_max").item() - norm_vals.select(f"{feature_type}_min").item()))) - 1.0).name.keep()
-                #                         for feature_type in feature_types])
-                df_query = df_query.select(time_cols 
-                                        + [((((pl.col(col) - norm_vals.select(f"{col}_mean").item()) 
-                                                / norm_vals.select(f"{col}_std").item()))).name.keep()
-                                        for col in cols])
-                
-                df_query.collect().write_parquet(config["processed_data_path"].replace(".parquet", "_normalized.parquet"), statistics=False)
+                    
+                    # sklearn.preprocessing.StandardScaler
+                    # df_query = df_query.select(time_cols 
+                    #                         + [((2.0 * ((cs.starts_with(feature_type) - norm_vals.select(f"{feature_type}_min").item()) 
+                    #                         / (norm_vals.select(f"{feature_type}_max").item() - norm_vals.select(f"{feature_type}_min").item()))) - 1.0).name.keep()
+                    #                         for feature_type in feature_types])
+                    df_query = df_query.select(time_cols 
+                                            + [((((pl.col(col) - norm_vals.select(f"{col}_mean").item()) 
+                                                    / norm_vals.select(f"{col}_std").item()))).name.keep()
+                                            for col in cols])
+                    
+                    for col in cols:
+                        print(df_query.select(pl.col(col).mean()).collect().item())
+                        print(df_query.select(pl.col(col).std()).collect().item())
+                    
+                    df_query.collect().write_parquet(config["processed_data_path"].replace(".parquet", f"_{ll}_normalized.parquet"), statistics=False)
+                    
                 logging.info("Finished normalizing features.")
             else:
-                df_query = pl.scan_parquet(config["processed_data_path"].replace(".parquet", "_normalized.parquet"))
+                if "smooth" in config["filters"]:
+                    df_query = pl.scan_parquet(config["processed_data_path"].replace(".parquet", "_smoothed_normalized.parquet"))
+                else:
+                    df_query = pl.scan_parquet(config["processed_data_path"].replace(".parquet", "_unsmoothed_normalized.parquet"))
 
 if __name__ == "__main__":
     main()

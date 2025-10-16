@@ -163,16 +163,17 @@ class DataFilter:
         logging.info(f"Finished generating std out of range filter for {df_query.collect_schema().names()}")
         return mask 
     
-    def smooth(self, df_query, dt, feature_types, function="butterworth", **kwargs):
+    def smooth(self, df_query, feature_types, smoothing_function="butterworth", smoothing_params=None, plot=False):
         
-        if function == "moving_average":
-            df_query = df_query.with_columns([cs.starts_with(feat_type).rolling_mean_by("time", window_size=kwargs["window_size"]) for feat_type in feature_types])
-            return df_query
+
 
         sub_df = df_query.select([cs.starts_with(feat_type) for feat_type in feature_types])
         features = sub_df.collect_schema().names()
         
-        if function == "butterworth":
+        if smoothing_function == "moving_average":
+            df_query_filt = df_query.with_columns([cs.starts_with(feat_type).rolling_mean_by("time", window_size=f"{smoothing_params['window_size']}s") for feat_type in feature_types])
+
+        elif smoothing_function == "butterworth":
             # smoothed = filters.butterworth_filter(data=df_query.select([pl.col(f"{feat_type}_{tid}") for feat_type in feature_types]).collect().to_pandas(),
             #                                       **kwargs)
             # sub_df = df_query.select([cs.starts_with(feat_type) for feat_type in feature_types])
@@ -197,18 +198,30 @@ class DataFilter:
             
             from scipy.signal import butter, sosfilt
             
-            sos = butter(N=kwargs["order"], Wn=kwargs["freq_cutoff"], btype='low', fs=1/dt, output='sos')
-            ts = sosfilt(sos, sub_df.collect().to_numpy(), axis=0)
+            sos = butter(N=smoothing_params["order"], Wn=smoothing_params["freq_cutoff"], btype='low', fs=1/smoothing_params["dt"], output='sos')
+            df_query_filt = df_query.with_columns([pl.Series(name=feat, 
+                                                             values=sosfilt(sos, sub_df.collect().to_numpy(), axis=0)[:, i]) for i, feat in enumerate(features)])
             
             
-        elif function == "savitzky_golay":
+        elif smoothing_function == "savitzky_golay":
             from scipy.signal import savgol_filter
             
-            ts = savgol_filter(sub_df.collect().to_numpy(), window_length=kwargs["window_length"], polyorder=kwargs["polyorder"], axis=0)
+            df_query_filt = df_query.with_columns([pl.Series(name=feat, 
+                                                             values=savgol_filter(sub_df.collect().to_numpy(), window_length=smoothing_params["window_size"], polyorder=smoothing_params["order"], axis=0)[:, i]) for i, feat in enumerate(features)])
         else:
-            raise ValueError(f"Unknown smoothing function {function}")
+            raise ValueError(f"Unknown smoothing function {smoothing_function}")
         
-        return df_query.with_columns([pl.Series(name=feat, values=ts[:, i]) for i, feat in enumerate(features)])
+        if plot:
+            fig, ax = plt.subplots(len(feature_types), 1, sharex=True)
+            for ax_idx, feat_type in enumerate(feature_types):
+                ax[ax_idx].plot(df_query.select(cs.starts_with(feat_type)).collect().to_numpy(), "k-", label="original")
+                ax[ax_idx].plot(df_query_filt.select(cs.starts_with(feat_type)).collect().to_numpy(), "r:", label="smoothed")
+                ax[ax_idx].set(title=feat_type, xlim=(1.295*1e7,1.345*1e7))
+                # filt_ts[:, [i for i in range(len(features)) if feat_type in features[i]]]
+            fig.suptitle(f"{' '.join([w.capitalize() for w in smoothing_function.split("_")])}")
+            fig.show()
+        
+        return df_query_filt
         
     
     def multi_generate_filter(self, df_query, filter_func, feature_types, turbine_ids, **kwargs):
@@ -225,11 +238,7 @@ class DataFilter:
                 futures = [ex.submit(filter_func, 
                                     df_query=df_query.select([pl.col(f"{feat_type}_{tid}") for feat_type in feature_types]), 
                                     tid=tid, **kwargs) for tid in turbine_ids]
-                results = [fut.result() for fut in futures]
-                # if isinstance(results[0], tuple):
-                #     return np.stack([res[0] for res in results], axis=1), [res[1:] for res in results]
-                # else:
-            return np.stack(results, axis=1)
+                masks = [fut.result() for fut in futures]
         else:
             logging.info("🔧 Using single process executor")
             masks = []
@@ -237,13 +246,9 @@ class DataFilter:
             for tid in turbine_ids:
                 res = filter_func(
                     df_query=df_query.select([pl.col(f"{feat_type}_{tid}") for feat_type in feature_types]), tid=tid, **kwargs)
-                # if isinstance(res, tuple):
-                #     masks.append(res[0])
-                #     other_outputs.append(res[1])
-                # else:
                 masks.append(res)
                     
-            return np.stack(masks, axis=1) #, other_outputs or None
+        return np.stack(masks, axis=1) #, other_outputs or None
 
     def _single_compute_bias(self, df_query, tid):
         bias = df_query\

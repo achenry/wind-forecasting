@@ -1,7 +1,7 @@
 config_label: aoifemac_awaken_new
 
 filters:
-  nacelle_calibration:
+  # nacelle_calibration:
   unresponsive_sensor:
     frozen_sensor_limit: 1200 # maximum duration for which a value can be constant before it is flagged as frozen, seconds
   range_flag:
@@ -24,16 +24,17 @@ filters:
     over: asset 
     r2_threshold: 0.85
     min_correlated_assets: 5
-  split:
-    missing_col_thr: 66 # number of missing turbine measurements, from either wind speed or wind direction, (max = 2xn_turbines) above which this subset of data will be omitted, i.e. if many data points are missing omit the data
-    missing_duration_thr: 300 # maximum duration for which subsets of data which have missing measurements exceeding missing_col_thr in any feature type will still be included, i.e. if many data points are missing but only for a short time, use the data, seconds
-    minimum_not_missing_duration: 1200 # minimum duration that any retained continuous subset of data must be to be useful, seconds, i.e. should contain at least the intended context length and prediction length
+  # split:
+  #   missing_col_thr: 66 # number of missing turbine measurements, from either wind speed or wind direction, (max = 2xn_turbines) above which this subset of data will be omitted, i.e. if many data points are missing omit the data
+  #   missing_duration_thr: 300 # maximum duration for which subsets of data which have missing measurements exceeding missing_col_thr in any feature type will still be included, i.e. if many data points are missing but only for a short time, use the data, seconds
+  #   minimum_not_missing_duration: 1200 # minimum duration that any retained continuous subset of data must be to be useful, seconds, i.e. should contain at least the intended context length and prediction length
   impute_missing_data:
     r2_threshold: 0.7
   smooth:
     function: butterworth
     order: 1
     freq_cutoff: 0.0011
+    window_size: 60
   normalize:
 
 feature_mapping:
@@ -147,6 +148,7 @@ turbine_mapping:
   wt086: 86
   wt087: 87
   wt088: 88
+
 # - TurbineA1: 1
 #   TurbineA2: 2
 #   TurbineA3: 3

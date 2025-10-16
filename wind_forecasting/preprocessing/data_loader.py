@@ -222,31 +222,15 @@ class DataLoader:
                 for file_set_idx in range(len(self.file_paths)):
                     self.merge_multiple_files(file_set_idx, processed_file_paths[file_set_idx], file_set_idx, temp_save_dir)
                 
-                # concatenate intermediary dataframes
-                # logging.info(f"Concatenating final, used ram = {virtual_memory().percent}%")
-                # df_queries = pl.concat(df_queries, how="vertical")#.collect().lazy()
-                df_queries = pl.scan_parquet(os.path.join(temp_save_dir, "merged_*_*.parquet"), glob=True).sort("time")
-                
-                # if not df_queries.select("time").collect().to_series().is_sorted():
-                #     logging.info(f"Sorting final, used ram = {virtual_memory().percent}%")
-                #     df_queries = df_queries.sort(by="time")#.collect().lazy()
-                
-                # logging.info(f"Sorting columns, used ram = {virtual_memory().percent}%") 
-                # df_queries = df_queries.select([pl.col("time"), pl.col("file_set_idx")] 
-                #                 + [pl.col(c) for c in 
-                #                     sorted([col for col in df_queries.select(cs.numeric().exclude("file_set_idx")).collect_schema().names()], 
-                #                             key=lambda col: (re.search(f".*?(?={self.turbine_signature})", col).group(0), 
-                #                                             int(re.search("\\d+", re.search(self.turbine_signature, col).group(0)).group(0))))])
-                
                 # Write to final parquet
                 logging.info(f"Saving final Parquet file into {self.save_path}, used ram = {virtual_memory().percent}%")
-                df_queries.sink_parquet(self.save_path, maintain_order=True, statistics=False)
+                pl.scan_parquet(os.path.join(temp_save_dir, "merged_*_*.parquet"), glob=True).sort("time").sink_parquet(self.save_path, maintain_order=True, statistics=False)
                 
             else:
                 logging.info(f"Moving only batch to {self.save_path}.")
                 move(processed_file_paths[0][0], self.save_path)
                     
-            df_query = pl.scan_parquet(self.save_path).sort("time")
+            df_query = pl.scan_parquet(self.save_path, statistics=False).sort("time")
                 
             # turbine ids found in all files so far
             self.turbine_ids = self.get_turbine_ids(self.turbine_signature, df_query, sort=True)
