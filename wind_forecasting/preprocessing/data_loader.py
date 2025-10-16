@@ -218,24 +218,25 @@ class DataLoader:
             if sum(len(pfp) for pfp in processed_file_paths) > 1: 
                 logging.info(f"Concatenating and running final sort/resample/fill.")
                 
-                df_queries = []
+                # df_queries = []
                 for file_set_idx in range(len(self.file_paths)):
-                    df_queries += self.merge_multiple_files(file_set_idx, processed_file_paths[file_set_idx], file_set_idx, temp_save_dir)
+                    self.merge_multiple_files(file_set_idx, processed_file_paths[file_set_idx], file_set_idx, temp_save_dir)
                 
                 # concatenate intermediary dataframes
-                logging.info(f"Concatenating final, used ram = {virtual_memory().percent}%")
-                df_queries = pl.concat(df_queries, how="diagonal_relaxed")#.collect().lazy()
+                # logging.info(f"Concatenating final, used ram = {virtual_memory().percent}%")
+                # df_queries = pl.concat(df_queries, how="vertical")#.collect().lazy()
+                df_queries = pl.scan_parquet(os.path.join(temp_save_dir, "merged_*_*.parquet"), glob=True).sort("time")
                 
-                if not df_queries.select("time").collect().to_series().is_sorted():
-                    logging.info(f"Sorting final, used ram = {virtual_memory().percent}%")
-                    df_queries = df_queries.sort(by="time")#.collect().lazy()
+                # if not df_queries.select("time").collect().to_series().is_sorted():
+                #     logging.info(f"Sorting final, used ram = {virtual_memory().percent}%")
+                #     df_queries = df_queries.sort(by="time")#.collect().lazy()
                 
-                logging.info(f"Sorting columns, used ram = {virtual_memory().percent}%") 
-                df_queries = df_queries.select([pl.col("time"), pl.col("file_set_idx")] 
-                                + [pl.col(c) for c in 
-                                    sorted([col for col in df_queries.select(cs.numeric().exclude("file_set_idx")).collect_schema().names()], 
-                                            key=lambda col: (re.search(f".*?(?={self.turbine_signature})", col).group(0), 
-                                                            int(re.search("\\d+", re.search(self.turbine_signature, col).group(0)).group(0))))])
+                # logging.info(f"Sorting columns, used ram = {virtual_memory().percent}%") 
+                # df_queries = df_queries.select([pl.col("time"), pl.col("file_set_idx")] 
+                #                 + [pl.col(c) for c in 
+                #                     sorted([col for col in df_queries.select(cs.numeric().exclude("file_set_idx")).collect_schema().names()], 
+                #                             key=lambda col: (re.search(f".*?(?={self.turbine_signature})", col).group(0), 
+                #                                             int(re.search("\\d+", re.search(self.turbine_signature, col).group(0)).group(0))))])
                 
                 # Write to final parquet
                 logging.info(f"Saving final Parquet file into {self.save_path}, used ram = {virtual_memory().percent}%")
@@ -282,7 +283,6 @@ class DataLoader:
             split_indices = [0] + list(df_queries.with_columns(dt=pl.col("time").diff()).slice(1).filter(pl.col("dt") > np.timedelta64(self.split_dt, 's')).select("index").collect().to_numpy().flatten()) + [df_queries.select(pl.len()).collect().item()]
             j = 0
             file_set_indices = []
-            bounds = []
             while j < len(split_indices) - 1:
                 file_set_indices.append(file_set_idx_offset + j)
                 df_queries = df_queries.with_columns(file_set_idx=pl.when(pl.col("index").is_between(split_indices[j], split_indices[j + 1], closed="left")).then(pl.lit(file_set_indices[-1])).otherwise(pl.col("file_set_idx")))
@@ -312,9 +312,14 @@ class DataLoader:
         
         assert os.path.exists(temp_save_dir), f"temp_save_dir={temp_save_dir} is not available for file set {file_set_idx}, merge index {i}"
         
-        logging.info(f"Started partitioning by file_set_idx and refill. Used RAM = {virtual_memory().percent}%.")
-        df_queries = [df_queries.filter(pl.col("file_set_idx") == fsi) for fsi in file_set_indices]
-        logging.info(f"Finished partitioning by file_set_idx and refill. Used RAM = {virtual_memory().percent}%.")
+        logging.info(f"Started sorting columns. Used RAM = {virtual_memory().percent}%.")
+        df_queries = df_queries.select([pl.col("time"), pl.col("file_set_idx")] 
+                                + [pl.col(c) for c in 
+                                    sorted([col for col in df_queries.select(cs.numeric().exclude("file_set_idx")).collect_schema().names()], 
+                                            key=lambda col: (re.search(f".*?(?={self.turbine_signature})", col).group(0), 
+                                                            int(re.search("\\d+", re.search(self.turbine_signature, col).group(0)).group(0))))])
+        logging.info(f"Finished sorting columns. Used RAM = {virtual_memory().percent}%.")
+        
         start_time = time.time()
         
         if self.multiprocessor is not None:
@@ -324,32 +329,38 @@ class DataLoader:
                 executor = ProcessPoolExecutor()
             with executor as ex:
                 if ex is not None:
-                    merge_futures = [ex.submit(self._resample_df, df_queries[j], j, num_files_set_indices) for j in range(num_files_set_indices)]
+                    merge_futures = [ex.submit(self._resample_df, df_queries.filter(pl.col("file_set_idx") == fsi), j, num_files_set_indices) for j, fsi in enumerate(file_set_indices)]
                     df_queries = [fut.result() for fut in merge_futures]
             logging.info(f"Parallel resampling took {time.time() - start_time:.2f} s")
         else:
-            for j in range(num_files_set_indices):
+            df_queries_2 = []
+            for j, fsi in enumerate(file_set_indices):
                 # if not df_queries[j].select((pl.col("time").diff().slice(1) == pl.col("time").diff().last()).all()).collect().item():
-                df_queries[j] = self._resample_df(df_queries[j], j, num_files_set_indices)
-        
-        logging.info(f"Sequential resampling took {time.time() - start_time:.2f} s")
-                
+                df_queries_2.append(self._resample_df(df_queries.filter(pl.col("file_set_idx") == fsi), j, num_files_set_indices))
+            df_queries = df_queries_2
+    
+            logging.info(f"Sequential resampling took {time.time() - start_time:.2f} s")
+            
+        for j, fsi in enumerate(file_set_indices):
+            logging.info(f"Sinking {j}th of {num_files_set_indices} merged files.")
+            df_queries[j].sink_parquet(os.path.join(temp_save_dir, f"merged_{fsi}_{i}.parquet"))
+            
         # assert df_queries.select((pl.col("time").diff().slice(1) == pl.col("time").diff().last()).all()).collect().item(), f"dt is non-uniform, even after resampling, for {df_query}" 
         # assert df_queries.select((pl.col("time").n_unique())).collect().item() == df_queries.select(pl.len()).collect().item()
-        return df_queries
+        return
     
     def _resample_df(self, df, i, num_files_set_indices):
         bounds = df.select(pl.col("time").first().alias("first"), pl.col("time").last().alias("last")).collect()
         logging.info(f"Started resampling and refill from {bounds['first'].item()} to {bounds['last'].item()} for {i}th of {num_files_set_indices} dfs. Used RAM = {virtual_memory().percent}%.") 
-        df = df.select(
-                    pl.datetime_range(start=bounds["first"].item(),
-                                        end=bounds["last"].item(),
-                                        interval=f"{self.dt}s", 
-                                        time_unit=df.collect_schema()["time"].time_unit).alias("time"))\
-                                    .join(df, on="time", how="left")\
-                                        .fill_null(strategy="forward").fill_null(strategy="backward")
-        logging.info(f"Finished resampling and refill for {i}th of {num_files_set_indices}. Used RAM = {virtual_memory().percent}%.") 
-        return df
+        return df.select(pl.datetime_range(start=bounds["first"].item(),
+                                    end=bounds["last"].item(),
+                                    interval=f"{self.dt}s", 
+                                    time_unit=df.collect_schema()["time"].time_unit).alias("time"))\
+          .join(df, on="time", how="left")\
+          .fill_null(strategy="forward").fill_null(strategy="backward")
+        
+        # logging.info(f"Finished resampling and refill for {i}th of {num_files_set_indices}. Used RAM = {virtual_memory().percent}%.") 
+        # return
     
     def get_turbine_ids(self, turbine_signature, df_query, sort=False):
         turbine_ids = set()
