@@ -231,7 +231,7 @@ def main():
             logging.info(f"Making directory to save_path {os.path.dirname(data_loader.save_path)}")
             os.makedirs(os.path.dirname(data_loader.save_path), exist_ok=True)
 
-        df_query = data_loader.read_multi_files(temp_save_dir, read_single_files=True, first_merge=True, second_merge=True) 
+        df_query = data_loader.read_multi_files(temp_save_dir, read_single_files=False, first_merge=True, second_merge=True) 
         
         if RUN_ONCE:
             logging.info("✅ Finished reading individual files. Time elapsed: %.2f s", time.time() - start_time)
@@ -758,58 +758,58 @@ def main():
                                                         mask_input_features=sorted(data_loader.turbine_ids),
                                                         output_features=ws_cols,
                                                         filter_type="power-wind speed bin")
-            # NOTE USE THIS CODE TO GENERATE FIG. 8 IN PAPER
+            
             if args.plot:
                 data_inspector.plot_nulled_vs_remaining(df_query.slice(0, ROW_LIMIT), mask, 
                                                         mask_input_features=sorted(data_loader.turbine_ids),
                                                         output_features=ws_cols, 
                                                         feature_types=["wind_speed"], 
                                                         feature_labels=["Wind Speed (m/s) after Wind Speed-Power Bin Outlier Filter"])
-
-            if True or args.plot:
                 
-                # plot values outside the power-wind speed bin filter
-                bin_outliers = np.load(config["processed_data_path"].replace(".parquet", "_bin_outliers.npy"))
-                out_of_window = np.load(config["processed_data_path"].replace(".parquet", "_out_of_window.npy"))
-                target_turbine_idx = np.argsort(bin_outliers.sum(axis=0))[-1] 
-                # array([87, 82, 30,  0, 13, 24, 35,  4, 66, 27, 50, 38, 44, 45,  8, 15, 69,
-                    # 72, 54, 67, 26, 37, 14, 51, 79, 63, 71, 33, 31, 25, 68, 81, 65, 28,
-                    # 85,  6, 77, 80, 40,  2, 42, 73, 48, 49, 11, 61, 60,  5,  1, 47, 12,
-                    # 58, 83, 20, 76, 55, 84, 19, 75, 64, 56, 53, 36, 52, 78, 62,  3, 86,
-                    # 23, 57,  7, 17, 29, 74, 43, 59,  9, 39])
-                target_turbine_id = list(data_loader.turbine_mapping[0].values())[target_turbine_idx]
-                
-                df_query2 = df_query.with_row_index().select([f"wind_speed_{target_turbine_id}", f"power_output_{target_turbine_id}"]).filter(pl.col("time").is_between(lower_bound=ROW_BOUNDS[0], upper_bound=ROW_BOUNDS[1], closed="both")).slice(0, ROW_LIMIT).collect()
-                slc = slice(df_query2.select(pl.col("index").first()).item(), df_query2.select(pl.col("index").last()).item())
-                # .filter(pl.col("time").is_between(lower_bound=ROW_BOUNDS[0], upper_bound=ROW_BOUNDS[1], closed="both"))
-                
-                # other_outputs[0][target_turbine_idx] # TODO plot median, mean, need wind speed bins too...
-                fig, axs = plot.plot_power_curve(
-                    df_query2.select(f"wind_speed_{target_turbine_id}").to_numpy(),
-                    df_query2.select(f"power_output_{target_turbine_id}").to_numpy(),
-                    # df_query.select(f"wind_speed_{target_turbine_id}").filter(~out_of_window[:, target_turbine_idx]).slice(0, ROW_LIMIT).collect().to_numpy(),
-                    # df_query.select(f"power_output_{target_turbine_id}").filter(~out_of_window[:, target_turbine_idx]).slice(0, ROW_LIMIT).collect().to_numpy(),
-                    # flag=bin_outliers[~out_of_window[:, target_turbine_idx], target_turbine_idx][:ROW_LIMIT],
-                    flag=(bin_outliers[:, target_turbine_idx] | out_of_window[:, target_turbine_idx])[slc],
-                    flag_labels=("Bad Measurements", "Normal Measurements"),
-                    xlim=(-1, 30),
-                    ylim=(-100, 3000),
-                    legend=True,
-                    scatter_kwargs=dict(alpha=0.4, s=10),
-                    figure_kwargs=dict(figsize=(10, 6)),
-                    return_fig=True
-                )
-                del df_query2
-                axs.tick_params(axis="x", labelsize=12*1.5)
-                axs.tick_params(axis="y", labelsize=12*1.5)
-                axs.set_xlabel("Wind Magnitude (m/s)")
-                axs.xaxis.label.set_size(15*1.5)
-                axs.yaxis.label.set_size(15*1.5)
-                for t in axs.legend_.get_texts():
-                    t.set_size(12*1.5)
-                
-                plt.tight_layout()
-                fig.savefig(os.path.join(data_inspector.save_dir, "power_curve_bin_outliers_awaken.png"), dpi=100)
+                # NOTE USE THIS CODE TO GENERATE FIG. 8 IN PAPER
+                if True:
+                    # plot values outside the power-wind speed bin filter
+                    bin_outliers = np.load(config["processed_data_path"].replace(".parquet", "_bin_outliers.npy"))
+                    out_of_window = np.load(config["processed_data_path"].replace(".parquet", "_out_of_window.npy"))
+                    target_turbine_idx = np.argsort(bin_outliers.sum(axis=0))[-1] 
+                    # array([87, 82, 30,  0, 13, 24, 35,  4, 66, 27, 50, 38, 44, 45,  8, 15, 69,
+                        # 72, 54, 67, 26, 37, 14, 51, 79, 63, 71, 33, 31, 25, 68, 81, 65, 28,
+                        # 85,  6, 77, 80, 40,  2, 42, 73, 48, 49, 11, 61, 60,  5,  1, 47, 12,
+                        # 58, 83, 20, 76, 55, 84, 19, 75, 64, 56, 53, 36, 52, 78, 62,  3, 86,
+                        # 23, 57,  7, 17, 29, 74, 43, 59,  9, 39])
+                    target_turbine_id = list(data_loader.turbine_mapping[0].values())[target_turbine_idx]
+                    
+                    df_query2 = df_query.with_row_index().select([f"wind_speed_{target_turbine_id}", f"power_output_{target_turbine_id}"]).filter(pl.col("time").is_between(lower_bound=ROW_BOUNDS[0], upper_bound=ROW_BOUNDS[1], closed="both")).slice(0, ROW_LIMIT).collect()
+                    slc = slice(df_query2.select(pl.col("index").first()).item(), df_query2.select(pl.col("index").last()).item())
+                    # .filter(pl.col("time").is_between(lower_bound=ROW_BOUNDS[0], upper_bound=ROW_BOUNDS[1], closed="both"))
+                    
+                    # other_outputs[0][target_turbine_idx] # TODO plot median, mean, need wind speed bins too...
+                    fig, axs = plot.plot_power_curve(
+                        df_query2.select(f"wind_speed_{target_turbine_id}").to_numpy(),
+                        df_query2.select(f"power_output_{target_turbine_id}").to_numpy(),
+                        # df_query.select(f"wind_speed_{target_turbine_id}").filter(~out_of_window[:, target_turbine_idx]).slice(0, ROW_LIMIT).collect().to_numpy(),
+                        # df_query.select(f"power_output_{target_turbine_id}").filter(~out_of_window[:, target_turbine_idx]).slice(0, ROW_LIMIT).collect().to_numpy(),
+                        # flag=bin_outliers[~out_of_window[:, target_turbine_idx], target_turbine_idx][:ROW_LIMIT],
+                        flag=(bin_outliers[:, target_turbine_idx] | out_of_window[:, target_turbine_idx])[slc],
+                        flag_labels=("Bad Measurements", "Normal Measurements"),
+                        xlim=(-1, 30),
+                        ylim=(-100, 3000),
+                        legend=True,
+                        scatter_kwargs=dict(alpha=0.4, s=10),
+                        figure_kwargs=dict(figsize=(10, 6)),
+                        return_fig=True
+                    )
+                    del df_query2
+                    axs.tick_params(axis="x", labelsize=12*1.5)
+                    axs.tick_params(axis="y", labelsize=12*1.5)
+                    axs.set_xlabel("Wind Magnitude (m/s)")
+                    axs.xaxis.label.set_size(15*1.5)
+                    axs.yaxis.label.set_size(15*1.5)
+                    for t in axs.legend_.get_texts():
+                        t.set_size(12*1.5)
+                    
+                    plt.tight_layout()
+                    fig.savefig(os.path.join(data_inspector.save_dir, "power_curve_bin_outliers_awaken.png"), dpi=100)
                     
             # fill cells corresponding to values that are outside of power-wind speed bins with Null st they are marked for interpolation via impute or linear/forward fill interpolation later
             # loop through each turbine's wind speed and wind direction columns, and compare the distribution of data with and without the inoperational turbines

@@ -148,9 +148,7 @@ class DataLoader:
                         for file_set_idx, fp in enumerate(self.file_paths):
                             if not fp:
                                 raise FileExistsError(f"⚠️ File with signature {self.file_signature[file_set_idx]} in directory {self.data_dir[file_set_idx]} doesn't exist.")
-                        
-                        # futures = [ex.submit(self._read_single_file, f, file_path) for f, file_path in enumerate(self.file_paths)]
-                        
+
                        
                         init_used_ram = virtual_memory().percent
                         assert init_used_ram < self.ram_limit - 5, f"RAM limit in yaml config must be at least 5% greater than initial ram value of {init_used_ram}%."
@@ -159,96 +157,29 @@ class DataLoader:
                                                 os.path.join(temp_save_dir, 
                                                             f"{os.path.splitext(os.path.basename(file_path))[0]}.parquet"), len(self.file_paths[file_set_idx]))
                                         for file_set_idx in range(len(self.file_paths)) for f, file_path in enumerate(self.file_paths[file_set_idx])] #4% increase in mem
-                        # file_futures = [fut.result() for fut in file_futures]
                     
-                    merge_idx = 0
-                    merged_paths = [] 
-                    n_files_merged = 0
-                    processed_file_paths = []
-                    file_set_indices = []
-                    for file_set_idx in range(len(self.file_paths)):
-                        processed_file_paths.append([])
-                        # processed_file_paths = []
-                        file_set_indices.append(file_set_idx)
-                        num_files_to_merge = 0
-                        # last_turbine_idx = len(self.turbine_mapping[file_set_idx]) - 1
-                        for f, file_path in enumerate(self.file_paths[file_set_idx]):
-                            used_ram = virtual_memory().percent
-                            # ensure no intersection in time between different merged dataframes/sets of processed_file_paths
-                            # if we have enough ram to continue to process files AND we still have files to process
-                            # keep adding new files to processed_file_paths if the turbine signature is in the title, and it does not correspond to the last turbine
-                            # num_files_to_merge = len(processed_file_paths[-1])
-                            is_file_per_turbine = self.datetime_signature[file_set_idx] is not None and len(re.findall(self.datetime_signature[file_set_idx][0], os.path.basename(file_path))) and len(re.findall(self.turbine_signature[file_set_idx], os.path.basename(file_path)))
-                            # turbine_idx = list(self.turbine_mapping[file_set_idx]).index(
-                            #             re.search(self.turbine_signature[file_set_idx], os.path.basename(file_path)).group(0))
-                            
-                            if is_file_per_turbine:
-                                datetime_id = re.search(self.datetime_signature[file_set_idx][0], os.path.basename(file_path)).group(0)
-                                turbine_id = re.search(self.turbine_signature[file_set_idx], os.path.basename(file_path)).group(0)
-                                available_turbine_ids = sorted(
-                                    [re.search(self.turbine_signature[file_set_idx], os.path.basename(fp)).group(0) 
-                                     for fp in self.file_paths[file_set_idx] 
-                                        if datetime_id == re.search(self.datetime_signature[file_set_idx][0], os.path.basename(fp)).group(0)])
-                                # logging.info(f"Available turbine ids for file_set_idx {file_set_idx}: {available_turbine_ids}")
-                              
-                             # if we have not processed enough files to merge and we have sufficient ram, 
-                             # or if we haven't processed any files yet 
-                             # or if this file type is per turbine and we haven't processed a complete set
-                             # continue adding to processed_file_paths
-                             # and used_ram < self.ram_limit) \
-                            # if (num_files_to_merge < self.merge_chunk) \
-                            #     or (num_files_to_merge == 0) \
-                            #     or (is_file_per_turbine and (turbine_id != available_turbine_ids[-1])): 
+                        logging.info(f"Started fetching results from {sum(len(fp) for fp in self.file_paths)} files.")
+                        processed_file_paths = []
+                        file_set_indices = []
+                        for file_set_idx in range(len(self.file_paths)):
+                            processed_file_paths.append([])
+                            file_set_indices.append(file_set_idx)
+                            for f, file_path in enumerate(self.file_paths[file_set_idx]):
+                                used_ram = virtual_memory().percent
+                                if read_single_files:
+                                    res = file_futures[f].result() #.5% increase in mem
+                                else:
+                                    res = 1
                                     
+                                if res is not None: 
+                                    fn = f"{os.path.splitext(os.path.basename(file_path))[0]}.parquet"
+                                    processed_file_paths[-1].append(os.path.join(temp_save_dir, fn))
+                                else:
+                                    logging.warning(f"File {file_path} could not be processed, skipping.")
                             
-                            # logging.info(f"Used RAM = {used_ram}%. Continue to add {file_path} to buffer of {len(processed_file_paths)} processed single files.")
-                            # res = ex.submit(self._read_single_file, f, file_path).result()
-                            if read_single_files:
-                                res = file_futures[f].result() #.5% increase in mem
-                            else:
-                                res = 1
-                                
-                            if res is not None: 
-                                fn = f"{os.path.splitext(os.path.basename(file_path))[0]}.parquet"
-                                processed_file_paths[-1].append(os.path.join(temp_save_dir, fn))
-                                num_files_to_merge += 1
-                            else:
-                                logging.warning(f"File {file_path} could not be processed, skipping.")
-                            
-                            # num_files_to_merge = len(processed_file_paths[-1])
-                             # if we have processed enough files to merge or we don't have sufficient ram to process more, or the last file of the set has been processed
-                             # and if this file type is either not per turbine or it is and we have processed a complete set
-                             # continue adding to processed_file_paths 
-                            # if first_merge and num_files_to_merge\
-                            #     and ((
-                            #         (num_files_to_merge >= self.merge_chunk) \
-                            #           or (used_ram >= self.ram_limit) \
-                            #            or (f == len(self.file_paths[file_set_idx]) - 1))) \
-                            #     and (not is_file_per_turbine or (turbine_id == available_turbine_ids[-1])):
-                            #     # process what we have so far and dump processed lazy frames
-                            #     n_files_merged += num_files_to_merge
-                            #     merged_paths.append(self.merge_multiple_files(file_set_idx, processed_file_paths, merge_idx, temp_save_dir))
-                                
-                            #     if f == len(self.file_paths[file_set_idx]) - 1:
-                            #         logging.info(f"Used RAM = {used_ram}%. Pause for FINAL merge/sort/resample/fill of {len(processed_file_paths)} files read so far from file set {file_set_idx} for a total of {n_files_merged} processed files.")
-                            #     else:
-                            #         logging.info(f"Used RAM = {used_ram}%. Pause to merge/sort/resample/fill {len(processed_file_paths)} files read so far from file set {file_set_idx} for a total of {n_files_merged} processed files.")
-                            #         processed_file_paths = []
-                            #         num_files_to_merge = 0
-                            #         merge_idx += 1
-                                
-                                
-                            #     logging.info(f"Used RAM after submitting call to  merge_multiple_files = {virtual_memory().percent}%.")
-                                
-                                
                             # for name, size in sorted(((name, sys.getsizeof(value)) for name, value in list(
                             #                     locals().items())), key= lambda x: -x[1])[:3]:
                             #     print("{:>30}: {:>8}".format(name, DataLoader.sizeof_fmt(size)))
-                    
-                    # logging.info(f"Used RAM after merging chunks = {virtual_memory().percent}%.")
-                    
-                    # if not first_merge:
-                    #     merged_paths = glob.glob(os.path.join(temp_save_dir, f"df_*_*.parquet"))
                     
                     
         else:
@@ -256,34 +187,13 @@ class DataLoader:
             logging.info(f"🔧 Using single process executor.")
             if not self.file_paths:
                 raise FileExistsError(f"⚠️ File with signature {self.file_signature} in directory {self.data_dir} doesn't exist.")
-            # df_query = [self._read_single_file(f, file_path) for f, file_path in enumerate(self.file_paths)]
-            # df_query = [(self.file_paths[d], df) for d, df in enumerate(df_query) if df is not None]
-
-            merge_idx = 0
-            n_files_merged = 0
-            merged_paths = []
+            
             processed_file_paths = []
             for file_set_idx in range(len(self.file_paths)):
                 processed_file_paths.append([])
                 for f, file_path in enumerate(self.file_paths[file_set_idx]):
                     used_ram = virtual_memory().percent
                     
-                    num_files_to_merge = len(processed_file_paths)
-                    is_file_per_turbine = len(re.findall(self.turbine_signature[file_set_idx], os.path.basename(file_path)))
-                    # turbine_idx = list(self.turbine_mapping[file_set_idx]).index(
-                    #             re.search(self.turbine_signature[file_set_idx], os.path.basename(file_path)).group(0))
-                    
-                    if is_file_per_turbine:
-                        datetime_id = re.search(self.datetime_signature[file_set_idx][0], os.path.basename(file_path)).group(0)
-                        turbine_id = re.search(self.turbine_signature[file_set_idx], os.path.basename(file_path)).group(0)
-                        available_turbine_ids = sorted(
-                            [re.search(self.turbine_signature[file_set_idx], os.path.basename(fp)).group(0) 
-                                for fp in self.file_paths[file_set_idx] 
-                                if datetime_id == re.search(self.datetime_signature[file_set_idx][0], os.path.basename(fp)).group(0)])
-                    
-                    # if (num_files_to_merge < self.merge_chunk and used_ram < self.ram_limit) \
-                    #             or (num_files_to_merge == 0) \
-                    #             or (is_file_per_turbine and (turbine_id != available_turbine_ids[-1])):
                     logging.info(f"Used RAM = {used_ram}%. Continue adding to buffer of {len(processed_file_paths)} processed single files.")
                     processed_fp = os.path.join(temp_save_dir, 
                                                         f"{os.path.splitext(os.path.basename(file_path))[0]}.parquet")
@@ -294,34 +204,6 @@ class DataLoader:
                         res = 1
                     if res is not None:
                         processed_file_paths[-1].append(processed_fp)
-                    
-                    num_files_to_merge = len(processed_file_paths) 
-                    # if we have processed enough files to merge or we don't have sufficient ram to process more, or the last file of the set has been processed
-                    # and if this file type is either not per turbine or it is and we have processed a complete set
-                    # continue adding to processed_file_paths 
-                    # if first_merge and num_files_to_merge\
-                    #     and (((num_files_to_merge >= self.merge_chunk) \
-                    #             or (used_ram >= self.ram_limit) \
-                    #             or (f == len(self.file_paths[file_set_idx]) - 1))) \
-                    #     and (not is_file_per_turbine or (turbine_id == available_turbine_ids[-1])):
-                    #     # process what we have so far and dump processed lazy frames
-                    #     n_files_merged += num_files_to_merge
-                    #     if f == (len(self.file_paths[file_set_idx]) - 1):
-                    #         logging.info(f"Used RAM = {used_ram}%. Pause for FINAL merge/sort/resample/fill of {len(processed_file_paths)} files read so far from file set {file_set_idx} for a total of {n_files_merged} processed files.")
-                    #     else:
-                    #         logging.info(f"Used RAM = {used_ram}%. Pause to merge/sort/resample/fill {len(processed_file_paths)} files read so far from file set {file_set_idx} for a total of {n_files_merged} processed files.")
-                        
-                    #     merged_paths.append(self.merge_multiple_files( file_set_idx, processed_file_paths, merge_idx, temp_save_dir))
-                        
-                    #     merge_idx += 1
-                    #     processed_file_paths = []
-                        
-                        # for name, size in sorted(((name, sys.getsizeof(value)) for name, value in list(
-                        #                         locals().items())), key= lambda x: -x[1])[:3]:
-                        #     print("{:>30}: {:>8}".format(name, DataLoader.sizeof_fmt(size)))
-            
-            # if not first_merge:
-            #     merged_paths = glob.glob(os.path.join(temp_save_dir, f"df_*_*.parquet"))
             
         if self.turbine_mapping: # if not none, all turbine signatures have been transformed
             self.turbine_signature = "\\d+$"
@@ -363,7 +245,6 @@ class DataLoader:
                     
                 else:
                     logging.info(f"Moving only batch to {self.save_path}.")
-                    # move(merged_paths[0], self.save_path)
                     move(processed_file_paths[0][0], self.save_path)
                     
                 df_query = pl.scan_parquet(self.save_path).sort("time")
@@ -381,14 +262,17 @@ class DataLoader:
      
     def merge_multiple_files(self, file_set_idx, processed_file_paths, i, temp_save_dir):
         
-        logging.info(f"✅ Started merging of {len(processed_file_paths)} files for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
+        logging.info(f"Started sorting of {len(processed_file_paths)} files for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
         # for fp in processed_file_paths:
         #     logging.info(f"    {os.path.basename(fp)}")
         
         df_queries = sorted([pl.scan_parquet(fp).sort("time") for fp in processed_file_paths], 
                             key=lambda df: df.select(pl.col("time").first()).collect().item())
+        
+        logging.info(f"Finished sorting of {len(processed_file_paths)} files for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
         # all([df.select(pl.col("time").n_unique()).collect().item() == df.select(pl.len()).collect().item() for df in df_queries])
         # For single file or files without timestamps, just get the dataframes
+        logging.info(f"Started merging of {len(processed_file_paths)} files for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
         if len(df_queries) == 1:
             df_queries = df_queries[0]  # If single file, no need to join
         else:
@@ -466,75 +350,6 @@ class DataLoader:
         # assert df_queries.select((pl.col("time").diff().slice(1) == pl.col("time").diff().last()).all()).collect().item(), f"dt is non-uniform, even after resampling, for {df_query}" 
         # assert df_queries.select((pl.col("time").n_unique())).collect().item() == df_queries.select(pl.len()).collect().item()
         return df_queries
-
-    
-    def _join_dfs(self, file_suffix, dfs):
-        # logging.info(f"✅ Started joins for {file_suffix}-th collection of files.") 
-        all_cols = set()
-        first_df = True
-        for d, df in enumerate(dfs):
-            # df = df.collect()
-            new_cols = df.collect_schema().names()
-            
-            if first_df:
-                df_query = df
-                first_df = False
-            else:
-                # existing_cols = list(all_cols.intersection(new_cols))
-                existing_cols = list(all_cols.intersection(new_cols))
-                if existing_cols:
-                    # data for the turbine contained in this frame has already been added, albeit from another day
-                    df_query = df_query.join(df, on="time", how="full", coalesce=True)\
-                                        .with_columns([pl.coalesce(col, f"{col}_right").alias(col) for col in existing_cols])\
-                                        .select(~cs.ends_with("right"))
-                else:
-                    df_query = df_query.join(df, on="time", how="full", coalesce=True)
-
-            all_cols.update(new_cols)
-            all_cols.remove("time")
-        
-        logging.info(f"🔗 Finished joins for {file_suffix}-th collection of files.")
-        return df_query
-
-    def _write_parquet(self, df_query: pl.LazyFrame):
-        
-        write_start = time.time()
-        
-        try:
-            logging.info("📝 Starting Parquet write")
-            
-            # Ensure the directory exists
-            self._ensure_dir_exists(self.save_path)
-            
-            # df_query.sink_ipc(self.save_path)
-            df_query.collect.write_parquet(self.save_path, statistics=False)
-
-            # df = pl.scan_parquet(self.save_path)
-            logging.info(f"✅ Finished writing Parquet. Time elapsed: {time.time() - write_start:.2f} s")
-            
-        except PermissionError:
-            logging.error("❌🔒 Permission denied when writing Parquet file. Check file permissions.")
-        except OSError as e:
-            if e.errno == 28:  # No space left on device
-                logging.error("❌💽 No space left on device. Free up some disk space and try again.")
-            else:
-                logging.error(f"❌💻 OS error occurred: {str(e)}")
-        except Exception as e:
-            logging.error(f"❌ Error during Parquet write: {str(e)}")
-            logging.info("📄 Attempting to write as CSV instead...")
-            try:
-                csv_path = self.save_path.replace('.parquet', '.csv')
-                df_query.sink_csv(csv_path)
-                logging.info(f"✅ Successfully wrote data as CSV to {csv_path}")
-            except Exception as csv_e:
-                logging.error(f"❌ Error during CSV write: {str(csv_e)}")
-                
-    # INFO: @Juan 10/16/24 Added method to ensure the directory exists.
-    def _ensure_dir_exists(self, file_path):
-        directory = os.path.dirname(file_path)
-        if not os.path.exists(directory):
-            os.makedirs(directory)
-            logging.info(f"📁 Created directory: {directory}")
 
     def get_turbine_ids(self, turbine_signature, df_query, sort=False):
         turbine_ids = set()
