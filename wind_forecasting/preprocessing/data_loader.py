@@ -252,9 +252,9 @@ class DataLoader:
         # for fp in processed_file_paths:
         #     logging.info(f"    {os.path.basename(fp)}")
         
-        df_queries = sorted([pl.scan_parquet(fp) for fp in processed_file_paths], 
-                            key=lambda df: df.head(1).select(pl.col("time")).collect().item())
-        # df_queries = [pl.scan_parquet(fp).sort("time") for fp in processed_file_paths]
+        # df_queries = sorted([pl.scan_parquet(fp) for fp in processed_file_paths], 
+        #                     key=lambda df: df.head(1).select(pl.col("time")).collect().item())
+        df_queries = [pl.scan_parquet(fp) for fp in processed_file_paths]
         
         logging.info(f"Finished sorting of {len(processed_file_paths)} files for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
         # all([df.select(pl.col("time").n_unique()).collect().item() == df.select(pl.len()).collect().item() for df in df_queries])
@@ -264,11 +264,14 @@ class DataLoader:
             df_queries = df_queries[0].sort("time")  # If single file, no need to join
         else:
             # concatenate and forward fill file groups with continuous time spans
-            # split by discontinuity
+            # split by discontinuity, all df_queries are sorted up to this point
             df_queries = pl.concat(df_queries, how="diagonal")\
                     .group_by("time").agg(cs.numeric().mean())\
-                    .sort("time")\
+                    .sort("time") \
                     .with_row_index().with_columns(file_set_idx=pl.lit(-1))
+            
+            # assert df_queries.select("time").collect().to_series().is_sorted()
+            #                    .sort("time")\
                     
             file_set_idx_offset = sum(len(file_set) for file_set in self.file_paths[:file_set_idx])
             split_indices = [0] + list(df_queries.with_columns(dt=pl.col("time").diff()).slice(1).filter(pl.col("dt") > np.timedelta64(self.split_dt, 's')).select("index").collect().to_numpy().flatten()) + [df_queries.select(pl.len()).collect().item()]
@@ -544,9 +547,11 @@ class DataLoader:
                                     # .filter(pl.any_horizontal(cs.numeric().is_not_null()))
                 
             # pivot table to have columns for each turbine and measurement if not originally in wide format
-            is_already_wide = all(f"{feature}_{tid}" in available_columns 
-                for feature in target_features for tid in turbine_ids if feature != "time")
-            if not is_already_wide:
+            is_already_wide = all(f"{feature}_{tid}" in available_columns for feature in target_features for tid in turbine_ids if feature != "time")
+            
+            if is_already_wide:
+                df_query.collect().write_parquet(processed_file_path)
+            else:
                 pivot_features = [col for col in available_columns if col not in ['time', 'turbine_id']]
                 # unique_cols = [f"{col}_{tid}" for col in pivot_features for tid in turbine_ids]
                 # agg_func = lambda col: col.mean()
@@ -556,17 +561,17 @@ class DataLoader:
                 # df_query = df_query.group_by(index).agg(
                 #     agg_func(values.filter(on == value)).alias(value) for value in unique_cols)
                 
-                df_query = df_query.collect().pivot(
+                df_query.collect().pivot(
                     index="time",
                     on="turbine_id",
                     values=pivot_features,
                     aggregate_function="mean", # if there are multiple values for a single time stamp, average them #pl.element().drop_nulls().first(),
                     sort_columns=True
-                ).lazy().sort("time")
+                ).sort("time").write_parquet(processed_file_path)
             
             assert os.path.exists(os.path.dirname(processed_file_path)), f"Temporary save directory {os.path.dirname(processed_file_path)} does not exist." 
             # df_query.collect().write_parquet(processed_file_path, statistics=False)
-            df_query.sink_parquet(processed_file_path, statistics=False)
+            
             logging.info(f"✅ Processed {file_number + 1}-th of {num_file_paths} {raw_file_path} and saved to {processed_file_path}. Time: {time.time() - start_time:.2f} s")
             return processed_file_path
         
