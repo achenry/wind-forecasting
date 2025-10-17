@@ -252,8 +252,8 @@ class DataLoader:
         # for fp in processed_file_paths:
         #     logging.info(f"    {os.path.basename(fp)}")
         
-        # df_queries = sorted([pl.scan_parquet(fp).sort("time") for fp in processed_file_paths], 
-        #                     key=lambda df: df.select(pl.col("time").first()).collect().item())
+        df_queries = sorted([pl.scan_parquet(fp) for fp in processed_file_paths], 
+                            key=lambda df: df.head(1).select(pl.col("time")).collect().item())
         # df_queries = [pl.scan_parquet(fp).sort("time") for fp in processed_file_paths]
         
         logging.info(f"Finished sorting of {len(processed_file_paths)} files for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
