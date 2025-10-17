@@ -260,13 +260,15 @@ class DataLoader:
         # all([df.select(pl.col("time").n_unique()).collect().item() == df.select(pl.len()).collect().item() for df in df_queries])
         # For single file or files without timestamps, just get the dataframes
         logging.info(f"Started merging of {len(processed_file_paths)} files for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
-        if len(df_queries) == 1:
-            df_queries = df_queries[0].sort("time")  # If single file, no need to join
+        if len(processed_file_paths) == 1:
+            df_queries = pl.scan_parquet(processed_file_paths[0]).sort("time")  # If single file, no need to join
         else:
             # concatenate and forward fill file groups with continuous time spans
             # split by discontinuity, all df_queries are sorted up to this point
+            
+            # df_queries = pl.scan_parquet(os.path.join(os.path.dirname(processed_file_paths[0]), f"{os.path.splitext(self.file_signature[file_set_idx])[0]}.parquet"), glob=True)
             df_queries = pl.concat(df_queries, how="diagonal")\
-                    .group_by("time").agg(cs.numeric().mean())\
+                    .group_by("time", maintain_order=True).agg(cs.numeric().mean())\
                     .sort("time") \
                     .with_row_index().with_columns(file_set_idx=pl.lit(-1))
             
