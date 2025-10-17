@@ -172,7 +172,8 @@ The typical workflow involves these stages:
 1. Write a preprocessing configuration file similar to `wind-forecasting/examples/inputs/preprocessing_inputs_flasc.yaml`
 2. Run preprocessing on a local machine with `python preprocessing_main.py --config /Users/ahenry/Documents/toolboxes/wind-forecasting/examples/inputs/preprocessing_inputs_flasc.yaml --reload_data --preprocess_data --regenerate_filters --multiprocessor cf --verbose` or on a HPC by running `wind-forecasting/wind_forecasting/preprocessing/load_data.sh`, followed by `wind-forecasting/wind_forecasting/preprocessing/preprocess_data.sh`.
 3. Write a training configuration file similar to `wind-forecasting/examples/inputs/training_inputs_kestrel_flasc.yaml`.
-4. Run `python wind-forecasting/wind_forecasting/run_scripts/load_data.py --config wind-forecasting/examples/inputs/training_inputs_aoifemac_flasc.yaml --reload`, or on a HPC by running `wind-forecasting/wind_forecasting/run_scripts/load_data_kestrel.sh`, to resample the data as needed, caterogize the variables, and generate train/test/val splits.
+4. Run `python wind-forecasting/wind_forecasting/preprocessing/load_data.py --config wind-forecasting/examples/inputs/training_inputs_aoifemac_flasc.yaml --reload --multiprocessor cf`, or on a HPC by running `wind-forecasting/wind_forecasting/preprocessing/scripts/load_data.sh`, to select features and resample, sort, forward fill the data.
+5. Filter, smooth, normalize the data by running 
 
 ### 2. Hyperparameter Tuning (ML Models)
 
@@ -244,12 +245,12 @@ python preprocessing_main.py --config examples/inputs/preprocessing_inputs_flasc
 3. **Data Loading:** After preprocessing, load and prepare the data for model training:
 
 ```bash
-python wind_forecasting/run_scripts/load_data.py --config examples/inputs/training_inputs_flasc.yaml --reload
+python wind_forecasting/preprocessing/load_data.py --config ../../config/preprocessing/preprocessing_inputs_kestrel_awaken_new.yaml --reload_data --multiprocessor cf
 ```
 
 **HPC System:**
 ```bash
-./wind_forecasting/run_scripts/load_data_kestrel.sh
+./wind_forecasting/preprocessing/scripts/load_data.sh
 ```
 
 ### Tuning (HPC)

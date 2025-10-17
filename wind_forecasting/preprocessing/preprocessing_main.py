@@ -270,8 +270,6 @@ def main():
             data_format='auto',
             save_dir=os.path.dirname(config["processed_data_path"])
         )
-        
-       
     
     if args.debug:
         # .group_by("time", "file_set_idx")\

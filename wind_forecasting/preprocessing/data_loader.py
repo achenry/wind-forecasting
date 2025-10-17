@@ -252,15 +252,16 @@ class DataLoader:
         # for fp in processed_file_paths:
         #     logging.info(f"    {os.path.basename(fp)}")
         
-        df_queries = sorted([pl.scan_parquet(fp).sort("time") for fp in processed_file_paths], 
-                            key=lambda df: df.select(pl.col("time").first()).collect().item())
+        # df_queries = sorted([pl.scan_parquet(fp).sort("time") for fp in processed_file_paths], 
+        #                     key=lambda df: df.select(pl.col("time").first()).collect().item())
+        # df_queries = [pl.scan_parquet(fp).sort("time") for fp in processed_file_paths]
         
         logging.info(f"Finished sorting of {len(processed_file_paths)} files for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
         # all([df.select(pl.col("time").n_unique()).collect().item() == df.select(pl.len()).collect().item() for df in df_queries])
         # For single file or files without timestamps, just get the dataframes
         logging.info(f"Started merging of {len(processed_file_paths)} files for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
         if len(df_queries) == 1:
-            df_queries = df_queries[0]  # If single file, no need to join
+            df_queries = df_queries[0].sort("time")  # If single file, no need to join
         else:
             # concatenate and forward fill file groups with continuous time spans
             # split by discontinuity
