@@ -12,6 +12,7 @@ from typing import List, Optional
 from pathlib import Path
 import logging
 import re
+from itertools import chain
 
 # logging.info("Hi 1")
 from concurrent.futures import ProcessPoolExecutor
@@ -294,10 +295,15 @@ class DataLoader:
             
             assert os.path.exists(temp_save_dir), f"temp_save_dir={temp_save_dir} is not available for file set {file_set_idx}, merge index {i}"
             
+            logging.info(f"Fetching columns. Used RAM = {virtual_memory().percent}%.")
+            cols = df_queries.drop("time").collect_schema().names()
+            logging.info(f"Found columns:")
+            for col in cols:
+                logging.info(f"  - {col}")
+            
+            logging.info(f"Sorting columns based on turbine signature {self.turbine_signature}. Used RAM = {virtual_memory().percent}%.")
             if False:
-                logging.info(f"Fetching columns. Used RAM = {virtual_memory().percent}%.")
-                cols = df_queries.drop("time").collect_schema().names()
-                logging.info(f"Sorting columns. Used RAM = {virtual_memory().percent}%.")
+                
                 cols = sorted(cols, key=lambda col: (re.search(f".*?(?={self.turbine_signature})", col).group(0), 
                                                     int(re.search("\\d+", re.search(self.turbine_signature, col).group(0)).group(0))))
                 logging.info(f"Sorting columns in dataframe. Used RAM = {virtual_memory().percent}%.")
@@ -307,24 +313,29 @@ class DataLoader:
             logging.info(f"Started generating split_indices {len(processed_file_paths)} files for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
             
             file_set_idx_offset = sum(len(file_set) for file_set in self.file_paths[:file_set_idx])
-            split_indices = [0] + list(df_queries.with_row_index().with_columns(dt=pl.col("time").diff()).slice(1).filter(pl.col("dt") > np.timedelta64(self.split_dt, 's')).select("index").collect().to_numpy().flatten()) + [df_queries.select(pl.len()).collect().item()]
+            split_indices = df_queries.select("time").with_row_index().with_columns(dt=pl.col("time").diff()).slice(1).filter(pl.col("dt") > np.timedelta64(self.split_dt, 's')).select("index")
+            
+            i_type = split_indices.collect_schema()["index"]
+            split_indices = pl.concat([pl.Series([0]).alias("index").cast(i_type).to_frame().lazy(), split_indices, pl.Series([df_queries.select(pl.len()).collect().item()]).alias("index").cast(i_type).to_frame().lazy()])
+            n_splits = split_indices.select(pl.len()).collect().item() - 1
             
             logging.info(f"Finished generating split_indices {len(processed_file_paths)} files for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
             
             logging.info(f"Started splitting {len(processed_file_paths)} files for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
-            df_queries = [df_queries.slice(split_indices[j], split_indices[j+1] - split_indices[j]).with_columns(file_set_idx=file_set_idx_offset + j) for j in range(len(split_indices) - 1)]
-            file_set_indices = [file_set_idx_offset + j for j in range(len(split_indices) - 1)]
+            df_queries2 = []
+            for j in range(n_splits):
+                logging.info(f"Splitting {j}th of {n_splits} continuous dataframes. Used RAM = {virtual_memory().percent}%.")
+                next_split_indices = split_indices.head(2).collect().to_numpy().flatten()
+                df_queries2.append(
+                    df_queries.slice(next_split_indices[0], next_split_indices[1] - next_split_indices[0])\
+                                .with_columns(file_set_idx=file_set_idx_offset + j)
+                                )
+                split_indices = split_indices.slice(1)
+            
+            df_queries = df_queries2
             
             logging.info(f"Finished splitting {len(processed_file_paths)} files for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
                 
-        
-        num_files_set_indices = len(file_set_indices)
-        
-        
-        # assert all(any(tid in col for col in df_queries.collect_schema().names() if col != "time") for tid in turbine_ids), \
-            # f"merge_multiple_files should only merge collections of files that include every turbine's data, these file paths include:\n {'\n'.join(processed_file_paths)}"
-        
-        
         start_time = time.time()
         
         if self.multiprocessor is not None:
@@ -334,16 +345,16 @@ class DataLoader:
             executor = ProcessPoolExecutor()
             with executor as ex:
                 if ex is not None:
-                    merge_futures = [ex.submit(self._resample_df, df_queries[j], j, num_files_set_indices) for j, fsi in enumerate(file_set_indices)]
-                    for fut, fsi in zip(merge_futures, file_set_indices):
+                    merge_futures = [ex.submit(self._resample_df, df_queries[j], j, n_splits) for j range(n_splits)]
+                    for j, fut in enumerate(merge_futures):
                         # fut.result().sink_parquet(os.path.join(temp_save_dir, f"merged_{fsi}_{i}.parquet"))
-                        fut.result().collect().write_parquet(os.path.join(temp_save_dir, f"merged_{fsi}_{i}.parquet"))
+                        fut.result().collect().write_parquet(os.path.join(temp_save_dir, f"merged_{file_set_idx_offset + j}_{i}.parquet"))
             logging.info(f"Parallel resampling took {time.time() - start_time:.2f} s")
         else:
             df_queries_2 = []
-            for j, fsi in enumerate(file_set_indices):
+            for j in range(n_splits):
                 # if not df_queries[j].select((pl.col("time").diff().slice(1) == pl.col("time").diff().last()).all()).collect().item():
-                self._resample_df(df_queries[j], j, num_files_set_indices).collect().write_parquet(os.path.join(temp_save_dir, f"merged_{fsi}_{i}.parquet"))
+                self._resample_df(df_queries[j], j, n_splits).collect().write_parquet(os.path.join(temp_save_dir, f"merged_{file_set_idx_offset + j}_{i}.parquet"))
             df_queries = df_queries_2
     
             logging.info(f"Sequential resampling took {time.time() - start_time:.2f} s")
