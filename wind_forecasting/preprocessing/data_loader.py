@@ -139,6 +139,7 @@ class DataLoader:
      
     def read_multi_files(self, temp_save_dir, read_single_files=True) -> pl.LazyFrame | None:
         read_start = time.time()
+        all_columns = set()
         
         if self.multiprocessor is not None:
             # if self.multiprocessor == "mpi" and mpi_exists:
@@ -176,6 +177,8 @@ class DataLoader:
                             res = file_futures[f].result() #.5% increase in mem
                         else:
                             res = 1
+                        #     file_cols = []
+                        # all_columns.update(file_cols)
                             
                         if res is not None: 
                             fn = f"{os.path.splitext(os.path.basename(file_path))[0]}.parquet"
@@ -208,6 +211,10 @@ class DataLoader:
                                                 processed_fp, len(self.file_paths[file_set_idx]))
                     else:
                         res = 1
+                        # file_cols = []
+                        
+                    # all_columns.update(file_cols)
+                    
                     if res is not None:
                         processed_file_paths[-1].append(processed_fp)
             
@@ -255,7 +262,11 @@ class DataLoader:
         
         # df_queries = sorted([pl.scan_parquet(fp) for fp in processed_file_paths], 
         #                     key=lambda df: df.head(1).select(pl.col("time")).collect().item())
-        df_queries = [pl.scan_parquet(fp) for fp in processed_file_paths]
+        df_queries = []
+        all_columns = set()
+        for fp in processed_file_paths:
+            df_queries.append(pl.scan_parquet(fp))
+            all_columns.update(df_queries[-1].collect_schema().names())
         
         logging.info(f"Finished scanning {len(processed_file_paths)} files for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
         # all([df.select(pl.col("time").n_unique()).collect().item() == df.select(pl.len()).collect().item() for df in df_queries])
@@ -295,16 +306,16 @@ class DataLoader:
             
             assert os.path.exists(temp_save_dir), f"temp_save_dir={temp_save_dir} is not available for file set {file_set_idx}, merge index {i}"
             
-            logging.info(f"Fetching columns. Used RAM = {virtual_memory().percent}%.")
-            cols = df_queries.drop("time").collect_schema().names()
+            # logging.info(f"Fetching columns. Used RAM = {virtual_memory().percent}%.")
+            # cols = df_queries.drop("time").collect_schema().names()
             logging.info(f"Found columns:")
-            for col in cols:
+            for col in all_columns:
                 logging.info(f"  - {col}")
             
             logging.info(f"Sorting columns based on turbine signature {self.turbine_signature}. Used RAM = {virtual_memory().percent}%.")
             if False:
                 
-                cols = sorted(cols, key=lambda col: (re.search(f".*?(?={self.turbine_signature})", col).group(0), 
+                all_columns = sorted(all_columns, key=lambda col: (re.search(f".*?(?={self.turbine_signature})", col).group(0), 
                                                     int(re.search("\\d+", re.search(self.turbine_signature, col).group(0)).group(0))))
                 logging.info(f"Sorting columns in dataframe. Used RAM = {virtual_memory().percent}%.")
                 df_queries = df_queries.select(["time"] + cols)
@@ -597,7 +608,7 @@ class DataLoader:
             # df_query.collect().write_parquet(processed_file_path, statistics=False)
             
             logging.info(f"✅ Processed {file_number + 1}-th of {num_file_paths} {raw_file_path} and saved to {processed_file_path}. Time: {time.time() - start_time:.2f} s")
-            return processed_file_path
+            return processed_file_path #, df_query.collect_schema().names()
         
         except Exception as e:
             logging.error(f"❌ Error processing file {raw_file_path} and saving to {processed_file_path}: {str(e)}")
