@@ -236,7 +236,7 @@ class DataLoader:
                 logging.info(f"Moving only batch to {self.save_path}.")
                 move(processed_file_paths[0][0], self.save_path)
                     
-            df_query = pl.scan_parquet(self.save_path, statistics=False).sort("time")
+            df_query = pl.scan_parquet(self.save_path).sort("time")
                 
             # turbine ids found in all files so far
             self.turbine_ids = self.get_turbine_ids(self.turbine_signature, df_query, sort=True)
