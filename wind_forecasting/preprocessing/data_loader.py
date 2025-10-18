@@ -601,9 +601,6 @@ class DataLoader:
             
             # if df_query.select(pl.len()).collect().item() == 0:
             
-            if "wt042" in raw_file_path:
-                print("aha")
-            
             # pivot table to have columns for each turbine and measurement if not originally in wide format
             is_already_wide = all(f"{feature}_{tid}" in available_columns for feature in target_features for tid in turbine_ids if feature != "time")
             
