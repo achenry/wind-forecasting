@@ -49,7 +49,7 @@ FFILL_LIMIT = 10 * SECONDS_PER_MINUTE
 
 # logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 JOIN_CHUNK = 100 #int(2000)
-logging.info("Hi 6")
+# logging.info("Hi 6")
 class DataLoader:
     """_summary_
        - load the scada data, 
@@ -294,11 +294,13 @@ class DataLoader:
             
             assert os.path.exists(temp_save_dir), f"temp_save_dir={temp_save_dir} is not available for file set {file_set_idx}, merge index {i}"
             
-            logging.info(f"Started sorting columns. Used RAM = {virtual_memory().percent}%.")
+            logging.info(f"Fetching columns. Used RAM = {virtual_memory().percent}%.")
             cols = df_queries.drop("time").collect_schema().names()
-            cols = ["time"] + sorted(cols, key=lambda col: (re.search(f".*?(?={self.turbine_signature})", col).group(0), 
-                                                            int(re.search("\\d+", re.search(self.turbine_signature, col).group(0)).group(0))))
-            df_queries = df_queries.select(cols)
+            logging.info(f"Sorting columns. Used RAM = {virtual_memory().percent}%.")
+            cols = sorted(cols, key=lambda col: (re.search(f".*?(?={self.turbine_signature})", col).group(0), 
+                                                int(re.search("\\d+", re.search(self.turbine_signature, col).group(0)).group(0))))
+            logging.info(f"Sorting columns in dataframe. Used RAM = {virtual_memory().percent}%.")
+            df_queries = df_queries.select(["time"] + cols)
             logging.info(f"Finished sorting columns. Used RAM = {virtual_memory().percent}%.")
             
             logging.info(f"Started generating split_indices {len(processed_file_paths)} files for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
