@@ -264,7 +264,8 @@ class DataLoader:
         #                     key=lambda df: df.head(1).select(pl.col("time")).collect().item())
         df_queries = []
         all_columns = set()
-        for fp in processed_file_paths:
+        for f, fp in enumerate(processed_file_paths):
+            logging.info(f"  - Scanning {f}th of {len(processed_file_paths)} files. Used RAM = {virtual_memory().percent}%.")
             df_queries.append(pl.scan_parquet(fp))
             all_columns.update(df_queries[-1].collect_schema().names())
         
@@ -285,8 +286,21 @@ class DataLoader:
                     .sort("time")
             
             logging.info(f"Finished merging {len(processed_file_paths)} files for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
-            # assert df_queries.select("time").collect().to_series().is_sorted()
-            #                    .sort("time")\
+            
+            # logging.info(f"Fetching columns. Used RAM = {virtual_memory().percent}%.")
+            # cols = df_queries.drop("time").collect_schema().names()
+            logging.info(f"Found columns:")
+            for col in all_columns:
+                logging.info(f"  - {col}")
+            
+            logging.info(f"Sorting columns based on turbine signature {self.turbine_signature}. Used RAM = {virtual_memory().percent}%.")
+            all_columns.remove("time")
+            all_columns = sorted(all_columns, key=lambda col: (re.search(f".*?(?={self.turbine_signature})", col).group(0), 
+                                                int(re.search("\\d+", re.search(self.turbine_signature, col).group(0)).group(0))))
+            logging.info(f"Sorting columns in dataframe. Used RAM = {virtual_memory().percent}%.")
+            df_queries = df_queries.select(["time"] + all_columns)
+            logging.info(f"Finished sorting columns. Used RAM = {virtual_memory().percent}%.")
+            
                 
             # convert to common turbine_id over multiple filetypes
             if self.turbine_mapping is not None:
@@ -305,21 +319,6 @@ class DataLoader:
                         string=col) for col in df_queries.collect_schema().names() if col != "time"})
             
             assert os.path.exists(temp_save_dir), f"temp_save_dir={temp_save_dir} is not available for file set {file_set_idx}, merge index {i}"
-            
-            # logging.info(f"Fetching columns. Used RAM = {virtual_memory().percent}%.")
-            # cols = df_queries.drop("time").collect_schema().names()
-            logging.info(f"Found columns:")
-            for col in all_columns:
-                logging.info(f"  - {col}")
-            
-            logging.info(f"Sorting columns based on turbine signature {self.turbine_signature}. Used RAM = {virtual_memory().percent}%.")
-            if False:
-                
-                all_columns = sorted(all_columns, key=lambda col: (re.search(f".*?(?={self.turbine_signature})", col).group(0), 
-                                                    int(re.search("\\d+", re.search(self.turbine_signature, col).group(0)).group(0))))
-                logging.info(f"Sorting columns in dataframe. Used RAM = {virtual_memory().percent}%.")
-                df_queries = df_queries.select(["time"] + cols)
-                logging.info(f"Finished sorting columns. Used RAM = {virtual_memory().percent}%.")
             
             logging.info(f"Started generating split_indices {len(processed_file_paths)} files for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
             
