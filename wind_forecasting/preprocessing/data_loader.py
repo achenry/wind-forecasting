@@ -253,17 +253,36 @@ class DataLoader:
             
             return df_query
     
-     
+    def _get_schema(self, fp):
+        return pl.scan_parquet(fp).collect_schema()
+    
+    def _split_df(self, df, next_split_indices, j, file_set_idx_offset, n_splits):
+        logging.info(f"Splitting {j}th of {n_splits} continuous dataframes. Used RAM = {virtual_memory().percent}%.")
+        return df.slice(next_split_indices[0], next_split_indices[1] - next_split_indices[0])\
+                        .with_columns(file_set_idx=file_set_idx_offset + j)
+    
     def merge_multiple_files(self, file_set_idx, processed_file_paths, i, temp_save_dir):
         
         logging.info(f"Started scanning {len(processed_file_paths)} files for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
         
-        full_schema = pl.scan_parquet(processed_file_paths[0]).collect_schema()
+        if self.multiprocessor is not None:
+            executor = ProcessPoolExecutor()
+            with executor as ex:
+                if ex is not None:
+                    schema_futures = [ex.submit(self._get_schema, fp) for fp in processed_file_paths]
+                    full_schema = schema_futures[0].result()
+                    logging.info(f"  - Schema for {processed_file_paths[0]}: {full_schema}")
+                    for f, fut in enumerate(schema_futures[1:]):
+                        schema = fut.result()
+                        logging.info(f"  - Schema for {processed_file_paths[f+1]}: {schema}")
+                        full_schema.update(schema)
+        else:
+            full_schema = pl.scan_parquet(processed_file_paths[0]).collect_schema()
         
-        for f, fp in enumerate(processed_file_paths[1:]):
-            logging.info(f"  - Scanning {f}th of {len(processed_file_paths)} files. Used RAM = {virtual_memory().percent}%.")
-            full_schema.update(pl.scan_parquet(fp).collect_schema())
-            
+            for f, fp in enumerate(processed_file_paths[1:]):
+                logging.info(f"  - Scanning {f}th of {len(processed_file_paths)} files. Used RAM = {virtual_memory().percent}%.")
+                full_schema.update(pl.scan_parquet(fp).collect_schema())
+        
         df_queries = pl.scan_parquet(os.path.join(os.path.dirname(processed_file_paths[0]), f"{os.path.splitext(self.file_signature[file_set_idx])[0]}.parquet"), glob=True, schema=full_schema, missing_columns="insert")
         
         logging.info(f"Finished scanning {len(processed_file_paths)} files for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
@@ -331,6 +350,14 @@ class DataLoader:
             logging.info(f"Finished generating split_indices {len(processed_file_paths)} files for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
             
             logging.info(f"Started splitting {len(processed_file_paths)} files for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
+
+            # if self.multiprocessor is not None:
+            #     executor = ProcessPoolExecutor()
+            #     with executor as ex:
+            #         if ex is not None:
+            #             futures = [ex.submit(self._split_df, df_queries, split_indices.slice(j, 2).collect().to_numpy().flatten(), j, file_set_idx_offset, n_splits) for j in range(n_splits)]
+            #             df_queries = [fut.result() for fut in futures]
+            # else:
             df_queries2 = []
             for j in range(n_splits):
                 logging.info(f"Splitting {j}th of {n_splits} continuous dataframes. Used RAM = {virtual_memory().percent}%.")
@@ -348,32 +375,21 @@ class DataLoader:
         start_time = time.time()
         
         if self.multiprocessor is not None:
-            # if self.multiprocessor == "mpi" and mpi_exists:
-            #     executor = MPICommExecutor(MPI.COMM_WORLD, root=0)
-            # else:  # "cf" case
             executor = ProcessPoolExecutor()
             with executor as ex:
                 if ex is not None:
                     merge_futures = [ex.submit(self._resample_df, df_queries[j], j, n_splits) for j in range(n_splits)]
                     for j, fut in enumerate(merge_futures):
-                        # fut.result().sink_parquet(os.path.join(temp_save_dir, f"merged_{fsi}_{i}.parquet"))
                         fut.result().collect().write_parquet(os.path.join(temp_save_dir, f"merged_{file_set_idx_offset + j}_{i}.parquet"))
             logging.info(f"Parallel resampling took {time.time() - start_time:.2f} s")
         else:
             df_queries_2 = []
             for j in range(n_splits):
-                # if not df_queries[j].select((pl.col("time").diff().slice(1) == pl.col("time").diff().last()).all()).collect().item():
                 self._resample_df(df_queries[j], j, n_splits).collect().write_parquet(os.path.join(temp_save_dir, f"merged_{file_set_idx_offset + j}_{i}.parquet"))
             df_queries = df_queries_2
     
             logging.info(f"Sequential resampling took {time.time() - start_time:.2f} s")
             
-        # for j, fsi in enumerate(file_set_indices):
-        #     logging.info(f"Sinking {j}th of {num_files_set_indices} merged files.")
-        #     df_queries[j].sink_parquet(os.path.join(temp_save_dir, f"merged_{fsi}_{i}.parquet"))
-            
-        # assert df_queries.select((pl.col("time").diff().slice(1) == pl.col("time").diff().last()).all()).collect().item(), f"dt is non-uniform, even after resampling, for {df_query}" 
-        # assert df_queries.select((pl.col("time").n_unique())).collect().item() == df_queries.select(pl.len()).collect().item()
         return
     
     def _resample_df(self, df, i, num_files_set_indices):
@@ -691,115 +707,3 @@ class DataLoader:
 
         except Exception as e:
             logging.error(f"❌ Error reading NetCDF file: {e}")
-
-    # INFO: @Juan 10/02/24 Revamped this method to use Polars functions consistently, vectorized where possible, and using type casting for consistency and performance enhancements.
-
-    # def convert_time_to_sin(self, df) -> pl.LazyFrame:
-    #     """_summary_
-    #         convert timestamp to cosine and sinusoidal components
-    #     Returns:
-    #         pl.LazyFrame: _description_
-    #     """
-    #     if df is None:
-    #         raise ValueError("⚠️ Data not loaded > call read_multi_netcdf() first.")
-        
-    #     df = self.df.with_columns([
-    #         pl.col('time').dt.hour().alias('hour'),
-    #         pl.col('time').dt.ordinal_day().alias('day'),
-    #         pl.col('time').dt.year().alias('year'),
-    #     ])
-
-    #     # Normalize time features using sin/cos for capturing cyclic patterns using Polars vectorized operations
-    #     df = df.with_columns([
-    #         (2 * np.pi * pl.col('hour') / 24).sin().alias('hour_sin'),
-    #         (2 * np.pi * pl.col('hour') / 24).cos().alias('hour_cos'),
-    #         (2 * np.pi * pl.col('day') / 365).sin().alias('day_sin'),
-    #         (2 * np.pi * pl.col('day') / 365).cos().alias('day_cos'),
-    #         (2 * np.pi * pl.col('year') / 365).sin().alias('year_sin'),
-    #         (2 * np.pi * pl.col('year') / 365).cos().alias('year_cos'),
-    #     ])
-
-    #     return df
-
-    # DEBUG: @Juan 10/16/24 Check that this is reducing the features correctly.
-    # def reduce_features(self, df) -> pl.LazyFrame:
-    #     """
-    #     Reduce the DataFrame to include only the specified features that exist in the DataFrame.
-    #     """
-    #     existing_features = [f for f in self.desired_feature_types if any(f in col for col in df.columns)]
-    #     df = df.select([pl.col(col) for col in df.columns if any(feature in col for feature in existing_features)])
-        
-    #     # Only filter rows if there are numeric columns
-    #     numeric_cols = df.select(cs.numeric()).columns
-    #     if numeric_cols:
-    #         df = df.filter(pl.any_horizontal(pl.col(numeric_cols).is_not_null()))
-        
-    #     logging.info(f"Columns after reduce_features: {df.columns}")
-    #     logging.info(f"Shape after reduce_features: {df.shape}")
-    #     return df
-
-    # def normalize_features(self, df) -> pl.LazyFrame:
-    #     """_summary_
-    #         use minmax scaling to normalize non-temporal features
-    #     Returns:
-    #         pl.LazyFrame: _description_
-    #     """
-    #     if df is None:
-    #         raise ValueError("⚠️ Data not loaded > call read_multi_netcdf() first.")
-        
-    #     features_to_normalize = [col for col in self.df.columns
-    #                              if all(c not in col for c in ['time', 'hour', 'day', 'year'])]
-        
-    #     scaler = MinMaxScaler()
-    #     normalized_data = scaler.fit_transform(self.df.select(features_to_normalize).to_numpy())
-    #     normalized_df = pl.DataFrame(normalized_data, schema=features_to_normalize)
-        
-    #     df = df.drop(features_to_normalize).hstack(normalized_df)
-    #     return df
-    
-    # def create_sequences(self, df, target_turbine: str, 
-    #                      features: list[str] | None = None, 
-    #                      sequence_length: int = 600, 
-    #                      prediction_horizon: int = 240) -> tuple[np.ndarray, np.ndarray, list[str], int, int]:
-        
-    #     features = [col for col in df.columns if col not in [f'TurbineWindMag_{target_turbine}_u', f'TurbineWindMag_{target_turbine}_v']]
-    #     y_columns = [f'TurbineWindMag_{target_turbine}_u', f'TurbineWindMag_{target_turbine}_v']
-        
-    #     X_data = df.select(features).collect(streaming=True).to_numpy()
-    #     y_data = df.select(y_columns).collect(streaming=True).to_numpy()
-        
-    #     X = np.array([X_data[i:i + sequence_length] for i in range(len(X_data) - sequence_length - prediction_horizon + 1)])
-    #     y = np.array([y_data[i:i + prediction_horizon] for i in range(sequence_length, len(y_data) - prediction_horizon + 1)])
-        
-    #     return X, y, features, sequence_length, prediction_horizon
-
-    # INFO: @Juan 10/14/24 Added method to format SMARTEOLE data. (TEMPORARY)
-    # def format_smarteole_data(self, df: pl.LazyFrame) -> pl.LazyFrame:
-    #     # Implement the formatting logic for SMARTEOLE data
-    #     # This method should apply the necessary transformations as shown in the format_dataframes function
-        
-    #     # Example of some transformations:
-    #     df = df.with_columns([
-    #         (pl.col("is_operation_normal_000").cast(pl.Boolean()).not_()).alias("is_operation_normal_000"),
-    #         (pl.col("is_operation_normal_001").cast(pl.Boolean()).not_()).alias("is_operation_normal_001"),
-    #         # ... (repeat for other turbines)
-    #     ])
-        
-    #     df = df.with_columns([
-    #         pl.when(pl.col("control_mode") == 0).then("baseline")
-    #           .when(pl.col("control_mode") == 1).then("controlled")
-    #           .otherwise(pl.col("control_mode")).alias("control_mode")
-    #     ])
-        
-    #     # Add more transformations as needed
-        
-    #     return df
-
-    # INFO: @Juan 10/14/24 Added method to load and process data. (TEMPORARY)
-    # def load_and_process_data(self) -> pl.LazyFrame:
-    #     df = self.read_multi_files()
-    #     if df is not None:
-    #         df = self.format_smarteole_data(df)
-    #         df = self.convert_time_to_sin(df)
-    #         df = self.normalize_features(df)
-    #     return df
