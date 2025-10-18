@@ -279,6 +279,32 @@ class DataLoader:
             logging.info(f"Finished merging {len(processed_file_paths)} files for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
             # assert df_queries.select("time").collect().to_series().is_sorted()
             #                    .sort("time")\
+                
+            # convert to common turbine_id over multiple filetypes
+            if self.turbine_mapping is not None:
+                turbine_ids = self.get_turbine_ids(self.turbine_signature[file_set_idx], df_queries, sort=True) # turbine ids available in this collection of file paths (may not represent all) 
+                # make sure that turbine mapping accounts for all turbine ids found in files
+                assert all(tid in self.turbine_mapping[file_set_idx] for tid in turbine_ids), \
+                    f"""check turbine_mapping in yaml config, should have n_turbines length of distinct turbine ids, 
+                    and all ids found in the data, {turbine_ids}, should be included in the keys, {self.turbine_mapping[file_set_idx]}, 
+                    for the set of processed file paths, {[os.path.basename(fp) for fp in processed_file_paths]} for file set {file_set_idx}""" 
+                
+                logging.info(f"Renaming DataFrame for file set {file_set_idx}, merge index {i}, to common turbine_signature. Used RAM = {virtual_memory().percent}%.") 
+                df_queries = df_queries.rename({
+                    col: 
+                    re.sub(pattern=self.turbine_signature[file_set_idx], 
+                        repl=str(self.turbine_mapping[file_set_idx][re.search(self.turbine_signature[file_set_idx], col).group(0)]), 
+                        string=col) for col in df_queries.collect_schema().names() if col != "time"})
+            
+            assert os.path.exists(temp_save_dir), f"temp_save_dir={temp_save_dir} is not available for file set {file_set_idx}, merge index {i}"
+            
+            logging.info(f"Started sorting columns. Used RAM = {virtual_memory().percent}%.")
+            df_queries = df_queries.select([pl.col("time")] 
+                                    + [pl.col(c) for c in 
+                                        sorted([col for col in df_queries.select(cs.numeric().exclude("file_set_idx")).collect_schema().names()], 
+                                                key=lambda col: (re.search(f".*?(?={self.turbine_signature})", col).group(0), 
+                                                                int(re.search("\\d+", re.search(self.turbine_signature, col).group(0)).group(0))))])
+            logging.info(f"Finished sorting columns. Used RAM = {virtual_memory().percent}%.")
             
             logging.info(f"Started generating split_indices {len(processed_file_paths)} files for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
             
@@ -295,7 +321,7 @@ class DataLoader:
             #     j += 1
             
             logging.info(f"Started splitting {len(processed_file_paths)} files for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
-            df_queries = pl.concat([df_queries.slice(split_indices[j], split_indices[j+1] - split_indices[j]).with_columns(file_set_idx=file_set_idx_offset + j) for j in range(len(split_indices) - 1)], how="vertical")
+            df_queries = [df_queries.slice(split_indices[j], split_indices[j+1] - split_indices[j]).with_columns(file_set_idx=file_set_idx_offset + j) for j in range(len(split_indices) - 1)]
             file_set_indices = [file_set_idx_offset + j for j in range(len(split_indices) - 1)]
             
             logging.info(f"Finished splitting {len(processed_file_paths)} files for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
@@ -307,31 +333,6 @@ class DataLoader:
         # assert all(any(tid in col for col in df_queries.collect_schema().names() if col != "time") for tid in turbine_ids), \
             # f"merge_multiple_files should only merge collections of files that include every turbine's data, these file paths include:\n {'\n'.join(processed_file_paths)}"
         
-        # convert to common turbine_id over multiple filetypes
-        if self.turbine_mapping is not None:
-            turbine_ids = self.get_turbine_ids(self.turbine_signature[file_set_idx], df_queries, sort=True) # turbine ids available in this collection of file paths (may not represent all) 
-            # make sure that turbine mapping accounts for all turbine ids found in files
-            assert all(tid in self.turbine_mapping[file_set_idx] for tid in turbine_ids), \
-                f"""check turbine_mapping in yaml config, should have n_turbines length of distinct turbine ids, 
-                and all ids found in the data, {turbine_ids}, should be included in the keys, {self.turbine_mapping[file_set_idx]}, 
-                for the set of processed file paths, {[os.path.basename(fp) for fp in processed_file_paths]} for file set {file_set_idx}""" 
-            
-            logging.info(f"Renaming DataFrame for file set {file_set_idx}, merge index {i}, to common turbine_signature. Used RAM = {virtual_memory().percent}%.") 
-            df_queries = df_queries.rename({
-                col: 
-                re.sub(pattern=self.turbine_signature[file_set_idx], 
-                    repl=str(self.turbine_mapping[file_set_idx][re.search(self.turbine_signature[file_set_idx], col).group(0)]), 
-                    string=col) for col in df_queries.collect_schema().names() if col != "time"})
-        
-        assert os.path.exists(temp_save_dir), f"temp_save_dir={temp_save_dir} is not available for file set {file_set_idx}, merge index {i}"
-        
-        logging.info(f"Started sorting columns. Used RAM = {virtual_memory().percent}%.")
-        df_queries = df_queries.select([pl.col("time"), pl.col("file_set_idx")] 
-                                + [pl.col(c) for c in 
-                                    sorted([col for col in df_queries.select(cs.numeric().exclude("file_set_idx")).collect_schema().names()], 
-                                            key=lambda col: (re.search(f".*?(?={self.turbine_signature})", col).group(0), 
-                                                            int(re.search("\\d+", re.search(self.turbine_signature, col).group(0)).group(0))))])
-        logging.info(f"Finished sorting columns. Used RAM = {virtual_memory().percent}%.")
         
         start_time = time.time()
         
@@ -342,14 +343,14 @@ class DataLoader:
             executor = ProcessPoolExecutor()
             with executor as ex:
                 if ex is not None:
-                    merge_futures = [ex.submit(self._resample_df, df_queries.filter(pl.col("file_set_idx") == fsi), j, num_files_set_indices) for j, fsi in enumerate(file_set_indices)]
+                    merge_futures = [ex.submit(self._resample_df, df_queries[j], j, num_files_set_indices) for j, fsi in enumerate(file_set_indices)]
                     df_queries = [fut.result() for fut in merge_futures]
             logging.info(f"Parallel resampling took {time.time() - start_time:.2f} s")
         else:
             df_queries_2 = []
             for j, fsi in enumerate(file_set_indices):
                 # if not df_queries[j].select((pl.col("time").diff().slice(1) == pl.col("time").diff().last()).all()).collect().item():
-                df_queries_2.append(self._resample_df(df_queries.filter(pl.col("file_set_idx") == fsi), j, num_files_set_indices))
+                df_queries_2.append(self._resample_df(df_queries[j], j, num_files_set_indices))
             df_queries = df_queries_2
     
             logging.info(f"Sequential resampling took {time.time() - start_time:.2f} s")
