@@ -345,7 +345,7 @@ class DataLoader:
             executor = ProcessPoolExecutor()
             with executor as ex:
                 if ex is not None:
-                    merge_futures = [ex.submit(self._resample_df, df_queries[j], j, n_splits) for j range(n_splits)]
+                    merge_futures = [ex.submit(self._resample_df, df_queries[j], j, n_splits) for j in range(n_splits)]
                     for j, fut in enumerate(merge_futures):
                         # fut.result().sink_parquet(os.path.join(temp_save_dir, f"merged_{fsi}_{i}.parquet"))
                         fut.result().collect().write_parquet(os.path.join(temp_save_dir, f"merged_{file_set_idx_offset + j}_{i}.parquet"))
