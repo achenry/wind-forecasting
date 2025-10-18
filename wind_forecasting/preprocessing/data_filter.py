@@ -6,14 +6,27 @@ Returns:
 
 import logging
 from datetime import timedelta
+from concurrent.futures import ProcessPoolExecutor
+import multiprocessing
+logging.info("HI 1")
 
 import numpy as np
 import polars as pl
 import polars.selectors as cs
+
+logging.info("HI 2")
+
+from scipy.optimize import minimize
+import matplotlib.pyplot as plt
+
+logging.info("HI 3")
+
 # from scipy.stats import entropy
 # from scipy.spatial.distance import jensenshannon
 # from scipy.special import kl_div
 from openoa.utils import imputing, filters
+
+logging.info("HI 4")
 
 # mpi_exists = False
 # try:
@@ -23,12 +36,6 @@ from openoa.utils import imputing, filters
 # except:
 #     logging.info("No MPI available on system.")
     
-from concurrent.futures import ProcessPoolExecutor
-import multiprocessing
-from scipy.optimize import minimize
-
-import matplotlib.pyplot as plt
-
 factor = 1.5
 # factor = 3.0 # single column
 plt.rc('font', size=12*factor)          # controls default text sizes
@@ -38,8 +45,6 @@ plt.rc('xtick', labelsize=12*factor)    # fontsize of the xtick labels
 plt.rc('ytick', labelsize=12*factor)    # fontsize of the ytick labels
 plt.rc('legend', fontsize=12*factor)    # legend fontsize
 plt.rc('legend', title_fontsize=14*factor)  # legend title fontsize
-
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 class DataFilter:
     """_summary_

@@ -248,7 +248,7 @@ class DataLoader:
      
     def merge_multiple_files(self, file_set_idx, processed_file_paths, i, temp_save_dir):
         
-        logging.info(f"Started sorting of {len(processed_file_paths)} files for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
+        logging.info(f"Started scanning {len(processed_file_paths)} files for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
         # for fp in processed_file_paths:
         #     logging.info(f"    {os.path.basename(fp)}")
         
@@ -256,36 +256,53 @@ class DataLoader:
         #                     key=lambda df: df.head(1).select(pl.col("time")).collect().item())
         df_queries = [pl.scan_parquet(fp) for fp in processed_file_paths]
         
-        logging.info(f"Finished sorting of {len(processed_file_paths)} files for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
+        logging.info(f"Finished scanning {len(processed_file_paths)} files for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
         # all([df.select(pl.col("time").n_unique()).collect().item() == df.select(pl.len()).collect().item() for df in df_queries])
         # For single file or files without timestamps, just get the dataframes
-        logging.info(f"Started merging of {len(processed_file_paths)} files for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
-        if len(processed_file_paths) == 1:
-            df_queries = pl.scan_parquet(processed_file_paths[0]).sort("time")  # If single file, no need to join
+        
+        if len(df_queries) == 1:
+            df_queries = df_queries[0].sort("time")  # If single file, no need to join
         else:
             # concatenate and forward fill file groups with continuous time spans
             # split by discontinuity, all df_queries are sorted up to this point
+            logging.info(f"Started merging of {len(processed_file_paths)} files for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
             
             # df_queries = pl.scan_parquet(os.path.join(os.path.dirname(processed_file_paths[0]), f"{os.path.splitext(self.file_signature[file_set_idx])[0]}.parquet"), glob=True)
             df_queries = pl.concat(df_queries, how="diagonal")\
                     .group_by("time", maintain_order=True).agg(cs.numeric().mean())\
-                    .sort("time") \
-                    .with_row_index().with_columns(file_set_idx=pl.lit(-1))
+                    .sort("time")
+                    
+                    # .with_columns(file_set_idx=pl.lit(-1))
+                    
+            # 
             
+            logging.info(f"Finished merging {len(processed_file_paths)} files for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
             # assert df_queries.select("time").collect().to_series().is_sorted()
             #                    .sort("time")\
-                    
+            
+            logging.info(f"Started generating split_indices {len(processed_file_paths)} files for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
+            
             file_set_idx_offset = sum(len(file_set) for file_set in self.file_paths[:file_set_idx])
-            split_indices = [0] + list(df_queries.with_columns(dt=pl.col("time").diff()).slice(1).filter(pl.col("dt") > np.timedelta64(self.split_dt, 's')).select("index").collect().to_numpy().flatten()) + [df_queries.select(pl.len()).collect().item()]
-            j = 0
-            file_set_indices = []
-            while j < len(split_indices) - 1:
-                file_set_indices.append(file_set_idx_offset + j)
-                df_queries = df_queries.with_columns(file_set_idx=pl.when(pl.col("index").is_between(split_indices[j], split_indices[j + 1], closed="left")).then(pl.lit(file_set_indices[-1])).otherwise(pl.col("file_set_idx")))
-                j += 1
-        df_queries = df_queries.drop("index")
+            split_indices = [0] + list(df_queries.with_row_index().with_columns(dt=pl.col("time").diff()).slice(1).filter(pl.col("dt") > np.timedelta64(self.split_dt, 's')).select("index").collect().to_numpy().flatten()) + [df_queries.select(pl.len()).collect().item()]
+            
+            logging.info(f"Finished generating split_indices {len(processed_file_paths)} files for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
+            # j = 0
+            # file_set_indices = []
+            # while j < len(split_indices) - 1:
+            #     file_set_indices.append(file_set_idx_offset + j)
+            #     df_queries = df_queries.with_columns(file_set_idx=pl.when(pl.col("index").is_between(split_indices[j], split_indices[j + 1], closed="left")).then(pl.lit(file_set_indices[-1])).otherwise(pl.col("file_set_idx")))
+            #     logging.info(f"Completed {j}th of {split_indices} splits.")
+            #     j += 1
+            
+            logging.info(f"Started splitting {len(processed_file_paths)} files for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
+            df_queries = pl.concat([df_queries.slice(split_indices[j], split_indices[j+1] - split_indices[j]).with_columns(file_set_idx=file_set_idx_offset + j) for j in range(len(split_indices) - 1)], how="vertical")
+            file_set_indices = [file_set_idx_offset + j for j in range(len(split_indices) - 1)]
+            
+            logging.info(f"Finished splitting {len(processed_file_paths)} files for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
+                
+        
         num_files_set_indices = len(file_set_indices)
-        logging.info(f"Finished merging {len(processed_file_paths)} files for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
+        
         
         # assert all(any(tid in col for col in df_queries.collect_schema().names() if col != "time") for tid in turbine_ids), \
             # f"merge_multiple_files should only merge collections of files that include every turbine's data, these file paths include:\n {'\n'.join(processed_file_paths)}"
