@@ -33,27 +33,27 @@ mpi_exists = False
 # except:
 #     logging.info("No MPI available on system.")
 
-logging.info("hi 1")
+# logging.info("hi 1")
 parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 sys.path.insert(0, parent_dir)
-logging.info("hi 2")
+# logging.info("hi 2")
 
 # logging.info(f"Current working directory inside script: {os.getcwd()}")
 # logging.info("sys.path inside script:", sys.path)
 
 import multiprocessing
-logging.info("hi 3")
+# logging.info("hi 3")
 from wind_forecasting.preprocessing.data_loader import DataLoader
-logging.info("hi 4")
+# logging.info("hi 4")
 from wind_forecasting.preprocessing.data_filter import (DataFilter, 
                                                         add_df_continuity_columns, add_df_agg_continuity_columns, 
                                                         get_continuity_group_index, group_df_by_continuity, 
                                                         merge_adjacent_periods, compute_offsets, safe_mask)
-logging.info("hi 5")
+# logging.info("hi 5")
 from wind_forecasting.preprocessing.data_inspector import DataInspector
-logging.info("hi 6")
+# logging.info("hi 6")
 from openoa.utils import plot, filters, power_curve
-logging.info("hi 7")
+# logging.info("hi 7")
 
 import polars as pl
 import polars.selectors as cs
@@ -66,7 +66,7 @@ import matplotlib.pyplot as plt
 from scipy.stats import norm
 from floris import FlorisModel
 
-logging.info("hi 8")
+# logging.info("hi 8")
 
 # ROW_LIMIT = 2 * 60 * 60 * 24 * 30 * 18
 ROW_LIMIT = None #60 * 60 * 24 * 30 * 3
