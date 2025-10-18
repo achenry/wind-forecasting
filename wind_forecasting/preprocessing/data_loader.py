@@ -13,22 +13,22 @@ from pathlib import Path
 import logging
 import re
 
-logging.info("Hi 1")
+# logging.info("Hi 1")
 from concurrent.futures import ProcessPoolExecutor
-logging.info("Hi 2")
+# logging.info("Hi 2")
 from shutil import move
 from psutil import virtual_memory
-logging.info("Hi 3")
+# logging.info("Hi 3")
 # import gc
 # from datetime.datetime import strptime
 # from memory_profiler import profile
 
 import netCDF4 as nc
-logging.info("Hi 4")
+# logging.info("Hi 4")
 
 import polars as pl
 import polars.selectors as cs
-logging.info("Hi 5")
+# logging.info("Hi 5")
 import numpy as np
 # from sklearn.preprocessing import MinMaxScaler
 
@@ -271,10 +271,6 @@ class DataLoader:
             df_queries = pl.concat(df_queries, how="diagonal")\
                     .group_by("time", maintain_order=True).agg(cs.numeric().mean())\
                     .sort("time")
-                    
-                    # .with_columns(file_set_idx=pl.lit(-1))
-                    
-            # 
             
             logging.info(f"Finished merging {len(processed_file_paths)} files for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
             # assert df_queries.select("time").collect().to_series().is_sorted()
@@ -312,13 +308,6 @@ class DataLoader:
             split_indices = [0] + list(df_queries.with_row_index().with_columns(dt=pl.col("time").diff()).slice(1).filter(pl.col("dt") > np.timedelta64(self.split_dt, 's')).select("index").collect().to_numpy().flatten()) + [df_queries.select(pl.len()).collect().item()]
             
             logging.info(f"Finished generating split_indices {len(processed_file_paths)} files for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
-            # j = 0
-            # file_set_indices = []
-            # while j < len(split_indices) - 1:
-            #     file_set_indices.append(file_set_idx_offset + j)
-            #     df_queries = df_queries.with_columns(file_set_idx=pl.when(pl.col("index").is_between(split_indices[j], split_indices[j + 1], closed="left")).then(pl.lit(file_set_indices[-1])).otherwise(pl.col("file_set_idx")))
-            #     logging.info(f"Completed {j}th of {split_indices} splits.")
-            #     j += 1
             
             logging.info(f"Started splitting {len(processed_file_paths)} files for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
             df_queries = [df_queries.slice(split_indices[j], split_indices[j+1] - split_indices[j]).with_columns(file_set_idx=file_set_idx_offset + j) for j in range(len(split_indices) - 1)]
@@ -344,20 +333,22 @@ class DataLoader:
             with executor as ex:
                 if ex is not None:
                     merge_futures = [ex.submit(self._resample_df, df_queries[j], j, num_files_set_indices) for j, fsi in enumerate(file_set_indices)]
-                    df_queries = [fut.result() for fut in merge_futures]
+                    for fut, fsi in zip(merge_futures, file_set_indices):
+                        # fut.result().sink_parquet(os.path.join(temp_save_dir, f"merged_{fsi}_{i}.parquet"))
+                        fut.result().collect().write_parquet(os.path.join(temp_save_dir, f"merged_{fsi}_{i}.parquet"))
             logging.info(f"Parallel resampling took {time.time() - start_time:.2f} s")
         else:
             df_queries_2 = []
             for j, fsi in enumerate(file_set_indices):
                 # if not df_queries[j].select((pl.col("time").diff().slice(1) == pl.col("time").diff().last()).all()).collect().item():
-                df_queries_2.append(self._resample_df(df_queries[j], j, num_files_set_indices))
+                self._resample_df(df_queries[j], j, num_files_set_indices).collect().write_parquet(os.path.join(temp_save_dir, f"merged_{fsi}_{i}.parquet"))
             df_queries = df_queries_2
     
             logging.info(f"Sequential resampling took {time.time() - start_time:.2f} s")
             
-        for j, fsi in enumerate(file_set_indices):
-            logging.info(f"Sinking {j}th of {num_files_set_indices} merged files.")
-            df_queries[j].sink_parquet(os.path.join(temp_save_dir, f"merged_{fsi}_{i}.parquet"))
+        # for j, fsi in enumerate(file_set_indices):
+        #     logging.info(f"Sinking {j}th of {num_files_set_indices} merged files.")
+        #     df_queries[j].sink_parquet(os.path.join(temp_save_dir, f"merged_{fsi}_{i}.parquet"))
             
         # assert df_queries.select((pl.col("time").diff().slice(1) == pl.col("time").diff().last()).all()).collect().item(), f"dt is non-uniform, even after resampling, for {df_query}" 
         # assert df_queries.select((pl.col("time").n_unique())).collect().item() == df_queries.select(pl.len()).collect().item()
