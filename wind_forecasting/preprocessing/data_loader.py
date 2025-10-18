@@ -257,48 +257,47 @@ class DataLoader:
     def merge_multiple_files(self, file_set_idx, processed_file_paths, i, temp_save_dir):
         
         logging.info(f"Started scanning {len(processed_file_paths)} files for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
-        # for fp in processed_file_paths:
-        #     logging.info(f"    {os.path.basename(fp)}")
         
-        # df_queries = sorted([pl.scan_parquet(fp) for fp in processed_file_paths], 
-        #                     key=lambda df: df.head(1).select(pl.col("time")).collect().item())
-        df_queries = []
-        all_columns = set()
-        for f, fp in enumerate(processed_file_paths):
+        full_schema = pl.scan_parquet(processed_file_paths[0]).collect_schema()
+        
+        for f, fp in enumerate(processed_file_paths[1:]):
             logging.info(f"  - Scanning {f}th of {len(processed_file_paths)} files. Used RAM = {virtual_memory().percent}%.")
-            df_queries.append(pl.scan_parquet(fp))
-            all_columns.update(df_queries[-1].collect_schema().names())
+            full_schema.update(pl.scan_parquet(fp).collect_schema())
+            
+        df_queries = pl.scan_parquet(os.path.join(os.path.dirname(processed_file_paths[0]), f"{os.path.splitext(self.file_signature[file_set_idx])[0]}.parquet"), glob=True, schema=full_schema, missing_columns="insert")
         
         logging.info(f"Finished scanning {len(processed_file_paths)} files for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
         # all([df.select(pl.col("time").n_unique()).collect().item() == df.select(pl.len()).collect().item() for df in df_queries])
         # For single file or files without timestamps, just get the dataframes
         
-        if len(df_queries) == 1:
-            df_queries = df_queries[0].sort("time")  # If single file, no need to join
+        if len(processed_file_paths) == 1:
+            df_queries = df_queries.sort("time")  # If single file, no need to join
         else:
             # concatenate and forward fill file groups with continuous time spans
             # split by discontinuity, all df_queries are sorted up to this point
             logging.info(f"Started merging of {len(processed_file_paths)} files for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
             
-            # df_queries = pl.scan_parquet(os.path.join(os.path.dirname(processed_file_paths[0]), f"{os.path.splitext(self.file_signature[file_set_idx])[0]}.parquet"), glob=True)
-            df_queries = pl.concat(df_queries, how="diagonal")\
-                    .group_by("time", maintain_order=True).agg(cs.numeric().mean())\
-                    .sort("time")
+            # df_queries = pl.concat(df_queries, how="diagonal")\
+                    
+            df_queries = df_queries.group_by("time", maintain_order=True)\
+                                   .agg(cs.numeric().mean())\
+                                   .sort("time")
             
             logging.info(f"Finished merging {len(processed_file_paths)} files for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
             
             # logging.info(f"Fetching columns. Used RAM = {virtual_memory().percent}%.")
             # cols = df_queries.drop("time").collect_schema().names()
             logging.info(f"Found columns:")
-            for col in all_columns:
-                logging.info(f"  - {col}")
+            for col, dtype in full_schema.items():
+                logging.info(f"  - {col} | {dtype}")
             
             logging.info(f"Sorting columns based on turbine signature {self.turbine_signature}. Used RAM = {virtual_memory().percent}%.")
-            all_columns.remove("time")
-            all_columns = sorted(all_columns, key=lambda col: (re.search(f".*?(?={self.turbine_signature})", col).group(0), 
+            full_schema = full_schema.names()
+            del full_schema[full_schema.index("time")]
+            full_schema = sorted(full_schema, key=lambda col: (re.search(f".*?(?={self.turbine_signature})", col).group(0), 
                                                 int(re.search("\\d+", re.search(self.turbine_signature, col).group(0)).group(0))))
             logging.info(f"Sorting columns in dataframe. Used RAM = {virtual_memory().percent}%.")
-            df_queries = df_queries.select(["time"] + all_columns)
+            df_queries = df_queries.select(["time"] + full_schema)
             logging.info(f"Finished sorting columns. Used RAM = {virtual_memory().percent}%.")
             
                 
