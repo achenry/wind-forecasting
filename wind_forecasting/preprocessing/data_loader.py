@@ -429,6 +429,7 @@ class DataLoader:
             start_time = time.time()
             if self.data_format[file_set_idx] == "netcdf":
                 with nc.Dataset(raw_file_path, 'r') as dataset:
+                    
                     # logging.info(f"✅ Scanned {file_number + 1}-th {raw_file_path}")
                     if type(self.feature_mapping[file_set_idx]["time"]) is list:
                         for var_name in self.feature_mapping[file_set_idx]["time"]:
@@ -498,6 +499,9 @@ class DataLoader:
                                                     .filter(pl.any_horizontal(cs.numeric().is_not_null()))
                     # just the turbine ids found in this file
                     turbine_ids = self.get_turbine_ids(self.turbine_signature[file_set_idx], df_query)
+                    
+                    if len(turbine_ids) == 0:
+                        turbine_ids.update(data["turbine_id"])
                     
             elif self.data_format[file_set_idx] in ["csv", "parquet"]:
                 if self.data_format[file_set_idx] == "csv":
@@ -594,7 +598,12 @@ class DataLoader:
                 df_query = df_query.with_columns(pl.col("time").dt.round(f"{self.dt}s").alias("time"))\
                                     .select([cs.contains(feat) for feat in target_features])
                                     # .filter(pl.any_horizontal(cs.numeric().is_not_null()))
-                
+            
+            # if df_query.select(pl.len()).collect().item() == 0:
+            
+            if "wt042" in raw_file_path:
+                print("aha")
+            
             # pivot table to have columns for each turbine and measurement if not originally in wide format
             is_already_wide = all(f"{feature}_{tid}" in available_columns for feature in target_features for tid in turbine_ids if feature != "time")
             

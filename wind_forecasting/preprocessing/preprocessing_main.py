@@ -236,7 +236,7 @@ def main():
             logging.info(f"Making directory to save_path {os.path.dirname(data_loader.save_path)}")
             os.makedirs(os.path.dirname(data_loader.save_path), exist_ok=True)
 
-        df_query = data_loader.read_multi_files(temp_save_dir, read_single_files=False) 
+        df_query = data_loader.read_multi_files(temp_save_dir, read_single_files=True) 
         
         if RUN_ONCE:
             logging.info("✅ Finished reading individual files. Time elapsed: %.2f s", time.time() - start_time)
