@@ -308,7 +308,7 @@ class DataLoader:
             df_queries.sort("time")\
                       .group_by("time")\
                       .agg(cs.numeric().mean())\
-                      .sink_parquet(self.save_path, maintain_order=True)
+                      .sink_parquet(self.save_path, maintain_order=True, row_group_size=1000000)
             df_queries = pl.scan_parquet(self.save_path)
             # os.remove(os.path.join(temp_save_dir, f"merged_temp_{file_set_idx}_{i}.parquet"))          
             
