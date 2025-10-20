@@ -357,17 +357,20 @@ class DataLoader:
             j = 0
             jj = 0
             while j < n_splits:
-                logging.info(f"Splitting {j}th of {n_splits} continuous dataframes. Used RAM = {virtual_memory().percent}%.")
+                logging.info(360)
                 next_split_indices = split_indices.head(2).collect().to_numpy().flatten()
-                
+                logging.info(362)
                 if df_queries.head(next_split_indices[1] - next_split_indices[0]).select(pl.col("time").last() - pl.col("time").first()).collect().item() < min_duration:
                     logging.info(f"Skipping split {j} of {n_splits} continuous dataframes due to insufficient duration of {self.min_continuous_duration} seconds. Used RAM = {virtual_memory().percent}%.")
                 else:
+                    logging.info(f"Splitting {j}th of {n_splits} continuous dataframes. Used RAM = {virtual_memory().percent}%.")
                     df_queries.head(next_split_indices[1] - next_split_indices[0])\
                                 .with_columns(file_set_idx=file_set_idx_offset + j).sink_parquet(os.path.join(temp_save_dir, f"split_{file_set_idx_offset + jj}.parquet"), statistics=False)
                     jj += 1
                 
-                df_queries = df_queries.slice(next_split_indices[1] - next_split_indices[0])  
+                logging.info(371)
+                df_queries = df_queries.slice(next_split_indices[1] - next_split_indices[0]) 
+                logging.info(373) 
                 split_indices = split_indices.slice(1)
                 j += 1
             
