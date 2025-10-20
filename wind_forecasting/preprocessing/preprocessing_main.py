@@ -169,6 +169,7 @@ def main():
         multiprocessor=args.multiprocessor,
         dt=config["dt"],
         split_dt=config["split_dt"],
+        min_continuous_duration=config.get("min_continuous_duration"),
         ffill_limit=None,
         data_format=config["data_format"],
         feature_mapping=config["feature_mapping"],

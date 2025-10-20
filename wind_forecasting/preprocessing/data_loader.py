@@ -65,6 +65,7 @@ class DataLoader:
                  multiprocessor: str | None,
                  dt: int,
                  split_dt: int,
+                 min_continuous_duration: int,
                  feature_mapping: List[dict],
                  turbine_signature: List[str],
                  turbine_mapping: Optional[List[dict]],
@@ -80,6 +81,7 @@ class DataLoader:
         self.multiprocessor = multiprocessor
         self.dt = dt
         self.split_dt = split_dt
+        self.min_continuous_duration = min_continuous_duration
         self.data_format = [df.lower() for df in data_format]
         assert all(df in ["netcdf", "csv", "parquet"] for df in self.data_format)
         self.feature_mapping = feature_mapping
@@ -350,29 +352,22 @@ class DataLoader:
             logging.info(f"Finished generating split_indices {len(processed_file_paths)} files for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
             
             logging.info(f"Started splitting {len(processed_file_paths)} files for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
-
-            # if self.multiprocessor is not None:
-            #     executor = ProcessPoolExecutor()
-            #     with executor as ex:
-            #         if ex is not None:
-            #             futures = [ex.submit(self._split_df, df_queries, split_indices.slice(j, 2).collect().to_numpy().flatten(), j, file_set_idx_offset, n_splits) for j in range(n_splits)]
-            #             df_queries = [fut.result() for fut in futures]
-            # else:
-            # df_queries2 = []
-            for j in range(n_splits):
+            
+            min_duration = np.timedelta64(self.min_continuous_duration, 's')
+            j = 0
+            while j < n_splits:
                 logging.info(f"Splitting {j}th of {n_splits} continuous dataframes. Used RAM = {virtual_memory().percent}%.")
                 next_split_indices = split_indices.head(2).collect().to_numpy().flatten()
-                # df_queries2.append(
-                # df_queries.slice(next_split_indices[0], next_split_indices[1] - next_split_indices[0])\
-                #             .with_columns(file_set_idx=file_set_idx_offset + j)
-                                # )
-                                
-                df_queries.head(next_split_indices[1] - next_split_indices[0])\
-                            .with_columns(file_set_idx=file_set_idx_offset + j).sink_parquet(os.path.join(temp_save_dir, f"split_{file_set_idx_offset + j}.parquet"), statistics=False)
+                
+                if df_queries.head(next_split_indices[1] - next_split_indices[0]).select(pl.col("time").last() - pl.col("time").first()).collect().item() < min_duration:
+                    logging.info(f"Skipping split {j} of {n_splits} continuous dataframes due to insufficient duration of {self.min_continuous_duration} seconds. Used RAM = {virtual_memory().percent}%.")
+                else:
+                    df_queries.head(next_split_indices[1] - next_split_indices[0])\
+                                .with_columns(file_set_idx=file_set_idx_offset + j).sink_parquet(os.path.join(temp_save_dir, f"split_{file_set_idx_offset + j}.parquet"), statistics=False)
+                    j += 1
+                
                 df_queries = df_queries.slice(next_split_indices[1] - next_split_indices[0])  
                 split_indices = split_indices.slice(1)
-            
-            # df_queries = df_queries2
             
             logging.info(f"Finished splitting {len(processed_file_paths)} files for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
                 

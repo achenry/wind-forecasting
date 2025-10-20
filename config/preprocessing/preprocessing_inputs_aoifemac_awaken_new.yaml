@@ -262,7 +262,8 @@ nacelle_calibration_turbine_pairs:
 - [59,60]
 
 dt: 1
-split_dt: 3600
+split_dt: 3600 # maximum duration of no turbine data allowed in continuous segment, seconds
+min_continuous_duration: 1200 # minimum duration of continuous segments to be retained, seconds
 
 raw_data_directory: 
 # subsets of the data
