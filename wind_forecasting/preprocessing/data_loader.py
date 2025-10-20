@@ -364,7 +364,7 @@ class DataLoader:
                     logging.info(f"Skipping split {j} of {n_splits} continuous dataframes due to insufficient duration of {self.min_continuous_duration} seconds. Used RAM = {virtual_memory().percent}%.")
                 else:
                     df_queries.head(next_split_indices[1] - next_split_indices[0])\
-                                .with_columns(file_set_idx=file_set_idx_offset + jj).sink_parquet(os.path.join(temp_save_dir, f"split_{file_set_idx_offset + jj}.parquet"), statistics=False)
+                                .with_columns(file_set_idx=file_set_idx_offset + j).sink_parquet(os.path.join(temp_save_dir, f"split_{file_set_idx_offset + jj}.parquet"), statistics=False)
                     jj += 1
                 
                 df_queries = df_queries.slice(next_split_indices[1] - next_split_indices[0])  
@@ -375,18 +375,18 @@ class DataLoader:
                 
         start_time = time.time()
         
-        logging.info(f"Started resampling and refill of {n_splits} continuous dataframes for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
+        logging.info(f"Started resampling and refill of {jj} continuous dataframes for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
         if self.multiprocessor is not None:
             executor = ProcessPoolExecutor()
             with executor as ex:
                 if ex is not None:
-                    merge_futures = [ex.submit(self._resample_df, pl.scan_parquet(os.path.join(temp_save_dir, f"split_{file_set_idx_offset + j}.parquet")), j) for j in range(n_splits)]
+                    merge_futures = [ex.submit(self._resample_df, pl.scan_parquet(os.path.join(temp_save_dir, f"split_{file_set_idx_offset + j}.parquet")), j) for j in range(jj)]
                     for j, fut in enumerate(merge_futures):
                         fut.result().collect().write_parquet(os.path.join(temp_save_dir, f"merged_{file_set_idx_offset + j}_{i}.parquet"))
             logging.info(f"Parallel resampling took {time.time() - start_time:.2f} s")
         else:
             df_queries_2 = []
-            for j in range(n_splits):
+            for j in range(jj):
                 self._resample_df(pl.scan_parquet(os.path.join(temp_save_dir, f"split_{file_set_idx_offset + j}.parquet")), j).collect().write_parquet(os.path.join(temp_save_dir, f"merged_{file_set_idx_offset + j}_{i}.parquet"))
             df_queries = df_queries_2
     
