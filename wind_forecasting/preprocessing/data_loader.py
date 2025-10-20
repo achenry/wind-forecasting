@@ -12,7 +12,7 @@ from typing import List, Optional
 from pathlib import Path
 import logging
 import re
-from itertools import chain
+import pickle
 
 # logging.info("Hi 1")
 from concurrent.futures import ProcessPoolExecutor
@@ -141,7 +141,6 @@ class DataLoader:
      
     def read_multi_files(self, temp_save_dir, read_single_files=True) -> pl.LazyFrame | None:
         read_start = time.time()
-        all_columns = set()
         
         if self.multiprocessor is not None:
             # if self.multiprocessor == "mpi" and mpi_exists:
@@ -236,7 +235,7 @@ class DataLoader:
                 
                 # df_queries = []
                 for file_set_idx in range(len(self.file_paths)):
-                    self.merge_multiple_files(file_set_idx, processed_file_paths[file_set_idx], file_set_idx, temp_save_dir)
+                    self.merge_multiple_files(file_set_idx, processed_file_paths[file_set_idx], file_set_idx, temp_save_dir, read_schema=read_single_files)
                 
                 # Write to final parquet
                 logging.info(f"Saving final Parquet file into {self.save_path}, used ram = {virtual_memory().percent}%")
@@ -263,27 +262,35 @@ class DataLoader:
         return df.slice(next_split_indices[0], next_split_indices[1] - next_split_indices[0])\
                         .with_columns(file_set_idx=file_set_idx_offset + j)
     
-    def merge_multiple_files(self, file_set_idx, processed_file_paths, i, temp_save_dir):
+    def merge_multiple_files(self, file_set_idx, processed_file_paths, i, temp_save_dir, read_schema):
         
         logging.info(f"Started scanning {len(processed_file_paths)} files for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
         
-        if self.multiprocessor is not None:
-            executor = ProcessPoolExecutor()
-            with executor as ex:
-                if ex is not None:
-                    schema_futures = [ex.submit(self._get_schema, fp) for fp in processed_file_paths]
-                    full_schema = schema_futures[0].result()
-                    logging.info(f"  - Schema for {processed_file_paths[0]}: {full_schema}")
-                    for f, fut in enumerate(schema_futures[1:]):
-                        schema = fut.result()
-                        logging.info(f"  - Schema for {processed_file_paths[f+1]}: {schema}")
-                        full_schema.update(schema)
+        if read_schema or not os.path.exists(os.path.join(temp_save_dir, f"full_schema_{file_set_idx}_{i}.pkl")):
+            if self.multiprocessor is not None:
+                executor = ProcessPoolExecutor()
+                with executor as ex:
+                    if ex is not None:
+                        schema_futures = [ex.submit(self._get_schema, fp) for fp in processed_file_paths]
+                        full_schema = schema_futures[0].result()
+                        logging.info(f"  - Schema for {processed_file_paths[0]}: {full_schema}")
+                        for f, fut in enumerate(schema_futures[1:]):
+                            schema = fut.result()
+                            logging.info(f"  - Schema for {processed_file_paths[f+1]}: {schema}")
+                            full_schema.update(schema)
+            else:
+                full_schema = pl.scan_parquet(processed_file_paths[0]).collect_schema()
+            
+                for f, fp in enumerate(processed_file_paths[1:]):
+                    logging.info(f"  - Scanning {f}th of {len(processed_file_paths)} files. Used RAM = {virtual_memory().percent}%.")
+                    full_schema.update(pl.scan_parquet(fp).collect_schema())
+            
+            with open(os.path.join(temp_save_dir, f"full_schema_{file_set_idx}_{i}.pkl"), "wb") as fp:
+                pickle.dump(full_schema, fp)
+                
         else:
-            full_schema = pl.scan_parquet(processed_file_paths[0]).collect_schema()
-        
-            for f, fp in enumerate(processed_file_paths[1:]):
-                logging.info(f"  - Scanning {f}th of {len(processed_file_paths)} files. Used RAM = {virtual_memory().percent}%.")
-                full_schema.update(pl.scan_parquet(fp).collect_schema())
+            with open(os.path.join(temp_save_dir, f"full_schema_{file_set_idx}_{i}.pkl"), "rb") as fp:
+                full_schema = pickle.load(fp)
         
         df_queries = pl.scan_parquet(os.path.join(os.path.dirname(processed_file_paths[0]), f"{os.path.splitext(self.file_signature[file_set_idx])[0]}.parquet"), glob=True, schema=full_schema, missing_columns="insert")
         
@@ -298,10 +305,10 @@ class DataLoader:
             # split by discontinuity, all df_queries are sorted up to this point
             logging.info(f"Started merging of {len(processed_file_paths)} files for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
             
-            df_queries.group_by("time", maintain_order=True)\
-                                   .agg(cs.numeric().mean())\
-                                   .sort("time")\
-                                    .sink_parquet(self.save_path, maintain_order=True)
+            df_queries.sort("time")\
+                      .group_by("time", maintain_order=True)\
+                      .agg(cs.numeric().mean())\
+                      .sink_parquet(self.save_path, maintain_order=True)
             df_queries = pl.scan_parquet(self.save_path)
             # os.remove(os.path.join(temp_save_dir, f"merged_temp_{file_set_idx}_{i}.parquet"))          
             
@@ -365,7 +372,7 @@ class DataLoader:
                     logging.info(f"Skipping split {j} of {n_splits} continuous dataframes due to insufficient duration of {self.min_continuous_duration} seconds. Used RAM = {virtual_memory().percent}%.")
                 else:
                     logging.info(f"Splitting {j}th of {n_splits} continuous dataframes. Used RAM = {virtual_memory().percent}%.")
-                    logging.info(f"Setting file_set_idx to {file_set_idx_offset + jj}.")
+                    # logging.info(f"Setting file_set_idx to {file_set_idx_offset + jj}.")
                     df_queries_2.append(dfq.with_columns(file_set_idx=file_set_idx_offset + jj))
                     # logging.info(f"Sinking to parquet {os.path.join(temp_save_dir, f'split_{file_set_idx_offset + jj}.parquet')}.")
                     # dfq.sink_parquet(os.path.join(temp_save_dir, f"split_{file_set_idx_offset + jj}.parquet"), maintain_order=True)
