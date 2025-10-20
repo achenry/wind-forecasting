@@ -365,7 +365,7 @@ class DataLoader:
                 else:
                     logging.info(f"Splitting {j}th of {n_splits} continuous dataframes. Used RAM = {virtual_memory().percent}%.")
                     df_queries.head(next_split_indices[1] - next_split_indices[0])\
-                                .with_columns(file_set_idx=file_set_idx_offset + j).sink_parquet(os.path.join(temp_save_dir, f"split_{file_set_idx_offset + jj}.parquet"), statistics=False)
+                                .with_columns(file_set_idx=file_set_idx_offset + jj).sink_parquet(os.path.join(temp_save_dir, f"split_{file_set_idx_offset + jj}.parquet"), statistics=False)
                     jj += 1
                 
                 logging.info(371)
