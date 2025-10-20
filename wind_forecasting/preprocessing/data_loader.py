@@ -357,15 +357,19 @@ class DataLoader:
             j = 0
             jj = 0
             while j < n_splits:
-                logging.info(360)
-                next_split_indices = split_indices.head(2).collect().to_numpy().flatten()
-                logging.info(362)
-                if df_queries.head(next_split_indices[1] - next_split_indices[0]).select(pl.col("time").last() - pl.col("time").first()).collect().item() < min_duration:
+                # logging.info(360)
+                next_split_indices = split_indices.head(2).collect().to_numpy().flatten() # takes 1 min
+                # logging.info(362)
+                dfq = df_queries.head(next_split_indices[1] - next_split_indices[0])
+                if dfq.select(pl.col("time").last() - pl.col("time").first()).collect().item() < min_duration: # takes 1 min
                     logging.info(f"Skipping split {j} of {n_splits} continuous dataframes due to insufficient duration of {self.min_continuous_duration} seconds. Used RAM = {virtual_memory().percent}%.")
                 else:
                     logging.info(f"Splitting {j}th of {n_splits} continuous dataframes. Used RAM = {virtual_memory().percent}%.")
-                    df_queries.head(next_split_indices[1] - next_split_indices[0])\
-                                .with_columns(file_set_idx=file_set_idx_offset + jj).sink_parquet(os.path.join(temp_save_dir, f"split_{file_set_idx_offset + jj}.parquet"), statistics=False)
+                    logging.info(f"Setting file_set_idx to {file_set_idx_offset + jj}.")
+                    dfq = dfq.with_columns(file_set_idx=file_set_idx_offset + jj)
+                    logging.info(f"Sinking to parquet {os.path.join(temp_save_dir, f'split_{file_set_idx_offset + jj}.parquet')}.")
+                    dfq.collect().write_parquet(os.path.join(temp_save_dir, f"split_{file_set_idx_offset + jj}.parquet"))
+                    # dfq.sink_parquet(os.path.join(temp_save_dir, f"split_{file_set_idx_offset + jj}.parquet"), maintain_order=True)
                     jj += 1
                 
                 logging.info(371)
