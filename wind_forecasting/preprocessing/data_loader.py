@@ -343,8 +343,8 @@ class DataLoader:
             file_set_idx_offset = sum(len(file_set) for file_set in self.file_paths[:file_set_idx])
             split_indices = df_queries.select("time").with_row_index().with_columns(dt=pl.col("time").diff()).slice(1).filter(pl.col("dt") > np.timedelta64(self.split_dt, 's')).select("index")
             
-            i_type = split_indices.collect_schema()["index"]
-            split_indices = pl.concat([pl.Series([0]).alias("index").cast(i_type).to_frame().lazy(), split_indices, pl.Series([df_queries.select(pl.len()).collect().item()]).alias("index").cast(i_type).to_frame().lazy()])
+            # i_type = split_indices.collect_schema()["index"]
+            split_indices = pl.concat([pl.Series([0]).alias("index").to_frame().lazy(), split_indices, pl.Series([df_queries.select(pl.len()).collect().item()]).alias("index").to_frame().lazy()], how="vertical_relaxed")
             n_splits = split_indices.select(pl.len()).collect().item() - 1
             
             logging.info(f"Finished generating split_indices {len(processed_file_paths)} files for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
@@ -374,27 +374,28 @@ class DataLoader:
                 
         start_time = time.time()
         
+        logging.info(f"Started resampling and refill of {n_splits} continuous dataframes for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
         if self.multiprocessor is not None:
             executor = ProcessPoolExecutor()
             with executor as ex:
                 if ex is not None:
-                    merge_futures = [ex.submit(self._resample_df, df_queries[j], j, n_splits) for j in range(n_splits)]
+                    merge_futures = [ex.submit(self._resample_df, df_queries[j], j) for j in range(n_splits)]
                     for j, fut in enumerate(merge_futures):
                         fut.result().collect().write_parquet(os.path.join(temp_save_dir, f"merged_{file_set_idx_offset + j}_{i}.parquet"))
             logging.info(f"Parallel resampling took {time.time() - start_time:.2f} s")
         else:
             df_queries_2 = []
             for j in range(n_splits):
-                self._resample_df(df_queries[j], j, n_splits).collect().write_parquet(os.path.join(temp_save_dir, f"merged_{file_set_idx_offset + j}_{i}.parquet"))
+                self._resample_df(df_queries[j], j).collect().write_parquet(os.path.join(temp_save_dir, f"merged_{file_set_idx_offset + j}_{i}.parquet"))
             df_queries = df_queries_2
     
             logging.info(f"Sequential resampling took {time.time() - start_time:.2f} s")
             
         return
     
-    def _resample_df(self, df, i, num_files_set_indices):
+    def _resample_df(self, df, i):
         bounds = df.select(pl.col("time").first().alias("first"), pl.col("time").last().alias("last")).collect()
-        logging.info(f"Started resampling and refill from {bounds['first'].item()} to {bounds['last'].item()} for {i}th of {num_files_set_indices} dfs. Used RAM = {virtual_memory().percent}%.") 
+        logging.info(f"Started resampling and refill from {bounds['first'].item()} to {bounds['last'].item()} for {i}th of dfs. Used RAM = {virtual_memory().percent}%.") 
         return df.select(pl.datetime_range(start=bounds["first"].item(),
                                     end=bounds["last"].item(),
                                     interval=f"{self.dt}s", 
