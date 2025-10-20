@@ -298,11 +298,12 @@ class DataLoader:
             # split by discontinuity, all df_queries are sorted up to this point
             logging.info(f"Started merging of {len(processed_file_paths)} files for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
             
-            # df_queries = pl.concat(df_queries, how="diagonal")\
-                    
-            df_queries = df_queries.group_by("time", maintain_order=True)\
+            df_queries.group_by("time", maintain_order=True)\
                                    .agg(cs.numeric().mean())\
-                                   .sort("time")
+                                   .sort("time")\
+                                    .sink_parquet(self.save_path, maintain_order=True)
+            df_queries = pl.scan_parquet(self.save_path)
+            # os.remove(os.path.join(temp_save_dir, f"merged_temp_{file_set_idx}_{i}.parquet"))          
             
             logging.info(f"Finished merging {len(processed_file_paths)} files for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
             
@@ -353,31 +354,28 @@ class DataLoader:
             
             logging.info(f"Started splitting {len(processed_file_paths)} files for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
             
+            df_queries_2 = []
             min_duration = np.timedelta64(self.min_continuous_duration, 's')
             j = 0
             jj = 0
             while j < n_splits:
-                # logging.info(360)
                 next_split_indices = split_indices.head(2).collect().to_numpy().flatten() # takes 1 min
-                # logging.info(362)
                 dfq = df_queries.head(next_split_indices[1] - next_split_indices[0])
                 if dfq.select(pl.col("time").last() - pl.col("time").first()).collect().item() < min_duration: # takes 1 min
                     logging.info(f"Skipping split {j} of {n_splits} continuous dataframes due to insufficient duration of {self.min_continuous_duration} seconds. Used RAM = {virtual_memory().percent}%.")
                 else:
                     logging.info(f"Splitting {j}th of {n_splits} continuous dataframes. Used RAM = {virtual_memory().percent}%.")
                     logging.info(f"Setting file_set_idx to {file_set_idx_offset + jj}.")
-                    dfq = dfq.with_columns(file_set_idx=file_set_idx_offset + jj)
-                    logging.info(f"Sinking to parquet {os.path.join(temp_save_dir, f'split_{file_set_idx_offset + jj}.parquet')}.")
-                    dfq.collect().write_parquet(os.path.join(temp_save_dir, f"split_{file_set_idx_offset + jj}.parquet"))
+                    df_queries_2.append(dfq.with_columns(file_set_idx=file_set_idx_offset + jj))
+                    # logging.info(f"Sinking to parquet {os.path.join(temp_save_dir, f'split_{file_set_idx_offset + jj}.parquet')}.")
                     # dfq.sink_parquet(os.path.join(temp_save_dir, f"split_{file_set_idx_offset + jj}.parquet"), maintain_order=True)
                     jj += 1
                 
-                logging.info(371)
                 df_queries = df_queries.slice(next_split_indices[1] - next_split_indices[0]) 
-                logging.info(373) 
                 split_indices = split_indices.slice(1)
                 j += 1
             
+            df_queries = df_queries_2
             logging.info(f"Finished splitting {len(processed_file_paths)} files for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
                 
         start_time = time.time()
@@ -387,14 +385,14 @@ class DataLoader:
             executor = ProcessPoolExecutor()
             with executor as ex:
                 if ex is not None:
-                    merge_futures = [ex.submit(self._resample_df, pl.scan_parquet(os.path.join(temp_save_dir, f"split_{file_set_idx_offset + j}.parquet")), j) for j in range(jj)]
+                    merge_futures = [ex.submit(self._resample_df, df_queries[j], j) for j in range(jj)]
                     for j, fut in enumerate(merge_futures):
-                        fut.result().collect().write_parquet(os.path.join(temp_save_dir, f"merged_{file_set_idx_offset + j}_{i}.parquet"))
+                        fut.result().sink_parquet(os.path.join(temp_save_dir, f"merged_{file_set_idx_offset + j}_{i}.parquet"), maintain_order=True)
             logging.info(f"Parallel resampling took {time.time() - start_time:.2f} s")
         else:
             df_queries_2 = []
             for j in range(jj):
-                self._resample_df(pl.scan_parquet(os.path.join(temp_save_dir, f"split_{file_set_idx_offset + j}.parquet")), j).collect().write_parquet(os.path.join(temp_save_dir, f"merged_{file_set_idx_offset + j}_{i}.parquet"))
+                self._resample_df(df_queries[j], j).sink_parquet(os.path.join(temp_save_dir, f"merged_{file_set_idx_offset + j}_{i}.parquet"), maintain_order=True)
             df_queries = df_queries_2
     
             logging.info(f"Sequential resampling took {time.time() - start_time:.2f} s")
