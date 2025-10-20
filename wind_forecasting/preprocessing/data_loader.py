@@ -293,6 +293,8 @@ class DataLoader:
                 full_schema = pickle.load(fp)
         
         df_queries = pl.scan_parquet(os.path.join(os.path.dirname(processed_file_paths[0]), f"{os.path.splitext(self.file_signature[file_set_idx])[0]}.parquet"), glob=True, schema=full_schema, missing_columns="insert")
+        df_queries.sink_parquet(self.save_path.replace(".parquet", "_temp.parquet"))
+        df_queries = pl.scan_parquet(self.save_path.replace(".parquet", "_temp.parquet"))
         
         logging.info(f"Finished scanning {len(processed_file_paths)} files for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
         # all([df.select(pl.col("time").n_unique()).collect().item() == df.select(pl.len()).collect().item() for df in df_queries])
@@ -306,9 +308,10 @@ class DataLoader:
             logging.info(f"Started merging of {len(processed_file_paths)} files for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
             
             df_queries.sort("time")\
-                      .group_by("time")\
+                      .group_by("time", maintain_order=True)\
                       .agg(cs.numeric().mean())\
                       .sink_parquet(self.save_path, maintain_order=True, row_group_size=1000000)
+            os.remove(self.save_path.replace(".parquet", "_temp.parquet"))
             df_queries = pl.scan_parquet(self.save_path)
             # os.remove(os.path.join(temp_save_dir, f"merged_temp_{file_set_idx}_{i}.parquet"))          
             
