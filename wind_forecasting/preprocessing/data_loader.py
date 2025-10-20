@@ -355,6 +355,7 @@ class DataLoader:
             
             min_duration = np.timedelta64(self.min_continuous_duration, 's')
             j = 0
+            jj = 0
             while j < n_splits:
                 logging.info(f"Splitting {j}th of {n_splits} continuous dataframes. Used RAM = {virtual_memory().percent}%.")
                 next_split_indices = split_indices.head(2).collect().to_numpy().flatten()
@@ -363,11 +364,12 @@ class DataLoader:
                     logging.info(f"Skipping split {j} of {n_splits} continuous dataframes due to insufficient duration of {self.min_continuous_duration} seconds. Used RAM = {virtual_memory().percent}%.")
                 else:
                     df_queries.head(next_split_indices[1] - next_split_indices[0])\
-                                .with_columns(file_set_idx=file_set_idx_offset + j).sink_parquet(os.path.join(temp_save_dir, f"split_{file_set_idx_offset + j}.parquet"), statistics=False)
-                    j += 1
+                                .with_columns(file_set_idx=file_set_idx_offset + jj).sink_parquet(os.path.join(temp_save_dir, f"split_{file_set_idx_offset + jj}.parquet"), statistics=False)
+                    jj += 1
                 
                 df_queries = df_queries.slice(next_split_indices[1] - next_split_indices[0])  
                 split_indices = split_indices.slice(1)
+                j += 1
             
             logging.info(f"Finished splitting {len(processed_file_paths)} files for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
                 
