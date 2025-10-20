@@ -306,7 +306,7 @@ class DataLoader:
             logging.info(f"Started merging of {len(processed_file_paths)} files for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
             
             df_queries.sort("time")\
-                      .group_by("time", maintain_order=True)\
+                      .group_by("time")\
                       .agg(cs.numeric().mean())\
                       .sink_parquet(self.save_path, maintain_order=True)
             df_queries = pl.scan_parquet(self.save_path)
