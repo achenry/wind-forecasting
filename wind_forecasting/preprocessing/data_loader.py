@@ -358,17 +358,21 @@ class DataLoader:
             #             futures = [ex.submit(self._split_df, df_queries, split_indices.slice(j, 2).collect().to_numpy().flatten(), j, file_set_idx_offset, n_splits) for j in range(n_splits)]
             #             df_queries = [fut.result() for fut in futures]
             # else:
-            df_queries2 = []
+            # df_queries2 = []
             for j in range(n_splits):
                 logging.info(f"Splitting {j}th of {n_splits} continuous dataframes. Used RAM = {virtual_memory().percent}%.")
                 next_split_indices = split_indices.head(2).collect().to_numpy().flatten()
-                df_queries2.append(
-                    df_queries.slice(next_split_indices[0], next_split_indices[1] - next_split_indices[0])\
-                                .with_columns(file_set_idx=file_set_idx_offset + j)
-                                )
+                # df_queries2.append(
+                # df_queries.slice(next_split_indices[0], next_split_indices[1] - next_split_indices[0])\
+                #             .with_columns(file_set_idx=file_set_idx_offset + j)
+                                # )
+                                
+                df_queries.slice(0, next_split_indices[1] - next_split_indices[0])\
+                            .with_columns(file_set_idx=file_set_idx_offset + j).sink_parquet(os.path.join(temp_save_dir, f"split_{file_set_idx_offset + j}.parquet"), statistics=False)
+                df_queries = df_queries.slice(next_split_indices[1] - next_split_indices[0])  
                 split_indices = split_indices.slice(1)
             
-            df_queries = df_queries2
+            # df_queries = df_queries2
             
             logging.info(f"Finished splitting {len(processed_file_paths)} files for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
                 
@@ -379,14 +383,14 @@ class DataLoader:
             executor = ProcessPoolExecutor()
             with executor as ex:
                 if ex is not None:
-                    merge_futures = [ex.submit(self._resample_df, df_queries[j], j) for j in range(n_splits)]
+                    merge_futures = [ex.submit(self._resample_df, pl.scan_parquet(os.path.join(temp_save_dir, f"split_{file_set_idx_offset + j}.parquet")), j) for j in range(n_splits)]
                     for j, fut in enumerate(merge_futures):
                         fut.result().collect().write_parquet(os.path.join(temp_save_dir, f"merged_{file_set_idx_offset + j}_{i}.parquet"))
             logging.info(f"Parallel resampling took {time.time() - start_time:.2f} s")
         else:
             df_queries_2 = []
             for j in range(n_splits):
-                self._resample_df(df_queries[j], j).collect().write_parquet(os.path.join(temp_save_dir, f"merged_{file_set_idx_offset + j}_{i}.parquet"))
+                self._resample_df(pl.scan_parquet(os.path.join(temp_save_dir, f"split_{file_set_idx_offset + j}.parquet")), j).collect().write_parquet(os.path.join(temp_save_dir, f"merged_{file_set_idx_offset + j}_{i}.parquet"))
             df_queries = df_queries_2
     
             logging.info(f"Sequential resampling took {time.time() - start_time:.2f} s")
