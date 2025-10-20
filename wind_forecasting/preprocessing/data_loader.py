@@ -367,7 +367,7 @@ class DataLoader:
                 #             .with_columns(file_set_idx=file_set_idx_offset + j)
                                 # )
                                 
-                df_queries.slice(0, next_split_indices[1] - next_split_indices[0])\
+                df_queries.head(next_split_indices[1] - next_split_indices[0])\
                             .with_columns(file_set_idx=file_set_idx_offset + j).sink_parquet(os.path.join(temp_save_dir, f"split_{file_set_idx_offset + j}.parquet"), statistics=False)
                 df_queries = df_queries.slice(next_split_indices[1] - next_split_indices[0])  
                 split_indices = split_indices.slice(1)
