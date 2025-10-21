@@ -13,19 +13,21 @@
 # ! python -m ipykernel install --user --name=wind_forecasting_env
 # ./run_jupyter_preprocessing.sh && http://localhost:7878/lab
 
+logging.info("hi 0")
 import os
 import sys
 import logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.info("hi 00")
 import argparse
 import yaml
 import time
+logging.info("hi 000")
 import re
 from shutil import rmtree, move
 from psutil import virtual_memory
 
 logging.info("hi 1")
-
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 mpi_exists = False
 # try:
