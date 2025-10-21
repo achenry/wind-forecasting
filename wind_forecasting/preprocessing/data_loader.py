@@ -14,22 +14,22 @@ import logging
 import re
 import pickle
 
-# logging.info("Hi 1")
+logging.info("Hi 1")
 from concurrent.futures import ProcessPoolExecutor
-# logging.info("Hi 2")
+logging.info("Hi 2")
 from shutil import move
 from psutil import virtual_memory
-# logging.info("Hi 3")
+logging.info("Hi 3")
 # import gc
 # from datetime.datetime import strptime
 # from memory_profiler import profile
 
 import netCDF4 as nc
-# logging.info("Hi 4")
+logging.info("Hi 4")
 
 import polars as pl
 import polars.selectors as cs
-# logging.info("Hi 5")
+logging.info("Hi 5")
 import numpy as np
 # from sklearn.preprocessing import MinMaxScaler
 

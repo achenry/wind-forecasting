@@ -16,13 +16,16 @@
 import os
 import sys
 import logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 import argparse
 import yaml
 import time
 import re
 from shutil import rmtree, move
 from psutil import virtual_memory
+
+logging.info("hi 1")
+
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 mpi_exists = False
 # try:
@@ -41,19 +44,21 @@ sys.path.insert(0, parent_dir)
 # logging.info(f"Current working directory inside script: {os.getcwd()}")
 # logging.info("sys.path inside script:", sys.path)
 
+logging.info("hi 2")
+
 import multiprocessing
-# logging.info("hi 3")
+logging.info("hi 3")
 from wind_forecasting.preprocessing.data_loader import DataLoader
-# logging.info("hi 4")
+logging.info("hi 4")
 from wind_forecasting.preprocessing.data_filter import (DataFilter, 
                                                         add_df_continuity_columns, add_df_agg_continuity_columns, 
                                                         get_continuity_group_index, group_df_by_continuity, 
                                                         merge_adjacent_periods, compute_offsets, safe_mask)
-# logging.info("hi 5")
+logging.info("hi 5")
 from wind_forecasting.preprocessing.data_inspector import DataInspector
-# logging.info("hi 6")
+logging.info("hi 6")
 from openoa.utils import plot, filters, power_curve
-# logging.info("hi 7")
+logging.info("hi 7")
 
 import polars as pl
 import polars.selectors as cs
@@ -123,6 +128,9 @@ def main():
             for env_var in env_vars:
                 if env_var in os.environ:
                     config[path_key] = config[path_key].replace(f"${env_var}", os.environ[env_var])
+                    
+        if RUN_ONCE:
+            logging.info(f"Resolved {path_key} to: {config[path_key]}")
     
     # config["filters"] = ["nacelle_calibration", "unresponsive_sensor", "range_flag", "bin_filter", "std_range_flag", "impute_missing_data", "split", "normalize"]
     # config["filters"] = ["split", "impute_missing_data", "normalize"]
