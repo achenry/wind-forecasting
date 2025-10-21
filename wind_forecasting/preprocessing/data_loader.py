@@ -293,7 +293,7 @@ class DataLoader:
                 full_schema = pickle.load(fp)
         
         df_queries = pl.scan_parquet(os.path.join(os.path.dirname(processed_file_paths[0]), f"{os.path.splitext(self.file_signature[file_set_idx])[0]}.parquet"), glob=True, schema=full_schema, missing_columns="insert")
-        df_queries.sink_parquet(self.save_path.replace(".parquet", "_temp.parquet"))
+        df_queries.sink_parquet(self.save_path.replace(".parquet", "_temp.parquet"), row_group_size=100000)
         df_queries = pl.scan_parquet(self.save_path.replace(".parquet", "_temp.parquet"))
         
         logging.info(f"Finished scanning {len(processed_file_paths)} files for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
@@ -311,7 +311,7 @@ class DataLoader:
                       .group_by("time", maintain_order=True)\
                       .agg(cs.numeric().mean())\
                       .sink_parquet(self.save_path, maintain_order=True, row_group_size=1000000)
-            os.remove(self.save_path.replace(".parquet", "_temp.parquet"))
+            # os.remove(self.save_path.replace(".parquet", "_temp.parquet"))
             df_queries = pl.scan_parquet(self.save_path)
             # os.remove(os.path.join(temp_save_dir, f"merged_temp_{file_set_idx}_{i}.parquet"))          
             
@@ -408,6 +408,8 @@ class DataLoader:
             logging.info(f"Sequential resampling took {time.time() - start_time:.2f} s")
             
         return
+    
+    # other_df = pl.DataFrame({"apple": ["x", "y", "z", "a"], "ham": ["a", "b", "d", "a"]})
     
     def _resample_df(self, df, i):
         bounds = df.select(pl.col("time").first().alias("first"), pl.col("time").last().alias("last")).collect()
