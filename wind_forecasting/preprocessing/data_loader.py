@@ -294,7 +294,7 @@ class DataLoader:
             logging.info(f"Scanned existing schema: {full_schema}")
         
         if False:
-            df_queries = pl.scan_parquet(os.path.join(os.path.dirname(processed_file_paths[0]), f"{os.path.splitext(self.file_signature[file_set_idx])[0]}.parquet"), glob=True, schema=full_schema, missing_columns="insert")
+            df_queries = pl.scan_parquet(os.path.join(os.path.dirname(processed_file_paths[0]), f"{os.path.splitext(self.file_signature[file_set_idx])[0]}.parquet"), glob=True, schema=full_schema, missing_columns="insert").sort("time")
             df_queries.sink_parquet(self.save_path.replace(".parquet", "_temp.parquet"), row_group_size=100000)
         df_queries = pl.scan_parquet(self.save_path.replace(".parquet", "_temp.parquet"))
         
@@ -307,13 +307,14 @@ class DataLoader:
         else:
             # concatenate and forward fill file groups with continuous time spans
             # split by discontinuity, all df_queries are sorted up to this point
-            # logging.info(f"Started sorting of {len(processed_file_paths)} files for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
-            
+            logging.info(f"Started sorting of {len(processed_file_paths)} files for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
+            df_queries.sort("time").sink_parquet(self.save_path.replace(".parquet", "_temp_sorted.parquet"), maintain_order=True, row_group_size=100000)
             # df_queries.sort("time").sink_parquet(self.save_path.replace(".parquet", "_temp.parquet"), row_group_size=100000)
-            # df_queries = pl.scan_parquet(self.save_path.replace(".parquet", "_temp.parquet"))
-            # logging.info(f"Finished sorting of {len(processed_file_paths)} files for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
+            df_queries = pl.scan_parquet(self.save_path.replace(".parquet", "_temp_sorted.parquet"))
+            # os.remove(self.save_path.replace(".parquet", "_temp.parquet"))
+            logging.info(f"Finished sorting of {len(processed_file_paths)} files for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
             
-            logging.info(f"Started groupting of {len(processed_file_paths)} files for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
+            logging.info(f"Started grouping of {len(processed_file_paths)} files for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
             df_queries.sort("time")\
                       .group_by("time", maintain_order=True)\
                       .agg(cs.numeric().mean())\
