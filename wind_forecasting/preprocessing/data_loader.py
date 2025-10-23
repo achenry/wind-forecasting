@@ -264,8 +264,6 @@ class DataLoader:
     
     def merge_multiple_files(self, file_set_idx, processed_file_paths, i, temp_save_dir, read_schema):
         
-        logging.info(f"Started scanning {len(processed_file_paths)} files for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
-        
         if read_schema or not os.path.exists(os.path.join(temp_save_dir, f"full_schema_{file_set_idx}_{i}.pkl")):
             if self.multiprocessor is not None:
                 executor = ProcessPoolExecutor()
@@ -294,12 +292,16 @@ class DataLoader:
             logging.info(f"Scanned existing schema: {full_schema}")
         
         # if False:
-        rows_per_chunk = 1_000_000
+        rows_per_chunk = 100_000
+        logging.info(f"Started scanning {len(processed_file_paths)} files for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
         df_queries = pl.scan_parquet(os.path.join(os.path.dirname(processed_file_paths[0]), f"{os.path.splitext(self.file_signature[file_set_idx])[0]}.parquet"), glob=True, schema=full_schema, missing_columns="insert", low_memory=True, rechunk=True).sort("time")
+        logging.info(f"Finished scanning {len(processed_file_paths)} files for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
+        logging.info(f"Started sinking {len(processed_file_paths)} files for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
         df_queries.sink_parquet(self.save_path.replace(".parquet", "_temp.parquet"), maintain_order=True, row_group_size=rows_per_chunk)
+        logging.info(f"Finished sinking {len(processed_file_paths)} files for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
         df_queries = pl.scan_parquet(self.save_path.replace(".parquet", "_temp.parquet"))
         
-        logging.info(f"Finished scanning {len(processed_file_paths)} files for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
+        
         # all([df.select(pl.col("time").n_unique()).collect().item() == df.select(pl.len()).collect().item() for df in df_queries])
         # For single file or files without timestamps, just get the dataframes
         
