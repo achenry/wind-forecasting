@@ -307,18 +307,18 @@ class DataLoader:
         else:
             # concatenate and forward fill file groups with continuous time spans
             # split by discontinuity, all df_queries are sorted up to this point
-            logging.info(f"Started sorting of {len(processed_file_paths)} files for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
-            df_queries.sort("time").sink_parquet(self.save_path.replace(".parquet", "_temp_sorted.parquet"), maintain_order=True, row_group_size=10000)
-            # df_queries.sort("time").sink_parquet(self.save_path.replace(".parquet", "_temp.parquet"), row_group_size=100000)
-            df_queries = pl.scan_parquet(self.save_path.replace(".parquet", "_temp_sorted.parquet"))
-            # os.remove(self.save_path.replace(".parquet", "_temp.parquet"))
+            # logging.info(f"Started sorting of {len(processed_file_paths)} files for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
+            # df_queries.sort("time").sink_parquet(self.save_path.replace(".parquet", "_temp_sorted.parquet"), maintain_order=True, row_group_size=10000)
+            # # df_queries.sort("time").sink_parquet(self.save_path.replace(".parquet", "_temp.parquet"), row_group_size=100000)
+            # df_queries = pl.scan_parquet(self.save_path.replace(".parquet", "_temp_sorted.parquet"))
+            # # os.remove(self.save_path.replace(".parquet", "_temp.parquet"))
             logging.info(f"Finished sorting of {len(processed_file_paths)} files for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
             
             logging.info(f"Started grouping of {len(processed_file_paths)} files for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
             df_queries.sort("time")\
                       .group_by("time", maintain_order=True)\
                       .agg(cs.numeric().mean())\
-                      .sink_parquet(self.save_path, maintain_order=True, row_group_size=10000)
+                      .sink_parquet(self.save_path, maintain_order=True, row_group_size=100000)
             # os.remove(self.save_path.replace(".parquet", "_temp.parquet"))
             df_queries = pl.scan_parquet(self.save_path)
             # os.remove(os.path.join(temp_save_dir, f"merged_temp_{file_set_idx}_{i}.parquet"))          
