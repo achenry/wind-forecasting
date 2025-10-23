@@ -259,7 +259,8 @@ class DataLoader:
         return pl.scan_parquet(fp).collect_schema()
     
     def _get_time_bounds(self, fp):
-        return pl.scan_parquet(fp).select(pl.col("time").first().alias("start"), pl.col("time").last().alias("end")).collect()
+        x = pl.scan_parquet(fp).select(pl.col("time").first().alias("start"), pl.col("time").last().alias("end")).collect()
+        return x["start"].item(), x["end"].item()
     
     def _split_df(self, df, next_split_indices, j, file_set_idx_offset, n_splits):
         logging.info(f"Splitting {j}th of {n_splits} continuous dataframes. Used RAM = {virtual_memory().percent}%.")
@@ -307,15 +308,16 @@ class DataLoader:
                     if ex is not None:
                         time_bounds_futures = [ex.submit(self._get_time_bounds, fp) for fp in processed_file_paths]
                         for f, fut in enumerate(time_bounds_futures):
-                            time_bounds = fut.result().with_columns(file_index=pl.lit(f))
-                            logging.info(f"  - Time Bounds for {processed_file_paths[f]}: {time_bounds}")
-                            all_time_bounds.append(time_bounds)
+                            start, end = fut.result()
+                            all_time_bounds.append((start, end, f))
+                            logging.info(f"  - Time Bounds for {processed_file_paths[f]}: {all_time_bounds[-1]}")
             else:
                 for f, fp in enumerate(processed_file_paths):
-                    logging.info(f"  - Time Bounds for {processed_file_paths[f]}: {time_bounds}")
-                    all_time_bounds.append(self._get_time_bounds(fp).with_columns(file_index=pl.lit(f)))
+                    start, end = self._get_time_bounds(fp)
+                    all_time_bounds.append((start, end, f))
+                    logging.info(f"  - Time Bounds for {processed_file_paths[f]}: {all_time_bounds[-1]}")
             
-            all_time_bounds = pl.concat(all_time_bounds, how="vertical").sort("start").drop_nulls()
+            all_time_bounds = pl.DataFrame(all_time_bounds, schema=["start", "end", "file_index"]).sort("start").drop_nulls()
             
             with open(os.path.join(temp_save_dir, f"time_bounds_{file_set_idx}_{i}.pkl"), "wb") as fp:
                 pickle.dump(all_time_bounds, fp)
@@ -347,9 +349,13 @@ class DataLoader:
                 all_time_span_file_indices = set()
                 while t_start < last_t_end:
                     time_span_file_indices = all_time_bounds.filter(pl.col("start").is_between(t_start, t_end, closed="left"))
-                    
+                    while not time_span_file_indices.filter(pl.col("end") >= t_end).is_empty():
+                        new_t_end = time_span_file_indices["end"].max() + timedelta(seconds=1)
+                        time_span_file_indices = pl.concat([time_span_file_indices, all_time_bounds.filter(pl.col("start").is_between(t_end, new_t_end, closed="left"))], how="vertical")
+                        t_end = new_t_end
+                        
                     if len(time_span_file_indices):
-                        # t_end = time_span_file_indices["end"].max() + timedelta(seconds=1)
+                        # 
                         time_span_file_indices = time_span_file_indices["file_index"].to_numpy()
                         time_span_file_indices = set(time_span_file_indices).difference(all_time_span_file_indices)
                         logging.info(f"Processing chunk from {t_start} to {t_end} out of {last_t_end} for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
