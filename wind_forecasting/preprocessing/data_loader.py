@@ -7,7 +7,7 @@
 import glob
 import os
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import List, Optional
 from pathlib import Path
 import logging
@@ -294,8 +294,9 @@ class DataLoader:
             logging.info(f"Scanned existing schema: {full_schema}")
         
         # if False:
-        df_queries = pl.scan_parquet(os.path.join(os.path.dirname(processed_file_paths[0]), f"{os.path.splitext(self.file_signature[file_set_idx])[0]}.parquet"), glob=True, schema=full_schema, missing_columns="insert").sort("time")
-        df_queries.sink_parquet(self.save_path.replace(".parquet", "_temp.parquet"), row_group_size=10000)
+        rows_per_chunk = 100_000
+        df_queries = pl.scan_parquet(os.path.join(os.path.dirname(processed_file_paths[0]), f"{os.path.splitext(self.file_signature[file_set_idx])[0]}.parquet"), glob=True, schema=full_schema, missing_columns="insert", low_memory=True, rechunk=True).sort("time")
+        df_queries.sink_parquet(self.save_path.replace(".parquet", "_temp.parquet"), maintain_order=True, row_group_size=rows_per_chunk)
         df_queries = pl.scan_parquet(self.save_path.replace(".parquet", "_temp.parquet"))
         
         logging.info(f"Finished scanning {len(processed_file_paths)} files for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
@@ -303,7 +304,7 @@ class DataLoader:
         # For single file or files without timestamps, just get the dataframes
         
         if len(processed_file_paths) == 1:
-            df_queries = df_queries.sort("time")  # If single file, no need to join
+            df_queries = df_queries  # If single file, no need to join
         else:
             # concatenate and forward fill file groups with continuous time spans
             # split by discontinuity, all df_queries are sorted up to this point
@@ -315,14 +316,31 @@ class DataLoader:
             # logging.info(f"Finished sorting of {len(processed_file_paths)} files for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
             
             logging.info(f"Started grouping of {len(processed_file_paths)} files for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
-            df_queries.group_by("time", maintain_order=True)\
-                      .agg(cs.numeric().mean())\
-                      .sink_parquet(self.save_path, maintain_order=True, row_group_size=1000)
+            
+            time_span_per_chunk = timedelta(seconds=self.dt) * rows_per_chunk
+            time_bounds = df_queries.select(pl.col("time").first().alias("start"), pl.col("time").last().alias("end")).collect()
+            t_start, t_end = time_bounds["start"].item(), time_bounds["start"].item() + time_span_per_chunk
+            last_t_end = time_bounds["end"].item()
+            grouped_idx = 0
+            while t_start < last_t_end:
+                logging.info(f"Processing chunk from {t_start} to {t_end} out of {last_t_end} for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
+                df_queries.filter(pl.col("time").is_between(t_start, t_end, closed="left"))\
+                          .group_by("time", maintain_order=True)\
+                          .agg(cs.numeric().mean())\
+                          .sink_parquet(self.save_path.replace(".parquet", f"_grouped{grouped_idx}.parquet"), maintain_order=True)
+                t_start, t_end = t_end, min(t_start + time_span_per_chunk, last_t_end)
+                grouped_idx += 1
+            
+            # logging.info(f"Started grouping of {len(processed_file_paths)} files for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
+            # df_queries.group_by("time", maintain_order=True)\
+            #           .agg(cs.numeric().mean())\
+            #           .sink_parquet(self.save_path, maintain_order=True, row_group_size=1000)
             # os.remove(self.save_path.replace(".parquet", "_temp.parquet"))
-            df_queries = pl.scan_parquet(self.save_path)
+            # df_queries = pl.scan_parquet(self.save_path.replace(".parquet", "_grouped*.parquet"), glob=True)
+            df_queries = pl.concat([pl.scan_parquet(self.save_path.replace(".parquet", f"_grouped{idx}.parquet"), low_memory=True) for idx in range(grouped_idx)], how="vertical")
             # os.remove(os.path.join(temp_save_dir, f"merged_temp_{file_set_idx}_{i}.parquet"))          
             
-            logging.info(f"Finished merging {len(processed_file_paths)} files for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
+            logging.info(f"Finished grouping {len(processed_file_paths)} files for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
             
             # logging.info(f"Fetching columns. Used RAM = {virtual_memory().percent}%.")
             # cols = df_queries.drop("time").collect_schema().names()
@@ -361,7 +379,7 @@ class DataLoader:
             logging.info(f"Started generating split_indices {len(processed_file_paths)} files for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
             
             file_set_idx_offset = sum(len(file_set) for file_set in self.file_paths[:file_set_idx])
-            split_indices = df_queries.select("time").with_row_index().with_columns(dt=pl.col("time").diff()).slice(1).filter(pl.col("dt") > np.timedelta64(self.split_dt, 's')).select("index")
+            split_indices = df_queries.select("time").with_row_index().with_columns(dt=pl.col("time").diff()).slice(1).filter(pl.col("dt") > timedelta(seconds=self.split_dt)).select("index")
             
             # i_type = split_indices.collect_schema()["index"]
             split_indices = pl.concat([pl.Series([0]).alias("index").to_frame().lazy(), split_indices, pl.Series([df_queries.select(pl.len()).collect().item()]).alias("index").to_frame().lazy()], how="vertical_relaxed")
@@ -372,7 +390,7 @@ class DataLoader:
             logging.info(f"Started splitting {len(processed_file_paths)} files for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
             
             df_queries_2 = []
-            min_duration = np.timedelta64(self.min_continuous_duration, 's')
+            min_duration = timedelta(seconds=self.min_continuous_duration)
             j = 0
             jj = 0
             while j < n_splits:
