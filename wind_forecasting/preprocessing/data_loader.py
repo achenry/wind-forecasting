@@ -294,8 +294,8 @@ class DataLoader:
             logging.info(f"Scanned existing schema: {full_schema}")
         
         # if False:
-        # df_queries = pl.scan_parquet(os.path.join(os.path.dirname(processed_file_paths[0]), f"{os.path.splitext(self.file_signature[file_set_idx])[0]}.parquet"), glob=True, schema=full_schema, missing_columns="insert").sort("time")
-        # df_queries.sink_parquet(self.save_path.replace(".parquet", "_temp.parquet"), row_group_size=100000)
+        df_queries = pl.scan_parquet(os.path.join(os.path.dirname(processed_file_paths[0]), f"{os.path.splitext(self.file_signature[file_set_idx])[0]}.parquet"), glob=True, schema=full_schema, missing_columns="insert").sort("time")
+        df_queries.sink_parquet(self.save_path.replace(".parquet", "_temp.parquet"), row_group_size=10000)
         df_queries = pl.scan_parquet(self.save_path.replace(".parquet", "_temp.parquet"))
         
         logging.info(f"Finished scanning {len(processed_file_paths)} files for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
@@ -315,8 +315,7 @@ class DataLoader:
             # logging.info(f"Finished sorting of {len(processed_file_paths)} files for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
             
             logging.info(f"Started grouping of {len(processed_file_paths)} files for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
-            df_queries.sort("time")\
-                      .group_by("time", maintain_order=True)\
+            df_queries.group_by("time", maintain_order=True)\
                       .agg(cs.numeric().mean())\
                       .sink_parquet(self.save_path, maintain_order=True, row_group_size=1000)
             # os.remove(self.save_path.replace(".parquet", "_temp.parquet"))
@@ -399,21 +398,21 @@ class DataLoader:
         start_time = time.time()
         
         logging.info(f"Started resampling and refill of {jj} continuous dataframes for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
-        if self.multiprocessor is not None:
-            executor = ProcessPoolExecutor()
-            with executor as ex:
-                if ex is not None:
-                    merge_futures = [ex.submit(self._resample_df, df_queries[j], j) for j in range(jj)]
-                    for j, fut in enumerate(merge_futures):
-                        fut.result().sink_parquet(os.path.join(temp_save_dir, f"merged_{file_set_idx_offset + j}_{i}.parquet"), maintain_order=True)
-            logging.info(f"Parallel resampling took {time.time() - start_time:.2f} s")
-        else:
-            df_queries_2 = []
-            for j in range(jj):
-                self._resample_df(df_queries[j], j).sink_parquet(os.path.join(temp_save_dir, f"merged_{file_set_idx_offset + j}_{i}.parquet"), maintain_order=True)
-            df_queries = df_queries_2
-    
-            logging.info(f"Sequential resampling took {time.time() - start_time:.2f} s")
+        # if self.multiprocessor is not None:
+        #     executor = ProcessPoolExecutor()
+        #     with executor as ex:
+        #         if ex is not None:
+        #             merge_futures = [ex.submit(self._resample_df, df_queries[j], j) for j in range(jj)]
+        #             for j, fut in enumerate(merge_futures):
+        #                 fut.result().sink_parquet(os.path.join(temp_save_dir, f"merged_{file_set_idx_offset + j}_{i}.parquet"), maintain_order=True)
+        #     logging.info(f"Parallel resampling took {time.time() - start_time:.2f} s")
+        # else:
+        df_queries_2 = []
+        for j in range(jj):
+            self._resample_df(df_queries[j], j).sink_parquet(os.path.join(temp_save_dir, f"merged_{file_set_idx_offset + j}_{i}.parquet"), maintain_order=True)
+        df_queries = df_queries_2
+
+        logging.info(f"Sequential resampling took {time.time() - start_time:.2f} s")
             
         return
     
