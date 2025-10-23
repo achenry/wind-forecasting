@@ -312,7 +312,7 @@ class DataLoader:
             # # df_queries.sort("time").sink_parquet(self.save_path.replace(".parquet", "_temp.parquet"), row_group_size=100000)
             # df_queries = pl.scan_parquet(self.save_path.replace(".parquet", "_temp_sorted.parquet"))
             # # os.remove(self.save_path.replace(".parquet", "_temp.parquet"))
-            logging.info(f"Finished sorting of {len(processed_file_paths)} files for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
+            # logging.info(f"Finished sorting of {len(processed_file_paths)} files for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
             
             logging.info(f"Started grouping of {len(processed_file_paths)} files for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
             df_queries.sort("time")\
