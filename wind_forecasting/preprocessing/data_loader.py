@@ -362,7 +362,7 @@ class DataLoader:
             #     if not pl.scan_parquet(fp).select("time").collect().to_series().is_sorted():
             #         print(f"Grouped file {fp} is not sorted by time.")
             # all([pl.scan_parquet(fp).select("time").collect().to_series().is_sorted() for fp in grouped_file_paths])
-            df_queries = pl.concat([pl.scan_parquet(fp) for fp in grouped_file_paths if os.path.getsize(fp)], how="vertical").sort("time")
+            df_queries = pl.concat([pl.scan_parquet(fp) for fp in grouped_file_paths if os.path.getsize(fp)], how="vertical")
             
             logging.info(f"Finished grouping {len(processed_file_paths)} files for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
             
