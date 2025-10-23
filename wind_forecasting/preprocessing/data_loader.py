@@ -294,7 +294,7 @@ class DataLoader:
             logging.info(f"Scanned existing schema: {full_schema}")
         
         # if False:
-        rows_per_chunk = 100_000
+        rows_per_chunk = 1_000_000
         df_queries = pl.scan_parquet(os.path.join(os.path.dirname(processed_file_paths[0]), f"{os.path.splitext(self.file_signature[file_set_idx])[0]}.parquet"), glob=True, schema=full_schema, missing_columns="insert", low_memory=True, rechunk=True).sort("time")
         df_queries.sink_parquet(self.save_path.replace(".parquet", "_temp.parquet"), maintain_order=True, row_group_size=rows_per_chunk)
         df_queries = pl.scan_parquet(self.save_path.replace(".parquet", "_temp.parquet"))
@@ -427,7 +427,7 @@ class DataLoader:
         # else:
         df_queries_2 = []
         for j in range(jj):
-            self._resample_df(df_queries[j], j).sink_parquet(os.path.join(temp_save_dir, f"merged_{file_set_idx_offset + j}_{i}.parquet"), maintain_order=True)
+            self._resample_df(df_queries[j], j).sink_parquet(os.path.join(temp_save_dir, f"merged_{file_set_idx_offset + j}_{i}.parquet"), maintain_order=True, row_group_size=rows_per_chunk)
         df_queries = df_queries_2
 
         logging.info(f"Sequential resampling took {time.time() - start_time:.2f} s")
