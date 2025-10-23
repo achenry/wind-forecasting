@@ -335,15 +335,23 @@ class DataLoader:
             if True:
                 logging.info(f"Started grouping of {len(processed_file_paths)} files for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
                 
+                # x = {897, 898, 714, 715, 882, 885, 1077, 1078, 888}
+                # all_time_bounds.filter(pl.col("file_index").is_in(x))
+                # datetime(2024, 4, 21, 0, 0), datetime(2024, 4, 21, 23, 59, 59)
+                
                 time_span_per_chunk = timedelta(days=90) # TODO choose this dynamically based on available RAM and schema size
                 t_start = all_time_bounds["start"].min()
                 t_end = t_start + time_span_per_chunk
                 last_t_end = all_time_bounds["end"].max()
                 grouped_idx = 0
+                all_time_span_file_indices = set()
                 while t_start < last_t_end:
-                    time_span_file_indices = all_time_bounds.filter((pl.col("start") >= t_start) & (pl.col("end") < t_end))["file_index"].to_numpy()
+                    time_span_file_indices = all_time_bounds.filter(pl.col("start").is_between(t_start, t_end, closed="left"))
                     
                     if len(time_span_file_indices):
+                        # t_end = time_span_file_indices["end"].max() + timedelta(seconds=1)
+                        time_span_file_indices = time_span_file_indices["file_index"].to_numpy()
+                        time_span_file_indices = set(time_span_file_indices).difference(all_time_span_file_indices)
                         logging.info(f"Processing chunk from {t_start} to {t_end} out of {last_t_end} for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
                         pl.concat([pl.scan_parquet(processed_file_paths[f]) for f in time_span_file_indices], how="diagonal")\
                             .sort("time")\
@@ -351,6 +359,7 @@ class DataLoader:
                                 .agg(cs.numeric().mean())\
                                 .sink_parquet(os.path.join(temp_save_dir, f"grouped{grouped_idx}.parquet"), maintain_order=True)
                         grouped_idx += 1
+                        all_time_span_file_indices.update(time_span_file_indices)
                     t_start = t_end
                     t_end = min(t_start + time_span_per_chunk, last_t_end)
                     if t_end == last_t_end:
@@ -362,7 +371,12 @@ class DataLoader:
             #     if not pl.scan_parquet(fp).select("time").collect().to_series().is_sorted():
             #         print(f"Grouped file {fp} is not sorted by time.")
             # all([pl.scan_parquet(fp).select("time").collect().to_series().is_sorted() for fp in grouped_file_paths])
-            df_queries = pl.concat([pl.scan_parquet(fp) for fp in grouped_file_paths if os.path.getsize(fp)], how="vertical")
+            df_queries = pl.concat([pl.scan_parquet(fp) for fp in grouped_file_paths if os.path.getsize(fp)], how="diagonal")
+                # .sort("time")\
+                #     .group_by("time", maintain_order=True)\
+                #         .agg(cs.numeric().mean())
+            
+            # df_queries2 = pl.concat([pl.scan_parquet(fp) for fp in processed_file_paths], how="diagonal").sort("time").group_by("time", maintain_order=True).agg(cs.numeric().mean())
             
             logging.info(f"Finished grouping {len(processed_file_paths)} files for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
             
