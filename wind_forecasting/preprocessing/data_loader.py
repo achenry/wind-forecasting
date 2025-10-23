@@ -13,6 +13,7 @@ from pathlib import Path
 import logging
 import re
 import pickle
+import glob
 
 logging.info("Hi 1")
 from concurrent.futures import ProcessPoolExecutor
@@ -331,32 +332,37 @@ class DataLoader:
         else:
             # concatenate and forward fill file groups with continuous time spans
             # split by discontinuity, all df_queries are sorted up to this point
-            logging.info(f"Started grouping of {len(processed_file_paths)} files for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
-            
-            time_span_per_chunk = timedelta(days=90)
-            t_start = all_time_bounds["start"].min()
-            t_end = t_start + time_span_per_chunk
-            last_t_end = all_time_bounds["end"].max()
-            grouped_idx = 0
-            while t_start < last_t_end:
-                time_span_files = []
-                for f in all_time_bounds["file_index"].to_numpy():
-                    time_span_files.append(processed_file_paths[f])
+            if True:
+                logging.info(f"Started grouping of {len(processed_file_paths)} files for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
                 
-                if len(time_span_files):
-                    logging.info(f"Processing chunk from {t_start} to {t_end} out of {last_t_end} for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
-                    pl.concat([pl.scan_parquet(fp) for fp in time_span_files], how="diagonal")\
-                        .sort("time")\
-                            .group_by("time", maintain_order=True)\
-                            .agg(cs.numeric().mean())\
-                            .sink_parquet(self.save_path.replace(".parquet", f"_grouped{grouped_idx}.parquet"), maintain_order=True)
-                    grouped_idx += 1
-                t_start = t_end
-                t_end = min(t_start + time_span_per_chunk, last_t_end)
-                if t_end == last_t_end:
-                    t_end += timedelta(seconds=1)  # ensure last segment is included
+                time_span_per_chunk = timedelta(days=90) # TODO choose this dynamically based on available RAM and schema size
+                t_start = all_time_bounds["start"].min()
+                t_end = t_start + time_span_per_chunk
+                last_t_end = all_time_bounds["end"].max()
+                grouped_idx = 0
+                while t_start < last_t_end:
+                    time_span_file_indices = all_time_bounds.filter((pl.col("start") >= t_start) & (pl.col("end") < t_end))["file_index"].to_numpy()
+                    
+                    if len(time_span_file_indices):
+                        logging.info(f"Processing chunk from {t_start} to {t_end} out of {last_t_end} for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
+                        pl.concat([pl.scan_parquet(processed_file_paths[f]) for f in time_span_file_indices], how="diagonal")\
+                            .sort("time")\
+                                .group_by("time", maintain_order=True)\
+                                .agg(cs.numeric().mean())\
+                                .sink_parquet(os.path.join(temp_save_dir, f"grouped{grouped_idx}.parquet"), maintain_order=True)
+                        grouped_idx += 1
+                    t_start = t_end
+                    t_end = min(t_start + time_span_per_chunk, last_t_end)
+                    if t_end == last_t_end:
+                        t_end += timedelta(seconds=1)  # ensure last segment is included
             
-            df_queries = pl.concat([pl.scan_parquet(self.save_path.replace(".parquet", f"_grouped{idx}.parquet")) for idx in range(grouped_idx)], how="vertical")
+            
+            grouped_file_paths = sorted(glob.glob(os.path.join(temp_save_dir, f"grouped*.parquet")), key=lambda fp: int(re.search("(?<=grouped)(\\d+)", os.path.splitext(os.path.basename(fp))[0]).group()))
+            # for fp in grouped_file_paths:
+            #     if not pl.scan_parquet(fp).select("time").collect().to_series().is_sorted():
+            #         print(f"Grouped file {fp} is not sorted by time.")
+            # all([pl.scan_parquet(fp).select("time").collect().to_series().is_sorted() for fp in grouped_file_paths])
+            df_queries = pl.concat([pl.scan_parquet(fp) for fp in grouped_file_paths if os.path.getsize(fp)], how="vertical").sort("time")
             
             logging.info(f"Finished grouping {len(processed_file_paths)} files for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
             
@@ -443,7 +449,7 @@ class DataLoader:
         # else:
         df_queries_2 = []
         for j in range(jj):
-            self._resample_df(df_queries[j], j).sink_parquet(os.path.join(temp_save_dir, f"merged_{file_set_idx_offset + j}_{i}.parquet"), maintain_order=True, row_group_size=rows_per_chunk)
+            self._resample_df(df_queries[j], j).sink_parquet(os.path.join(temp_save_dir, f"merged_{file_set_idx_offset + j}_{i}.parquet"), maintain_order=True, row_group_size=100_000)
         df_queries = df_queries_2
 
         logging.info(f"Sequential resampling took {time.time() - start_time:.2f} s")
