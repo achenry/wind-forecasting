@@ -413,12 +413,17 @@ class DataLoader:
             
             assert os.path.exists(temp_save_dir), f"temp_save_dir={temp_save_dir} is not available for file set {file_set_idx}, merge index {i}"
             
-            logging.info(f"Started generating split_indices for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
             
             file_set_idx_offset = sum(len(file_set) for file_set in self.file_paths[:file_set_idx])
-            split_indices = df_queries.filter(~pl.all_horizontal(cs.numeric().is_null())).select("time").with_row_index().with_columns(dt=pl.col("time").diff()).slice(1).filter(pl.col("dt") > timedelta(seconds=self.split_dt)).select("index").collect()
+            if reload or not os.path.exists(os.path.join(temp_save_dir, f"split_indices_{file_set_idx}_{i}.parquet")):
+                logging.info(f"Started generating split_indices for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
+                pl.concat([pl.Series([0]).alias("index").to_frame().lazy(),
+                            df_queries.filter(~pl.all_horizontal(cs.numeric().is_null())).select("time").with_row_index().with_columns(dt=pl.col("time").diff()).slice(1).filter(pl.col("dt") > timedelta(seconds=self.split_dt)).select("index"),
+                            pl.Series([df_queries.select(pl.len()).collect().item()]).alias("index").to_frame().lazy()], how="vertical_relaxed").sink_parquet(os.path.join(temp_save_dir, f"split_indices_{file_set_idx}_{i}.parquet"), maintain_order=True)
+            else:
+                logging.info(f"Loading split_indices for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
             
-            split_indices = pl.concat([pl.Series([0]).alias("index").to_frame(), split_indices, pl.Series([df_queries.select(pl.len()).collect().item()]).alias("index").to_frame()], how="vertical_relaxed")
+            split_indices = pl.read_parquet(os.path.join(temp_save_dir, f"split_indices_{file_set_idx}_{i}.parquet"))
             n_splits = split_indices.select(pl.len()).item() - 1
             
             logging.info(f"Finished generating split_indices {len(processed_file_paths)} files for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
