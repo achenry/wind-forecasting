@@ -186,11 +186,11 @@ class DataLoader:
                     ff = 0
                     for f, file_path in enumerate(self.file_paths[file_set_idx]):
                         used_ram = virtual_memory().percent
-                        if (read_single_files == "all") or (read_single_files == "unprocessed" and f in unprocessed_file_path_idx):
+                        if (read_single_files == "all") or (read_single_files == "unprocessed" and f in unprocessed_file_path_idx[file_set_idx]):
                             res = file_futures[ff].result() #.5% increase in mem
                             ff += 1
                         else:
-                            res = 1
+                            res = None
                         #     file_cols = []
                         # all_columns.update(file_cols)
                         
@@ -369,6 +369,10 @@ class DataLoader:
                     # loop through all of this asset's files
                     asset_processed_files = [fp for fp in processed_file_paths if re.findall(tid, os.path.basename(fp))]
                     # asset_processed_files = sorted(asset_processed_files, key=lambda fp: pl.scan_parquet(fp).select(pl.col("time").first()).collect().item())
+                    for fp in asset_processed_files:
+                        if all_time_bounds.filter(pl.col("file_index") == processed_file_paths.index(fp)).is_empty():
+                            logging.error(f"File {fp} has no all_time_bounds entry! Its index in processed_file_paths is {processed_file_paths.index(fp)}")
+                    
                     asset_processed_files = sorted(asset_processed_files, key=lambda fp: all_time_bounds.filter(pl.col("file_index") == processed_file_paths.index(fp)).select("start").item())
                     pl.scan_parquet(asset_processed_files, glob=True, schema=asset_schema, missing_columns="insert")\
                             .sort("time")\
