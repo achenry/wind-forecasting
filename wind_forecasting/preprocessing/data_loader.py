@@ -190,7 +190,7 @@ class DataLoader:
                             res = file_futures[ff].result() #.5% increase in mem
                             ff += 1
                         else:
-                            res = None
+                            res = 1
                         #     file_cols = []
                         # all_columns.update(file_cols)
                         
