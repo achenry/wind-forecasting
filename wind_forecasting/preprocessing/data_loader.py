@@ -360,7 +360,7 @@ class DataLoader:
                 # t_start = all_time_bounds["start"].min()
                 # t_end = all_time_bounds["end"].max()
                 # loop through assets, sink a sorted/aggregated file per asset 
-                for tid in turbine_ids:P
+                for tid in turbine_ids:
                     logging.info(f"  - Grouping files for turbine id {tid} for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
                     asset_schema = pl.Schema({k: v for k, v in full_schema.items() if k == "time" or re.search(f".*?(?={tid})", k)})
                     # loop through all of this asset's files
