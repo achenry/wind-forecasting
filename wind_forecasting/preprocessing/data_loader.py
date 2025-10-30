@@ -193,10 +193,12 @@ class DataLoader:
                             res = 1
                         #     file_cols = []
                         # all_columns.update(file_cols)
-                            
-                        if res is not None: 
-                            fn = f"{os.path.splitext(os.path.basename(file_path))[0]}.parquet"
-                            processed_file_paths[-1].append(os.path.join(temp_save_dir, fn))
+                        
+                        fn = f"{os.path.splitext(os.path.basename(file_path))[0]}.parquet"
+                        fp = os.path.join(temp_save_dir, fn)
+                        if (res is not None) and os.path.exists(fp): 
+                            processed_file_paths[-1].append(fp)
+                            logging.info(f"- Adding {fp} to list of processed files")
                         else:
                             logging.warning(f"File {file_path} could not be processed, skipping.")
                         
