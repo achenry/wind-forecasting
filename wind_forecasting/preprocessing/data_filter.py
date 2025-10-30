@@ -8,25 +8,18 @@ import logging
 from datetime import timedelta
 from concurrent.futures import ProcessPoolExecutor
 import multiprocessing
-# logging.info("HI 1")
 
 import numpy as np
 import polars as pl
 import polars.selectors as cs
 
-# logging.info("HI 2")
-
 from scipy.optimize import minimize
 import matplotlib.pyplot as plt
-
-# logging.info("HI 3")
 
 # from scipy.stats import entropy
 # from scipy.spatial.distance import jensenshannon
 # from scipy.special import kl_div
 from openoa.utils import imputing, filters
-
-# logging.info("HI 4")
 
 # mpi_exists = False
 # try:

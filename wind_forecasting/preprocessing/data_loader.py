@@ -15,23 +15,18 @@ import re
 import pickle
 import glob
 
-logging.info("Hi 1")
 from concurrent.futures import ProcessPoolExecutor
 import multiprocessing as mp
-logging.info("Hi 2")
 from shutil import move
 from psutil import virtual_memory
-logging.info("Hi 3")
 # import gc
 # from datetime.datetime import strptime
 # from memory_profiler import profile
 
 import netCDF4 as nc
-logging.info("Hi 4")
 
 import polars as pl
 import polars.selectors as cs
-logging.info("Hi 5")
 import numpy as np
 # from sklearn.preprocessing import MinMaxScaler
 
@@ -198,9 +193,9 @@ class DataLoader:
                         fp = os.path.join(temp_save_dir, fn)
                         if (res is not None) and os.path.exists(fp): 
                             processed_file_paths[-1].append(fp)
-                            logging.info(f"- Adding {fp} to list of processed files")
-                        else:
-                            logging.warning(f"File {file_path} could not be processed, skipping.")
+                            # logging.info(f"- Adding {fp} to list of processed files")
+                        # else:
+                        #     logging.warning(f"File {file_path} could not be processed, skipping.")
                         
                         # for name, size in sorted(((name, sys.getsizeof(value)) for name, value in list(
                         #                     locals().items())), key= lambda x: -x[1])[:3]:
@@ -350,42 +345,41 @@ class DataLoader:
         else:
             # concatenate and forward fill file groups with continuous time spans
             # split by discontinuity, all df_queries are sorted up to this point
-            if True:
-                logging.info(f"Started grouping of {len(processed_file_paths)} files for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
-                
-                turbine_ids = set()
-                for n in full_schema.names():
-                    match = re.findall(self.turbine_signature, n)
-                    if len(match):
-                        turbine_ids.add(match[0])
+            logging.info(f"Started grouping of {len(processed_file_paths)} files for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
+            
+            turbine_ids = set()
+            for n in full_schema.names():
+                match = re.findall(self.turbine_signature, n)
+                if len(match):
+                    turbine_ids.add(match[0])
 
-                turbine_ids = sorted(turbine_ids, key=lambda tid: int(re.search("\\d+", tid).group(0)))
-                # t_start = all_time_bounds["start"].min()
-                # t_end = all_time_bounds["end"].max()
-                # loop through assets, sink a sorted/aggregated file per asset 
-                for tid in turbine_ids:
-                    logging.info(f"  - Grouping files for turbine id {tid} for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
-                    asset_schema = pl.Schema({k: v for k, v in full_schema.items() if k == "time" or re.search(f".*?(?={tid})", k)})
-                    # loop through all of this asset's files
-                    asset_processed_files = [fp for fp in processed_file_paths if re.findall(tid, os.path.basename(fp))]
-                    # asset_processed_files = sorted(asset_processed_files, key=lambda fp: pl.scan_parquet(fp).select(pl.col("time").first()).collect().item())
-                    for fp in asset_processed_files:
-                        if all_time_bounds.filter(pl.col("file_index") == processed_file_paths.index(fp)).is_empty():
-                            logging.error(f"File {fp} has no all_time_bounds entry! Its index in processed_file_paths is {processed_file_paths.index(fp)}")
+            turbine_ids = sorted(turbine_ids, key=lambda tid: int(re.search("\\d+", tid).group(0)))
+            # t_start = all_time_bounds["start"].min()
+            # t_end = all_time_bounds["end"].max()
+            # loop through assets, sink a sorted/aggregated file per asset 
+            for tid in turbine_ids:
+                logging.info(f"  - Grouping files for turbine id {tid} for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
+                asset_schema = pl.Schema({k: v for k, v in full_schema.items() if k == "time" or re.search(f".*?(?={tid})", k)})
+                # loop through all of this asset's files
+                asset_processed_files = [fp for fp in processed_file_paths if re.findall(tid, os.path.basename(fp))]
+                # asset_processed_files = sorted(asset_processed_files, key=lambda fp: pl.scan_parquet(fp).select(pl.col("time").first()).collect().item())
+                for fp in asset_processed_files:
+                    if all_time_bounds.filter(pl.col("file_index") == processed_file_paths.index(fp)).is_empty():
+                        logging.error(f"File {fp} has no all_time_bounds entry! Its index in processed_file_paths is {processed_file_paths.index(fp)}")
+                
+                asset_processed_files = sorted(asset_processed_files, key=lambda fp: all_time_bounds.filter(pl.col("file_index") == processed_file_paths.index(fp)).select("start").item())
+                pl.scan_parquet(asset_processed_files, glob=True, schema=asset_schema, missing_columns="insert")\
+                        .sort("time")\
+                            .group_by("time", maintain_order=True)\
+                            .agg(cs.numeric().mean())\
+                            .sink_parquet(os.path.join(temp_save_dir, f"grouped{tid}.parquet"), maintain_order=True)
                     
-                    asset_processed_files = sorted(asset_processed_files, key=lambda fp: all_time_bounds.filter(pl.col("file_index") == processed_file_paths.index(fp)).select("start").item())
-                    pl.scan_parquet(asset_processed_files, glob=True, schema=asset_schema, missing_columns="insert")\
-                            .sort("time")\
-                                .group_by("time", maintain_order=True)\
-                                .agg(cs.numeric().mean())\
-                                .sink_parquet(os.path.join(temp_save_dir, f"grouped{tid}.parquet"), maintain_order=True)
-                    # for fp in asset_processed_files:
-                # TODO if align concat is too memory inefficient, try to vertically concat each asset's files (each processed file has already been resampled), filling in missing timestamps between them; then just concat horizontally
-                grouped_file_paths = glob.glob(os.path.join(temp_save_dir, f"grouped*.parquet"))
-                grouped_file_paths = [fp for fp in grouped_file_paths if re.findall(self.turbine_signature, os.path.basename(fp))]
-                grouped_file_paths = sorted(grouped_file_paths, key=lambda fp: re.search(f"(?<=grouped)({self.turbine_signature})", os.path.splitext(os.path.basename(fp))[0]).group())
-                # df_queries = pl.concat([pl.scan_parquet(fp) for fp in grouped_file_paths if os.path.getsize(fp)], how="diagonal")
-                df_queries = pl.concat([pl.scan_parquet(fp) for fp in grouped_file_paths if os.path.getsize(fp)], how="align")
+            # TODO if align concat is too memory inefficient, try to vertically concat each asset's files (each processed file has already been resampled), filling in missing timestamps between them; then just concat horizontally
+            grouped_file_paths = glob.glob(os.path.join(temp_save_dir, f"grouped*.parquet"))
+            grouped_file_paths = [fp for fp in grouped_file_paths if re.findall(self.turbine_signature, os.path.basename(fp))]
+            grouped_file_paths = sorted(grouped_file_paths, key=lambda fp: re.search(f"(?<=grouped)({self.turbine_signature})", os.path.splitext(os.path.basename(fp))[0]).group())
+            # df_queries = pl.concat([pl.scan_parquet(fp) for fp in grouped_file_paths if os.path.getsize(fp)], how="diagonal")
+            df_queries = pl.concat([pl.scan_parquet(fp) for fp in grouped_file_paths if os.path.getsize(fp)], how="align")
                 
             #     time_span_per_chunk = timedelta(days=90) # TODO choose this dynamically based on available RAM and schema size
             #     t_start = all_time_bounds["start"].min()
@@ -456,7 +450,7 @@ class DataLoader:
             
             assert os.path.exists(temp_save_dir), f"temp_save_dir={temp_save_dir} is not available for file set {file_set_idx}, merge index {i}"
             
-            logging.info(f"Started generating split_indices {len(processed_file_paths)} files for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
+            logging.info(f"Started generating split_indices for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
             
             file_set_idx_offset = sum(len(file_set) for file_set in self.file_paths[:file_set_idx])
             split_indices = df_queries.select("time").with_row_index().with_columns(dt=pl.col("time").diff()).slice(1).filter(pl.col("dt") > timedelta(seconds=self.split_dt)).select("index")
@@ -515,7 +509,9 @@ class DataLoader:
         # else:
         df_queries_2 = []
         for j in range(jj):
-            self._resample_df(df_queries[j], j, fill_null=True).sink_parquet(os.path.join(temp_save_dir, f"merged_{file_set_idx_offset + j}_{i}.parquet"), maintain_order=True, row_group_size=100_000)
+            bounds = df_queries[j].select(pl.col("time").first().alias("first"), pl.col("time").last().alias("last")).collect()
+            logging.info(f"Started resampling and refill from {bounds['first'].item()} to {bounds['last'].item()} for {i}th of dfs. Used RAM = {virtual_memory().percent}%.") 
+            self._resample_df(df_queries[j], bounds, fill_null=True).sink_parquet(os.path.join(temp_save_dir, f"merged_{file_set_idx_offset + j}_{i}.parquet"), maintain_order=True, row_group_size=100_000)
         df_queries = df_queries_2
 
         logging.info(f"Sequential resampling took {time.time() - start_time:.2f} s")
@@ -524,9 +520,8 @@ class DataLoader:
     
     # other_df = pl.DataFrame({"apple": ["x", "y", "z", "a"], "ham": ["a", "b", "d", "a"]})
     
-    def _resample_df(self, df, i, fill_null=False):
-        bounds = df.select(pl.col("time").first().alias("first"), pl.col("time").last().alias("last")).collect()
-        logging.info(f"Started resampling and refill from {bounds['first'].item()} to {bounds['last'].item()} for {i}th of dfs. Used RAM = {virtual_memory().percent}%.") 
+    def _resample_df(self, df, bounds, fill_null=False):
+        # logging.info(f"Started resampling and refill from {bounds['first'].item()} to {bounds['last'].item()} for {i}th of dfs. Used RAM = {virtual_memory().percent}%.") 
         df = df.select(pl.datetime_range(start=bounds["first"].item(),
                                     end=bounds["last"].item(),
                                     interval=f"{self.dt}s", 
@@ -760,16 +755,20 @@ class DataLoader:
                     sort_columns=True
                 ).sort("time")
             
-            if df_query.select(pl.len()).collect().item():
-                self._resample_df(df_query.lazy(), 0, fill_null=False).collect().write_parquet(processed_file_path)
+            if df_query.select(pl.len()).item():
+                bounds = df_query.select(pl.col("time").first().alias("first"), pl.col("time").last().alias("last"))
+                self._resample_df(df_query.lazy(), bounds, fill_null=False).collect().write_parquet(processed_file_path)
+            # else:
+            #     df_query.write_parquet(processed_file_path)
+            
+                assert os.path.exists(os.path.dirname(processed_file_path)), f"Temporary save directory {os.path.dirname(processed_file_path)} does not exist." 
+                # df_query.collect().write_parquet(processed_file_path, statistics=False)
+                
+                logging.info(f"✅ Processed {file_number + 1}-th of {num_file_paths} {raw_file_path} and saved to {processed_file_path}. Time: {time.time() - start_time:.2f} s")
+                return processed_file_path #, df_query.collect_schema().names()
             else:
-                df_query.collect().write_parquet(processed_file_path)
-            
-            assert os.path.exists(os.path.dirname(processed_file_path)), f"Temporary save directory {os.path.dirname(processed_file_path)} does not exist." 
-            # df_query.collect().write_parquet(processed_file_path, statistics=False)
-            
-            logging.info(f"✅ Processed {file_number + 1}-th of {num_file_paths} {raw_file_path} and saved to {processed_file_path}. Time: {time.time() - start_time:.2f} s")
-            return processed_file_path #, df_query.collect_schema().names()
+                logging.warning(f"⚠️ No valid data found in {raw_file_path} after processing. Skipping saving to {processed_file_path}.")
+                return None
         
         except Exception as e:
             logging.error(f"❌ Error processing file {raw_file_path} and saving to {processed_file_path}: {str(e)}")

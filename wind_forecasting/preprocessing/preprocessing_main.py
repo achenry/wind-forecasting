@@ -15,52 +15,37 @@
 
 import logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-logging.info("hi 0")
 import os
 import sys
-logging.info("hi 00")
 import argparse
 import yaml
 import time
-logging.info("hi 000")
 import re
 from shutil import rmtree, move
 from psutil import virtual_memory
 
-logging.info("hi 1")
-
 mpi_exists = False
 # try:
-#     logging.info("hi 1")
 #     from mpi4py import MPI
-#     logging.info("hi 2")
 #     mpi_exists = True
 # except:
 #     logging.info("No MPI available on system.")
 
-# logging.info("hi 1")
 parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 sys.path.insert(0, parent_dir)
-# logging.info("hi 2")
 
 # logging.info(f"Current working directory inside script: {os.getcwd()}")
 # logging.info("sys.path inside script:", sys.path)
 
-logging.info("hi 2")
-
 import multiprocessing
-logging.info("hi 3")
 from wind_forecasting.preprocessing.data_loader import DataLoader
-logging.info("hi 4")
 from wind_forecasting.preprocessing.data_filter import (DataFilter, 
                                                         add_df_continuity_columns, add_df_agg_continuity_columns, 
                                                         get_continuity_group_index, group_df_by_continuity, 
                                                         merge_adjacent_periods, compute_offsets, safe_mask)
-logging.info("hi 5")
+
 from wind_forecasting.preprocessing.data_inspector import DataInspector
-logging.info("hi 6")
 from openoa.utils import plot, filters, power_curve
-logging.info("hi 7")
 
 import polars as pl
 import polars.selectors as cs
@@ -72,8 +57,6 @@ import matplotlib.pyplot as plt
 
 from scipy.stats import norm
 from floris import FlorisModel
-
-# logging.info("hi 8")
 
 # ROW_LIMIT = 2 * 60 * 60 * 24 * 30 * 18
 ROW_LIMIT = None #60 * 60 * 24 * 30 * 3
@@ -247,7 +230,7 @@ def main():
             logging.info(f"Making directory to save_path {os.path.dirname(data_loader.save_path)}")
             os.makedirs(os.path.dirname(data_loader.save_path), exist_ok=True)
 
-        df_query = data_loader.read_multi_files(temp_save_dir, read_single_files=False)
+        df_query = data_loader.read_multi_files(temp_save_dir, read_single_files="all")
         
         df = df_query.collect().select("file_set_idx", "time", cs.starts_with("wind_")).partition_by("file_set_idx")
         fig, ax = plt.subplots(2, 1)
