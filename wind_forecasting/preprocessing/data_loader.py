@@ -182,10 +182,12 @@ class DataLoader:
                 for file_set_idx in range(len(self.file_paths)):
                     processed_file_paths.append([])
                     file_set_indices.append(file_set_idx)
+                    ff = 0
                     for f, file_path in enumerate(self.file_paths[file_set_idx]):
                         used_ram = virtual_memory().percent
                         if (read_single_files == "all") or (read_single_files == "unprocessed" and f in unprocessed_file_path_idx):
-                            res = file_futures[f].result() #.5% increase in mem
+                            res = file_futures[ff].result() #.5% increase in mem
+                            ff += 1
                         else:
                             res = 1
                         #     file_cols = []
@@ -356,7 +358,7 @@ class DataLoader:
 
                 # t_start = all_time_bounds["start"].min()
                 # t_end = all_time_bounds["end"].max()
-                # loop through assets, sink a sorted/aggregated file per asset
+                # loop through assets, sink a sorted/aggregated file per asset 
                 for tid in turbine_ids:
                     logging.info(f"  - Grouping files for turbine id {tid} for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
                     asset_schema = pl.Schema({k: v for k, v in full_schema.items() if k == "time" or re.search(f".*?(?={tid})", k)})
@@ -370,7 +372,7 @@ class DataLoader:
                                 .agg(cs.numeric().mean())\
                                 .sink_parquet(os.path.join(temp_save_dir, f"grouped{tid}.parquet"), maintain_order=True)
                     # for fp in asset_processed_files:
-                
+                # TODO if align concat is too memory inefficient, try to vertically concat each asset's files (each processed file has already been resampled), filling in missing timestamps between them; then just concat horizontally
                 grouped_file_paths = glob.glob(os.path.join(temp_save_dir, f"grouped*.parquet"))
                 grouped_file_paths = [fp for fp in grouped_file_paths if re.findall(self.turbine_signature, os.path.basename(fp))]
                 grouped_file_paths = sorted(grouped_file_paths, key=lambda fp: re.search(f"(?<=grouped)({self.turbine_signature})", os.path.splitext(os.path.basename(fp))[0]).group())
@@ -450,6 +452,7 @@ class DataLoader:
             
             file_set_idx_offset = sum(len(file_set) for file_set in self.file_paths[:file_set_idx])
             split_indices = df_queries.select("time").with_row_index().with_columns(dt=pl.col("time").diff()).slice(1).filter(pl.col("dt") > timedelta(seconds=self.split_dt)).select("index")
+            # df_queries.with_row_index().filter(~pl.all_horizontal(cs.numeric().is_null())).select("time", "index").with_columns(dt=pl.col("time").diff()).slice(1).filter(pl.col("dt") > timedelta(seconds=self.split_dt)).select("index")
             
             # i_type = split_indices.collect_schema()["index"]
             split_indices = pl.concat([pl.Series([0]).alias("index").to_frame().lazy(), split_indices, pl.Series([df_queries.select(pl.len()).collect().item()]).alias("index").to_frame().lazy()], how="vertical_relaxed")
@@ -749,7 +752,10 @@ class DataLoader:
                     sort_columns=True
                 ).sort("time")
             
-            self._resample_df(df_query.lazy(), 0, fill_null=False).collect().write_parquet(processed_file_path)
+            if df_query.select(pl.len()).collect().item():
+                self._resample_df(df_query.lazy(), 0, fill_null=False).collect().write_parquet(processed_file_path)
+            else:
+                df_query.collect().write_parquet(processed_file_path)
             
             assert os.path.exists(os.path.dirname(processed_file_path)), f"Temporary save directory {os.path.dirname(processed_file_path)} does not exist." 
             # df_query.collect().write_parquet(processed_file_path, statistics=False)
