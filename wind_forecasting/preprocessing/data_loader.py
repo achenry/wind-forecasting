@@ -17,6 +17,7 @@ import glob
 
 logging.info("Hi 1")
 from concurrent.futures import ProcessPoolExecutor
+import multiprocessing as mp
 logging.info("Hi 2")
 from shutil import move
 from psutil import virtual_memory
@@ -147,7 +148,7 @@ class DataLoader:
             # if self.multiprocessor == "mpi" and mpi_exists:
             #     executor = MPICommExecutor(MPI.COMM_WORLD, root=0)
             # else:  # "cf" case
-            executor = ProcessPoolExecutor(mp_context="spawn")
+            executor = ProcessPoolExecutor(mp_context=mp.get_context("spawn"))
             with executor as ex:
    
                     
@@ -285,7 +286,7 @@ class DataLoader:
         logging.info(f"Started scanning schema. Used RAM = {virtual_memory().percent}%.")
         if read_schema or not os.path.exists(os.path.join(temp_save_dir, f"full_schema_{file_set_idx}_{i}.pkl")):
             if self.multiprocessor is not None:
-                executor = ProcessPoolExecutor(mp_context="spawn")
+                executor = ProcessPoolExecutor(mp_context=mp.get_context("spawn"))
                 with executor as ex:
                     if ex is not None:
                         schema_futures = [ex.submit(self._get_schema, fp) for fp in processed_file_paths]
@@ -316,7 +317,7 @@ class DataLoader:
         if read_schema or not os.path.exists(os.path.join(temp_save_dir, f"time_bounds_{file_set_idx}_{i}.pkl")):
             all_time_bounds = []
             if self.multiprocessor is not None:
-                executor = ProcessPoolExecutor(mp_context="spawn")
+                executor = ProcessPoolExecutor(mp_context=mp.get_context("spawn"))
                 with executor as ex:
                     if ex is not None:
                         time_bounds_futures = [ex.submit(self._get_time_bounds, fp) for fp in processed_file_paths]
@@ -359,7 +360,7 @@ class DataLoader:
                 # t_start = all_time_bounds["start"].min()
                 # t_end = all_time_bounds["end"].max()
                 # loop through assets, sink a sorted/aggregated file per asset 
-                for tid in turbine_ids:
+                for tid in turbine_ids:P
                     logging.info(f"  - Grouping files for turbine id {tid} for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
                     asset_schema = pl.Schema({k: v for k, v in full_schema.items() if k == "time" or re.search(f".*?(?={tid})", k)})
                     # loop through all of this asset's files
