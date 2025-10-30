@@ -333,7 +333,7 @@ class DataLoader:
                     all_time_bounds.append((start, end, f))
                     logging.info(f"  - Time Bounds for {processed_file_paths[f]}: {all_time_bounds[-1]}")
             
-            all_time_bounds = pl.DataFrame(all_time_bounds, schema=["start", "end", "file_index"]).sort("start").drop_nulls()
+            all_time_bounds = pl.DataFrame(all_time_bounds, schema=["start", "end", "file_index"], orient="row").sort("start").drop_nulls()
             
             with open(os.path.join(temp_save_dir, f"time_bounds_{file_set_idx}_{i}.pkl"), "wb") as fp:
                 pickle.dump(all_time_bounds, fp)
@@ -359,6 +359,7 @@ class DataLoader:
                     if len(match):
                         turbine_ids.add(match[0])
 
+                turbine_ids = sorted(turbine_ids, key=lambda tid: int(re.search("\\d+", tid).group(0)))
                 # t_start = all_time_bounds["start"].min()
                 # t_end = all_time_bounds["end"].max()
                 # loop through assets, sink a sorted/aggregated file per asset 
@@ -369,7 +370,7 @@ class DataLoader:
                     asset_processed_files = [fp for fp in processed_file_paths if re.findall(tid, os.path.basename(fp))]
                     # asset_processed_files = sorted(asset_processed_files, key=lambda fp: pl.scan_parquet(fp).select(pl.col("time").first()).collect().item())
                     asset_processed_files = sorted(asset_processed_files, key=lambda fp: all_time_bounds.filter(pl.col("file_index") == processed_file_paths.index(fp)).select("start").item())
-                    pl.scan_parquet(asset_processed_files, glob=True, schema=asset_schema)\
+                    pl.scan_parquet(asset_processed_files, glob=True, schema=asset_schema, missing_columns="insert")\
                             .sort("time")\
                                 .group_by("time", maintain_order=True)\
                                 .agg(cs.numeric().mean())\
