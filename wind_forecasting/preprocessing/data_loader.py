@@ -143,7 +143,7 @@ class DataLoader:
             # if self.multiprocessor == "mpi" and mpi_exists:
             #     executor = MPICommExecutor(MPI.COMM_WORLD, root=0)
             # else:  # "cf" case
-            executor = ProcessPoolExecutor(mp_context=mp.get_context("spawn"), max_workers=os.environ.get("MAX_WORKERS", mp.cpu_count()))
+            executor = ProcessPoolExecutor(mp_context=mp.get_context("spawn"), max_workers=int(os.environ.get("MAX_WORKERS", mp.cpu_count())))
             with executor as ex:
                 if read_single_files:
                     logging.info(f"✅ Started reading {sum(len(fp) for fp in self.file_paths)} files.")
@@ -281,7 +281,7 @@ class DataLoader:
         logging.info(f"Started scanning schema. Used RAM = {virtual_memory().percent}%.")
         if reload or not os.path.exists(os.path.join(temp_save_dir, f"full_schema_{file_set_idx}_{i}.pkl")):
             if self.multiprocessor is not None:
-                executor = ProcessPoolExecutor(mp_context=mp.get_context("spawn"), max_workers=os.environ.get("MAX_WORKERS", mp.cpu_count()))
+                executor = ProcessPoolExecutor(mp_context=mp.get_context("spawn"), max_workers=int(os.environ.get("MAX_WORKERS", mp.cpu_count())))
                 with executor as ex:
                     if ex is not None:
                         schema_futures = [ex.submit(self._get_schema, fp) for fp in processed_file_paths]
@@ -317,7 +317,7 @@ class DataLoader:
         if reload or not os.path.exists(os.path.join(temp_save_dir, f"time_bounds_{file_set_idx}_{i}.parquet")):
             all_time_bounds = []
             if self.multiprocessor is not None:
-                executor = ProcessPoolExecutor(mp_context=mp.get_context("spawn"), max_workers=os.environ.get("MAX_WORKERS", mp.cpu_count()))
+                executor = ProcessPoolExecutor(mp_context=mp.get_context("spawn"), max_workers=int(os.environ.get("MAX_WORKERS", mp.cpu_count())))
                 with executor as ex:
                     if ex is not None:
                         time_bounds_futures = [ex.submit(self._get_time_bounds, fp) for fp in processed_file_paths]
