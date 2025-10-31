@@ -308,10 +308,10 @@ class DataLoader:
             
         logging.info(f"Finished scanning schema. Used RAM = {virtual_memory().percent}%.")
         
-        if os.path.exists(os.path.join(temp_save_dir, f"time_bounds_{file_set_idx}_{i}.pkl")):
-            with open(os.path.join(temp_save_dir, f"time_bounds_{file_set_idx}_{i}.pkl"), "rb") as fp:
-                all_time_bounds = pickle.load(fp)
-            all_time_bounds.write_parquet(os.path.join(temp_save_dir, f"time_bounds_{file_set_idx}_{i}.parquet"))
+        # if os.path.exists(os.path.join(temp_save_dir, f"time_bounds_{file_set_idx}_{i}.pkl")):
+        #     with open(os.path.join(temp_save_dir, f"time_bounds_{file_set_idx}_{i}.pkl"), "rb") as fp:
+        #         all_time_bounds = pickle.load(fp)
+        #     all_time_bounds.write_parquet(os.path.join(temp_save_dir, f"time_bounds_{file_set_idx}_{i}.parquet"))
         
         logging.info(f"Started scanning time bounds. Used RAM = {virtual_memory().percent}%.")
         if reload or not os.path.exists(os.path.join(temp_save_dir, f"time_bounds_{file_set_idx}_{i}.parquet")):
@@ -483,7 +483,7 @@ class DataLoader:
         for j in range(jj):
             bounds = df_queries[j].select(pl.col("time").first().alias("first"), pl.col("time").last().alias("last")).collect()
             logging.info(f"Started resampling and refill from {bounds['first'].item()} to {bounds['last'].item()} for {i}th of dfs. Used RAM = {virtual_memory().percent}%.") 
-            self._resample_df(df_queries[j], bounds, fill_null=True).sink_parquet(os.path.join(temp_save_dir, f"merged_{file_set_idx_offset + j}_{i}.parquet"), maintain_order=True, row_group_size=100_000)
+            self._resample_df(df_queries[j], bounds, fill_null=True).sink_parquet(os.path.join(temp_save_dir, f"merged_{file_set_idx_offset + j}_{i}.parquet"), maintain_order=True)
         df_queries = df_queries_2
 
         logging.info(f"Sequential resampling took {time.time() - start_time:.2f} s")
