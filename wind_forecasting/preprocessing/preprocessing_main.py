@@ -232,11 +232,11 @@ def main():
 
         df_query = data_loader.read_multi_files(temp_save_dir, read_single_files=False)
         
-        df = df_query.collect().select("file_set_idx", "time", cs.starts_with("wind_")).partition_by("file_set_idx")
-        fig, ax = plt.subplots(2, 1)
-        for ts in df:
-            ax[0].plot(ts.select("time").to_numpy(), ts.select(pl.col("wind_speed_wt001")).to_numpy(), '.', alpha=0.1)
-            ax[1].plot(ts.select("time").to_numpy(), ts.select(pl.col("wind_direction_wt002")).to_numpy(), '.', alpha=0.1)
+        # df = df_query.collect().select("file_set_idx", "time", cs.starts_with("wind_")).partition_by("file_set_idx")
+        # fig, ax = plt.subplots(2, 1)
+        # for ts in df:
+        #     ax[0].plot(ts.select("time").to_numpy(), ts.select(pl.col("wind_speed_wt001")).to_numpy(), '.', alpha=0.1)
+        #     ax[1].plot(ts.select("time").to_numpy(), ts.select(pl.col("wind_direction_wt002")).to_numpy(), '.', alpha=0.1)
         
         if RUN_ONCE:
             logging.info("✅ Finished reading individual files. Time elapsed: %.2f s", time.time() - start_time)
