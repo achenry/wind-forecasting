@@ -418,7 +418,7 @@ class DataLoader:
             if True or reload or not os.path.exists(os.path.join(temp_save_dir, f"split_indices_{file_set_idx}_{i}.parquet")):
                 logging.info(f"Started generating split_indices for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
                 df_queries.with_row_index()\
-                          .filter(~pl.all_horizontal(cs.numeric().is_null()))\
+                          .filter(~pl.all_horizontal(cs.numeric().exclude("index").is_null()))\
                           .select("time", "index")\
                           .with_columns(dt=pl.col("time").diff())\
                           .slice(1)\
