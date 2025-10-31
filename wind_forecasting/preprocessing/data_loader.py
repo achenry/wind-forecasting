@@ -417,18 +417,33 @@ class DataLoader:
             file_set_idx_offset = sum(len(file_set) for file_set in self.file_paths[:file_set_idx])
             if reload or not os.path.exists(os.path.join(temp_save_dir, f"split_indices_{file_set_idx}_{i}.parquet")):
                 logging.info(f"Started generating split_indices for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
+                
+                logging.info("Starting split_indices stage 1.")
                 df_queries.with_row_index()\
                           .filter(~pl.all_horizontal(cs.numeric().exclude("index").is_null()))\
                           .select("time", "index")\
+                            .sink_parquet(split_indices_fp, maintain_order=True)
+                logging.info("Finished split_indices stage 1.")
+                
+                logging.info("Starting split_indices stage 2.")
+                pl.read_parquet(split_indices_fp)\
                           .with_columns(dt=pl.col("time").diff())\
                           .slice(1)\
-                          .filter(pl.col("dt") > timedelta(seconds=self.split_dt)).select("index")\
-                          .sink_parquet(split_indices_fp, maintain_order=True)
+                              .write_parquet(split_indices_fp)
+                logging.info("Finished split_indices stage 2.")
+                
+                logging.info("Starting split_indices stage 3.")
+                pl.read_parquet(split_indices_fp)\
+                    .filter(pl.col("dt") > timedelta(seconds=self.split_dt)).select("index")\
+                    .write_parquet(split_indices_fp)
+                logging.info("Finished split_indices stage 3.")
                           
-                split_indices = pl.read_parquet(split_indices_fp)  
+                logging.info("Starting split_indices stage 4.")
                 pl.concat([pl.Series([0]).alias("index").to_frame(),
-                            split_indices,
+                            pl.read_parquet(split_indices_fp)  ,
                             pl.Series([df_queries.select(pl.len()).collect().item()]).alias("index").to_frame()], how="vertical_relaxed").write_parquet(split_indices_fp)
+                logging.info("Finished split_indices stage 4.")
+                
             else:
                 logging.info(f"Loading split_indices for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
             
