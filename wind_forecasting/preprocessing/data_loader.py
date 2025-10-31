@@ -427,7 +427,7 @@ class DataLoader:
                 
                 logging.info("Starting split_indices stage 2.")
                 pl.read_parquet(split_indices_fp)\
-                          .with_columns(dt=pl.col("time").diff())\
+                          .select("index", dt=pl.col("time").diff())\
                           .slice(1)\
                               .write_parquet(split_indices_fp)
                 logging.info("Finished split_indices stage 2.")
