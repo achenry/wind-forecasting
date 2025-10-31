@@ -1,7 +1,6 @@
 config_label: aoifemac_awaken_new
 
 filters:
-  # nacelle_calibration:
   unresponsive_sensor:
     frozen_sensor_limit: 1200 # maximum duration for which a value can be constant before it is flagged as frozen, seconds
   range_flag:
@@ -19,15 +18,16 @@ filters:
     bin_min: 0.01 # factor multiplied by rated power
     bin_max: 0.95 # factor multiplied by rated power
     threshold_type: scalar
+  nacelle_calibration:
   std_range_flag:
     threshold: 1
     over: asset 
     r2_threshold: 0.85
     min_correlated_assets: 5
-  # split:
-  #   missing_col_thr: 66 # number of missing turbine measurements, from either wind speed or wind direction, (max = 2xn_turbines) above which this subset of data will be omitted, i.e. if many data points are missing omit the data
-  #   missing_duration_thr: 300 # maximum duration for which subsets of data which have missing measurements exceeding missing_col_thr in any feature type will still be included, i.e. if many data points are missing but only for a short time, use the data, seconds
-  #   minimum_not_missing_duration: 1200 # minimum duration that any retained continuous subset of data must be to be useful, seconds, i.e. should contain at least the intended context length and prediction length
+  split:
+    missing_col_thr: 66 # number of missing turbine measurements, from either wind speed or wind direction, (max = 2xn_turbines) above which this subset of data will be omitted, i.e. if many data points are missing omit the data
+    missing_duration_thr: 300 # maximum duration for which subsets of data which have missing measurements exceeding missing_col_thr in any feature type will still be included, i.e. if many data points are missing but only for a short time, use the data, seconds
+    minimum_not_missing_duration: 1200 # minimum duration that any retained continuous subset of data must be to be useful, seconds, i.e. should contain at least the intended context length and prediction length
   impute_missing_data:
     r2_threshold: 0.7
   smooth:
@@ -58,6 +58,10 @@ feature_mapping:
 turbine_signature: 
 - 'wt\d{3}'
 # - 'Turbine[A-Z][0-9]'
+
+datetime_signature:
+  - '\d{8}': '%Y%m%d'
+  # - '\d{8}.\d{6}': '%Y%m%d.%H%M%S'
 
 turbine_mapping:
 - wt001: 1
@@ -238,10 +242,6 @@ turbine_mapping:
 #   TurbineJ8: 87
 #   TurbineJ9: 88
 
-datetime_signature:
-- '\d{8}': '%Y%m%d'
-# - '\d{8}.\d{6}': '%Y%m%d.%H%M%S'
-
 merge_chunk: 176
 ram_limit: 85
 
@@ -271,7 +271,7 @@ raw_data_directory:
 # - /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/raw_awaken2_data/
 
 # processed_data_path: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/awaken_data/awaken_processed.parquet
-processed_data_path: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/awaken_data/awaken_processed_debug.parquet
+processed_data_path: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/awaken_data/awaken_processed.parquet
 temp_storage_dir: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/temp
 
 raw_data_file_signature: 

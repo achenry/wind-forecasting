@@ -412,6 +412,11 @@ class DataLoader:
             
             assert os.path.exists(temp_save_dir), f"temp_save_dir={temp_save_dir} is not available for file set {file_set_idx}, merge index {i}"
             
+            logging.info(f"Started sinking concatenated dataframe for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
+            df_queries.sink_parquet(self.save_path, maintain_order=True)
+            logging.info(f"Finished sinking concatenated dataframe for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
+            df_queries = pl.scan_parquet(self.save_path)
+            
             split_indices_fp = os.path.join(temp_save_dir, f"split_indices_{file_set_idx}_{i}.parquet")
             file_set_idx_offset = sum(len(file_set) for file_set in self.file_paths[:file_set_idx])
             if reload or not os.path.exists(os.path.join(temp_save_dir, f"split_indices_{file_set_idx}_{i}.parquet")):

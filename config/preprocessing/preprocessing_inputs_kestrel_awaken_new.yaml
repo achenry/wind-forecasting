@@ -34,6 +34,7 @@ filters:
     function: butterworth
     order: 1
     freq_cutoff: 0.0011
+    window_size: 60
   normalize:
 
 feature_mapping:
