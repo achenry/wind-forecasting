@@ -143,10 +143,8 @@ class DataLoader:
             # if self.multiprocessor == "mpi" and mpi_exists:
             #     executor = MPICommExecutor(MPI.COMM_WORLD, root=0)
             # else:  # "cf" case
-            executor = ProcessPoolExecutor(mp_context=mp.get_context("spawn"))
+            executor = ProcessPoolExecutor(mp_context=mp.get_context("spawn"), max_workers=os.environ.get("MAX_WORKERS", mp.cpu_count()))
             with executor as ex:
-   
-                    
                 if read_single_files:
                     logging.info(f"✅ Started reading {sum(len(fp) for fp in self.file_paths)} files.")
                     
@@ -283,7 +281,7 @@ class DataLoader:
         logging.info(f"Started scanning schema. Used RAM = {virtual_memory().percent}%.")
         if reload or not os.path.exists(os.path.join(temp_save_dir, f"full_schema_{file_set_idx}_{i}.pkl")):
             if self.multiprocessor is not None:
-                executor = ProcessPoolExecutor(mp_context=mp.get_context("spawn"))
+                executor = ProcessPoolExecutor(mp_context=mp.get_context("spawn"), max_workers=os.environ.get("MAX_WORKERS", mp.cpu_count()))
                 with executor as ex:
                     if ex is not None:
                         schema_futures = [ex.submit(self._get_schema, fp) for fp in processed_file_paths]
@@ -310,11 +308,16 @@ class DataLoader:
             
         logging.info(f"Finished scanning schema. Used RAM = {virtual_memory().percent}%.")
         
+        if os.path.exists(os.path.join(temp_save_dir, f"time_bounds_{file_set_idx}_{i}.pkl")):
+            with open(os.path.join(temp_save_dir, f"time_bounds_{file_set_idx}_{i}.pkl"), "rb") as fp:
+                all_time_bounds = pickle.load(fp)
+            all_time_bounds.write_parquet(os.path.join(temp_save_dir, f"time_bounds_{file_set_idx}_{i}.parquet"))
+        
         logging.info(f"Started scanning time bounds. Used RAM = {virtual_memory().percent}%.")
-        if reload or not os.path.exists(os.path.join(temp_save_dir, f"time_bounds_{file_set_idx}_{i}.pkl")):
+        if reload or not os.path.exists(os.path.join(temp_save_dir, f"time_bounds_{file_set_idx}_{i}.parquet")):
             all_time_bounds = []
             if self.multiprocessor is not None:
-                executor = ProcessPoolExecutor(mp_context=mp.get_context("spawn"))
+                executor = ProcessPoolExecutor(mp_context=mp.get_context("spawn"), max_workers=os.environ.get("MAX_WORKERS", mp.cpu_count()))
                 with executor as ex:
                     if ex is not None:
                         time_bounds_futures = [ex.submit(self._get_time_bounds, fp) for fp in processed_file_paths]
@@ -329,13 +332,11 @@ class DataLoader:
                     logging.info(f"  - Time Bounds for {processed_file_paths[f]}: {all_time_bounds[-1]}")
             
             all_time_bounds = pl.DataFrame(all_time_bounds, schema=["start", "end", "file_index"], orient="row").sort("start").drop_nulls()
-            
-            with open(os.path.join(temp_save_dir, f"time_bounds_{file_set_idx}_{i}.pkl"), "wb") as fp:
-                pickle.dump(all_time_bounds, fp)
+            all_time_bounds.write_parquet(os.path.join(temp_save_dir, f"time_bounds_{file_set_idx}_{i}.parquet"))
                 
         else:
-            with open(os.path.join(temp_save_dir, f"time_bounds_{file_set_idx}_{i}.pkl"), "rb") as fp:
-                all_time_bounds = pickle.load(fp)
+            all_time_bounds = pl.read_parquet(os.path.join(temp_save_dir, f"time_bounds_{file_set_idx}_{i}.parquet"))
+            
             logging.info(f"Scanned existing time_bounds.")
             
         logging.info(f"Finished scanning time bounds. Used RAM = {virtual_memory().percent}%.")
@@ -345,8 +346,6 @@ class DataLoader:
         else:
             # concatenate and forward fill file groups with continuous time spans
             # split by discontinuity, all df_queries are sorted up to this point
-            
-            
             turbine_ids = set()
             for n in full_schema.names():
                 match = re.findall(self.turbine_signature, n)
@@ -422,14 +421,14 @@ class DataLoader:
                 df_queries.with_row_index()\
                           .filter(~pl.all_horizontal(cs.numeric().exclude("index").is_null()))\
                           .select("time", "index")\
-                            .sink_parquet(split_indices_fp, maintain_order=True)
+                          .sink_parquet(split_indices_fp, maintain_order=True)
                 logging.info("Finished split_indices stage 1.")
                 
                 logging.info("Starting split_indices stage 2.")
                 pl.read_parquet(split_indices_fp)\
                           .select("index", dt=pl.col("time").diff())\
                           .slice(1)\
-                              .write_parquet(split_indices_fp)
+                          .write_parquet(split_indices_fp)
                 logging.info("Finished split_indices stage 2.")
                 
                 logging.info("Starting split_indices stage 3.")
@@ -440,8 +439,9 @@ class DataLoader:
                           
                 logging.info("Starting split_indices stage 4.")
                 pl.concat([pl.Series([0]).alias("index").to_frame(),
-                            pl.read_parquet(split_indices_fp)  ,
-                            pl.Series([df_queries.select(pl.len()).collect().item()]).alias("index").to_frame()], how="vertical_relaxed").write_parquet(split_indices_fp)
+                            pl.read_parquet(split_indices_fp),
+                            pl.Series([df_queries.select(pl.len()).collect().item()]).alias("index").to_frame()], how="vertical_relaxed")\
+                  .write_parquet(split_indices_fp)
                 logging.info("Finished split_indices stage 4.")
                 
             else:
