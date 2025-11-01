@@ -243,10 +243,12 @@ class DataLoader:
                 # Write to final parquet
                 logging.info(f"Saving final Parquet file into {self.save_path}, used ram = {virtual_memory().percent}%")
                 merged_fp = glob.glob(os.path.join(temp_save_dir, "merged_*_*.parquet"))
+                merged_fp = sorted(merged_fp, key=lambda fp: tuple(int(x) for x in re.findall("(?<=merged)_(\\d+)_(\\d+)", os.path.basename(fp))[0]))
+                
                 if len(merged_fp) == 1:
                     move(merged_fp[0], self.save_path)
                 else:
-                    pl.scan_parquet(merged_fp).sort("time").sink_parquet(self.save_path, maintain_order=True)
+                    pl.scan_parquet(merged_fp, glob=True).sink_parquet(self.save_path, maintain_order=True)
                 
             else:
                 logging.info(f"Moving only batch to {self.save_path}.")
@@ -443,39 +445,37 @@ class DataLoader:
             
             logging.info(f"Finished generating split_indices {len(processed_file_paths)} files for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
             
-            logging.info(f"Started splitting {len(processed_file_paths)} files for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
+            logging.info(f"Started splitting and filling {len(processed_file_paths)} files for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
             
-            df_queries_2 = []
+            # df_queries_2 = []
             min_duration = timedelta(seconds=self.min_continuous_duration)
             j = 0
             jj = 0
             while j < n_splits:
                 next_split_indices = split_indices.head(2).to_numpy().flatten() # takes 1 min
                 dfq = df_queries.head(next_split_indices[1] - next_split_indices[0])
-                if dfq.select(pl.col("time").last() - pl.col("time").first()).collect().item() < min_duration: # takes 1 min
-                    logging.info(f"Skipping split {j} of {n_splits} continuous dataframes due to insufficient duration of {self.min_continuous_duration} seconds. Used RAM = {virtual_memory().percent}%.")
+                not_all_null_bounds = dfq.with_row_index().filter(~pl.all_horizontal(cs.numeric().exclude("index").is_null())).select(pl.col("index").min().alias("start"), pl.col("index").max().alias("end")).collect()
+                slc_len = not_all_null_bounds["end"].item() - not_all_null_bounds["start"].item() + 1
+                dfq = dfq.slice(not_all_null_bounds["start"].item(), slc_len)
+                # if (dur := dfq.select(pl.col("time").last() - pl.col("time").first()).collect().item()) < min_duration: # takes 1 min 
+                if (dur := slc_len * timedelta(seconds=self.dt)) < min_duration: 
+                    logging.info(f"Skipping split and fill {j} of {n_splits} continuous dataframes due to insufficient duration of {dur}. Used RAM = {virtual_memory().percent}%.")
                 else:
-                    logging.info(f"Splitting {j}th of {n_splits} continuous dataframes. Used RAM = {virtual_memory().percent}%.")
-                    df_queries_2.append(dfq.with_columns(file_set_idx=file_set_idx_offset + jj))
+                    if reload or not os.path.exists(os.path.join(temp_save_dir, f"merged_{file_set_idx_offset + jj}_{i}.parquet")):
+                        logging.info(f"Splitting and filling {j}th of {n_splits} continuous dataframes. Used RAM = {virtual_memory().percent}%.")
+                        dfq.with_columns(file_set_idx=file_set_idx_offset + jj)\
+                           .fill_null(strategy="forward").fill_null(strategy="backward")\
+                           .sink_parquet(os.path.join(temp_save_dir, f"merged_{file_set_idx_offset + jj}_{i}.parquet"), maintain_order=True)
+                    else:
+                        logging.info(f"Loaded existing split/filled {j}th of {n_splits} continuous dataframes. Used RAM = {virtual_memory().percent}%.")
                     jj += 1
                 
                 df_queries = df_queries.slice(next_split_indices[1] - next_split_indices[0]) 
                 split_indices = split_indices.slice(1)
                 j += 1
             
-            df_queries = df_queries_2
-            logging.info(f"Finished splitting {len(processed_file_paths)} files for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
-                
-        start_time = time.time()
-        
-        logging.info(f"Started fill of {jj} continuous dataframes for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
-        
-        for j in range(jj):
-            bounds = df_queries[j].select(pl.col("time").first().alias("first"), pl.col("time").last().alias("last")).collect()
-            logging.info(f"Started filliing and refill from {bounds['first'].item()} to {bounds['last'].item()} for {i}th of dfs. Used RAM = {virtual_memory().percent}%.") 
-            df_queries[j].fill_null(strategy="forward").fill_null(strategy="backward").sink_parquet(os.path.join(temp_save_dir, f"merged_{file_set_idx_offset + j}_{i}.parquet"), maintain_order=True)
-
-        logging.info(f"Sequential filling took {time.time() - start_time:.2f} s")
+            # df_queries = df_queries_2
+            logging.info(f"Finished splitting and filling {len(processed_file_paths)} files for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
             
         return
     
