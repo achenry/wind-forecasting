@@ -356,7 +356,7 @@ class DataLoader:
                     turbine_ids.add(match[0])
             turbine_ids = sorted(turbine_ids, key=lambda tid: int(re.search("\\d+", tid).group(0)))
             
-            if True or reload or not all(os.path.exists(os.path.join(temp_save_dir, f"grouped_{file_set_idx}_{i}_{tid}.parquet")) for tid in turbine_ids):
+            if reload or not all(os.path.exists(os.path.join(temp_save_dir, f"grouped_{file_set_idx}_{i}_{tid}.parquet")) for tid in turbine_ids):
                 logging.info(f"Started grouping of {len(processed_file_paths)} files for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
 
                 bounds = all_time_bounds.select(pl.col("start").first().alias("first"), pl.col("end").last().alias("last"))
@@ -424,7 +424,7 @@ class DataLoader:
             
             split_indices_fp = os.path.join(temp_save_dir, f"split_indices_{file_set_idx}_{i}.parquet")
             file_set_idx_offset = sum(len(file_set) for file_set in self.file_paths[:file_set_idx])
-            if True or reload or not os.path.exists(os.path.join(temp_save_dir, f"split_indices_{file_set_idx}_{i}.parquet")):
+            if reload or not os.path.exists(os.path.join(temp_save_dir, f"split_indices_{file_set_idx}_{i}.parquet")):
                 logging.info(f"Started generating split_indices for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
                 # fetch only rows where there is at least one non-null numeric value (excluding index column)
                 df_queries.with_row_index()\
