@@ -209,7 +209,7 @@ def main():
         #     comm_size = MPI.COMM_WORLD.Get_size()
         #     logging.info(f"🚀 Using MPI executor with {comm_size} processes.")
         if args.multiprocessor == "cf":
-            max_workers = multiprocessing.cpu_count()
+            max_workers = int(os.environ.get("MAX_WORKERS", multiprocessing.cpu_count()))
             logging.info("🚀  Using ProcessPoolExecutor with %d workers.", max_workers)
         else:
             logging.info("🚀  Using single process executor.")

@@ -171,29 +171,22 @@ class DataLoader:
                                         if f in unprocessed_file_path_idx[file_set_idx]] #4% increase in mem
                 
             logging.info(f"Started fetching results from {sum(len(fp) for fp in self.file_paths)} files.")
-            processed_file_paths = []
-            file_set_indices = []
-            for file_set_idx in range(len(self.file_paths)):
-                processed_file_paths.append([])
-                file_set_indices.append(file_set_idx)
-                ff = 0
-                for f, file_path in enumerate(self.file_paths[file_set_idx]):
-                    used_ram = virtual_memory().percent
-                    if (read_single_files == "all") or (read_single_files == "unprocessed" and f in unprocessed_file_path_idx[file_set_idx]):
-                        res = file_futures[ff].result() #.5% increase in mem
-                        ff += 1
-                    else:
-                        res = 1
-                    #     file_cols = []
-                    # all_columns.update(file_cols)
-                    
-                    fn = f"{os.path.splitext(os.path.basename(file_path))[0]}.parquet"
-                    fp = os.path.join(temp_save_dir, fn)
-                    if (res is not None) and os.path.exists(fp): 
-                        processed_file_paths[-1].append(fp)
-                        # logging.info(f"- Adding {fp} to list of processed files")
-                    # else:
-                    #     logging.warning(f"File {file_path} could not be processed, skipping.")
+            if (read_single_files == "all") or (read_single_files == "unprocessed" and f in unprocessed_file_path_idx[file_set_idx]):
+                processed_file_paths = []
+                file_set_indices = []
+                for file_set_idx in range(len(self.file_paths)):
+                    processed_file_paths.append([])
+                    file_set_indices.append(file_set_idx)
+                    for f, file_path in enumerate(self.file_paths[file_set_idx]):
+                        fn = f"{os.path.splitext(os.path.basename(file_path))[0]}.parquet"
+                        fp = os.path.join(temp_save_dir, fn)
+                        if (res is not None) and os.path.exists(fp): 
+                            processed_file_paths[-1].append(fp)
+            else:
+                processed_file_paths = [glob.glob(os.path.join(temp_save_dir, f"{os.path.splitext(self.file_signature[file_set_idx])[0]}.parquet")) for file_set_idx in range(len(self.file_paths))]
+                            # logging.info(f"- Adding {fp} to list of processed files")
+                        # else:
+                        #     logging.warning(f"File {file_path} could not be processed, skipping.")
                     
                     # for name, size in sorted(((name, sys.getsizeof(value)) for name, value in list(
                     #                     locals().items())), key= lambda x: -x[1])[:3]:
@@ -361,7 +354,7 @@ class DataLoader:
 
                 bounds = all_time_bounds.select(pl.col("start").first().alias("first"), pl.col("end").last().alias("last"))
                 for tid in turbine_ids:
-                    logging.info(f"  - Grouping files for turbine id {tid} for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
+                    
                     asset_schema = pl.Schema({k: v for k, v in full_schema.items() if k == "time" or re.search(f".*?(?={tid})", k)})
                     # loop through all of this asset's files
                     asset_processed_files = [fp for fp in processed_file_paths if re.findall(tid, os.path.basename(fp))]
@@ -370,6 +363,8 @@ class DataLoader:
                             logging.error(f"File {fp} has no all_time_bounds entry! Its index in processed_file_paths is {processed_file_paths.index(fp)}")
                     
                     asset_processed_files = sorted(asset_processed_files, key=lambda fp: all_time_bounds.filter(pl.col("file_index") == processed_file_paths.index(fp)).select("start").item())
+                    
+                    logging.info(f"  - Grouping {len(asset_processed_files)} files for turbine id {tid} for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
                     df = pl.scan_parquet(asset_processed_files, schema=asset_schema, missing_columns="insert")\
                             .sort("time")\
                                 .group_by("time", maintain_order=True)\
@@ -492,7 +487,7 @@ class DataLoader:
                                     end=bounds["last"].item(),
                                     interval=f"{self.dt}s", 
                                     time_unit=df.collect_schema()["time"].time_unit).alias("time"))\
-          .join(df, on="time", how="left")
+          .join(df, on="time", how="left", maintain_order="left")
         
         if fill_null:
           df = df.fill_null(strategy="forward").fill_null(strategy="backward")
