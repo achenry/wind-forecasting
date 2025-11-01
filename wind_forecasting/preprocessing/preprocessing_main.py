@@ -411,7 +411,7 @@ def main():
             
             cols = ws_cols + wd_cols
             
-            if regen:
+            if regen or not all(os.path.exists(os.path.join(frozen_sensor_filter_temp_path, f"{feat}_fs{file_set_idx}.npy")) for file_set_idx in file_set_indices for feat in cols):
                 thr = int(np.timedelta64(config["filters"]["unresponsive_sensor"]["frozen_sensor_limit"], 's') / np.timedelta64(data_loader.dt, 's'))
                 
                 frozen_sensors = {}
@@ -430,8 +430,8 @@ def main():
                         
                     # move from temp location to permanent
                     move(frozen_sensor_filter_temp_path, frozen_sensor_filter_target_path)
-            else:
-                mask = lambda file_set_idx, feat: np.load(os.path.join(frozen_sensor_filter_target_path, f"{feat}_fs{file_set_idx}.npy")) 
+            
+            mask = lambda file_set_idx, feat: np.load(os.path.join(frozen_sensor_filter_target_path, f"{feat}_fs{file_set_idx}.npy")) 
         
             # check time series
             if args.verbose:
