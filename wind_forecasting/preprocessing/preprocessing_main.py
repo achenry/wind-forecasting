@@ -561,8 +561,8 @@ def main():
                                                     upper=config["filters"]["range_flag"]["upper"]) & ~ws.isna()).values # range flag includes formerly null values as nan
                 del ws
                 np.save(config["processed_data_path"].replace(".parquet", "_out_of_range.npy"), out_of_range)
-            elif RUN_ONCE:
-                out_of_range = np.load(config["processed_data_path"].replace(".parquet", "_out_of_range.npy"))
+            
+            out_of_range = np.load(config["processed_data_path"].replace(".parquet", "_out_of_range.npy"))
 
             # check if wind speed/dir measurements from inoperational turbines differ from fully operational 
             mask = lambda tid: safe_mask(tid, outlier_flag=out_of_range, turbine_id_to_index=turbine_id_to_index)
@@ -652,8 +652,7 @@ def main():
                 if RUN_ONCE:
                     np.save(config["processed_data_path"].replace(".parquet", "_out_of_window.npy"), out_of_window)
                     
-            elif RUN_ONCE:
-                out_of_window = np.load(config["processed_data_path"].replace(".parquet", "_out_of_window.npy"))
+            out_of_window = np.load(config["processed_data_path"].replace(".parquet", "_out_of_window.npy"))
             
             if RUN_ONCE:
                 # check if wind speed/dir measurements from inoperational turbines differ from fully operational 
@@ -748,8 +747,8 @@ def main():
                 data_filter.multiprocessor = args.multiprocessor
                 if RUN_ONCE:
                     np.save(config["processed_data_path"].replace(".parquet", "_bin_outliers.npy"), bin_outliers)
-            elif RUN_ONCE:
-                bin_outliers = np.load(config["processed_data_path"].replace(".parquet", "_bin_outliers.npy"))
+            
+            bin_outliers = np.load(config["processed_data_path"].replace(".parquet", "_bin_outliers.npy"))
 
             if RUN_ONCE:
                 # check if wind speed/dir measurements from inoperational turbines differ from fully operational 
