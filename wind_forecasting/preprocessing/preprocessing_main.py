@@ -770,7 +770,7 @@ def main():
                                                         feature_labels=["Wind Speed (m/s) after Wind Speed-Power Bin Outlier Filter"])
                 
                 # NOTE USE THIS CODE TO GENERATE FIG. 8 IN PAPER
-                if True:
+                if False:
                     # plot values outside the power-wind speed bin filter
                     bin_outliers = np.load(config["processed_data_path"].replace(".parquet", "_bin_outliers.npy"))
                     out_of_window = np.load(config["processed_data_path"].replace(".parquet", "_out_of_window.npy"))
