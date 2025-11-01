@@ -242,9 +242,9 @@ def main():
             logging.info("✅ Finished reading individual files. Time elapsed: %.2f s", time.time() - start_time)
             logging.info("Parquet file saved into %s", data_loader.save_path)
             
-            if os.path.exists(temp_save_dir):
-                logging.info(f"Removing temporary storage directory {temp_save_dir}")
-                rmtree(temp_save_dir)
+            # if os.path.exists(temp_save_dir):
+            #     logging.info(f"Removing temporary storage directory {temp_save_dir}")
+            #     rmtree(temp_save_dir)
                 
     elif RUN_ONCE:
         logging.info("✅ Loaded existing Parquet file.")
