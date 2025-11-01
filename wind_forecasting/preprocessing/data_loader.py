@@ -351,7 +351,7 @@ class DataLoader:
                     turbine_ids.add(match[0])
             turbine_ids = sorted(turbine_ids, key=lambda tid: int(re.search("\\d+", tid).group(0)))
             
-            if reload or not all(os.path.exists(os.path.join(temp_save_dir, f"grouped_{file_set_idx}_{i}_{tid}.parquet")) for tid in turbine_ids):
+            if reload or not os.path.exists(os.path.join(temp_save_dir, f"all_grouped_{file_set_idx}_{i}.parquet")):
                 logging.info(f"Started grouping of {len(processed_file_paths)} files for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
 
                 bounds = all_time_bounds.select(pl.col("start").first().alias("first"), pl.col("end").last().alias("last"))
