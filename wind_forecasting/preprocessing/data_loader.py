@@ -249,15 +249,18 @@ class DataLoader:
                 
                 # Write to final parquet
                 logging.info(f"Saving final Parquet file into {self.save_path}, used ram = {virtual_memory().percent}%")
-                pl.scan_parquet(os.path.join(temp_save_dir, "merged_*_*.parquet"), glob=True).sort("time").sink_parquet(self.save_path, maintain_order=True, statistics=False)
+                merged_fp = glob.glob(os.path.join(temp_save_dir, "merged_*_*.parquet"))
+                if len(merged_fp) == 1:
+                    move(merged_fp[0], self.save_path)
+                else:
+                    pl.scan_parquet(merged_fp).sort("time").sink_parquet(self.save_path, maintain_order=True)
                 
             else:
                 logging.info(f"Moving only batch to {self.save_path}.")
                 move(processed_file_paths[0][0], self.save_path)
-                    
-            df_query = pl.scan_parquet(self.save_path).sort("time")
-                
-            # turbine ids found in all files so far
+            
+            df_query = pl.scan_parquet(self.save_path)
+            # turbine ids found in all files so far TODO check if sorted
             self.turbine_ids = self.get_turbine_ids(self.turbine_signature, df_query, sort=True)
             
             logging.info(f"Final Parquet file saved into {self.save_path}")
@@ -353,9 +356,10 @@ class DataLoader:
                     turbine_ids.add(match[0])
             turbine_ids = sorted(turbine_ids, key=lambda tid: int(re.search("\\d+", tid).group(0)))
             
-            if reload or not all(os.path.exists(os.path.join(temp_save_dir, f"grouped{tid}.parquet")) for tid in turbine_ids):
+            if True or reload or not all(os.path.exists(os.path.join(temp_save_dir, f"grouped_{file_set_idx}_{i}_{tid}.parquet")) for tid in turbine_ids):
                 logging.info(f"Started grouping of {len(processed_file_paths)} files for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
 
+                bounds = all_time_bounds.select(pl.col("start").first().alias("first"), pl.col("end").last().alias("last"))
                 for tid in turbine_ids:
                     logging.info(f"  - Grouping files for turbine id {tid} for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
                     asset_schema = pl.Schema({k: v for k, v in full_schema.items() if k == "time" or re.search(f".*?(?={tid})", k)})
@@ -366,19 +370,25 @@ class DataLoader:
                             logging.error(f"File {fp} has no all_time_bounds entry! Its index in processed_file_paths is {processed_file_paths.index(fp)}")
                     
                     asset_processed_files = sorted(asset_processed_files, key=lambda fp: all_time_bounds.filter(pl.col("file_index") == processed_file_paths.index(fp)).select("start").item())
-                    pl.scan_parquet(asset_processed_files, glob=True, schema=asset_schema, missing_columns="insert")\
+                    df = pl.scan_parquet(asset_processed_files, schema=asset_schema, missing_columns="insert")\
                             .sort("time")\
                                 .group_by("time", maintain_order=True)\
-                                .agg(cs.numeric().mean())\
-                                .sink_parquet(os.path.join(temp_save_dir, f"grouped{tid}.parquet"), maintain_order=True)
+                                .agg(cs.numeric().mean())
+                    
+                    self._resample_df(df, bounds, fill_null=False)\
+                        .sink_parquet(os.path.join(temp_save_dir, f"grouped_{file_set_idx}_{i}_{tid}.parquet"), maintain_order=True)
+                
+                grouped_file_paths = glob.glob(os.path.join(temp_save_dir, f"grouped_{file_set_idx}_{i}_*.parquet"))
+                grouped_file_paths = [fp for fp in grouped_file_paths if re.findall(self.turbine_signature, os.path.basename(fp))]
+                grouped_file_paths = sorted(grouped_file_paths, key=lambda fp: re.search(f"(?<=grouped_{file_set_idx}_{i}_)({self.turbine_signature})", os.path.splitext(os.path.basename(fp))[0]).group())
+                pl.concat([pl.scan_parquet(fp).select(pl.exclude("time")) if f > 0 else pl.scan_parquet(fp) for f, fp in enumerate(grouped_file_paths) if os.path.getsize(fp)], how="horizontal")\
+                  .sink_parquet(os.path.join(temp_save_dir, f"all_grouped_{file_set_idx}_{i}.parquet"), maintain_order=True)
+                  
             else:
                 logging.info(f"Loading groupings of {len(processed_file_paths)} files for file set {file_set_idx}, merge index {i} from file. Used RAM = {virtual_memory().percent}%.")
-                
-            grouped_file_paths = glob.glob(os.path.join(temp_save_dir, f"grouped*.parquet"))
-            grouped_file_paths = [fp for fp in grouped_file_paths if re.findall(self.turbine_signature, os.path.basename(fp))]
-            grouped_file_paths = sorted(grouped_file_paths, key=lambda fp: re.search(f"(?<=grouped)({self.turbine_signature})", os.path.splitext(os.path.basename(fp))[0]).group())
-            df_queries = pl.concat([pl.scan_parquet(fp) for fp in grouped_file_paths if os.path.getsize(fp)], how="align")
-                
+            
+            df_queries = pl.scan_parquet(os.path.join(temp_save_dir, f"all_grouped_{file_set_idx}_{i}.parquet"))
+            
             logging.info(f"Finished grouping {len(processed_file_paths)} files for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
             
             logging.info(f"Found columns:")
@@ -412,42 +422,23 @@ class DataLoader:
             
             assert os.path.exists(temp_save_dir), f"temp_save_dir={temp_save_dir} is not available for file set {file_set_idx}, merge index {i}"
             
-            logging.info(f"Started sinking concatenated dataframe for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
-            df_queries.sink_parquet(self.save_path, maintain_order=True)
-            logging.info(f"Finished sinking concatenated dataframe for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
-            df_queries = pl.scan_parquet(self.save_path)
-            
             split_indices_fp = os.path.join(temp_save_dir, f"split_indices_{file_set_idx}_{i}.parquet")
             file_set_idx_offset = sum(len(file_set) for file_set in self.file_paths[:file_set_idx])
-            if reload or not os.path.exists(os.path.join(temp_save_dir, f"split_indices_{file_set_idx}_{i}.parquet")):
+            if True or reload or not os.path.exists(os.path.join(temp_save_dir, f"split_indices_{file_set_idx}_{i}.parquet")):
                 logging.info(f"Started generating split_indices for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
-                
-                logging.info("Starting split_indices stage 1.")
+                # fetch only rows where there is at least one non-null numeric value (excluding index column)
                 df_queries.with_row_index()\
                           .filter(~pl.all_horizontal(cs.numeric().exclude("index").is_null()))\
-                          .select("time", "index")\
-                          .sink_parquet(split_indices_fp, maintain_order=True)
-                logging.info("Finished split_indices stage 1.")
-                
-                logging.info("Starting split_indices stage 2.")
-                pl.read_parquet(split_indices_fp)\
                           .select("index", dt=pl.col("time").diff())\
                           .slice(1)\
-                          .write_parquet(split_indices_fp)
-                logging.info("Finished split_indices stage 2.")
+                          .filter(pl.col("dt") > timedelta(seconds=self.split_dt))\
+                          .select("index")\
+                          .sink_parquet(split_indices_fp, maintain_order=True)
                 
-                logging.info("Starting split_indices stage 3.")
-                pl.read_parquet(split_indices_fp)\
-                    .filter(pl.col("dt") > timedelta(seconds=self.split_dt)).select("index")\
-                    .write_parquet(split_indices_fp)
-                logging.info("Finished split_indices stage 3.")
-                          
-                logging.info("Starting split_indices stage 4.")
                 pl.concat([pl.Series([0]).alias("index").to_frame(),
                             pl.read_parquet(split_indices_fp),
                             pl.Series([df_queries.select(pl.len()).collect().item()]).alias("index").to_frame()], how="vertical_relaxed")\
                   .write_parquet(split_indices_fp)
-                logging.info("Finished split_indices stage 4.")
                 
             else:
                 logging.info(f"Loading split_indices for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
@@ -482,16 +473,14 @@ class DataLoader:
                 
         start_time = time.time()
         
-        logging.info(f"Started resampling and refill of {jj} continuous dataframes for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
+        logging.info(f"Started fill of {jj} continuous dataframes for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
         
-        df_queries_2 = []
         for j in range(jj):
             bounds = df_queries[j].select(pl.col("time").first().alias("first"), pl.col("time").last().alias("last")).collect()
-            logging.info(f"Started resampling and refill from {bounds['first'].item()} to {bounds['last'].item()} for {i}th of dfs. Used RAM = {virtual_memory().percent}%.") 
-            self._resample_df(df_queries[j], bounds, fill_null=True).sink_parquet(os.path.join(temp_save_dir, f"merged_{file_set_idx_offset + j}_{i}.parquet"), maintain_order=True)
-        df_queries = df_queries_2
+            logging.info(f"Started filliing and refill from {bounds['first'].item()} to {bounds['last'].item()} for {i}th of dfs. Used RAM = {virtual_memory().percent}%.") 
+            df_queries[j].fill_null(strategy="forward").fill_null(strategy="backward").sink_parquet(os.path.join(temp_save_dir, f"merged_{file_set_idx_offset + j}_{i}.parquet"), maintain_order=True)
 
-        logging.info(f"Sequential resampling took {time.time() - start_time:.2f} s")
+        logging.info(f"Sequential filling took {time.time() - start_time:.2f} s")
             
         return
     
