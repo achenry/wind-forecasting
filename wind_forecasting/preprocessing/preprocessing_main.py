@@ -487,7 +487,7 @@ def main():
                 if "frozen_sensors" in locals():
                     del frozen_sensors
                 
-                df_query.collect().write_parquet(config["processed_data_path"].replace(".parquet", "_filtered.parquet"), statistics=False)
+                df_query.sink_parquet(config["processed_data_path"].replace(".parquet", "_filtered.parquet"), maintain_order=True)
                 df_query = pl.scan_parquet(config["processed_data_path"].replace(".parquet", "_filtered.parquet"))
                 logging.info("Finished nullifying wind speed/direction frozen sensor measurements in dataframe.")
                 
@@ -536,7 +536,7 @@ def main():
             
             if RUN_ONCE:
                 del mask
-                df_query.collect().write_parquet(config["processed_data_path"].replace(".parquet", "_filtered.parquet"), statistics=False)
+                df_query.sink_parquet(config["processed_data_path"].replace(".parquet", "_filtered.parquet"), maintain_order=True)
                 df_query = pl.scan_parquet(config["processed_data_path"].replace(".parquet", "_filtered.parquet"))
                 logging.info("Finished nullifying inoperational turbine measurements in dataframe.") 
             
@@ -622,7 +622,7 @@ def main():
             if RUN_ONCE:
                 del out_of_range, mask
                 
-                df_query.collect().write_parquet(config["processed_data_path"].replace(".parquet", "_filtered.parquet"), statistics=False)
+                df_query.sink_parquet(config["processed_data_path"].replace(".parquet", "_filtered.parquet"), maintain_order=True)
                 df_query = pl.scan_parquet(config["processed_data_path"].replace(".parquet", "_filtered.parquet"))
                 logging.info("Finished nullifying wind speed out of range measurements in dataframe.") 
         
@@ -712,7 +712,7 @@ def main():
             if RUN_ONCE:
                 del out_of_window, mask
                 # need to sink parquet and recollect to avoid recursion limit error
-                df_query.collect().write_parquet(config["processed_data_path"].replace(".parquet", "_filtered.parquet"), statistics=False)
+                df_query.sink_parquet(config["processed_data_path"].replace(".parquet", "_filtered.parquet"), maintain_order=True)
                 df_query = pl.scan_parquet(config["processed_data_path"].replace(".parquet", "_filtered.parquet"))
                 
                 logging.info("Finished nullifying wind speed-power curve out-of-window measurements in dataframe.") 
@@ -829,7 +829,7 @@ def main():
             
             if RUN_ONCE:
                 del bin_outliers, mask
-                df_query.collect().write_parquet(config["processed_data_path"].replace(".parquet", "_filtered.parquet"), statistics=False)
+                df_query.sink_parquet(config["processed_data_path"].replace(".parquet", "_filtered.parquet"), maintain_order=True)
                 df_query = pl.scan_parquet(config["processed_data_path"].replace(".parquet", "_filtered.parquet"))
                 logging.info("Finished nullifying wind speed-power curve bin outlier measurements in dataframe.") 
             
@@ -887,7 +887,7 @@ def main():
 
             # remove biases from median direction
             if RUN_ONCE:
-                df_query_10min.collect().write_parquet(config["processed_data_path"].replace(".parquet", "_calibrated_1.parquet"), statistics=False)
+                df_query_10min.sink_parquet(config["processed_data_path"].replace(".parquet", "_calibrated_1.parquet"), maintain_order=True)
                 df_query_10min = pl.scan_parquet(config["processed_data_path"].replace(".parquet", "_calibrated_1.parquet"))
 
             # df_offsets = {"turbine_id": [], "northing_bias": []}
@@ -979,7 +979,7 @@ def main():
             
             # need to sink parquet and recollect to avoid recursion limit error
             if RUN_ONCE:
-                df_query.collect().write_parquet(config["processed_data_path"].replace(".parquet", "_calibrated_2.parquet"), statistics=False)
+                df_query.sink_parquet(config["processed_data_path"].replace(".parquet", "_calibrated_2.parquet"), maintain_order=True)
                 df_query = pl.scan_parquet(config["processed_data_path"].replace(".parquet", "_calibrated_2.parquet"))
         else:
             df_query = pl.scan_parquet(config["processed_data_path"].replace(".parquet", "_calibrated_2.parquet"))
@@ -1186,7 +1186,7 @@ def main():
                 del std_dev_outliers
                 
                 # need to sink parquet and recollect to avoid recursion limit error
-                df_query.collect().write_parquet(config["processed_data_path"].replace(".parquet", "_stddev.parquet"), statistics=False)
+                df_query.sink_parquet(config["processed_data_path"].replace(".parquet", "_stddev.parquet"), maintain_order=True)
                 df_query = pl.scan_parquet(config["processed_data_path"].replace(".parquet", "_stddev.parquet")) 
                 logging.info("Finished nullifying horizontal/vertical wind speed standard deviation measurements in dataframe.") 
         else:
@@ -1332,7 +1332,7 @@ def main():
             
                 # need to sink parquet and recollect to avoid recursion limit error
                 logging.info("Starting to write split data to file.") 
-                df_query.collect().write_parquet(config["processed_data_path"].replace(".parquet", "_split.parquet"), statistics=False)
+                df_query.sink_parquet(config["processed_data_path"].replace(".parquet", "_split.parquet"), maintain_order=True)
                 df_query = pl.scan_parquet(config["processed_data_path"].replace(".parquet", "_split.parquet"))
                 logging.info("Finished writing split data to file.") 
                  
@@ -1395,7 +1395,7 @@ def main():
             if RUN_ONCE:
                 df_query = df_query.drop([cs.starts_with(feat) for feat in ["ws_horz", "ws_vert", "nd_cos", "nd_sin", "power_output"]]).join(df_query2, on="time", how="left")
                 del df_query2
-                df_query.collect().write_parquet(config["processed_data_path"].replace(".parquet", "_imputed.parquet"), statistics=False)                
+                df_query.sink_parquet(config["processed_data_path"].replace(".parquet", "_imputed.parquet"), maintain_order=True)                
                 df_query = pl.scan_parquet(config["processed_data_path"].replace(".parquet", "_imputed.parquet"))
         elif RUN_ONCE:
             df_query = pl.scan_parquet(config["processed_data_path"].replace(".parquet", "_imputed.parquet"))
@@ -1510,7 +1510,7 @@ def main():
                             smoothing_params=smoothing_params,
                             plot=False
                         )
-                df_query.collect().write_parquet(config["processed_data_path"].replace(".parquet", f"_smoothed_{smoothing_func}.parquet"))
+                df_query.sink_parquet(config["processed_data_path"].replace(".parquet", f"_smoothed_{smoothing_func}.parquet"), maintain_order=True)
                 
             else:
                 df_query = pl.scan_parquet(config["processed_data_path"].replace(".parquet", f"_smoothed_{smoothing_func}.parquet"))
@@ -1541,14 +1541,14 @@ def main():
                         # norm_vals[f"{feature_type}_min"] = df_query.select(pl.min_horizontal(cs.starts_with(feature_type).min())).collect().item()
                     for col in cols:
                         # feat_type = re.match(f".*(?=\_{data_loader.turbine_signature})", col).group(0)
-                        norm_vals[f"{col}_mean"] = df_query.select(pl.col(col).mean()).collect().item()
-                        norm_vals[f"{col}_std"] = df_query.select(pl.col(col).std()).collect().item()
+                        norm_vals[f"{col}_mean"] = dfq.select(pl.col(col).mean()).collect().item()
+                        norm_vals[f"{col}_std"] = dfq.select(pl.col(col).std()).collect().item()
 
                     norm_vals = pl.DataFrame(norm_vals).select(pl.all())
                     norm_vals.write_csv(config["processed_data_path"].replace(".parquet", f"_{ll}_normalization_consts.csv"))
                     
-                    if "continuity_group" in df_query.collect_schema().names():
-                        df_query = df_query.select(pl.col("time"), pl.col("continuity_group"), cs.contains("nd_sin"), cs.contains("nd_cos"), cs.contains("ws_horz"), cs.contains("ws_vert"))
+                    if "continuity_group" in dfq.collect_schema().names():
+                        dfq = dfq.select(pl.col("time"), pl.col("continuity_group"), cs.contains("nd_sin"), cs.contains("nd_cos"), cs.contains("ws_horz"), cs.contains("ws_vert"))
                         time_cols = [pl.col("time"), pl.col("continuity_group")]
                     else:
                         time_cols = [pl.col("time")]
@@ -1559,16 +1559,16 @@ def main():
                     #                         + [((2.0 * ((cs.starts_with(feature_type) - norm_vals.select(f"{feature_type}_min").item()) 
                     #                         / (norm_vals.select(f"{feature_type}_max").item() - norm_vals.select(f"{feature_type}_min").item()))) - 1.0).name.keep()
                     #                         for feature_type in feature_types])
-                    df_query = df_query.select(time_cols 
+                    dfq = dfq.select(time_cols 
                                             + [((((pl.col(col) - norm_vals.select(f"{col}_mean").item()) 
                                                     / norm_vals.select(f"{col}_std").item()))).name.keep()
                                             for col in cols])
                     
                     for col in cols:
-                        print(df_query.select(pl.col(col).mean()).collect().item())
-                        print(df_query.select(pl.col(col).std()).collect().item())
+                        print(dfq.select(pl.col(col).mean()).collect().item())
+                        print(dfq.select(pl.col(col).std()).collect().item())
                     
-                    df_query.collect().write_parquet(config["processed_data_path"].replace(".parquet", f"_{ll}_normalized.parquet"), statistics=False)
+                    dfq.sink_parquet(config["processed_data_path"].replace(".parquet", f"_{ll}_normalized.parquet"), maintain_order=True)
                     
                 logging.info("Finished normalizing features.")
             else:
