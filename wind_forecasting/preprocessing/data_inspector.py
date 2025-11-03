@@ -724,7 +724,7 @@ class DataInspector:
 
         for file_set_idx in file_set_indices:
             for inp_feat, opt_feat in zip(mask_input_features, output_features):
-                mask_array = mask_func(file_set_idx, inp_feat)
+                mask_array = mask_func(file_set_idx, inp_feat).collect(streaming=True).to_series()
                 if mask_array is None:
                     continue
 
@@ -752,26 +752,28 @@ class DataInspector:
         # plt.close()
 
     @staticmethod
-    def print_pc_remaining_vals(df, mask_func, mask_input_features, output_features, filter_type):
+    def print_pc_remaining_vals(df, mask_func, file_set_indices, mask_input_features, output_features, filter_type):
         out = []
-        for inp_feat, opt_feat in zip(mask_input_features, output_features):
-            # tid = feature.split("_")[-1]
-            mask_array = mask_func(inp_feat)
-            if mask_array is None:
-                logging.info(f"Mask error for feature {inp_feat}: mask is None")
-                continue
-            try:
-                pc_remaining_vals = 100 * (
-                    df.filter(~mask_array)
-                    .select(pl.len())
-                    .collect()
-                    .item()
-                    / df.select(pl.len()).collect().item()
-                )
-                print(f"Feature {opt_feat} has {pc_remaining_vals:.2f}% remaining values after filter {filter_type}.")
-                out.append((opt_feat, pc_remaining_vals))
-            except Exception as e:
-                logging.error(f"Error processing feature {opt_feat}: {str(e)}")
+        for file_set_idx in file_set_indices:
+            out.append([])
+            for inp_feat, opt_feat in zip(mask_input_features, output_features):
+                # tid = feature.split("_")[-1]
+                mask_array = mask_func(file_set_idx, inp_feat).collect(streaming=True).to_series()
+                if mask_array is None:
+                    logging.info(f"Mask error for feature {inp_feat}: mask is None")
+                    continue
+                try:
+                    pc_remaining_vals = 100 * (
+                        df.filter(~mask_array)
+                        .select(pl.len())
+                        .collect()
+                        .item()
+                        / df.select(pl.len()).collect().item()
+                    )
+                    print(f"Feature {opt_feat} has {pc_remaining_vals:.2f}% remaining values after filter {filter_type}.")
+                    out[-1].append((opt_feat, pc_remaining_vals))
+                except Exception as e:
+                    logging.error(f"Error processing feature {opt_feat}: {str(e)}")
         return out
 
     def get_features(self, df, feature_types, turbine_ids="all"):

@@ -7,7 +7,8 @@ Returns:
 import logging
 from datetime import timedelta
 from concurrent.futures import ProcessPoolExecutor
-import multiprocessing
+import multiprocessing as mp
+import os
 
 import numpy as np
 import polars as pl
@@ -230,7 +231,7 @@ class DataFilter:
             # else:  # "cf" case
             max_workers = int(os.environ.get("MAX_WORKERS", mp.cpu_count()))
             executor = ProcessPoolExecutor(max_workers=max_workers,
-                                            mp_context=multiprocessing.get_context("spawn"))
+                                            mp_context=mp.get_context("spawn"))
             logging.info(f"🖥️  Using ProcessPoolExecutor with {max_workers} workers")
             with executor as ex:
                 futures = [ex.submit(filter_func, 
@@ -274,7 +275,7 @@ class DataFilter:
             # else:  # "cf" case
             max_workers = int(os.environ.get("MAX_WORKERS", mp.cpu_count()))
             executor = ProcessPoolExecutor(max_workers=max_workers,
-                                            mp_context=multiprocessing.get_context("spawn"))
+                                            mp_context=mp.get_context("spawn"))
             logging.info(f"🖥️  Using ProcessPoolExecutor with {max_workers} workers")
             
             with executor as ex:
@@ -305,7 +306,7 @@ class DataFilter:
             # else:  # "cf" case
             max_workers = int(os.environ.get("MAX_WORKERS", mp.cpu_count()))
             executor = ProcessPoolExecutor(max_workers=max_workers,
-                                            mp_context=multiprocessing.get_context("spawn"))
+                                            mp_context=mp.get_context("spawn"))
             logging.info(f"🖥️  Using ProcessPoolExecutor with {max_workers} workers")
             
             with executor as ex:
@@ -332,7 +333,7 @@ class DataFilter:
             # else:  # "cf" case
             max_workers = int(os.environ.get("MAX_WORKERS", mp.cpu_count()))
             executor = ProcessPoolExecutor(max_workers=max_workers,
-                                            mp_context=multiprocessing.get_context("spawn"))
+                                            mp_context=mp.get_context("spawn"))
             logging.info(f"🖥️  Using ProcessPoolExecutor with {max_workers} workers")
             
             with executor as ex:
@@ -481,14 +482,14 @@ class DataFilter:
                 js_scores = []
                 for inp_feat, opt_feat in zip(mask_input_features, output_features):
                     js_score = self._compute_js_divergence(
-                        train_sample=df.filter(pl.Series(mask(inp_feat))).select(opt_feat).drop_nulls().collect().to_numpy().flatten(),
+                        train_sample=df.filter(mask(inp_feat)).select(opt_feat).drop_nulls().collect().to_numpy().flatten(),
                         test_sample=df.select(opt_feat).drop_nulls().collect().to_numpy().flatten()
                     )
                     logging.info(f"JS Score for feature {opt_feat} = {js_score} with filter {filter_type}")
                     js_scores.append(js_score)
                     
                     if js_score > threshold:
-                        df = df.with_columns(pl.when(pl.Series(mask(inp_feat))).then(None).otherwise(pl.col(opt_feat)).alias(opt_feat))
+                        df = df.with_columns(pl.when(mask(inp_feat)).then(None).otherwise(pl.col(opt_feat)).alias(opt_feat))
                             
                         logging.info(f"Applied filter {filter_type} to feature {opt_feat}.")
             else:
@@ -497,7 +498,7 @@ class DataFilter:
                     # js_scores[file_set_idx] = []
                     for inp_feat, opt_feat in zip(mask_input_features, output_features):
                         js_score = self._compute_js_divergence(
-                            train_sample=df.filter((pl.col("file_set_idx") == file_set_idx)).filter(pl.Series(pl.Series(mask(file_set_idx, inp_feat)))).select(opt_feat).drop_nulls().collect().to_numpy().flatten(),
+                            train_sample=df.filter((pl.col("file_set_idx") == file_set_idx)).filter(mask(file_set_idx, inp_feat)).select(opt_feat).drop_nulls().collect().to_numpy().flatten(),
                             test_sample=df.select(opt_feat).drop_nulls().collect().to_numpy().flatten()
                         )
                         logging.info(f"JS Score for feature {opt_feat} = {js_score} with filter {filter_type}")
@@ -509,7 +510,7 @@ class DataFilter:
                             #     ma.filled(ma.array(df.select(pl.col(feat)).collect().to_numpy().flatten(), mask=mask(tid), fill_value=np.nan))
                             #                         }).with_columns(pl.col(feat).fill_nan(None).alias(feat))
                             
-                            df = pl.concat([df.filter(pl.col("file_set_idx") == file_set_idx).with_columns(pl.when(pl.Series(mask(file_set_idx, inp_feat))).then(None).otherwise(pl.col(opt_feat)).alias(opt_feat)) for file_set_idx in file_set_indices], how="vertical").sort("time")
+                            df = pl.concat([df.filter(pl.col("file_set_idx") == file_set_idx).with_columns(pl.when(mask(file_set_idx, inp_feat)).then(None).otherwise(pl.col(opt_feat)).alias(opt_feat)) for file_set_idx in file_set_indices], how="vertical").sort("time")
                                 
                             logging.info(f"Applied filter {filter_type} to feature {opt_feat} for file set {file_set_idx}.")
                     
@@ -521,9 +522,9 @@ class DataFilter:
             # df = df.with_columns({feat: pl.when(mask(feat.split("_")[-1])).then(pl.col(feat)).otherwise(None) for feat in features})
             if file_set_indices is None:
                 # mask is for all data
-                df = df.with_columns(**{opt_feat: pl.when(pl.Series(mask(inp_feat))).then(None).otherwise(pl.col(opt_feat)) for inp_feat, opt_feat in zip(mask_input_features, output_features)}) 
+                df = df.with_columns(**{opt_feat: pl.when(mask(inp_feat)).then(None).otherwise(pl.col(opt_feat)) for inp_feat, opt_feat in zip(mask_input_features, output_features)}) 
             else:
-                df = pl.concat([df.filter(pl.col("file_set_idx") == file_set_idx).with_columns(**{opt_feat: pl.when(pl.Series(mask(file_set_idx, inp_feat))).then(None).otherwise(pl.col(opt_feat)) for inp_feat, opt_feat in zip(mask_input_features, output_features)}) 
+                df = pl.concat([df.filter(pl.col("file_set_idx") == file_set_idx).with_columns(**{opt_feat: pl.when(mask(file_set_idx, inp_feat)).then(None).otherwise(pl.col(opt_feat)) for inp_feat, opt_feat in zip(mask_input_features, output_features)}) 
                                 for file_set_idx in file_set_indices], how="vertical").sort("time")
             
             # for inp_feat, opt_feat in zip(mask_input_features, output_features):
@@ -577,9 +578,9 @@ class DataFilter:
         else:
             if file_set_indices is None:
                 # mask is for all data
-                df = df.with_columns(**{opt_feat: pl.when(pl.Series(mask(inp_feat))).then(None).otherwise(pl.col(opt_feat)).alias(opt_feat) for inp_feat, opt_feat in zip(mask_input_features, output_features)})
+                df = df.with_columns(**{opt_feat: pl.when(mask(inp_feat)).then(None).otherwise(pl.col(opt_feat)).alias(opt_feat) for inp_feat, opt_feat in zip(mask_input_features, output_features)})
             else:
-                df = pl.concat([df.filter(pl.col("file_set_idx") == file_set_idx).with_columns(**{opt_feat: pl.when(pl.Series(mask(file_set_idx, inp_feat))).then(None).otherwise(pl.col(opt_feat)).alias(opt_feat) for file_set_idx in file_set_indices for inp_feat, opt_feat in zip(mask_input_features, output_features)})
+                df = pl.concat([df.filter(pl.col("file_set_idx") == file_set_idx).with_columns(**{opt_feat: pl.when(mask(file_set_idx, inp_feat)).then(None).otherwise(pl.col(opt_feat)).alias(opt_feat) for file_set_idx in file_set_indices for inp_feat, opt_feat in zip(mask_input_features, output_features)})
                                 for file_set_idx in file_set_indices], how="vertical").sort("time")
             
         return df
@@ -693,12 +694,13 @@ def group_df_by_continuity(df, agg_df, missing_data_cols):
 def merge_adjacent_periods(agg_df, dt):
     # merge rows with end times corresponding to start times of the next row into the next row, until no more rows need to be merged
     # loop through and merge as long as the shifted -1 end time + dt == the start time
-    all_times = agg_df.select(pl.col("start_time"), pl.col("end_time")).collect()
+    all_times = agg_df.select(pl.col("start_time"), pl.col("end_time"))
     data = {"start_time":[], "end_time": []}
     start_time_idx = 0
-    for end_time_idx in range(all_times.select(pl.len()).item()):
-        end_time = all_times.item(end_time_idx, "end_time") 
-        if not (end_time_idx + 1 == all_times.select(pl.len()).item()) and (end_time + timedelta(seconds=dt)  == all_times.item(end_time_idx + 1, "start_time")):
+    num_periods = all_times.select(pl.len()).item()
+    for end_time_idx in range(num_periods):
+        end_time = all_times.item(end_time_idx, "end_time")
+        if not (end_time_idx + 1 == num_periods) and (end_time + timedelta(seconds=dt) == all_times.item(end_time_idx + 1, "start_time")):
             continue
         
         data["start_time"].append(all_times.item(start_time_idx, "start_time"))
