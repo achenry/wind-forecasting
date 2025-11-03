@@ -403,19 +403,24 @@ def main():
                 or not all(os.path.join(frozen_sensor_filter_temp_path, f"{feat}_fs{file_set_idx}.npy") for file_set_idx in file_set_indices for feat in cols)
             
             if RUN_ONCE:
+                
                 if os.path.exists(frozen_sensor_filter_temp_path):
+                    logging.info(f"Removing temp dir {frozen_sensor_filter_temp_path}")
                     rmtree(frozen_sensor_filter_temp_path) 
                 
                 os.makedirs(frozen_sensor_filter_temp_path, exist_ok=True)
                 
                 if regen and os.path.exists(frozen_sensor_filter_target_path):
+                    logging.info(f"Removing target dir {frozen_sensor_filter_target_path}")
                     rmtree(frozen_sensor_filter_target_path)
             
-            if regen or not all(os.path.exists(os.path.join(frozen_sensor_filter_temp_path, f"{feat}_fs{file_set_idx}.npy")) for file_set_idx in file_set_indices for feat in cols):
+            if regen or not all(os.path.exists(os.path.join(frozen_sensor_filter_target_path, f"{feat}_fs{file_set_idx}.npy")) for file_set_idx in file_set_indices for feat in cols):
+                
                 thr = int(np.timedelta64(config["filters"]["unresponsive_sensor"]["frozen_sensor_limit"], 's') / np.timedelta64(data_loader.dt, 's'))
                 
                 frozen_sensors = {}
                 for file_set_idx in file_set_indices:
+                    logging.info(f"Regenerating frozen sensor mask for file_set {file_set_idx}.")
                     frozen_sensors[file_set_idx] = filters.unresponsive_flag(
                         data_pl=df_query.filter(pl.col("file_set_idx") == file_set_idx).select(cs.starts_with("wind_speed"), cs.starts_with("wind_direction")), 
                         threshold=thr)
@@ -425,10 +430,12 @@ def main():
                 if RUN_ONCE:
                     for file_set_idx in file_set_indices:
                         for feat in cols:
+                            logging.info(f"Saving frozen sensor mask for file_set {file_set_idx}, feature {col}.")
                             np.save(os.path.join(frozen_sensor_filter_temp_path, f"{feat}_fs{file_set_idx}.npy"), 
                                         frozen_sensors[file_set_idx](feat).collect().to_numpy().flatten())
                         
                     # move from temp location to permanent
+                    logging.info(f"Moving frozen sensor masks from temp to target dir {frozen_sensor_filter_target_path}")
                     move(frozen_sensor_filter_temp_path, frozen_sensor_filter_target_path)
             
             mask = lambda file_set_idx, feat: np.load(os.path.join(frozen_sensor_filter_target_path, f"{feat}_fs{file_set_idx}.npy")) 
