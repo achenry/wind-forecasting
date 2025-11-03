@@ -397,6 +397,8 @@ def main():
             frozen_sensor_filter_target_path = os.path.join(os.path.dirname(config["processed_data_path"]), 
                                             os.path.basename(config["processed_data_path"]).replace(".parquet", "_frozen_sensor"))
             
+            cols = ws_cols + wd_cols
+            
             regen = args.reload_data or args.regenerate_filters \
                 or not all(os.path.join(frozen_sensor_filter_temp_path, f"{feat}_fs{file_set_idx}.npy") for file_set_idx in file_set_indices for feat in cols)
             
@@ -408,8 +410,6 @@ def main():
                 
                 if regen and os.path.exists(frozen_sensor_filter_target_path):
                     rmtree(frozen_sensor_filter_target_path)
-            
-            cols = ws_cols + wd_cols
             
             if regen or not all(os.path.exists(os.path.join(frozen_sensor_filter_temp_path, f"{feat}_fs{file_set_idx}.npy")) for file_set_idx in file_set_indices for feat in cols):
                 thr = int(np.timedelta64(config["filters"]["unresponsive_sensor"]["frozen_sensor_limit"], 's') / np.timedelta64(data_loader.dt, 's'))
