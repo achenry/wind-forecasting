@@ -511,7 +511,7 @@ class DataFilter:
                             
                             df = pl.concat([df.filter(pl.col("file_set_idx") == file_set_idx).with_columns(pl.when(pl.Series(mask(file_set_idx, inp_feat))).then(None).otherwise(pl.col(opt_feat)).alias(opt_feat)) for file_set_idx in file_set_indices], how="vertical").sort("time")
                                 
-                            logging.info(f"Applied filter {filter_type} to feature {opt_feat}.")
+                            logging.info(f"Applied filter {filter_type} to feature {opt_feat} for file set {file_set_idx}.")
                     
                     # if js_score > threshold:
                         # df = df.with_columns(pl.when(mask(tid)).then(pl.col(feat)).otherwise(None).alias(feat))

@@ -494,6 +494,7 @@ def main():
                 if "frozen_sensors" in locals():
                     del frozen_sensors
                 
+                logging.info("Started sinking dataframe.")
                 df_query.sink_parquet(config["processed_data_path"].replace(".parquet", "_filtered.parquet"), maintain_order=True)
                 df_query = pl.scan_parquet(config["processed_data_path"].replace(".parquet", "_filtered.parquet"))
                 logging.info("Finished nullifying wind speed/direction frozen sensor measurements in dataframe.")
