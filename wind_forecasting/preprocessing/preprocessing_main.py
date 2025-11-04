@@ -400,7 +400,7 @@ def main():
         cols = ws_cols + wd_cols
         
         regen = args.reload_data or args.regenerate_filters \
-            or not all(os.path.join(frozen_sensor_filter_temp_path, f"{feat}_fs{file_set_idx}.npy") for file_set_idx in file_set_indices for feat in cols)
+            or not all(os.path.exists(os.path.join(frozen_sensor_filter_target_path, f"{feat}_fs{file_set_idx}.npy")) for file_set_idx in file_set_indices for feat in cols)
         
         if RUN_ONCE:
             
@@ -414,7 +414,7 @@ def main():
                 logging.info(f"Removing target dir {frozen_sensor_filter_target_path}")
                 rmtree(frozen_sensor_filter_target_path)
         
-        if regen or not all(os.path.exists(os.path.join(frozen_sensor_filter_target_path, f"feat{feat}_fs{file_set_idx}.npy")) for file_set_idx in file_set_indices for feat in cols):
+        if regen:
             
             thr = int(np.timedelta64(config["filters"]["unresponsive_sensor"]["frozen_sensor_limit"], 's') / np.timedelta64(data_loader.dt, 's'))
             
@@ -440,7 +440,7 @@ def main():
                 move(frozen_sensor_filter_temp_path, frozen_sensor_filter_target_path)
         
         mask = lambda file_set_idx, feat: pl.Series(np.load(os.path.join(frozen_sensor_filter_target_path, f"{feat}_fs{file_set_idx}.npy")))
-        # mask = lambda file_set_idx, feat: pl.scan_parquet(os.path.join(frozen_sensor_filter_target_path, f"feat{feat}_fs{file_set_idx}.parquet")).collect(streaming=True).to_series()
+        # mask = lambda file_set_idx, feat: pl.scan_parquet(os.path.join(frozen_sensor_filter_target_path, f"feat{feat}_fs{file_set_idx}.parquet")).collect().to_series()
     
         # check time series
         if args.verbose:
@@ -497,7 +497,7 @@ def main():
                 del frozen_sensors
             
             logging.info("Started sinking dataframe.")
-            df_query.collect(streaming=True).write_parquet(config["processed_data_path"].replace(".parquet", "_filtered.parquet"))
+            df_query.collect().write_parquet(config["processed_data_path"].replace(".parquet", "_filtered.parquet"))
             df_query = pl.scan_parquet(config["processed_data_path"].replace(".parquet", "_filtered.parquet"))
             logging.info("Finished nullifying wind speed/direction frozen sensor measurements in dataframe.")
             
@@ -547,7 +547,7 @@ def main():
         if RUN_ONCE:
             del mask
             logging.info("Started sinking dataframe.")
-            df_query.collect(streaming=True).write_parquet(config["processed_data_path"].replace(".parquet", "_filtered.parquet"))
+            df_query.collect().write_parquet(config["processed_data_path"].replace(".parquet", "_filtered.parquet"))
             df_query = pl.scan_parquet(config["processed_data_path"].replace(".parquet", "_filtered.parquet"))
             logging.info("Finished nullifying inoperational turbine measurements in dataframe.") 
         
@@ -561,9 +561,10 @@ def main():
     if "range_flag" in config["filters"]:
         if RUN_ONCE:
             logging.info("Nullifying wind speed out-of-range cells.")
-            
+        
+        fp = config["processed_data_path"].replace(".parquet", "_out_of_range.npy")
         # check for wind speed values that are outside of the acceptable range
-        if args.reload_data or args.regenerate_filters or not os.path.exists(config["processed_data_path"].replace(".parquet", "_out_of_range.npy")):
+        if args.reload_data or args.regenerate_filters or not os.path.exists(fp):
             # Generate out_of_range array
             # Note: OpenOA's range_flag returns True for out-of-range values
             ws = df_query.select(cs.starts_with("wind_speed")).collect().to_pandas()
@@ -571,9 +572,9 @@ def main():
                                                 lower=config["filters"]["range_flag"]["lower"],
                                                 upper=config["filters"]["range_flag"]["upper"]) & ~ws.isna()).values # range flag includes formerly null values as nan
             del ws
-            np.save(config["processed_data_path"].replace(".parquet", "_out_of_range.npy"), out_of_range)
+            np.save(fp, out_of_range)
         
-        out_of_range = np.load(config["processed_data_path"].replace(".parquet", "_out_of_range.npy"))
+        out_of_range = np.load(fp)
 
         # check if wind speed/dir measurements from inoperational turbines differ from fully operational 
         # mask = lambda tid: safe_mask(tid, outlier_flag=out_of_range, turbine_id_to_index=turbine_id_to_index)
@@ -634,7 +635,7 @@ def main():
         if RUN_ONCE:
             del out_of_range, mask
             logging.info("Started sinking dataframe.")
-            df_query.collect(streaming=True).write_parquet(config["processed_data_path"].replace(".parquet", "_filtered.parquet"))
+            df_query.collect().write_parquet(config["processed_data_path"].replace(".parquet", "_filtered.parquet"))
             df_query = pl.scan_parquet(config["processed_data_path"].replace(".parquet", "_filtered.parquet"))
             logging.info("Finished nullifying wind speed out of range measurements in dataframe.") 
     
@@ -651,7 +652,8 @@ def main():
         
         # apply a window range filter to remove data with power values outside of the window from 20 to 3000 kW for wind speeds between 5 and 40 m/s.
         # identifies when turbine is shut down, filtering for normal turbine operation
-        if args.reload_data or args.regenerate_filters or not os.path.exists(config["processed_data_path"].replace(".parquet", "_out_of_window.npy")):
+        fp = config["processed_data_path"].replace(".parquet", "_out_of_window.npy")
+        if args.reload_data or args.regenerate_filters or not os.path.exists(fp):
             # data_filter.multiprocessor = None
             out_of_window = data_filter.multi_generate_filter(df_query=df_query, filter_func=data_filter._single_generate_window_range_filter,
                                                                 feature_types=["wind_speed", "power_output"], turbine_ids=data_loader.turbine_ids,
@@ -662,9 +664,9 @@ def main():
             # data_filter.multiprocessor = args.multiprocessor
             
             if RUN_ONCE:
-                np.save(config["processed_data_path"].replace(".parquet", "_out_of_window.npy"), out_of_window)
+                np.save(fp, out_of_window)
                 
-        out_of_window = np.load(config["processed_data_path"].replace(".parquet", "_out_of_window.npy"))
+        out_of_window = np.load(fp)
         
         if RUN_ONCE:
             # check if wind speed/dir measurements from inoperational turbines differ from fully operational 
@@ -725,7 +727,7 @@ def main():
             del out_of_window, mask
             # need to sink parquet and recollect to avoid recursion limit error
             logging.info("Started sinking dataframe.")
-            df_query.collect(streaming=True).write_parquet(config["processed_data_path"].replace(".parquet", "_filtered.parquet"))
+            df_query.collect().write_parquet(config["processed_data_path"].replace(".parquet", "_filtered.parquet"))
             df_query = pl.scan_parquet(config["processed_data_path"].replace(".parquet", "_filtered.parquet"))
             
             logging.info("Finished nullifying wind speed-power curve out-of-window measurements in dataframe.") 
@@ -742,7 +744,8 @@ def main():
             logging.info("Nullifying wind speed-power curve bin-outlier cells.")
         
         # apply a bin filter to remove data with power values outside of an envelope around median power curve at each wind speed
-        if args.reload_data or args.regenerate_filters or not os.path.exists(config["processed_data_path"].replace(".parquet", "_bin_outliers.npy")):
+        fp = config["processed_data_path"].replace(".parquet", "_bin_outliers.npy")
+        if args.reload_data or args.regenerate_filters or not os.path.exists(fp):
             data_filter.multiprocessor = None
             
             # df_query.select(pl.max_horizontal(cs.starts_with(f"power_output").max())).collect().item()
@@ -759,9 +762,9 @@ def main():
                                                                 ) 
             data_filter.multiprocessor = args.multiprocessor
             if RUN_ONCE:
-                np.save(config["processed_data_path"].replace(".parquet", "_bin_outliers.npy"), bin_outliers)
+                np.save(fp, bin_outliers)
         
-        bin_outliers = np.load(config["processed_data_path"].replace(".parquet", "_bin_outliers.npy"))
+        bin_outliers = np.load(fp)
 
         if RUN_ONCE:
             # check if wind speed/dir measurements from inoperational turbines differ from fully operational 
@@ -843,7 +846,7 @@ def main():
         if RUN_ONCE:
             del bin_outliers, mask
             logging.info("Started sinking dataframe.")
-            df_query.collect(streaming=True).write_parquet(config["processed_data_path"].replace(".parquet", "_filtered.parquet"))
+            df_query.collect().write_parquet(config["processed_data_path"].replace(".parquet", "_filtered.parquet"))
             df_query = pl.scan_parquet(config["processed_data_path"].replace(".parquet", "_filtered.parquet"))
             logging.info("Finished nullifying wind speed-power curve bin outlier measurements in dataframe.") 
         
@@ -855,7 +858,8 @@ def main():
 
     
     if "nacelle_calibration" in config["filters"]:
-        if args.reload_data or args.regenerate_filters or not os.path.exists(config["processed_data_path"].replace(".parquet", "_calibrated_2.parquet")): 
+        fp = config["processed_data_path"].replace(".parquet", "_calibrated_2.parquet")
+        if args.reload_data or args.regenerate_filters or not os.path.exists(fp): 
             
             # Nacelle Calibration 
             # Find and correct wind direction offsets from median wind plant wind direction for each turbine
@@ -993,11 +997,11 @@ def main():
             # need to sink parquet and recollect to avoid recursion limit error
             if RUN_ONCE:
                 logging.info("Started sinking dataframe.")
-                df_query.sink_parquet(config["processed_data_path"].replace(".parquet", "_calibrated_2.parquet"), maintain_order=True)
-                df_query = pl.scan_parquet(config["processed_data_path"].replace(".parquet", "_calibrated_2.parquet"))
+                df_query.sink_parquet(fp, maintain_order=True)
+                df_query = pl.scan_parquet(fp)
                 logging.info("Finished sinking dataframe.")
         else:
-            df_query = pl.scan_parquet(config["processed_data_path"].replace(".parquet", "_calibrated_2.parquet"))
+            df_query = pl.scan_parquet(fp)
 
         # %% check time series
         if args.verbose:
@@ -1006,11 +1010,11 @@ def main():
             data_inspector.plot_time_series(df_query.slice(0, ROW_LIMIT), feature_types=["wind_speed", "wind_direction"], turbine_ids=data_loader.turbine_ids, continuity_groups=None, label="after_nacelle_calibration")
     
     # %% Feature Selection
-    # TODO this conditional isn't quite right, only need to select features if none of the following exist
+    # only need to select features if none of the following exist
     if args.reload_data or args.regenerate_filters or \
-            ("std_range_flag" in config["filters"] and not os.path.exists(config["processed_data_path"].replace(".parquet", "_stddev.parquet"))) \
-            or ("split" in config["filters"] and not os.path.exists(config["processed_data_path"].replace(".parquet", "_split.parquet"))) \
-            or ("impute_missing_data" in config["filters"] and not os.path.exists(config["processed_data_path"].replace(".parquet", "_imputed.parquet"))): 
+            not (os.path.exists(config["processed_data_path"].replace(".parquet", "_stddev.parquet")) 
+             or os.path.exists(config["processed_data_path"].replace(".parquet", "_split.parquet")) 
+             or os.path.exists(config["processed_data_path"].replace(".parquet", "_imputed.parquet"))):
         if RUN_ONCE:
             logging.info("Selecting features.")
             
@@ -1056,8 +1060,9 @@ def main():
         
     # %%
     if "std_range_flag" in config["filters"]:
+        fp = config["processed_data_path"].replace(".parquet", "_stddev.parquet")
         if args.reload_data or args.regenerate_filters \
-            or (not os.path.exists(config["processed_data_path"].replace(".parquet", "_stddev.parquet"))):
+            or (not os.path.exists(fp)):
             if RUN_ONCE:
                 logging.info("Nullifying standard deviation outliers.")
 
@@ -1202,13 +1207,13 @@ def main():
                 
                 # need to sink parquet and recollect to avoid recursion limit error
                 logging.info("Started sinking dataframe.")
-                df_query.sink_parquet(config["processed_data_path"].replace(".parquet", "_stddev.parquet"), maintain_order=True)
-                df_query = pl.scan_parquet(config["processed_data_path"].replace(".parquet", "_stddev.parquet")) 
+                df_query.sink_parquet(fp, maintain_order=True)
+                df_query = pl.scan_parquet(fp) 
                 logging.info("Finished nullifying horizontal/vertical wind speed standard deviation measurements in dataframe.") 
         else:
             if RUN_ONCE:
                 logging.info("Fetching dataset with nullified standard deviation outliers.")
-            df_query = pl.scan_parquet(config["processed_data_path"].replace(".parquet", "_stddev.parquet")) 
+            df_query = pl.scan_parquet(fp) 
         
         # check time series 
         if args.verbose:
@@ -1346,7 +1351,7 @@ def main():
             # df_query = [df.lazy() for df in df_query.with_columns(get_continuity_group_index(df_query_not_missing).alias("continuity_group"))\
             #                           .filter(pl.col("continuity_group") != -1)\
             #                           .drop(cs.contains("is_missing") | cs.contains("num_missing"))
-            #                           .collect(streaming=True)\
+            #                           .collect()\
             #                           .sort("time")
             #                           .partition_by("continuity_group")]
 
@@ -1366,9 +1371,9 @@ def main():
                  
             # check each split dataframe a) is continuous in time AND b) has <= than the threshold number of missing columns OR for less than the threshold time span
             # for df in df_query:
-            #     assert df.select((pl.col("time").diff(null_behavior="drop") == np.timedelta64(data_loader.dt, "s")).all()).collect(streaming=True).item()
-            #     assert (df.select((pl.sum_horizontal([(cs.numeric() & cs.contains(col)).is_null() for col in missing_data_cols]) <= missing_col_thr)).collect(streaming=True)
-            #             |  ((df.select("time").max().collect(streaming=True).item() - df.select("time").min().collect(streaming=True).item()) < missing_duration_thr))
+            #     assert df.select((pl.col("time").diff(null_behavior="drop") == np.timedelta64(data_loader.dt, "s")).all()).collect().item()
+            #     assert (df.select((pl.sum_horizontal([(cs.numeric() & cs.contains(col)).is_null() for col in missing_data_cols]) <= missing_col_thr)).collect()
+            #             |  ((df.select("time").max().collect().item() - df.select("time").min().collect().item()) < missing_duration_thr))
         elif RUN_ONCE:
             df_query = pl.scan_parquet(config["processed_data_path"].replace(".parquet", "_split.parquet"))
     elif RUN_ONCE:
