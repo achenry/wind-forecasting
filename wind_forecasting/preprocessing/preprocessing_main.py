@@ -259,7 +259,7 @@ def main():
         assert df_query.select("time").collect().to_series().is_sorted()
         # assert df_query.select(pl.all_horizontal(cs.numeric().is_null().sum() == 0)).collect().item() # TODO df_query.select(["turbine_status_32", "turbine_status_41"]).collect() are null
     # df_query = df_query.group_by("time").agg(cs.numeric().mean())
-    # df_query.collect().write_parquet(config["processed_data_path"], statistics=False)
+    # df_query.collect(engine="streaming").write_parquet(config["processed_data_path"], statistics=False)
     
     # df_query = df_query.head(ROW_LIMIT) 
     if RUN_ONCE:
@@ -497,7 +497,7 @@ def main():
                 del frozen_sensors
             
             logging.info("Started sinking dataframe.")
-            df_query.collect().write_parquet(config["processed_data_path"].replace(".parquet", "_filtered.parquet"))
+            df_query.collect(engine="streaming").write_parquet(config["processed_data_path"].replace(".parquet", "_filtered.parquet"))
             df_query = pl.scan_parquet(config["processed_data_path"].replace(".parquet", "_filtered.parquet"))
             logging.info("Finished nullifying wind speed/direction frozen sensor measurements in dataframe.")
             
@@ -547,7 +547,7 @@ def main():
         if RUN_ONCE:
             del mask
             logging.info("Started sinking dataframe.")
-            df_query.collect().write_parquet(config["processed_data_path"].replace(".parquet", "_filtered.parquet"))
+            df_query.collect(engine="streaming").write_parquet(config["processed_data_path"].replace(".parquet", "_filtered.parquet"))
             df_query = pl.scan_parquet(config["processed_data_path"].replace(".parquet", "_filtered.parquet"))
             logging.info("Finished nullifying inoperational turbine measurements in dataframe.") 
         
@@ -635,7 +635,7 @@ def main():
         if RUN_ONCE:
             del out_of_range, mask
             logging.info("Started sinking dataframe.")
-            df_query.collect().write_parquet(config["processed_data_path"].replace(".parquet", "_filtered.parquet"))
+            df_query.collect(engine="streaming").write_parquet(config["processed_data_path"].replace(".parquet", "_filtered.parquet"))
             df_query = pl.scan_parquet(config["processed_data_path"].replace(".parquet", "_filtered.parquet"))
             logging.info("Finished nullifying wind speed out of range measurements in dataframe.") 
     
@@ -727,7 +727,7 @@ def main():
             del out_of_window, mask
             # need to sink parquet and recollect to avoid recursion limit error
             logging.info("Started sinking dataframe.")
-            df_query.collect().write_parquet(config["processed_data_path"].replace(".parquet", "_filtered.parquet"))
+            df_query.collect(engine="streaming").write_parquet(config["processed_data_path"].replace(".parquet", "_filtered.parquet"))
             df_query = pl.scan_parquet(config["processed_data_path"].replace(".parquet", "_filtered.parquet"))
             
             logging.info("Finished nullifying wind speed-power curve out-of-window measurements in dataframe.") 
@@ -846,7 +846,7 @@ def main():
         if RUN_ONCE:
             del bin_outliers, mask
             logging.info("Started sinking dataframe.")
-            df_query.collect().write_parquet(config["processed_data_path"].replace(".parquet", "_filtered.parquet"))
+            df_query.collect(engine="streaming").write_parquet(config["processed_data_path"].replace(".parquet", "_filtered.parquet"))
             df_query = pl.scan_parquet(config["processed_data_path"].replace(".parquet", "_filtered.parquet"))
             logging.info("Finished nullifying wind speed-power curve bin outlier measurements in dataframe.") 
         
