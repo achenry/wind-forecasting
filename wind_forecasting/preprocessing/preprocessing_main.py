@@ -497,7 +497,7 @@ def main():
                 del frozen_sensors
             
             logging.info("Started sinking dataframe.")
-            df_query.sink_parquet(config["processed_data_path"].replace(".parquet", "_filtered.parquet"), maintain_order=True)
+            df_query.collect(streaming=True).write_parquet(config["processed_data_path"].replace(".parquet", "_filtered.parquet"))
             df_query = pl.scan_parquet(config["processed_data_path"].replace(".parquet", "_filtered.parquet"))
             logging.info("Finished nullifying wind speed/direction frozen sensor measurements in dataframe.")
             
@@ -546,7 +546,8 @@ def main():
         
         if RUN_ONCE:
             del mask
-            df_query.sink_parquet(config["processed_data_path"].replace(".parquet", "_filtered.parquet"), maintain_order=True)
+            logging.info("Started sinking dataframe.")
+            df_query.collect(streaming=True).write_parquet(config["processed_data_path"].replace(".parquet", "_filtered.parquet"))
             df_query = pl.scan_parquet(config["processed_data_path"].replace(".parquet", "_filtered.parquet"))
             logging.info("Finished nullifying inoperational turbine measurements in dataframe.") 
         
@@ -632,8 +633,8 @@ def main():
         
         if RUN_ONCE:
             del out_of_range, mask
-            
-            df_query.sink_parquet(config["processed_data_path"].replace(".parquet", "_filtered.parquet"), maintain_order=True)
+            logging.info("Started sinking dataframe.")
+            df_query.collect(streaming=True).write_parquet(config["processed_data_path"].replace(".parquet", "_filtered.parquet"))
             df_query = pl.scan_parquet(config["processed_data_path"].replace(".parquet", "_filtered.parquet"))
             logging.info("Finished nullifying wind speed out of range measurements in dataframe.") 
     
@@ -723,7 +724,8 @@ def main():
         if RUN_ONCE:
             del out_of_window, mask
             # need to sink parquet and recollect to avoid recursion limit error
-            df_query.sink_parquet(config["processed_data_path"].replace(".parquet", "_filtered.parquet"), maintain_order=True)
+            logging.info("Started sinking dataframe.")
+            df_query.collect(streaming=True).write_parquet(config["processed_data_path"].replace(".parquet", "_filtered.parquet"))
             df_query = pl.scan_parquet(config["processed_data_path"].replace(".parquet", "_filtered.parquet"))
             
             logging.info("Finished nullifying wind speed-power curve out-of-window measurements in dataframe.") 
@@ -840,7 +842,8 @@ def main():
         
         if RUN_ONCE:
             del bin_outliers, mask
-            df_query.sink_parquet(config["processed_data_path"].replace(".parquet", "_filtered.parquet"), maintain_order=True)
+            logging.info("Started sinking dataframe.")
+            df_query.collect(streaming=True).write_parquet(config["processed_data_path"].replace(".parquet", "_filtered.parquet"))
             df_query = pl.scan_parquet(config["processed_data_path"].replace(".parquet", "_filtered.parquet"))
             logging.info("Finished nullifying wind speed-power curve bin outlier measurements in dataframe.") 
         
@@ -895,8 +898,10 @@ def main():
 
             # remove biases from median direction
             if RUN_ONCE:
+                logging.info("Started sinking dataframe.")
                 df_query_10min.sink_parquet(config["processed_data_path"].replace(".parquet", "_calibrated_1.parquet"), maintain_order=True)
                 df_query_10min = pl.scan_parquet(config["processed_data_path"].replace(".parquet", "_calibrated_1.parquet"))
+                logging.info("Finished sinking dataframe.")
 
             # df_offsets = {"turbine_id": [], "northing_bias": []}
             if args.reload_data or args.regenerate_filters or not os.path.exists(config["processed_data_path"].replace(".parquet", "_biases.npy")):
@@ -987,8 +992,10 @@ def main():
             
             # need to sink parquet and recollect to avoid recursion limit error
             if RUN_ONCE:
+                logging.info("Started sinking dataframe.")
                 df_query.sink_parquet(config["processed_data_path"].replace(".parquet", "_calibrated_2.parquet"), maintain_order=True)
                 df_query = pl.scan_parquet(config["processed_data_path"].replace(".parquet", "_calibrated_2.parquet"))
+                logging.info("Finished sinking dataframe.")
         else:
             df_query = pl.scan_parquet(config["processed_data_path"].replace(".parquet", "_calibrated_2.parquet"))
 
@@ -1194,6 +1201,7 @@ def main():
                 del std_dev_outliers
                 
                 # need to sink parquet and recollect to avoid recursion limit error
+                logging.info("Started sinking dataframe.")
                 df_query.sink_parquet(config["processed_data_path"].replace(".parquet", "_stddev.parquet"), maintain_order=True)
                 df_query = pl.scan_parquet(config["processed_data_path"].replace(".parquet", "_stddev.parquet")) 
                 logging.info("Finished nullifying horizontal/vertical wind speed standard deviation measurements in dataframe.") 
@@ -1351,10 +1359,10 @@ def main():
                     logging.warning(f"No remaining data rows after splicing time steps with over {missing_col_thr} missing columns")
             
                 # need to sink parquet and recollect to avoid recursion limit error
-                logging.info("Starting to write split data to file.") 
+                logging.info("Started sinking dataframe.")
                 df_query.sink_parquet(config["processed_data_path"].replace(".parquet", "_split.parquet"), maintain_order=True)
                 df_query = pl.scan_parquet(config["processed_data_path"].replace(".parquet", "_split.parquet"))
-                logging.info("Finished writing split data to file.") 
+                logging.info("Finished sinking dataframe.")
                  
             # check each split dataframe a) is continuous in time AND b) has <= than the threshold number of missing columns OR for less than the threshold time span
             # for df in df_query:
@@ -1415,8 +1423,10 @@ def main():
             if RUN_ONCE:
                 df_query = df_query.drop([cs.starts_with(feat) for feat in ["ws_horz", "ws_vert", "nd_cos", "nd_sin", "power_output"]]).join(df_query2, on="time", how="left")
                 del df_query2
+                logging.info("Started sinking dataframe.")
                 df_query.sink_parquet(config["processed_data_path"].replace(".parquet", "_imputed.parquet"), maintain_order=True)                
                 df_query = pl.scan_parquet(config["processed_data_path"].replace(".parquet", "_imputed.parquet"))
+                logging.info("Finished sinking dataframe.")
         elif RUN_ONCE:
             df_query = pl.scan_parquet(config["processed_data_path"].replace(".parquet", "_imputed.parquet"))
 
@@ -1588,6 +1598,7 @@ def main():
                         print(dfq.select(pl.col(col).mean()).collect().item())
                         print(dfq.select(pl.col(col).std()).collect().item())
                     
+                    logging.info(f"Started sinking {ll} dataframe.")
                     dfq.sink_parquet(config["processed_data_path"].replace(".parquet", f"_{ll}_normalized.parquet"), maintain_order=True)
                     
                 logging.info("Finished normalizing features.")
