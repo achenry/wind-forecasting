@@ -728,7 +728,7 @@ def compute_offsets(df, fi, turbine_ids, turbine_pairs:list[tuple[int, int]]=Non
     prat_turbine_pairs = turbine_pairs 
 
     dir_offsets = []
-
+    
     for i in range(len(prat_turbine_pairs)):
         i_up = prat_turbine_pairs[i][0]
         i_down = prat_turbine_pairs[i][1]
@@ -790,7 +790,7 @@ def compute_offsets(df, fi, turbine_ids, turbine_pairs:list[tuple[int, int]]=Non
         xs = np.arange(-int((2*prat_hfwdth - 1) / 2),int((2*prat_hfwdth + 1) / 2),1)
         gauss = -1 * opt_gauss_params.x[2] * np.exp(-0.5 * ((xs - opt_gauss_params.x[0]) / opt_gauss_params.x[1])**2) + 1.
 
-        if plot:
+        if (type(plot) is bool and plot) or (type(plot) is list and prat_turbine_pairs[i] in plot):
             ax.plot(xs + nadir, gauss,'k',label="_nolegend_")
             ax.plot(2 * [nadir + opt_gauss_params.x[0]], [0, 1.25], 'r--',label="Direction of Measured Power Nadir")
             ax.legend()
