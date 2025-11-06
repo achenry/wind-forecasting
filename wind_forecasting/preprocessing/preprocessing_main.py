@@ -383,7 +383,7 @@ def main():
     # %% # first filter because need to catch frozen measurements before others are nulled from repeated value.
     # applied_filter = False
     # if args.reload_data or args.regenerate_filters or not os.path.exists(config["processed_data_path"].replace(".parquet", "_filtered.parquet")):
-    if False and "unresponsive_sensor" in config["filters"]:
+    if "unresponsive_sensor" in config["filters"]:
         if RUN_ONCE:
             logging.info("Nullifying unresponsive sensor cells.")
         
@@ -558,7 +558,7 @@ def main():
             data_inspector.plot_time_series(df_query.slice(0, ROW_LIMIT), feature_types=["wind_speed", "wind_direction"], turbine_ids=data_loader.turbine_ids, continuity_groups=None, label="after_inoperational")
 
     # %%
-    if False and "range_flag" in config["filters"]:
+    if "range_flag" in config["filters"]:
         if RUN_ONCE:
             logging.info("Nullifying wind speed out-of-range cells.")
         
@@ -646,7 +646,7 @@ def main():
             data_inspector.plot_time_series(df_query.slice(0, ROW_LIMIT), feature_types=["wind_speed", "wind_direction"], turbine_ids=data_loader.turbine_ids, continuity_groups=None, label="after_out_of_range")
     
     # %%
-    if False and "window_range_flag" in config["filters"]:
+    if "window_range_flag" in config["filters"]:
         if RUN_ONCE:
             logging.info("Nullifying wind speed-power curve out-of-window cells.")
         
@@ -739,7 +739,7 @@ def main():
             data_inspector.plot_time_series(df_query.slice(0, ROW_LIMIT), feature_types=["wind_speed", "wind_direction"], 
                                             turbine_ids=data_loader.turbine_ids, continuity_groups=None, label="after_out_of_window")
         
-    if False and "bin_filter" in config["filters"]:
+    if "bin_filter" in config["filters"]:
         if RUN_ONCE:
             logging.info("Nullifying wind speed-power curve bin-outlier cells.")
         
@@ -857,7 +857,7 @@ def main():
             data_inspector.plot_time_series(df_query.slice(0, ROW_LIMIT), feature_types=["wind_speed", "wind_direction"], turbine_ids=data_loader.turbine_ids, continuity_groups=None, label="after_bin_outlier")
 
     
-    if False and "nacelle_calibration" in config["filters"]:
+    if "nacelle_calibration" in config["filters"]:
         fp = config["processed_data_path"].replace(".parquet", "_calibrated_2.parquet")
         if args.reload_data or args.regenerate_filters or not os.path.exists(fp): 
             
