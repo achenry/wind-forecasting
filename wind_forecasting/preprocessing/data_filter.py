@@ -164,8 +164,6 @@ class DataFilter:
     
     def smooth(self, df_query, feature_types, smoothing_function="butterworth", smoothing_params=None, plot=False):
         
-
-
         sub_df = df_query.select([cs.starts_with(feat_type) for feat_type in feature_types])
         features = sub_df.collect_schema().names()
         

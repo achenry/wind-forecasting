@@ -230,7 +230,7 @@ def main():
             logging.info(f"Making directory to save_path {os.path.dirname(data_loader.save_path)}")
             os.makedirs(os.path.dirname(data_loader.save_path), exist_ok=True)
 
-        df_query = data_loader.read_multi_files(temp_save_dir, read_single_files=False)
+        df_query = data_loader.read_multi_files(temp_save_dir, read_single_files=True)
         
         # df = df_query.collect().select("file_set_idx", "time", cs.starts_with("wind_")).partition_by("file_set_idx")
         # fig, ax = plt.subplots(2, 1)
