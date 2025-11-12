@@ -1248,20 +1248,20 @@ def main():
                     os.remove(config["processed_data_path"].replace(".parquet", "_missing_times.parquet"))
                 
                 
-                df_query2 = df_query[f] \
+                df_query[f] = df_query[f] \
                         .with_columns(*[cs.contains(col).is_null().name.prefix("is_missing_") for col in missing_data_cols])\
                         .with_columns(**{f"num_missing_{col}": pl.sum_horizontal((cs.contains(col) & cs.starts_with("is_missing"))) for col in missing_data_cols})
 
                 # subset of data, indexed by time, which has <= the threshold number of missing columns
                 # check that the number of missing wind dir/speed measurements (over all turbines) is less or equal to missing_col_thr (i.e. both the number of missing wind dirs and wind speeds must be <= missing_col_thr)
-                df_query_not_missing_times = add_df_continuity_columns(df_query2, 
+                df_query_not_missing_times = add_df_continuity_columns(df_query[f], 
                                                                     dt=data_loader.dt,
                                                                     mask=pl.all_horizontal(cs.starts_with("num_missing") <= missing_col_thr) 
                                                                     #    mask=pl.sum_horizontal(cs.starts_with("num_missing")) <= missing_col_thr, 
                                                                     )
 
                 # subset of data, indexed by time, which has > the threshold number of missing wind speed or wind dir
-                df_query_missing_times = add_df_continuity_columns(df_query2, 
+                df_query_missing_times = add_df_continuity_columns(df_query[f], 
                                                                 dt=data_loader.dt,
                                                                 mask=pl.any_horizontal(cs.starts_with("num_missing") > missing_col_thr)
                                                                 #    mask=pl.sum_horizontal(cs.starts_with("num_missing")) > missing_col_thr, 
@@ -1290,8 +1290,8 @@ def main():
                 df_query_missing = merge_adjacent_periods(agg_df=df_query_missing, dt=data_loader.dt)
                 df_query_not_missing = merge_adjacent_periods(agg_df=df_query_not_missing, dt=data_loader.dt)
                 
-                df_query_missing = group_df_by_continuity(df=df_query2, agg_df=df_query_missing, missing_data_cols=missing_data_cols)
-                df_query_not_missing = group_df_by_continuity(df=df_query2, agg_df=df_query_not_missing, missing_data_cols=missing_data_cols)
+                df_query_missing = group_df_by_continuity(df=df_query[f], agg_df=df_query_missing, missing_data_cols=missing_data_cols)
+                df_query_not_missing = group_df_by_continuity(df=df_query[f], agg_df=df_query_not_missing, missing_data_cols=missing_data_cols)
                 df_query_not_missing = df_query_not_missing.filter(pl.col("duration") >= minimum_not_missing_duration)
                 
                 # filter out the continuity groups for which any measurement has 0 non-null values, can't impute then
@@ -1304,7 +1304,7 @@ def main():
                 #                     .select(cs.starts_with("is_missing") / (pl.col("duration") / np.timedelta64(data_loader.dt, 's')).cast(pl.Int64))
                 
                 logging.info("Starting to split by continuity group.") 
-                df_query[f] = get_continuity_group_index(continuity_groups_df=df_query_not_missing, time_series_df=df_query2)
+                df_query[f] = get_continuity_group_index(continuity_groups_df=df_query_not_missing, time_series_df=df_query[f])
                 
                 logging.info("Finished splitting by continuity group.")
             
