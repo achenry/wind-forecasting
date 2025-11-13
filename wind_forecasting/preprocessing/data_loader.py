@@ -177,12 +177,12 @@ class DataLoader:
                                                             f"{os.path.splitext(os.path.basename(file_path))[0]}.parquet")
                                     file_futures[-1].append(ex.submit(self._read_single_file, file_set_idx, f, file_path, 
                                                 processed_path, len(self.file_paths[file_set_idx])))
-
-            for file_set_idx in range(len(self.file_paths)):
-                for f, fut in enumerate(file_futures[file_set_idx]):
-                    logging.info(f"Fetching results for file set {file_set_idx} file no {f}.")
-                    fut.result()
                     
+                    for file_set_idx in range(len(self.file_paths)):
+                        for f, fut in enumerate(file_futures[file_set_idx]):
+                            logging.info(f"Fetching results for file set {file_set_idx} file no {f}.")
+                            fut.result()
+
             logging.info(f"Started fetching results from {sum(len(fp) for fp in self.file_paths)} files.")
             if (read_single_files == "all") or (read_single_files == "unprocessed" and f in unprocessed_file_path_idx[file_set_idx]):
                 processed_file_paths = []
@@ -296,8 +296,9 @@ class DataLoader:
                 with executor as ex:
                     if ex is not None:
                         schema_futures = [ex.submit(self._get_schema, fp) for fp in processed_file_paths]
-                        full_schema = schema_futures[0].result()
-                        logging.info(f"  - Schema for {processed_file_paths[0]}: {full_schema}")
+                
+                full_schema = schema_futures[0].result()
+                logging.info(f"  - Schema for {processed_file_paths[0]}: {full_schema}")
                 for f, fut in enumerate(schema_futures[1:]):
                     schema = fut.result()
                     logging.info(f"  - Schema for {processed_file_paths[f+1]}: {schema}")
