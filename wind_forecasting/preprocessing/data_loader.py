@@ -157,19 +157,32 @@ class DataLoader:
                     assert init_used_ram < self.ram_limit - 5, f"RAM limit in yaml config must be at least 5% greater than initial ram value of {init_used_ram}%."
                     
                     if read_single_files == "all":
-                        file_futures = [ex.submit(self._read_single_file, file_set_idx, f, file_path, 
-                                                os.path.join(temp_save_dir, 
-                                                            f"{os.path.splitext(os.path.basename(file_path))[0]}.parquet"), len(self.file_paths[file_set_idx]))
-                                        for file_set_idx in range(len(self.file_paths)) for f, file_path in enumerate(self.file_paths[file_set_idx])] #4% increase in mem
+                        file_futures = [] #4% increase in mem
+                        for file_set_idx in range(len(self.file_paths)):
+                            file_futures.append([])
+                            for f, file_path in enumerate(self.file_paths[file_set_idx]):
+                                processed_path = os.path.join(temp_save_dir, f"{os.path.splitext(os.path.basename(file_path))[0]}.parquet")
+                                file_futures[-1].append(ex.submit(self._read_single_file, file_set_idx, f, file_path, 
+                                                              processed_path, len(self.file_paths[file_set_idx])))
                     elif read_single_files == "unprocessed":
                         unprocessed_file_path_idx = [[f for f, file_path in enumerate(self.file_paths[file_set_idx]) if not os.path.exists(os.path.join(temp_save_dir, f"{os.path.splitext(os.path.basename(file_path))[0]}.parquet"))] 
                                                      for file_set_idx in range(len(self.file_paths))]
-                        file_futures = [ex.submit(self._read_single_file, file_set_idx, f, file_path, 
-                                                os.path.join(temp_save_dir, 
-                                                            f"{os.path.splitext(os.path.basename(file_path))[0]}.parquet"), len(self.file_paths[file_set_idx]))
-                                        for file_set_idx in range(len(self.file_paths)) for f, file_path in enumerate(self.file_paths[file_set_idx]) 
-                                        if f in unprocessed_file_path_idx[file_set_idx]] #4% increase in mem
-                
+                        
+                        file_futures = []
+                        for file_set_idx in range(len(self.file_paths)):
+                            file_futures.append([])
+                            for f, file_path in enumerate(self.file_paths[file_set_idx]):
+                                if f in unprocessed_file_path_idx[file_set_idx]:
+                                    processed_path = os.path.join(temp_save_dir, 
+                                                            f"{os.path.splitext(os.path.basename(file_path))[0]}.parquet")
+                                    file_futures[-1].append(ex.submit(self._read_single_file, file_set_idx, f, file_path, 
+                                                processed_path, len(self.file_paths[file_set_idx])))
+
+            for file_set_idx in range(len(self.file_paths)):
+                for f, fut in enumerate(file_futures[file_set_idx]):
+                    logging.info(f"Fetching results for file set {file_set_idx} file no {f}.")
+                    fut.result()
+                    
             logging.info(f"Started fetching results from {sum(len(fp) for fp in self.file_paths)} files.")
             if (read_single_files == "all") or (read_single_files == "unprocessed" and f in unprocessed_file_path_idx[file_set_idx]):
                 processed_file_paths = []
@@ -180,7 +193,7 @@ class DataLoader:
                     for f, file_path in enumerate(self.file_paths[file_set_idx]):
                         fn = f"{os.path.splitext(os.path.basename(file_path))[0]}.parquet"
                         fp = os.path.join(temp_save_dir, fn)
-                        if (res is not None) and os.path.exists(fp): 
+                        if os.path.exists(fp): 
                             processed_file_paths[-1].append(fp)
             else:
                 processed_file_paths = [glob.glob(os.path.join(temp_save_dir, f"{os.path.splitext(self.file_signature[file_set_idx])[0]}.parquet")) for file_set_idx in range(len(self.file_paths))]
