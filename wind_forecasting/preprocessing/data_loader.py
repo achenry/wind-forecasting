@@ -297,12 +297,12 @@ class DataLoader:
                     if ex is not None:
                         schema_futures = [ex.submit(self._get_schema, fp) for fp in processed_file_paths]
                 
-                full_schema = schema_futures[0].result()
-                logging.info(f"  - Schema for {processed_file_paths[0]}: {full_schema}")
-                for f, fut in enumerate(schema_futures[1:]):
-                    schema = fut.result()
-                    logging.info(f"  - Schema for {processed_file_paths[f+1]}: {schema}")
-                    full_schema.update(schema)
+                    full_schema = schema_futures[0].result()
+                    logging.info(f"  - Schema for {processed_file_paths[0]}: {full_schema}")
+                    for f, fut in enumerate(schema_futures[1:]):
+                        schema = fut.result()
+                        logging.info(f"  - Schema for {processed_file_paths[f+1]}: {schema}")
+                        full_schema.update(schema)
             else:
                 full_schema = pl.scan_parquet(processed_file_paths[0]).collect_schema()
             
@@ -331,12 +331,12 @@ class DataLoader:
             if self.multiprocessor is not None:
                 executor = ProcessPoolExecutor(mp_context=mp.get_context("spawn"), max_workers=int(os.environ.get("MAX_WORKERS", mp.cpu_count())))
                 with executor as ex:
-                    if ex is not None:
+                    if ex is nßot None:
                         time_bounds_futures = [ex.submit(self._get_time_bounds, fp) for fp in processed_file_paths]
-                for f, fut in enumerate(time_bounds_futures):
-                    start, end = fut.result()
-                    all_time_bounds.append((start, end, f))
-                    logging.info(f"  - Time Bounds for {processed_file_paths[f]}: {all_time_bounds[-1]}")
+                    for f, fut in enumerate(time_bounds_futures):
+                        start, end = fut.result()
+                        all_time_bounds.append((start, end, f))
+                        logging.info(f"  - Time Bounds for {processed_file_paths[f]}: {all_time_bounds[-1]}")
             else:
                 for f, fp in enumerate(processed_file_paths):
                     start, end = self._get_time_bounds(fp)
