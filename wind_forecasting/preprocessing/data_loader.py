@@ -372,24 +372,28 @@ class DataLoader:
 
                 bounds = all_time_bounds.select(pl.col("start").first().alias("first"), pl.col("end").last().alias("last"))
                 for tid in turbine_ids:
+                    grouped_fp = os.path.join(temp_save_dir, f"grouped_{file_set_idx}_{i}_{tid}.parquet")
                     
-                    asset_schema = pl.Schema({k: v for k, v in full_schema.items() if k == "time" or re.search(f".*?(?={tid})", k)})
-                    # loop through all of this asset's files
-                    asset_processed_files = [fp for fp in processed_file_paths if re.findall(tid, os.path.basename(fp))]
-                    for fp in asset_processed_files:
-                        if all_time_bounds.filter(pl.col("file_index") == processed_file_paths.index(fp)).is_empty():
-                            logging.error(f"File {fp} has no all_time_bounds entry! Its index in processed_file_paths is {processed_file_paths.index(fp)}")
-                    
-                    asset_processed_files = sorted(asset_processed_files, key=lambda fp: all_time_bounds.filter(pl.col("file_index") == processed_file_paths.index(fp)).select("start").item())
-                    
-                    logging.info(f"  - Grouping {len(asset_processed_files)} files for turbine id {tid} for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
-                    df = pl.scan_parquet(asset_processed_files, schema=asset_schema, missing_columns="insert")\
-                            .sort("time")\
-                                .group_by("time", maintain_order=True)\
-                                .agg(cs.numeric().mean())
-                    
-                    self._resample_df(df, bounds, fill_null=False)\
-                        .sink_parquet(os.path.join(temp_save_dir, f"grouped_{file_set_idx}_{i}_{tid}.parquet"), maintain_order=True)
+                    if reload or not os.path.exists(grouped_fp):
+                        asset_schema = pl.Schema({k: v for k, v in full_schema.items() if k == "time" or re.search(f".*?(?={tid})", k)})
+                        # loop through all of this asset's files
+                        asset_processed_files = [fp for fp in processed_file_paths if re.findall(tid, os.path.basename(fp))]
+                        for fp in asset_processed_files:
+                            if all_time_bounds.filter(pl.col("file_index") == processed_file_paths.index(fp)).is_empty():
+                                logging.error(f"File {fp} has no all_time_bounds entry! Its index in processed_file_paths is {processed_file_paths.index(fp)}")
+                        
+                        asset_processed_files = sorted(asset_processed_files, key=lambda fp: all_time_bounds.filter(pl.col("file_index") == processed_file_paths.index(fp)).select("start").item())
+                        
+                        logging.info(f"  - Grouping {len(asset_processed_files)} files for turbine id {tid} for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
+                        df = pl.scan_parquet(asset_processed_files, schema=asset_schema, missing_columns="insert")\
+                                .sort("time")\
+                                    .group_by("time", maintain_order=True)\
+                                    .agg(cs.numeric().mean())
+                        
+                        self._resample_df(df, bounds, fill_null=False)\
+                            .sink_parquet(grouped_fp, maintain_order=True)
+                    else:
+                        logging.info(f"Loading existing grouped file for turbine id {tid} for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
                 
                 grouped_file_paths = glob.glob(os.path.join(temp_save_dir, f"grouped_{file_set_idx}_{i}_*.parquet"))
                 grouped_file_paths = [fp for fp in grouped_file_paths if re.findall(self.turbine_signature, os.path.basename(fp))]
