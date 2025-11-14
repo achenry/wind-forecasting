@@ -179,10 +179,10 @@ class DataLoader:
                                     file_futures[-1].append(ex.submit(self._read_single_file, file_set_idx, f, file_path, 
                                                 processed_path, len(self.file_paths[file_set_idx])))
                     
-                    for file_set_idx in range(len(self.file_paths)):
-                        for f, fut in enumerate(file_futures[file_set_idx]):
-                            logging.info(f"Fetching results for file set {file_set_idx} file no {f}.")
-                            file_futures[file_set_idx][f] = fut.result()
+                for file_set_idx in range(len(self.file_paths)):
+                    for f, fut in enumerate(file_futures[file_set_idx]):
+                        logging.info(f"Fetching results for file set {file_set_idx} file no {f}.")
+                        file_futures[file_set_idx][f] = fut.result()
 
             logging.info(f"Started fetching results from {sum(len(fp) for fp in self.file_paths)} files.")
             if (read_single_files == "all") or (read_single_files == "unprocessed" and f in unprocessed_file_path_idx[file_set_idx]):
