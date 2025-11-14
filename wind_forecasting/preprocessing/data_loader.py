@@ -143,9 +143,10 @@ class DataLoader:
             # if self.multiprocessor == "mpi" and mpi_exists:
             #     executor = MPICommExecutor(MPI.COMM_WORLD, root=0)
             # else:  # "cf" case
-            executor = ProcessPoolExecutor(mp_context=mp.get_context("spawn"), max_workers=int(os.environ.get("MAX_WORKERS", mp.cpu_count())))
-            with executor as ex:
-                if read_single_files:
+            if read_single_files:
+                executor = ProcessPoolExecutor(mp_context=mp.get_context("spawn"), max_workers=int(os.environ.get("MAX_WORKERS", mp.cpu_count())))
+                with executor as ex:
+                
                     logging.info(f"✅ Started reading {sum(len(fp) for fp in self.file_paths)} files.")
                     
                     for file_set_idx, fp in enumerate(self.file_paths):
@@ -181,7 +182,7 @@ class DataLoader:
                     for file_set_idx in range(len(self.file_paths)):
                         for f, fut in enumerate(file_futures[file_set_idx]):
                             logging.info(f"Fetching results for file set {file_set_idx} file no {f}.")
-                            fut.result()
+                            file_futures[file_set_idx][f] = fut.result()
 
             logging.info(f"Started fetching results from {sum(len(fp) for fp in self.file_paths)} files.")
             if (read_single_files == "all") or (read_single_files == "unprocessed" and f in unprocessed_file_path_idx[file_set_idx]):
