@@ -331,7 +331,7 @@ class DataLoader:
             if self.multiprocessor is not None:
                 executor = ProcessPoolExecutor(mp_context=mp.get_context("spawn"), max_workers=int(os.environ.get("MAX_WORKERS", mp.cpu_count())))
                 with executor as ex:
-                    if ex is nßot None:
+                    if ex is not None:
                         time_bounds_futures = [ex.submit(self._get_time_bounds, fp) for fp in processed_file_paths]
                     for f, fut in enumerate(time_bounds_futures):
                         start, end = fut.result()
