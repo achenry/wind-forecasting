@@ -404,41 +404,41 @@ def main():
         
         if RUN_ONCE:
             
-            if os.path.exists(frozen_sensor_filter_temp_path):
-                logging.info(f"Removing temp dir {frozen_sensor_filter_temp_path}")
-                rmtree(frozen_sensor_filter_temp_path) 
+            # if os.path.exists(frozen_sensor_filter_temp_path):
+            #     logging.info(f"Removing temp dir {frozen_sensor_filter_temp_path}")
+            #     rmtree(frozen_sensor_filter_temp_path) 
             
-            os.makedirs(frozen_sensor_filter_temp_path, exist_ok=True)
+            # os.makedirs(frozen_sensor_filter_temp_path, exist_ok=True)
             
             if regen and os.path.exists(frozen_sensor_filter_target_path):
                 logging.info(f"Removing target dir {frozen_sensor_filter_target_path}")
                 rmtree(frozen_sensor_filter_target_path)
         
-        if regen or not all(os.path.exists(os.path.join(frozen_sensor_filter_temp_path, f"{feat}_fs{file_set_idx}.npy")) for file_set_idx in file_set_indices for feat in cols):
+        if regen or not all(os.path.exists(os.path.join(frozen_sensor_filter_target_path, f"{feat}_fs{file_set_idx}.npy")) for file_set_idx in file_set_indices for feat in cols):
             
             thr = int(np.timedelta64(config["filters"]["unresponsive_sensor"]["frozen_sensor_limit"], 's') / np.timedelta64(data_loader.dt, 's'))
             
             frozen_sensors = {}
             for file_set_idx in file_set_indices:
-                if regen or not all(os.path.exists(os.path.join(frozen_sensor_filter_temp_path, f"{feat}_fs{file_set_idx}.npy")) for feat in cols):
+                if regen or not all(os.path.exists(os.path.join(frozen_sensor_filter_target_path, f"{feat}_fs{file_set_idx}.npy")) for feat in cols):
                     logging.info(f"Regenerating frozen sensor mask for file_set {file_set_idx}.")
-                    frozen_sensors[file_set_idx] = filters.unresponsive_flag(
+                    flag = filters.unresponsive_flag(
                         data_pl=df_query.filter(pl.col("file_set_idx") == file_set_idx).select(cs.starts_with("wind_speed"), cs.starts_with("wind_direction")), 
                         threshold=thr)
                     
                     for feat in cols:
                         logging.info(f"Saving frozen sensor mask for file_set {file_set_idx}, feature {feat}.")
                         # frozen_sensors[file_set_idx](feat).sink_parquet(os.path.join(frozen_sensor_filter_temp_path, f"feat{feat}_fs{file_set_idx}.parquet"), maintain_order=True)
-                        np.save(os.path.join(frozen_sensor_filter_temp_path, f"{feat}_fs{file_set_idx}.npy"), 
-                                    frozen_sensors[file_set_idx](feat).collect().to_numpy().flatten())
+                        np.save(os.path.join(frozen_sensor_filter_target_path, f"{feat}_fs{file_set_idx}.npy"), 
+                                    flag(feat).collect().to_numpy().flatten())
                 else:
                     logging.info(f"Loading existing frozen sensor mask for file_set {file_set_idx}.")
             
             # mask = lambda file_set_idx, feat: frozen_sensors[file_set_idx](feat).collect().to_numpy().flatten()
             
             # move from temp location to permanent
-            logging.info(f"Moving frozen sensor masks from temp to target dir {frozen_sensor_filter_target_path}")
-            move(frozen_sensor_filter_temp_path, frozen_sensor_filter_target_path)
+            # logging.info(f"Moving frozen sensor masks from temp to target dir {frozen_sensor_filter_target_path}")
+            # move(frozen_sensor_filter_temp_path, frozen_sensor_filter_target_path)
         
         mask = lambda file_set_idx, feat: pl.Series(np.load(os.path.join(frozen_sensor_filter_target_path, f"{feat}_fs{file_set_idx}.npy")))
         # mask = lambda file_set_idx, feat: pl.scan_parquet(os.path.join(frozen_sensor_filter_target_path, f"feat{feat}_fs{file_set_idx}.parquet")).collect().to_series()
@@ -921,10 +921,11 @@ def main():
             for bias, turbine_id in zip(biases, data_loader.turbine_ids):
                 
                 if turbine_id == "wt033":
-                    expr = (pl.when(pl.col("time") < datetime.strptime("11/5/2024 14:06", "%m/%d/%Y %H:%M")).then(pl.col(f"wind_direction_{turbine_id}") - 8.3).otherwise(106.8).mod(360.0).alias(f"wind_direction_{turbine_id}"), 
-                            pl.when(pl.col("time") < datetime.strptime("11/5/2024 14:06", "%m/%d/%Y %H:%M")).then(pl.col(f"nacelle_direction_{turbine_id}") - 8.3).otherwise(106.8).mod(360.0).alias(f"nacelle_direction_{turbine_id}"))
+                    expr = (pl.when(pl.col("time") < datetime.strptime("11/5/2024 14:06", "%m/%d/%Y %H:%M")).then(pl.col(f"wind_direction_{turbine_id}") - 8.3).otherwise(pl.col(f"wind_direction_{turbine_id}") - 106.8).mod(360.0).alias(f"wind_direction_{turbine_id}"), 
+                            pl.when(pl.col("time") < datetime.strptime("11/5/2024 14:06", "%m/%d/%Y %H:%M")).then(pl.col(f"nacelle_direction_{turbine_id}") - 8.3).otherwise(pl.col(f"nacelle_direction_{turbine_id}") - 106.8).mod(360.0).alias(f"nacelle_direction_{turbine_id}"))
                 elif turbine_id == "wt042":
-                    pass
+                    expr = (pl.when(pl.col("time") < datetime.strptime("11/5/2024 14:06", "%m/%d/%Y %H:%M")).then(pl.col(f"wind_direction_{turbine_id}") - 8.3).otherwise(pl.col(f"wind_direction_{turbine_id}") - 106.8).mod(360.0).alias(f"wind_direction_{turbine_id}"), 
+                            pl.when(pl.col("time") < datetime.strptime("11/5/2024 14:06", "%m/%d/%Y %H:%M")).then(pl.col(f"nacelle_direction_{turbine_id}") - 8.3).otherwise(pl.col(f"nacelle_direction_{turbine_id}") - 106.8).mod(360.0).alias(f"nacelle_direction_{turbine_id}"))
                 elif turbine_id == "wt078":
                     pass
                 else:
