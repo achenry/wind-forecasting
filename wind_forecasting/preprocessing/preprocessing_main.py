@@ -232,11 +232,11 @@ def main():
 
         df_query = data_loader.read_multi_files(temp_save_dir, read_single_files=False) # TODO this should be set to all or unprocessed or False, and should change if there are no processed files
         
-        # df = df_query.collect().select("file_set_idx", "time", cs.starts_with("wind_")).partition_by("file_set_idx")
+        # df = df_query.select("wind_speed_wt001", "wind_direction_wt001", "file_set_idx", "time").collect().select("file_set_idx", "time", cs.starts_with("wind_")).partition_by("file_set_idx")
         # fig, ax = plt.subplots(2, 1)
         # for ts in df:
         #     ax[0].plot(ts.select("time").to_numpy(), ts.select(pl.col("wind_speed_wt001")).to_numpy(), '.', alpha=0.1)
-        #     ax[1].plot(ts.select("time").to_numpy(), ts.select(pl.col("wind_direction_wt002")).to_numpy(), '.', alpha=0.1)
+        #     ax[1].plot(ts.select("time").to_numpy(), ts.select(pl.col("wind_direction_wt001")).to_numpy(), '.', alpha=0.1)
         
         if RUN_ONCE:
             logging.info("✅ Finished reading individual files. Time elapsed: %.2f s", time.time() - start_time)
