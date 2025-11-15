@@ -223,23 +223,19 @@ class DataFilter:
     
     def multi_generate_filter(self, df_query, filter_func, feature_types, turbine_ids, **kwargs):
         if self.multiprocessor:
-            # if self.multiprocessor == "mpi" and mpi_exists:
-            #     executor = MPICommExecutor(MPI.COMM_WORLD, root=0)
-            #     logging.info(f"🚀 Using MPI executor with {MPI.COMM_WORLD.Get_size()} processes")
-            # else:  # "cf" case
             max_workers = int(os.environ.get("MAX_WORKERS", mp.cpu_count()))
             executor = ProcessPoolExecutor(max_workers=max_workers,
                                             mp_context=mp.get_context("spawn"))
             logging.info(f"🖥️  Using ProcessPoolExecutor with {max_workers} workers")
             with executor as ex:
-                futures = [ex.submit(filter_func, 
-                                    df_query=df_query.select([pl.col(f"{feat_type}_{tid}") for feat_type in feature_types]), 
-                                    tid=tid, **kwargs) for tid in turbine_ids]
+                if ex is not None:
+                    futures = [ex.submit(filter_func, 
+                                        df_query=df_query.select([pl.col(f"{feat_type}_{tid}") for feat_type in feature_types]), 
+                                        tid=tid, **kwargs) for tid in turbine_ids]
                 masks = [fut.result() for fut in futures]
         else:
             logging.info("🔧 Using single process executor")
             masks = []
-            # other_outputs = []
             for tid in turbine_ids:
                 res = filter_func(
                     df_query=df_query.select([pl.col(f"{feat_type}_{tid}") for feat_type in feature_types]), tid=tid, **kwargs)

@@ -2,7 +2,7 @@ config_label: aoifemac_awaken_new
 
 filters:
   unresponsive_sensor:
-    frozen_sensor_limit: 1200 # maximum duration for which a value can be constant before it is flagged as frozen, seconds
+    frozen_sensor_limit: 2100 # maximum duration for which a value can be constant before it is flagged as frozen, seconds
   range_flag:
     lower: 3
     upper: 25
@@ -27,7 +27,7 @@ filters:
   split:
     missing_col_thr: 66 # number of missing turbine measurements, from either wind speed or wind direction, (max = 2xn_turbines) above which this subset of data will be omitted, i.e. if many data points are missing omit the data
     missing_duration_thr: 300 # maximum duration for which subsets of data which have missing measurements exceeding missing_col_thr in any feature type will still be included, i.e. if many data points are missing but only for a short time, use the data, seconds
-    minimum_not_missing_duration: 1200 # minimum duration that any retained continuous subset of data must be to be useful, seconds, i.e. should contain at least the intended context length and prediction length
+    minimum_not_missing_duration: 2100 # minimum duration that any retained continuous subset of data must be to be useful, seconds, i.e. should contain at least the intended context length and prediction length
   impute_missing_data:
     r2_threshold: 0.7
   smooth:
@@ -263,7 +263,7 @@ nacelle_calibration_turbine_pairs:
 
 dt: 1
 split_dt: 3600 # maximum duration of no turbine data allowed in continuous segment, seconds
-min_continuous_duration: 1200 # minimum duration of continuous segments to be retained, seconds
+min_continuous_duration: 2100 # minimum duration of continuous segments to be retained, seconds
 
 raw_data_directory: 
 # subsets of the data

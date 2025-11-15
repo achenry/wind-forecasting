@@ -177,7 +177,7 @@ def main():
 
     # %%
     # INFO: Print netcdf structure
-    if args.verbose and "netcdf" in config["data_format"]:
+    if args.reload_data and args.verbose and "netcdf" in config["data_format"]:
         data_loader.print_netcdf_structure(data_loader.file_paths[config["data_format"].index("netcdf")][0])
 
     # %%
@@ -233,7 +233,7 @@ def main():
         df_query = data_loader.read_multi_files(temp_save_dir, read_single_files=False) # TODO this should be set to all or unprocessed or False, and should change if there are no processed files
         
         # df = df_query.select("wind_speed_wt001", "wind_direction_wt001", "file_set_idx", "time").collect().select("file_set_idx", "time", cs.starts_with("wind_")).partition_by("file_set_idx")
-        # fig, ax = plt.subplots(2, 1)
+        # fig, ax = plt.subplots(2, 1, sharex=True)
         # for ts in df:
         #     ax[0].plot(ts.select("time").to_numpy(), ts.select(pl.col("wind_speed_wt001")).to_numpy(), '.', alpha=0.1)
         #     ax[1].plot(ts.select("time").to_numpy(), ts.select(pl.col("wind_direction_wt001")).to_numpy(), '.', alpha=0.1)
@@ -391,8 +391,8 @@ def main():
         # NOTE: this filter must be applied before any cells are nullified st null values aren't considered repeated values
         # find values of wind speed/direction, where there are duplicate values with nulls inbetween
         
-        frozen_sensor_filter_temp_path = os.path.join(config["temp_storage_dir"], 
-                                            os.path.basename(config["processed_data_path"]).replace(".parquet", "_frozen_sensor"))
+        # frozen_sensor_filter_temp_path = os.path.join(config["temp_storage_dir"], 
+        #                                     os.path.basename(config["processed_data_path"]).replace(".parquet", "_frozen_sensor"))
                                     
         frozen_sensor_filter_target_path = os.path.join(os.path.dirname(config["processed_data_path"]), 
                                         os.path.basename(config["processed_data_path"]).replace(".parquet", "_frozen_sensor"))
@@ -413,7 +413,9 @@ def main():
             if regen and os.path.exists(frozen_sensor_filter_target_path):
                 logging.info(f"Removing target dir {frozen_sensor_filter_target_path}")
                 rmtree(frozen_sensor_filter_target_path)
-        
+                
+            os.makedirs(frozen_sensor_filter_target_path, exist_ok=True)
+            
         if regen or not all(os.path.exists(os.path.join(frozen_sensor_filter_target_path, f"{feat}_fs{file_set_idx}.npy")) for file_set_idx in file_set_indices for feat in cols):
             
             thr = int(np.timedelta64(config["filters"]["unresponsive_sensor"]["frozen_sensor_limit"], 's') / np.timedelta64(data_loader.dt, 's'))
@@ -429,8 +431,8 @@ def main():
                     for feat in cols:
                         logging.info(f"Saving frozen sensor mask for file_set {file_set_idx}, feature {feat}.")
                         # frozen_sensors[file_set_idx](feat).sink_parquet(os.path.join(frozen_sensor_filter_temp_path, f"feat{feat}_fs{file_set_idx}.parquet"), maintain_order=True)
-                        np.save(os.path.join(frozen_sensor_filter_target_path, f"{feat}_fs{file_set_idx}.npy"), 
-                                    flag(feat).collect().to_numpy().flatten())
+                        with open(os.path.join(frozen_sensor_filter_target_path, f"{feat}_fs{file_set_idx}.npy"), "wb") as fp:
+                            np.save(fp, flag(feat).collect().to_numpy().flatten())
                 else:
                     logging.info(f"Loading existing frozen sensor mask for file_set {file_set_idx}.")
             
@@ -445,7 +447,7 @@ def main():
     
         # check time series
         if args.verbose:
-            DataInspector.print_pc_remaining_vals(df_query, mask,
+            DataInspector.print_pc_remaining_vals(df_query, mask, file_set_indices,
                                                     mask_input_features=cols,
                                                     output_features=cols,
                                                     filter_type="unresponsive sensor")
@@ -520,7 +522,7 @@ def main():
 
         # check time series
         if args.verbose:
-            DataInspector.print_pc_remaining_vals(df_query, mask,
+            DataInspector.print_pc_remaining_vals(df_query, mask, file_set_indices,
                                                     mask_input_features=sorted(list(data_loader.turbine_ids)) * 2,
                                                     output_features=ws_cols+wd_cols,
                                                     filter_type="inoperational turbine status")
@@ -573,7 +575,8 @@ def main():
                                                 lower=config["filters"]["range_flag"]["lower"],
                                                 upper=config["filters"]["range_flag"]["upper"]) & ~ws.isna()).values # range flag includes formerly null values as nan
             del ws
-            np.save(fp, out_of_range)
+            with open(fp, "wb") as fpnt:
+                np.save(fpnt, out_of_range)
         
         out_of_range = np.load(fp)
 
@@ -583,7 +586,7 @@ def main():
 
         # check time series
         if args.verbose:
-            DataInspector.print_pc_remaining_vals(df_query, mask, 
+            DataInspector.print_pc_remaining_vals(df_query, mask, file_set_indices,
                                                     mask_input_features=sorted(data_loader.turbine_ids),
                                                     output_features=ws_cols,
                                                     filter_type="wind speed range")
@@ -664,8 +667,8 @@ def main():
                                                                 value_max=config["filters"]["window_range_flag"]["value_max"] * data_inspector.rated_turbine_power)
             # data_filter.multiprocessor = args.multiprocessor
             
-            if RUN_ONCE:
-                np.save(fp, out_of_window)
+            with open(fp, "wb") as fpnt:
+                np.save(fpnt, out_of_window)
                 
         out_of_window = np.load(fp)
         
@@ -674,7 +677,7 @@ def main():
             mask = lambda tid: pl.Series(out_of_window[:, turbine_id_to_index[tid]])
             
         if args.verbose:
-            DataInspector.print_pc_remaining_vals(df_query, mask,
+            DataInspector.print_pc_remaining_vals(df_query, mask, file_set_indices,
                                                     mask_input_features=sorted(data_loader.turbine_ids),
                                                     output_features=ws_cols,
                                                     filter_type="power-wind speed window range")
@@ -763,7 +766,8 @@ def main():
                                                                 ) 
             data_filter.multiprocessor = args.multiprocessor
             if RUN_ONCE:
-                np.save(fp, bin_outliers)
+                with open(fp, "wb") as fpnt:
+                    np.save(fpnt, bin_outliers)
         
         bin_outliers = np.load(fp)
 
@@ -773,7 +777,7 @@ def main():
         
         # check time series
         if args.verbose:
-            DataInspector.print_pc_remaining_vals(df_query, mask, 
+            DataInspector.print_pc_remaining_vals(df_query, mask, file_set_indices,
                                                     mask_input_features=sorted(data_loader.turbine_ids),
                                                     output_features=ws_cols,
                                                     filter_type="power-wind speed bin")
@@ -909,25 +913,32 @@ def main():
                 logging.info("Finished sinking dataframe.")
 
             # df_offsets = {"turbine_id": [], "northing_bias": []}
+            fp = config["processed_data_path"].replace(".parquet", "_biases.npy")
             if args.reload_data or args.regenerate_filters or not os.path.exists(config["processed_data_path"].replace(".parquet", "_biases.npy")):
                 # data_filter.multiprocessor = None
                 biases = data_filter.multi_compute_bias(df_query_10min, data_loader.turbine_ids)
                 # data_filter.multiprocessor = args.multiprocessor
-                if RUN_ONCE:
-                    np.save(config["processed_data_path"].replace(".parquet", "_biases.npy"), biases)
+                
+               
+                with open(fp, "wb") as fp:
+                    np.save(fpnt, biases)
             elif RUN_ONCE:
-                biases = np.load(config["processed_data_path"].replace(".parquet", "_biases.npy"))
+                biases = np.load(fp)
                 
             for bias, turbine_id in zip(biases, data_loader.turbine_ids):
                 
                 if turbine_id == "wt033":
-                    expr = (pl.when(pl.col("time") < datetime.strptime("11/5/2024 14:06", "%m/%d/%Y %H:%M")).then(pl.col(f"wind_direction_{turbine_id}") - 8.3).otherwise(pl.col(f"wind_direction_{turbine_id}") - 106.8).mod(360.0).alias(f"wind_direction_{turbine_id}"), 
-                            pl.when(pl.col("time") < datetime.strptime("11/5/2024 14:06", "%m/%d/%Y %H:%M")).then(pl.col(f"nacelle_direction_{turbine_id}") - 8.3).otherwise(pl.col(f"nacelle_direction_{turbine_id}") - 106.8).mod(360.0).alias(f"nacelle_direction_{turbine_id}"))
+                    switch_time = datetime.strptime("11/5/2024 14:06", "%m/%d/%Y %H:%M")
+                    expr = (pl.when(pl.col("time") < switch_time).then(pl.col(f"wind_direction_{turbine_id}") - 8.3).otherwise(pl.col(f"wind_direction_{turbine_id}") - 106.8).mod(360.0).alias(f"wind_direction_{turbine_id}"), 
+                            pl.when(pl.col("time") < switch_time).then(pl.col(f"nacelle_direction_{turbine_id}") - 8.3).otherwise(pl.col(f"nacelle_direction_{turbine_id}") - 106.8).mod(360.0).alias(f"nacelle_direction_{turbine_id}"))
                 elif turbine_id == "wt042":
-                    expr = (pl.when(pl.col("time") < datetime.strptime("11/5/2024 14:06", "%m/%d/%Y %H:%M")).then(pl.col(f"wind_direction_{turbine_id}") - 8.3).otherwise(pl.col(f"wind_direction_{turbine_id}") - 106.8).mod(360.0).alias(f"wind_direction_{turbine_id}"), 
-                            pl.when(pl.col("time") < datetime.strptime("11/5/2024 14:06", "%m/%d/%Y %H:%M")).then(pl.col(f"nacelle_direction_{turbine_id}") - 8.3).otherwise(pl.col(f"nacelle_direction_{turbine_id}") - 106.8).mod(360.0).alias(f"nacelle_direction_{turbine_id}"))
+                    switch_time = datetime.strptime("4/12/2025 21:07", "%m/%d/%Y %H:%M")
+                    expr = (pl.when(pl.col("time") < switch_time).then(pl.col(f"wind_direction_{turbine_id}") - 7).otherwise(pl.col(f"wind_direction_{turbine_id}") - (-54.4)).mod(360.0).alias(f"wind_direction_{turbine_id}"), 
+                            pl.when(pl.col("time") < switch_time).then(pl.col(f"nacelle_direction_{turbine_id}") - 7).otherwise(pl.col(f"nacelle_direction_{turbine_id}") - (-54.4)).mod(360.0).alias(f"nacelle_direction_{turbine_id}"))
                 elif turbine_id == "wt078":
-                    pass
+                    switch_time = datetime.strptime("8/19/2024 13:07", "%m/%d/%Y %H:%M")
+                    expr = (pl.when(pl.col("time") < switch_time).then(pl.col(f"wind_direction_{turbine_id}") - (-6.7)).otherwise(pl.col(f"wind_direction_{turbine_id}") - 36.7).mod(360.0).alias(f"wind_direction_{turbine_id}"), 
+                            pl.when(pl.col("time") < switch_time).then(pl.col(f"nacelle_direction_{turbine_id}") - (-6.7)).otherwise(pl.col(f"nacelle_direction_{turbine_id}") - 36.7).mod(360.0).alias(f"nacelle_direction_{turbine_id}"))
                 else:
                     expr = (pl.col(f"wind_direction_{turbine_id}") - bias).mod(360.0).alias(f"wind_direction_{turbine_id}"), (pl.col(f"nacelle_direction_{turbine_id}") - bias).mod(360.0).alias(f"nacelle_direction_{turbine_id}")
                 
@@ -1179,7 +1190,7 @@ def main():
             ws_horz_cols = [col for col in df_query.collect_schema().names() if col.startswith("ws_horz")]
             ws_vert_cols = [col for col in df_query.collect_schema().names() if col.startswith("ws_vert")]
             if args.verbose:
-                DataInspector.print_pc_remaining_vals(df_query, mask,
+                DataInspector.print_pc_remaining_vals(df_query, mask, file_set_indices,
                                                         mask_input_features=ws_horz_cols+ws_vert_cols,
                                                         output_features=ws_horz_cols+ws_vert_cols,
                                                         filter_type="standard deviation")
