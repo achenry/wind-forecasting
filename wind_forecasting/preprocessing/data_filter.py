@@ -652,9 +652,9 @@ def get_continuity_group_index(continuity_groups_df, time_series_df, chunk_size=
     group_number = None
 
     # Create conditions to assign group numbers based on time ranges
-    total_rows = continuity_groups_df.select(pl.len()).collect().item()
+    total_rows = continuity_groups_df.select(pl.len()).item()
     time_series_df = time_series_df.with_columns(continuity_group=pl.when(True).then(pl.lit(-1)))
-    for i, (start, end) in enumerate(continuity_groups_df.collect().select("start_time", "end_time").iter_rows()):
+    for i, (start, end) in enumerate(continuity_groups_df.select("start_time", "end_time").iter_rows()):
         # print(i, start, end, duration)
         logging.info(f"Getting continuity group index {i} of {total_rows} for start time {start}, end time {end}")
         
@@ -708,7 +708,7 @@ def merge_adjacent_periods(agg_df, dt):
 
         start_time_idx = end_time_idx + 1
 
-    return pl.LazyFrame(data, schema={
+    return pl.DataFrame(data, schema={
         "start_time": pl.Datetime(time_unit=agg_df.collect_schema()["start_time"].time_unit), 
         "end_time": pl.Datetime(time_unit=agg_df.collect_schema()["end_time"].time_unit)})\
              .with_columns((pl.col("end_time") - pl.col("start_time")).alias("duration"))

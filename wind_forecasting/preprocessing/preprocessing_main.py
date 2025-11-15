@@ -391,9 +391,6 @@ def main():
         # NOTE: this filter must be applied before any cells are nullified st null values aren't considered repeated values
         # find values of wind speed/direction, where there are duplicate values with nulls inbetween
         
-        # frozen_sensor_filter_temp_path = os.path.join(config["temp_storage_dir"], 
-        #                                     os.path.basename(config["processed_data_path"]).replace(".parquet", "_frozen_sensor"))
-                                    
         frozen_sensor_filter_target_path = os.path.join(os.path.dirname(config["processed_data_path"]), 
                                         os.path.basename(config["processed_data_path"]).replace(".parquet", "_frozen_sensor"))
         
@@ -403,12 +400,6 @@ def main():
             or not all(os.path.exists(os.path.join(frozen_sensor_filter_target_path, f"{feat}_fs{file_set_idx}.npy")) for file_set_idx in file_set_indices for feat in cols)
         
         if RUN_ONCE:
-            
-            # if os.path.exists(frozen_sensor_filter_temp_path):
-            #     logging.info(f"Removing temp dir {frozen_sensor_filter_temp_path}")
-            #     rmtree(frozen_sensor_filter_temp_path) 
-            
-            # os.makedirs(frozen_sensor_filter_temp_path, exist_ok=True)
             
             if regen and os.path.exists(frozen_sensor_filter_target_path):
                 logging.info(f"Removing target dir {frozen_sensor_filter_target_path}")
@@ -436,15 +427,8 @@ def main():
                 else:
                     logging.info(f"Loading existing frozen sensor mask for file_set {file_set_idx}.")
             
-            # mask = lambda file_set_idx, feat: frozen_sensors[file_set_idx](feat).collect().to_numpy().flatten()
-            
-            # move from temp location to permanent
-            # logging.info(f"Moving frozen sensor masks from temp to target dir {frozen_sensor_filter_target_path}")
-            # move(frozen_sensor_filter_temp_path, frozen_sensor_filter_target_path)
-        
         mask = lambda file_set_idx, feat: pl.Series(np.load(os.path.join(frozen_sensor_filter_target_path, f"{feat}_fs{file_set_idx}.npy")))
-        # mask = lambda file_set_idx, feat: pl.scan_parquet(os.path.join(frozen_sensor_filter_target_path, f"feat{feat}_fs{file_set_idx}.parquet")).collect().to_series()
-    
+        
         # check time series
         if args.verbose:
             DataInspector.print_pc_remaining_vals(df_query, mask, file_set_indices,
@@ -586,7 +570,7 @@ def main():
 
         # check time series
         if args.verbose:
-            DataInspector.print_pc_remaining_vals(df_query, mask, file_set_indices,
+            DataInspector.print_pc_remaining_vals(df_query, mask, None,
                                                     mask_input_features=sorted(data_loader.turbine_ids),
                                                     output_features=ws_cols,
                                                     filter_type="wind speed range")
@@ -660,11 +644,11 @@ def main():
         if args.reload_data or args.regenerate_filters or not os.path.exists(fp):
             data_filter.multiprocessor = None
             out_of_window = data_filter.multi_generate_filter(df_query=df_query, filter_func=data_filter._single_generate_window_range_filter,
-                                                                feature_types=["wind_speed", "power_output"], turbine_ids=data_loader.turbine_ids,
-                                                                window_start=config["filters"]["window_range_flag"]["window_start"], 
-                                                                window_end=config["filters"]["window_range_flag"]["window_end"], 
-                                                                value_min=config["filters"]["window_range_flag"]["value_min"] * data_inspector.rated_turbine_power, 
-                                                                value_max=config["filters"]["window_range_flag"]["value_max"] * data_inspector.rated_turbine_power)
+                                                              feature_types=["wind_speed", "power_output"], turbine_ids=data_loader.turbine_ids,
+                                                              window_start=config["filters"]["window_range_flag"]["window_start"], 
+                                                              window_end=config["filters"]["window_range_flag"]["window_end"], 
+                                                              value_min=config["filters"]["window_range_flag"]["value_min"] * data_inspector.rated_turbine_power, 
+                                                              value_max=config["filters"]["window_range_flag"]["value_max"] * data_inspector.rated_turbine_power)
             data_filter.multiprocessor = args.multiprocessor
             
             with open(fp, "wb") as fpnt:
@@ -677,7 +661,7 @@ def main():
             mask = lambda tid: pl.Series(out_of_window[:, turbine_id_to_index[tid]])
             
         if args.verbose:
-            DataInspector.print_pc_remaining_vals(df_query, mask, file_set_indices,
+            DataInspector.print_pc_remaining_vals(df_query, mask, None,
                                                     mask_input_features=sorted(data_loader.turbine_ids),
                                                     output_features=ws_cols,
                                                     filter_type="power-wind speed window range")
@@ -691,6 +675,8 @@ def main():
 
             # plot values outside the win speed range 
             target_turbine_idx = np.argsort(out_of_window.sum(axis=0))[-1]
+            target_turbine_idx = 1
+            out_of_window = np.load(fp)
             fig, axs = plot.plot_power_curve(
                 data_inspector.collect_data(df=df_query, feature_types="wind_speed").to_numpy()[:, target_turbine_idx].flatten(),
                 data_inspector.collect_data(df=df_query, feature_types="power_output").to_numpy()[:, target_turbine_idx].flatten(),
@@ -777,7 +763,7 @@ def main():
         
         # check time series
         if args.verbose:
-            DataInspector.print_pc_remaining_vals(df_query, mask, file_set_indices,
+            DataInspector.print_pc_remaining_vals(df_query, mask, None,
                                                     mask_input_features=sorted(data_loader.turbine_ids),
                                                     output_features=ws_cols,
                                                     filter_type="power-wind speed bin")
@@ -920,7 +906,7 @@ def main():
                 # data_filter.multiprocessor = args.multiprocessor
                 
                
-                with open(fp, "wb") as fp:
+                with open(fp, "wb") as fpnt:
                     np.save(fpnt, biases)
             elif RUN_ONCE:
                 biases = np.load(fp)
@@ -1190,7 +1176,7 @@ def main():
             ws_horz_cols = [col for col in df_query.collect_schema().names() if col.startswith("ws_horz")]
             ws_vert_cols = [col for col in df_query.collect_schema().names() if col.startswith("ws_vert")]
             if args.verbose:
-                DataInspector.print_pc_remaining_vals(df_query, mask, file_set_indices,
+                DataInspector.print_pc_remaining_vals(df_query, mask, None,
                                                         mask_input_features=ws_horz_cols+ws_vert_cols,
                                                         output_features=ws_horz_cols+ws_vert_cols,
                                                         filter_type="standard deviation")
@@ -1306,7 +1292,7 @@ def main():
                 df_query_missing = df_query_missing.filter(pl.col("duration") > missing_duration_thr)
                 
                 if df_query_not_missing.select(pl.len()).item() == 0:
-                    raise Exception("Parameters 'missing_col_thr' or 'missing_duration_thr' are too stringent, can't find any eligible durations of time.")
+                    raise Exception(f"Parameters 'missing_col_thr' or 'missing_duration_thr' are too stringent, can't find any eligible durations of time for file set {file_set_idx} of duration {df_query[f].select(pl.col("time").last() - pl.col("time").first()).collect().item}.")
 
                 df_query_missing = merge_adjacent_periods(agg_df=df_query_missing, dt=data_loader.dt)
                 df_query_not_missing = merge_adjacent_periods(agg_df=df_query_not_missing, dt=data_loader.dt)
