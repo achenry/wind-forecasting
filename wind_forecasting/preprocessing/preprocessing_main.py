@@ -822,24 +822,22 @@ def main():
     
     if "nacelle_calibration" in config["filters"]:
         
-        # if args.reload_data or args.regenerate_filters or not os.path.exists(fp): 
-            
+        # if args.reload_data or args.regenerate_filters or not os.path.exists(fp):
+        
         # Nacelle Calibration 
         # Find and correct wind direction offsets from median wind plant wind direction for each turbine
         logging.info("Subtracting median wind direction from wind direction and nacelle direction measurements.")
         
         # add the 3 degrees back to the wind direction signal
         offset = 3.0
-            
+        
         df_query2 = df_query.with_columns((cs.starts_with("wind_direction") + offset).mod(360.0))
         if args.reload_data or args.regenerate_filters or not os.path.exists(config["processed_data_path"].replace(".parquet", "_calibrated_1.parquet")):
-            
             
             df_query_10min = df_query2\
                                 .with_columns(pl.col("time").dt.round(f"{10}m").alias("time"))\
                                 .group_by("time").agg(cs.numeric().mean()).sort("time")
             
-            # if False: 
             wd_median = df_query_10min.select(cs.starts_with("wind_direction").radians().sin().name.suffix("_sin"),
                                             cs.starts_with("wind_direction").radians().cos().name.suffix("_cos"))
             
@@ -940,7 +938,7 @@ def main():
         # NOTE: Fig. 9 generated here
         dir_offsets = compute_offsets(df_query_10min, data_inspector.fmodel, turbine_ids=data_loader.turbine_ids,
                                     turbine_pairs=config["nacelle_calibration_turbine_pairs"],
-                                    plot=[(18_19)], #args.plot,
+                                    plot=True,#[(18, 19)], #args.plot,
                                     save_path=os.path.join(os.path.dirname(config["processed_data_path"]), "pre_correction.png")
                                     )
         

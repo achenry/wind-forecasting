@@ -9,6 +9,7 @@ from datetime import timedelta
 from concurrent.futures import ProcessPoolExecutor
 import multiprocessing as mp
 import os
+from itertools import pairwise
 
 import numpy as np
 import polars as pl
@@ -728,15 +729,27 @@ def compute_offsets(df, fi, turbine_ids, turbine_pairs:list[tuple[int, int]]=Non
     # zero indexed
     prat_turbine_pairs = turbine_pairs 
 
+    # distances = []
+    # for pair in pairwise(turbine_ids):
+    #     i_up = turbine_ids.index(pair[0])
+    #     i_down = turbine_ids.index(pair[1])
+    #     distances.append((i_up, i_down, np.sqrt((fi.layout_x[i_up] - fi.layout_x[i_down])**2 + (fi.layout_y[i_up] - fi.layout_y[i_down])**2)))
+
+    # distances = sorted(distances, key=lambda tup: tup[2], reverse=False)
+    # distances = distances[:20]
+    # prat_turbine_pairs = [tup[:2] for tup in distances]
+    # prat_turbine_pairs += [tuple(reversed(pair)) for pair in prat_turbine_pairs]
+    
     dir_offsets = []
     
-    for i in range(len(prat_turbine_pairs)):
-        i_up = prat_turbine_pairs[i][0]
-        i_down = prat_turbine_pairs[i][1]
+    # for pair in prat_turbine_pairs:
+    for pair in prat_turbine_pairs:
+        i_up = pair[0]
+        i_down = pair[1]
 
         # compute the angle of the vector pointing from the downstream turbine to the upstream turbine (CW from north)
         dir_align = np.degrees(np.arctan2(fi.layout_x[i_up] - fi.layout_x[i_down], fi.layout_y[i_up] - fi.layout_y[i_down])) % 360
-
+       
         tid_up = turbine_ids[i_up]
         tid_down = turbine_ids[i_down]
 
@@ -745,6 +758,7 @@ def compute_offsets(df, fi, turbine_ids, turbine_pairs:list[tuple[int, int]]=Non
                                 & (pl.col(f"power_output_{tid_up}") <= p_max) 
                                 & (pl.col(f"power_output_{tid_down}") >= 0))\
                                 .select(f"power_output_{tid_up}", f"power_output_{tid_down}", f"wind_direction_{tid_up}", f"wind_direction_{tid_down}")
+        # df_sub = df.select(f"power_output_{tid_up}", f"power_output_{tid_down}", f"wind_direction_{tid_up}", f"wind_direction_{tid_down}")
                                 
         # average the turbine powers by the upstream wind direction nearest integer
         df_sub = df_sub.with_columns(pl.when((pl.col(f"wind_direction_{tid_up}") >= 359.5))\
@@ -756,7 +770,7 @@ def compute_offsets(df, fi, turbine_ids, turbine_pairs:list[tuple[int, int]]=Non
         # compute the power ratio downstream power to upstream power for each integer wind direction
         df_sub = df_sub.select(pl.col(f"wd_round"), (pl.col(f"power_output_{tid_down}") / pl.col(f"power_output_{tid_up}")).alias("p_ratio")).collect()
 
-        if (type(plot) is bool and plot) or (type(plot) is list and prat_turbine_pairs[i] in plot):
+        if (type(plot) is bool and plot) or (type(plot) is list and pair in plot):
             fig, ax = plt.subplots(1,1, figsize=(10, 6))
             ax.plot(df_sub.select("wd_round").to_numpy().flatten(), df_sub.select("p_ratio").to_numpy().flatten(), label="_nolegend_")
             ax.plot(dir_align * np.ones(2),[0, 1.25], 'k--', label="Direction of Alignment")
@@ -767,9 +781,6 @@ def compute_offsets(df, fi, turbine_ids, turbine_pairs:list[tuple[int, int]]=Non
 
         # get the range of wind directions around that of alignment (according to turbine layout), when the nadir should occur
         wd_range = np.arange(int(np.round(dir_align)) - prat_hfwdth,int(np.round(dir_align)) + prat_hfwdth + 1) % 360
-        if len(set(wd_range) & set(df_sub.select(f"wd_round").to_numpy().flatten())) != len(wd_range):
-            logging.info(f"Cannot compute nadir for turbine pair {turbine_ids[i_up]}, {turbine_ids[i_down]}")
-            continue
         
         # get the power ratios that occur in the range around the aligned wind direction, 
         # get the rounded wind direction corresponding to the power nadir, then add the direction of alignment and subtract the prat halfwidth
@@ -778,20 +789,22 @@ def compute_offsets(df, fi, turbine_ids, turbine_pairs:list[tuple[int, int]]=Non
                         .select(pl.col("wd_round")).item()
         
         wd_range = np.arange(nadir - prat_hfwdth, nadir + prat_hfwdth + 1) % 360
-        if len(set(wd_range) & set(df_sub.select(f"wd_round").to_numpy().flatten())) != len(wd_range):
+        
+        if len(set(wd_range) - set(df_sub.select(f"wd_round").to_numpy().flatten())): # > int(prat_hfwdth / 10):
             logging.info(f"Cannot compute nadir for turbine pair {turbine_ids[i_up]}, {turbine_ids[i_down]}")
             continue
         
+        # df_sub = pl.Series(name="wd_round", values=wd_range).to_frame().join(df_sub, on="wd_round", how="left").with_columns(p_ratio=pl.col("p_ratio").interpolate_by("wd_round"))
+        
         # get parameters of gaussian trough that fits power ratio for wind direction approx perpendicular to dir_align TODO?
         opt_gauss_params = minimize(gauss_corr, [0, 5.0, 1.0], 
-                                    args=(df_sub.filter(pl.col("wd_round").is_in(wd_range))\
-                                               .select("p_ratio").to_numpy().flatten()), method='SLSQP')
+                                    args=(df_sub.filter(pl.col("wd_round").is_in(wd_range)).select("p_ratio").to_numpy().flatten()), method='SLSQP')
 
         # range around -/+ 30 degrees
-        xs = np.arange(-int((2*prat_hfwdth - 1) / 2),int((2*prat_hfwdth + 1) / 2),1)
+        xs = np.arange(-int((2 * prat_hfwdth - 1) / 2),int((2 * prat_hfwdth + 1) / 2),1)
         gauss = -1 * opt_gauss_params.x[2] * np.exp(-0.5 * ((xs - opt_gauss_params.x[0]) / opt_gauss_params.x[1])**2) + 1.
 
-        if (type(plot) is bool and plot) or (type(plot) is list and prat_turbine_pairs[i] in plot):
+        if (type(plot) is bool and plot) or (type(plot) is list and pair in plot):
             ax.plot(xs + nadir, gauss,'k',label="_nolegend_")
             ax.plot(2 * [nadir + opt_gauss_params.x[0]], [0, 1.25], 'r--',label="Direction of Measured Power Nadir")
             ax.legend()
