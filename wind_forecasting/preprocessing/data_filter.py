@@ -196,8 +196,9 @@ class DataFilter:
             from scipy.signal import butter, sosfilt
             
             sos = butter(N=smoothing_params["order"], Wn=smoothing_params["freq_cutoff"], btype='low', fs=1/smoothing_params["dt"], output='sos')
+            df_query_filt = sosfilt(sos, sub_df.collect().to_numpy(), axis=0)
             df_query_filt = df_query.with_columns([pl.Series(name=feat, 
-                                                             values=sosfilt(sos, sub_df.collect().to_numpy(), axis=0)[:, i]) for i, feat in enumerate(features)])
+                                                             values=df_query_filt[:, i]) for i, feat in enumerate(features)])
             
             
         elif smoothing_function == "savitzky_golay":
@@ -213,7 +214,7 @@ class DataFilter:
             for ax_idx, feat_type in enumerate(feature_types):
                 ax[ax_idx].plot(df_query.select(cs.starts_with(feat_type)).collect().to_numpy(), "k-", label="original")
                 ax[ax_idx].plot(df_query_filt.select(cs.starts_with(feat_type)).collect().to_numpy(), "r:", label="smoothed")
-                ax[ax_idx].set(title=feat_type, xlim=(1.295*1e7,1.345*1e7))
+                ax[ax_idx].set(title=feat_type)#, xlim=(1.295*1e7,1.345*1e7))
                 # filt_ts[:, [i for i in range(len(features)) if feat_type in features[i]]]
             fig.suptitle(f"{' '.join([w.capitalize() for w in smoothing_function.split("_")])}")
             fig.show()
