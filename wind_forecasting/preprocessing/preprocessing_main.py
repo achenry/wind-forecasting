@@ -1373,6 +1373,18 @@ def main():
             # if os.path.exists(save_path):
             #     df_query = pl.scan_parquet(save_path)
             # NOTE to truly repeat this process, must delete all impute, impute_ws_horz, impute_ws_vert parquets
+            if df_query.collect().select(pl.any_horizontal(cs.starts_with("ws_horz").is_null().all())).item():
+                logging.error(f"df contains ws_horz columns that are all null - will not be able to impute")
+            
+            if df_query.collect().select(pl.any_horizontal(cs.starts_with("ws_vert").is_null().all())).item():
+                logging.error(f"df contains ws_vert columns that are all null - will not be able to impute")
+                
+            if df_query.collect().select(pl.any_horizontal(cs.starts_with("nd_cos").is_null().all())).item():
+                logging.error(f"df contains nd_cos columns that are all null - will not be able to impute")
+                
+            if df_query.collect().select(pl.any_horizontal(cs.starts_with("nd_sin").is_null().all())).item():
+                logging.error(f"df contains nd_sin columns that are all null - will not be able to impute")
+            
             df_query2 = data_filter._fill_single_missing_dataset(
                 df_idx=0, 
                 df=df_query.select(pl.col("time"), *[cs.starts_with(feat_type) for feat_type in ["ws_horz", "ws_vert", "nd_cos", "nd_sin"]]), 
