@@ -411,7 +411,7 @@ def main():
             
             thr = int(np.timedelta64(config["filters"]["unresponsive_sensor"]["frozen_sensor_limit"], 's') / np.timedelta64(data_loader.dt, 's'))
             
-            frozen_sensors = {}
+            
             for file_set_idx in file_set_indices:
                 if regen or not all(os.path.exists(os.path.join(frozen_sensor_filter_target_path, f"{feat}_fs{file_set_idx}.npy")) for feat in cols):
                     logging.info(f"Regenerating frozen sensor mask for file_set {file_set_idx}.")
@@ -477,16 +477,11 @@ def main():
                                                     check_js=False)
         
         # assert df_query.select(pl.col("time").n_unique()).collect().item() == df_query.select(pl.len()).collect().item()
-        
-        if RUN_ONCE:
-            del mask
-            if "frozen_sensors" in locals():
-                del frozen_sensors
             
-            logging.info("Started sinking dataframe.")
-            df_query.collect(engine="streaming").write_parquet(config["processed_data_path"].replace(".parquet", "_filtered.parquet"))
-            df_query = pl.scan_parquet(config["processed_data_path"].replace(".parquet", "_filtered.parquet"))
-            logging.info("Finished nullifying wind speed/direction frozen sensor measurements in dataframe.")
+        logging.info("Started sinking dataframe.")
+        df_query.collect(engine="streaming").write_parquet(config["processed_data_path"].replace(".parquet", "_filtered.parquet"))
+        df_query = pl.scan_parquet(config["processed_data_path"].replace(".parquet", "_filtered.parquet"))
+        logging.info("Finished nullifying wind speed/direction frozen sensor measurements in dataframe.")
             
         # check time series
         if args.verbose:
@@ -849,17 +844,19 @@ def main():
 
     
     if "nacelle_calibration" in config["filters"]:
-        fp = config["processed_data_path"].replace(".parquet", "_calibrated_2.parquet")
-        if args.reload_data or args.regenerate_filters or not os.path.exists(fp): 
+        
+        # if args.reload_data or args.regenerate_filters or not os.path.exists(fp): 
             
-            # Nacelle Calibration 
-            # Find and correct wind direction offsets from median wind plant wind direction for each turbine
-            if RUN_ONCE:
-                logging.info("Subtracting median wind direction from wind direction and nacelle direction measurements.")
-            
+        # Nacelle Calibration 
+        # Find and correct wind direction offsets from median wind plant wind direction for each turbine
+        if RUN_ONCE:
+            logging.info("Subtracting median wind direction from wind direction and nacelle direction measurements.")
+        
+        df_query2 = df_query.with_columns((cs.starts_with("wind_direction") + offset).mod(360.0))
+        if args.reload_data or args.regenerate_filters or not os.path.exists(config["processed_data_path"].replace(".parquet", "_calibrated_1.parquet")):
             # add the 3 degrees back to the wind direction signal
             offset = 3.0
-            df_query2 = df_query.with_columns((cs.starts_with("wind_direction") + offset).mod(360.0))
+            
             df_query_10min = df_query2\
                                 .with_columns(pl.col("time").dt.round(f"{10}m").alias("time"))\
                                 .group_by("time").agg(cs.numeric().mean()).sort("time")
@@ -892,123 +889,122 @@ def main():
                 data_inspector.plot_wind_offset(df_query_10min, "Original", data_loader.turbine_ids)
 
             # remove biases from median direction
-            if RUN_ONCE:
-                logging.info("Started sinking dataframe.")
-                df_query_10min.sink_parquet(config["processed_data_path"].replace(".parquet", "_calibrated_1.parquet"), maintain_order=True)
-                df_query_10min = pl.scan_parquet(config["processed_data_path"].replace(".parquet", "_calibrated_1.parquet"))
-                logging.info("Finished sinking dataframe.")
-
-            # df_offsets = {"turbine_id": [], "northing_bias": []}
-            fp = config["processed_data_path"].replace(".parquet", "_biases.npy")
-            if args.reload_data or args.regenerate_filters or not os.path.exists(config["processed_data_path"].replace(".parquet", "_biases.npy")):
-                # data_filter.multiprocessor = None
-                biases = data_filter.multi_compute_bias(df_query_10min, data_loader.turbine_ids)
-                # data_filter.multiprocessor = args.multiprocessor
-                
-               
-                with open(fp, "wb") as fpnt:
-                    np.save(fpnt, biases)
-            elif RUN_ONCE:
-                biases = np.load(fp)
-                
-            for bias, turbine_id in zip(biases, data_loader.turbine_ids):
-                
-                if turbine_id == "wt033":
-                    switch_time = datetime.strptime("11/5/2024 14:06", "%m/%d/%Y %H:%M")
-                    expr = (pl.when(pl.col("time") < switch_time).then(pl.col(f"wind_direction_{turbine_id}") - 8.3).otherwise(pl.col(f"wind_direction_{turbine_id}") - 106.8).mod(360.0).alias(f"wind_direction_{turbine_id}"), 
-                            pl.when(pl.col("time") < switch_time).then(pl.col(f"nacelle_direction_{turbine_id}") - 8.3).otherwise(pl.col(f"nacelle_direction_{turbine_id}") - 106.8).mod(360.0).alias(f"nacelle_direction_{turbine_id}"))
-                elif turbine_id == "wt042":
-                    switch_time = datetime.strptime("4/12/2025 21:07", "%m/%d/%Y %H:%M")
-                    expr = (pl.when(pl.col("time") < switch_time).then(pl.col(f"wind_direction_{turbine_id}") - 7).otherwise(pl.col(f"wind_direction_{turbine_id}") - (-54.4)).mod(360.0).alias(f"wind_direction_{turbine_id}"), 
-                            pl.when(pl.col("time") < switch_time).then(pl.col(f"nacelle_direction_{turbine_id}") - 7).otherwise(pl.col(f"nacelle_direction_{turbine_id}") - (-54.4)).mod(360.0).alias(f"nacelle_direction_{turbine_id}"))
-                elif turbine_id == "wt078":
-                    switch_time = datetime.strptime("8/19/2024 13:07", "%m/%d/%Y %H:%M")
-                    expr = (pl.when(pl.col("time") < switch_time).then(pl.col(f"wind_direction_{turbine_id}") - (-6.7)).otherwise(pl.col(f"wind_direction_{turbine_id}") - 36.7).mod(360.0).alias(f"wind_direction_{turbine_id}"), 
-                            pl.when(pl.col("time") < switch_time).then(pl.col(f"nacelle_direction_{turbine_id}") - (-6.7)).otherwise(pl.col(f"nacelle_direction_{turbine_id}") - 36.7).mod(360.0).alias(f"nacelle_direction_{turbine_id}"))
-                else:
-                    expr = (pl.col(f"wind_direction_{turbine_id}") - bias).mod(360.0).alias(f"wind_direction_{turbine_id}"), (pl.col(f"nacelle_direction_{turbine_id}") - bias).mod(360.0).alias(f"nacelle_direction_{turbine_id}")
-                
-                df_query_10min = df_query_10min.with_columns(*expr)
-                df_query2 = df_query2.with_columns(*expr)
-
-                if RUN_ONCE:
-                    logging.info(f"Turbine {turbine_id} bias from median wind direction: {bias} deg")
-
-            # df_offsets = pl.DataFrame(df_offsets)
-
-            if args.plot:
-                data_inspector.plot_wind_offset(df_query_10min, "Corrected", data_loader.turbine_ids)
-                
-            # make sure we have corrected the bias between wind direction and yaw position by adding 3 deg. to the wind direction
-            if args.verbose and False:
-                bias = 0
-                for turbine_id in data_loader.turbine_ids:
-                    turbine_bias = df_query_10min.filter(pl.col(f"power_output_{turbine_id}") >= 0)\
-                                    .select("time", f"wind_direction_{turbine_id}", f"nacelle_direction_{turbine_id}")\
-                                    .select(bias=(pl.col(f"wind_direction_{turbine_id}") - pl.col(f"nacelle_direction_{turbine_id}")))\
-                                    .select(sin=pl.all().radians().sin().mean(), cos=pl.all().radians().cos().mean())\
-                                    .select(pl.arctan2(pl.col("sin"), pl.col("cos")).degrees().mod(360.0).alias("bias"))\
-                                    .select(pl.when(pl.all() > 180.0).then(pl.all() - 360.0).otherwise(pl.all()))\
-                                    .collect().item() or 0
-                    bias += turbine_bias
-                                
-                    # bias += DataFilter.wrap_180(DataFilter.circ_mean(df.select(pl.col(f"wind_direction_{turbine_id}") - pl.col(f"nacelle_direction_{turbine_id}")).collect().to_numpy().flatten()))
-                
-                if RUN_ONCE:
-                    logging.info(f"Average Bias = {bias / len(data_loader.turbine_ids)} deg")
-
-            # %%
-            # Find offset to true North using wake loss profiles
-            if RUN_ONCE:
-                logging.info("Finding offset to true North using wake loss profiles.")
-
-            # Find offsets between direction of alignment between pairs of turbines 
-            # and direction of peak wake losses. Use the average offset found this way 
-            # to identify the Northing correction that should be applied to all turbines 
-            # in the wind farm.
-            # NOTE: Fig. 9 generated here
-            dir_offsets = compute_offsets(df_query_10min, data_inspector.fmodel, turbine_ids=data_loader.turbine_ids,
-                                        turbine_pairs=config["nacelle_calibration_turbine_pairs"],
-                                        plot=[(18_19)], #args.plot,
-                                        save_path=os.path.join(os.path.dirname(config["processed_data_path"]), "pre_correction.png")
-                                        )
+            logging.info("Started sinking dataframe.")
+            df_query_10min.collect(engine="streaming").write_parquet(config["processed_data_path"].replace(".parquet", "_calibrated_1.parquet"))
             
-            if dir_offsets:
-                # Apply Northing offset to each turbine
-                dir_offsets = np.mean(dir_offsets)
-                for turbine_id in data_loader.turbine_ids:
-                    # df_query_10min = df_query_10min.with_columns((pl.col(f"wind_direction_{turbine_id}") - dir_offsets).mod(360).alias(f"wind_direction_{turbine_id}"),
-                    #                                              (pl.col(f"nacelle_direction_{turbine_id}") - dir_offsets).mod(360).alias(f"nacelle_direction_{turbine_id}"))
-                    
-                    df_query2 = df_query2.with_columns((pl.col(f"wind_direction_{turbine_id}") - dir_offsets).mod(360).alias(f"wind_direction_{turbine_id}"),
-                                                    (pl.col(f"nacelle_direction_{turbine_id}") - dir_offsets).mod(360).alias(f"nacelle_direction_{turbine_id}"))
+            logging.info("Finished sinking dataframe.")
+        
+        df_query_10min = pl.scan_parquet(config["processed_data_path"].replace(".parquet", "_calibrated_1.parquet"))
 
-                # Determine final wind direction correction for each turbine
-                # df_offsets = df_offsets.with_columns(
-                #     northing_bias=(pl.col("northing_bias") + np.mean(dir_offsets)))\
-                #     .with_columns(northing_bias=pl.when(pl.col("northing_bias") > 180.0)\
-                #             .then(pl.col("northing_bias") - 360.0)\
-                #             .otherwise(pl.col("northing_bias"))\
-                #             .round(2))
-                
-                # verify that Northing calibration worked properly
-                # new_dir_offsets = compute_offsets(df_query_10min, data_inspector.fmodel, turbine_ids=data_loader.turbine_ids,
-                #                                 turbine_pairs=config["nacelle_calibration_turbine_pairs"],
-                #                                 # turbine_pairs=[(51,50),(43,42),(41,40),(18,19),(34,33),(22,21),(87,86),(62,63),(33,32),(59,60),(43,42)],
-                #                                 plot=args.plot,
-                #                                 save_path=os.path.join(os.path.dirname(config["processed_data_path"]), "post_correction.png")
-                # ) 
-            del df_query_10min
-            df_query = df_query2
+        # df_offsets = {"turbine_id": [], "northing_bias": []}
+        fp = config["processed_data_path"].replace(".parquet", "_biases.npy")
+        if args.reload_data or args.regenerate_filters or not os.path.exists(config["processed_data_path"].replace(".parquet", "_biases.npy")):
+            # data_filter.multiprocessor = None
+            biases = data_filter.multi_compute_bias(df_query_10min, data_loader.turbine_ids)
+            # data_filter.multiprocessor = args.multiprocessor
             
-            # need to sink parquet and recollect to avoid recursion limit error
-            if RUN_ONCE:
-                logging.info("Started sinking dataframe.")
-                df_query.sink_parquet(fp, maintain_order=True)
-                df_query = pl.scan_parquet(fp)
-                logging.info("Finished sinking dataframe.")
+            with open(fp, "wb") as fpnt:
+                np.save(fpnt, biases)
         else:
-            df_query = pl.scan_parquet(fp)
+            biases = np.load(fp)
+            
+        for bias, turbine_id in zip(biases, data_loader.turbine_ids):
+            
+            if turbine_id == "wt033":
+                switch_time = datetime.strptime("11/5/2024 14:06", "%m/%d/%Y %H:%M")
+                expr = (pl.when(pl.col("time") < switch_time).then(pl.col(f"wind_direction_{turbine_id}") - 8.3).otherwise(pl.col(f"wind_direction_{turbine_id}") - 106.8).mod(360.0).alias(f"wind_direction_{turbine_id}"), 
+                        pl.when(pl.col("time") < switch_time).then(pl.col(f"nacelle_direction_{turbine_id}") - 8.3).otherwise(pl.col(f"nacelle_direction_{turbine_id}") - 106.8).mod(360.0).alias(f"nacelle_direction_{turbine_id}"))
+            elif turbine_id == "wt042":
+                switch_time = datetime.strptime("4/12/2025 21:07", "%m/%d/%Y %H:%M")
+                expr = (pl.when(pl.col("time") < switch_time).then(pl.col(f"wind_direction_{turbine_id}") - 7).otherwise(pl.col(f"wind_direction_{turbine_id}") - (-54.4)).mod(360.0).alias(f"wind_direction_{turbine_id}"), 
+                        pl.when(pl.col("time") < switch_time).then(pl.col(f"nacelle_direction_{turbine_id}") - 7).otherwise(pl.col(f"nacelle_direction_{turbine_id}") - (-54.4)).mod(360.0).alias(f"nacelle_direction_{turbine_id}"))
+            elif turbine_id == "wt078":
+                switch_time = datetime.strptime("8/19/2024 13:07", "%m/%d/%Y %H:%M")
+                expr = (pl.when(pl.col("time") < switch_time).then(pl.col(f"wind_direction_{turbine_id}") - (-6.7)).otherwise(pl.col(f"wind_direction_{turbine_id}") - 36.7).mod(360.0).alias(f"wind_direction_{turbine_id}"), 
+                        pl.when(pl.col("time") < switch_time).then(pl.col(f"nacelle_direction_{turbine_id}") - (-6.7)).otherwise(pl.col(f"nacelle_direction_{turbine_id}") - 36.7).mod(360.0).alias(f"nacelle_direction_{turbine_id}"))
+            else:
+                expr = (pl.col(f"wind_direction_{turbine_id}") - bias).mod(360.0).alias(f"wind_direction_{turbine_id}"), (pl.col(f"nacelle_direction_{turbine_id}") - bias).mod(360.0).alias(f"nacelle_direction_{turbine_id}")
+            
+            df_query_10min = df_query_10min.with_columns(*expr)
+            df_query2 = df_query2.with_columns(*expr)
+
+            logging.info(f"Turbine {turbine_id} bias from median wind direction: {bias} deg")
+
+        # df_offsets = pl.DataFrame(df_offsets)
+
+        if args.plot:
+            data_inspector.plot_wind_offset(df_query_10min, "Corrected", data_loader.turbine_ids)
+            
+        # make sure we have corrected the bias between wind direction and yaw position by adding 3 deg. to the wind direction
+        if args.verbose and False:
+            bias = 0
+            for turbine_id in data_loader.turbine_ids:
+                turbine_bias = df_query_10min.filter(pl.col(f"power_output_{turbine_id}") >= 0)\
+                                .select("time", f"wind_direction_{turbine_id}", f"nacelle_direction_{turbine_id}")\
+                                .select(bias=(pl.col(f"wind_direction_{turbine_id}") - pl.col(f"nacelle_direction_{turbine_id}")))\
+                                .select(sin=pl.all().radians().sin().mean(), cos=pl.all().radians().cos().mean())\
+                                .select(pl.arctan2(pl.col("sin"), pl.col("cos")).degrees().mod(360.0).alias("bias"))\
+                                .select(pl.when(pl.all() > 180.0).then(pl.all() - 360.0).otherwise(pl.all()))\
+                                .collect().item() or 0
+                bias += turbine_bias
+                            
+                # bias += DataFilter.wrap_180(DataFilter.circ_mean(df.select(pl.col(f"wind_direction_{turbine_id}") - pl.col(f"nacelle_direction_{turbine_id}")).collect().to_numpy().flatten()))
+            
+            if RUN_ONCE:
+                logging.info(f"Average Bias = {bias / len(data_loader.turbine_ids)} deg")
+
+        # %%
+        # Find offset to true North using wake loss profiles
+        if RUN_ONCE:
+            logging.info("Finding offset to true North using wake loss profiles.")
+
+        # Find offsets between direction of alignment between pairs of turbines 
+        # and direction of peak wake losses. Use the average offset found this way 
+        # to identify the Northing correction that should be applied to all turbines 
+        # in the wind farm.
+        # NOTE: Fig. 9 generated here
+        dir_offsets = compute_offsets(df_query_10min, data_inspector.fmodel, turbine_ids=data_loader.turbine_ids,
+                                    turbine_pairs=config["nacelle_calibration_turbine_pairs"],
+                                    plot=[(18_19)], #args.plot,
+                                    save_path=os.path.join(os.path.dirname(config["processed_data_path"]), "pre_correction.png")
+                                    )
+        
+        if dir_offsets:
+            # Apply Northing offset to each turbine
+            dir_offsets = np.mean(dir_offsets)
+            for turbine_id in data_loader.turbine_ids:
+                # df_query_10min = df_query_10min.with_columns((pl.col(f"wind_direction_{turbine_id}") - dir_offsets).mod(360).alias(f"wind_direction_{turbine_id}"),
+                #                                              (pl.col(f"nacelle_direction_{turbine_id}") - dir_offsets).mod(360).alias(f"nacelle_direction_{turbine_id}"))
+                
+                df_query2 = df_query2.with_columns((pl.col(f"wind_direction_{turbine_id}") - dir_offsets).mod(360).alias(f"wind_direction_{turbine_id}"),
+                                                (pl.col(f"nacelle_direction_{turbine_id}") - dir_offsets).mod(360).alias(f"nacelle_direction_{turbine_id}"))
+
+            # Determine final wind direction correction for each turbine
+            # df_offsets = df_offsets.with_columns(
+            #     northing_bias=(pl.col("northing_bias") + np.mean(dir_offsets)))\
+            #     .with_columns(northing_bias=pl.when(pl.col("northing_bias") > 180.0)\
+            #             .then(pl.col("northing_bias") - 360.0)\
+            #             .otherwise(pl.col("northing_bias"))\
+            #             .round(2))
+            
+            # verify that Northing calibration worked properly
+            # new_dir_offsets = compute_offsets(df_query_10min, data_inspector.fmodel, turbine_ids=data_loader.turbine_ids,
+            #                                 turbine_pairs=config["nacelle_calibration_turbine_pairs"],
+            #                                 # turbine_pairs=[(51,50),(43,42),(41,40),(18,19),(34,33),(22,21),(87,86),(62,63),(33,32),(59,60),(43,42)],
+            #                                 plot=args.plot,
+            #                                 save_path=os.path.join(os.path.dirname(config["processed_data_path"]), "post_correction.png")
+            # ) 
+        del df_query_10min
+        df_query = df_query2
+        
+        # need to sink parquet and recollect to avoid recursion limit error
+        fp = config["processed_data_path"].replace(".parquet", "_calibrated_2.parquet")
+        logging.info("Started sinking dataframe.")
+        df_query.collect(engine="streaming").write_parquet(fp)
+        df_query = pl.scan_parquet(fp)
+        logging.info("Finished sinking dataframe.")
+        # else:
+        #     df_query = pl.scan_parquet(fp)
 
         # %% check time series
         if args.verbose:
@@ -1303,9 +1299,9 @@ def main():
                 
                 # filter out the continuity groups for which any measurement has 0 non-null values, can't impute then
                 df_query_not_missing = df_query_not_missing.select(pl.col("duration"), pl.col("start_time"), pl.col("end_time"), pl.col("continuity_group"), 
-                                            cs.starts_with("is_missing") & cs.matches(data_loader.turbine_signature))\
-                                    .filter(pl.all_horizontal(cs.starts_with("is_missing") 
-                                                            < ((pl.col("duration") / np.timedelta64(data_loader.dt, 's')).cast(pl.Int64))))
+                                            cs.starts_with("is_missing") & cs.matches(data_loader.turbine_signature))
+                                    # .filter(pl.all_horizontal(cs.starts_with("is_missing") 
+                                    #                         < ((pl.col("duration") / np.timedelta64(data_loader.dt, 's')).cast(pl.Int64))))
                                     
                 # df_query_not_missing.collect().select(pl.col("duration"), pl.col("start_time"), pl.col("end_time"), pl.col("continuity_group"), cs.contains("3"))\
                 #                     .select(cs.starts_with("is_missing") / (pl.col("duration") / np.timedelta64(data_loader.dt, 's')).cast(pl.Int64))
@@ -1352,7 +1348,7 @@ def main():
                     .drop(cs.contains("is_missing") | cs.contains("num_missing"))\
                     .sort("time")\
                     .select(*[cs.starts_with(feat_type) for feat_type in ["time", "continuity_group", "ws_horz", "ws_vert", "nd_cos", "nd_sin", "power_output"]])
-            del df_query2
+            # del df_query2
             
             # if more than 'missing_col_thr' columns are missing data for more than 'missing_timesteps_thr', split the dataset at the point of temporal discontinuity
             # df_query = [df.lazy() for df in df_query.with_columns(get_continuity_group_index(df_query_not_missing).alias("continuity_group"))\

@@ -689,7 +689,7 @@ def group_df_by_continuity(df, agg_df, missing_data_cols):
             .group_by("continuity_group")\
             .agg(cs.starts_with("is_missing").sum())\
             .with_columns([pl.sum_horizontal(cs.contains(col) & cs.starts_with("is_missing")).alias(f"is_missing_{col}") for col in missing_data_cols])\
-            .sort("continuity_group")], how="horizontal")
+            .sort("continuity_group").collect()], how="horizontal")
 
 def merge_adjacent_periods(agg_df, dt):
     # merge rows with end times corresponding to start times of the next row into the next row, until no more rows need to be merged
