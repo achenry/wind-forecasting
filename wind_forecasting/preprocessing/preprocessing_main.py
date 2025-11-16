@@ -92,16 +92,16 @@ def main():
     config["turbine_input_path"] = os.path.expanduser(config["turbine_input_path"]) 
     config["farm_input_path"] = os.path.expanduser(config["farm_input_path"])
     
-    if RUN_ONCE:
-        assert (not args.reload_data and os.path.exists(config["processed_data_path"])) or all(os.path.exists(fp) for fp in config["raw_data_directory"]), f"One of {config[path_key]} doesn't exist."
-        
-        for path_key in ["turbine_input_path", "farm_input_path"]:
-            assert os.path.exists(config[path_key]), f"{config[path_key]} doesn't exist."
+    assert (not args.reload_data and os.path.exists(config["processed_data_path"])) or all(os.path.exists(fp) for fp in config["raw_data_directory"]), f"One of {config[path_key]} doesn't exist."
+    
+    for path_key in ["turbine_input_path", "farm_input_path"]:
+        assert os.path.exists(config[path_key]), f"{config[path_key]} doesn't exist."
              
     for path_key in ["raw_data_directory", "processed_data_path", "turbine_input_path", "farm_input_path", "temp_storage_dir"]:
-        if RUN_ONCE:
-            logging.info(f"Parsing environment variables in {path_key}: {config[path_key]}")
-            assert config[path_key] is not None, f"{path_key} must be specified in config file."
+        
+        logging.info(f"Parsing environment variables in {path_key}: {config[path_key]}")
+        assert config[path_key] is not None, f"{path_key} must be specified in config file."
+        
         if isinstance(config[path_key], list):
             env_vars = [re.findall(r"(?:^|\/)\$(\w+)(?:\/|$)", d) for d in config[path_key]]
             for file_set_idx in range(len(env_vars)):
@@ -114,8 +114,7 @@ def main():
                 if env_var in os.environ:
                     config[path_key] = config[path_key].replace(f"${env_var}", os.environ[env_var])
                     
-        if RUN_ONCE:
-            logging.info(f"Resolved {path_key} to: {config[path_key]}")
+        logging.info(f"Resolved {path_key} to: {config[path_key]}")
     
     # config["filters"] = ["nacelle_calibration", "unresponsive_sensor", "range_flag", "bin_filter", "std_range_flag", "impute_missing_data", "split", "normalize"]
     # config["filters"] = ["split", "impute_missing_data", "normalize"]
@@ -123,10 +122,9 @@ def main():
     if config["filters"] is None:
             config["filters"] = []
             
-    if RUN_ONCE:
-        assert all(filt in 
-                   ["nacelle_calibration", "unresponsive_sensor", "inoperational", "range_flag", "window_range_flag", "bin_filter", "std_range_flag", "split", "impute_missing_data", "smooth", "normalize"] 
-                   for filt in config["filters"])
+    assert all(filt in 
+                ["nacelle_calibration", "unresponsive_sensor", "inoperational", "range_flag", "window_range_flag", "bin_filter", "std_range_flag", "split", "impute_missing_data", "smooth", "normalize"] 
+                for filt in config["filters"])
 
     config["data_format"] = []
     for fp in config["raw_data_file_signature"]:
@@ -148,12 +146,11 @@ def main():
     # if we are only processing one file type, there is no need to transform all turbine ids to a common list
     if "turbine_mapping" not in config or (len(config["raw_data_directory"]) == 1):
         config["turbine_mapping"] = None
-    elif RUN_ONCE:
+    else:
         assert all(isinstance(tm, dict) for tm in config["turbine_mapping"])
     
-    if RUN_ONCE:
-        logging.info("Parsed arguments successfully")
-        logging.info("Instantiating DataLoader")
+    logging.info("Parsed arguments successfully")
+    logging.info("Instantiating DataLoader")
         
     data_loader = DataLoader(
         data_dir=config["raw_data_directory"],
@@ -172,8 +169,7 @@ def main():
         merge_chunk=config["merge_chunk"],
         ram_limit=config["ram_limit"]
     )
-    if RUN_ONCE:
-        logging.info("Instantiated DataLoader successfully")
+    logging.info("Instantiated DataLoader successfully")
 
     # %%
     # INFO: Print netcdf structure
@@ -184,8 +180,7 @@ def main():
     
     if not args.reload_data and os.path.exists(data_loader.save_path):
         # Note that the order of the columns in the provided schema must match the order of the columns in the CSV being read.
-        if RUN_ONCE:
-            logging.info("🔄 Loading existing Parquet file")
+        logging.info("🔄 Loading existing Parquet file")
             
         df_query = pl.scan_parquet(source=data_loader.save_path)
         if data_loader.turbine_mapping is not None:
@@ -204,7 +199,7 @@ def main():
         if data_loader.turbine_mapping is None:
             data_loader.turbine_mapping = [{k: k for k in [re.findall("(?<=wind_speed_)(.+)", n)[0] for n in df_query.select(cs.starts_with("wind_speed_")).collect_schema().names()]}]
 
-    elif RUN_ONCE:
+    else:
         # if args.multiprocessor == "mpi" and mpi_exists:
         #     comm_size = MPI.COMM_WORLD.Get_size()
         #     logging.info(f"🚀 Using MPI executor with {comm_size} processes.")
@@ -223,12 +218,12 @@ def main():
         # if os.path.exists(temp_save_dir):
         #     rmtree(temp_save_dir)
             # raise Exception(f"Temporary saving directory {temp_save_dir} already exists! Please remove or rename it.")
-        if RUN_ONCE:
-            logging.info(f"Making temporary directory {temp_save_dir}")
-            os.makedirs(temp_save_dir, exist_ok=True)
             
-            logging.info(f"Making directory to save_path {os.path.dirname(data_loader.save_path)}")
-            os.makedirs(os.path.dirname(data_loader.save_path), exist_ok=True)
+        logging.info(f"Making temporary directory {temp_save_dir}")
+        os.makedirs(temp_save_dir, exist_ok=True)
+        
+        logging.info(f"Making directory to save_path {os.path.dirname(data_loader.save_path)}")
+        os.makedirs(os.path.dirname(data_loader.save_path), exist_ok=True)
 
         df_query = data_loader.read_multi_files(temp_save_dir, read_single_files=False) # TODO this should be set to all or unprocessed or False, and should change if there are no processed files
         
@@ -238,38 +233,35 @@ def main():
         #     ax[0].plot(ts.select("time").to_numpy(), ts.select(pl.col("wind_speed_wt001")).to_numpy(), '.', alpha=0.1)
         #     ax[1].plot(ts.select("time").to_numpy(), ts.select(pl.col("wind_direction_wt001")).to_numpy(), '.', alpha=0.1)
         
-        if RUN_ONCE:
-            logging.info("✅ Finished reading individual files. Time elapsed: %.2f s", time.time() - start_time)
-            logging.info("Parquet file saved into %s", data_loader.save_path)
+        logging.info("✅ Finished reading individual files. Time elapsed: %.2f s", time.time() - start_time)
+        logging.info("Parquet file saved into %s", data_loader.save_path)
             
             # if os.path.exists(temp_save_dir):
             #     logging.info(f"Removing temporary storage directory {temp_save_dir}")
             #     rmtree(temp_save_dir)
                 
-    elif RUN_ONCE:
+    else:
         logging.info("✅ Loaded existing Parquet file.")
         
     if not args.preprocess_data:
         return
     
-    if RUN_ONCE:
-        assert all(any(prefix in col for col in df_query.collect_schema().names()) for prefix in ["time", "wind_speed_", "wind_direction_", "nacelle_direction_", "power_output_"]), "DataFrame must contain columns 'time', then columns with prefixes 'wind_speed_', 'wind_direction_', 'power_output_', 'nacelle_direction_'"
-        assert df_query.select("time").collect().to_series().is_sorted(), "Loaded data should be sorted by time!"
-        assert all(any(f"{prefix}{tid}" in col for col in df_query.collect_schema().names() if col not in ["time", "file_set_idx"]) for prefix in ["wind_speed_", "wind_direction_", "nacelle_direction_", "power_output_"] for tid in data_loader.turbine_ids), "DataFrame must contain columns with prefixes 'wind_speed_', 'wind_direction_', 'power_output_', 'nacelle_direction_' and suffixes for each turbine id" 
-        assert df_query.select("time").collect().to_series().is_sorted()
-        # assert df_query.select(pl.all_horizontal(cs.numeric().is_null().sum() == 0)).collect().item() # TODO df_query.select(["turbine_status_32", "turbine_status_41"]).collect() are null
+    assert all(any(prefix in col for col in df_query.collect_schema().names()) for prefix in ["time", "wind_speed_", "wind_direction_", "nacelle_direction_", "power_output_"]), "DataFrame must contain columns 'time', then columns with prefixes 'wind_speed_', 'wind_direction_', 'power_output_', 'nacelle_direction_'"
+    assert df_query.select("time").collect().to_series().is_sorted(), "Loaded data should be sorted by time!"
+    assert all(any(f"{prefix}{tid}" in col for col in df_query.collect_schema().names() if col not in ["time", "file_set_idx"]) for prefix in ["wind_speed_", "wind_direction_", "nacelle_direction_", "power_output_"] for tid in data_loader.turbine_ids), "DataFrame must contain columns with prefixes 'wind_speed_', 'wind_direction_', 'power_output_', 'nacelle_direction_' and suffixes for each turbine id" 
+    assert df_query.select("time").collect().to_series().is_sorted()
+    # assert df_query.select(pl.all_horizontal(cs.numeric().is_null().sum() == 0)).collect().item() # TODO df_query.select(["turbine_status_32", "turbine_status_41"]).collect() are null
     # df_query = df_query.group_by("time").agg(cs.numeric().mean())
     # df_query.collect(engine="streaming").write_parquet(config["processed_data_path"], statistics=False)
     
     # df_query = df_query.head(ROW_LIMIT) 
-    if RUN_ONCE:
-        data_inspector = DataInspector(
-            turbine_input_filepath=config["turbine_input_path"],
-            farm_input_filepath=config["farm_input_path"],
-            turbine_signature=data_loader.turbine_signature,
-            data_format='auto',
-            save_dir=os.path.dirname(config["processed_data_path"])
-        )
+    data_inspector = DataInspector(
+        turbine_input_filepath=config["turbine_input_path"],
+        farm_input_filepath=config["farm_input_path"],
+        turbine_signature=data_loader.turbine_signature,
+        data_format='auto',
+        save_dir=os.path.dirname(config["processed_data_path"])
+    )
     
     if args.debug:
         # .group_by("time", "file_set_idx")\
@@ -384,8 +376,7 @@ def main():
     # applied_filter = False
     # if args.reload_data or args.regenerate_filters or not os.path.exists(config["processed_data_path"].replace(".parquet", "_filtered.parquet")):
     if "unresponsive_sensor" in config["filters"]:
-        if RUN_ONCE:
-            logging.info("Nullifying unresponsive sensor cells.")
+        logging.info("Nullifying unresponsive sensor cells.")
         
         # find stuck sensor measurements for each turbine and set them to null
         # NOTE: this filter must be applied before any cells are nullified st null values aren't considered repeated values
@@ -399,13 +390,12 @@ def main():
         regen = args.reload_data or args.regenerate_filters \
             or not all(os.path.exists(os.path.join(frozen_sensor_filter_target_path, f"{feat}_fs{file_set_idx}.npy")) for file_set_idx in file_set_indices for feat in cols)
         
-        if RUN_ONCE:
             
-            if regen and os.path.exists(frozen_sensor_filter_target_path):
-                logging.info(f"Removing target dir {frozen_sensor_filter_target_path}")
-                rmtree(frozen_sensor_filter_target_path)
-                
-            os.makedirs(frozen_sensor_filter_target_path, exist_ok=True)
+        if regen and os.path.exists(frozen_sensor_filter_target_path):
+            logging.info(f"Removing target dir {frozen_sensor_filter_target_path}")
+            rmtree(frozen_sensor_filter_target_path)
+            
+        os.makedirs(frozen_sensor_filter_target_path, exist_ok=True)
             
         if regen or not all(os.path.exists(os.path.join(frozen_sensor_filter_target_path, f"{feat}_fs{file_set_idx}.npy")) for file_set_idx in file_set_indices for feat in cols):
             
@@ -467,8 +457,7 @@ def main():
         # fill stuck sensor measurements with Null st they are marked for interpolation later,
     
         threshold = 0.01
-        if RUN_ONCE:
-            logging.info("Nullifying wind speed/direction frozen sensor measurements in dataframe.")
+        logging.info("Nullifying wind speed/direction frozen sensor measurements in dataframe.")
             
         df_query = data_filter.conditional_filter(df_query, threshold, mask, file_set_indices,
                                                     mask_input_features=ws_cols+wd_cols,
@@ -492,8 +481,7 @@ def main():
 
     # %%
     if "inoperational" in config["filters"] and any(col.startswith("turbine_status") for col in df_query.collect_schema()["names"]): # 10 is normal operation for AWAKEN
-        if RUN_ONCE:
-            logging.info("Nullifying inoperational turbine cells.")
+        logging.info("Nullifying inoperational turbine cells.")
             
         # check if wind speed/dir measurements from inoperational turbines differ from fully operational
         status_codes = [1]
@@ -515,8 +503,7 @@ def main():
         # loop through each turbine's wind speed and wind direction columns, and compare the distribution of data with and without the inoperational turbines
         # fill out_of_range measurements with Null st they are marked for interpolation via impute or linear/forward fill interpolation later
         threshold = 0.01
-        if RUN_ONCE:
-            logging.info("Nullifying inoperational turbine measurements in dataframe.")
+        logging.info("Nullifying inoperational turbine measurements in dataframe.")
             
         # turbine_status_cols = data_inspector.get_features(df_query, "turbine_status")
         df_query = data_filter.conditional_filter(df_query, threshold, mask, None,
@@ -526,12 +513,11 @@ def main():
         
         # assert df_query.select(pl.col("time").n_unique()).collect().item() == df_query.select(pl.len()).collect().item()
         
-        if RUN_ONCE:
-            del mask
-            logging.info("Started sinking dataframe.")
-            df_query.collect(engine="streaming").write_parquet(config["processed_data_path"].replace(".parquet", "_filtered.parquet"))
-            df_query = pl.scan_parquet(config["processed_data_path"].replace(".parquet", "_filtered.parquet"))
-            logging.info("Finished nullifying inoperational turbine measurements in dataframe.") 
+        del mask
+        logging.info("Started sinking dataframe.")
+        df_query.collect(engine="streaming").write_parquet(config["processed_data_path"].replace(".parquet", "_filtered.parquet"))
+        df_query = pl.scan_parquet(config["processed_data_path"].replace(".parquet", "_filtered.parquet"))
+        logging.info("Finished nullifying inoperational turbine measurements in dataframe.") 
         
         # check time series
         if args.verbose:
@@ -541,8 +527,7 @@ def main():
 
     # %%
     if "range_flag" in config["filters"]:
-        if RUN_ONCE:
-            logging.info("Nullifying wind speed out-of-range cells.")
+        logging.info("Nullifying wind speed out-of-range cells.")
         
         fp = config["processed_data_path"].replace(".parquet", "_out_of_range.npy")
         # check for wind speed values that are outside of the acceptable range
@@ -605,8 +590,7 @@ def main():
         # fill out_of_range measurements with Null st they are marked for interpolation via impute or linear/forward fill interpolation later
         threshold = 0.01
             
-        if RUN_ONCE:
-            logging.info("Nullifying wind speed out of range measurements in dataframe.")
+        logging.info("Nullifying wind speed out of range measurements in dataframe.")
             
         df_query = data_filter.conditional_filter(df_query, threshold, mask, None,
                                                     mask_input_features=sorted(data_loader.turbine_ids), 
@@ -615,12 +599,11 @@ def main():
         
         # assert df_query.select(pl.col("time").n_unique()).collect().item() == df_query.select(pl.len()).collect().item()
         
-        if RUN_ONCE:
-            del out_of_range, mask
-            logging.info("Started sinking dataframe.")
-            df_query.collect(engine="streaming").write_parquet(config["processed_data_path"].replace(".parquet", "_filtered.parquet"))
-            df_query = pl.scan_parquet(config["processed_data_path"].replace(".parquet", "_filtered.parquet"))
-            logging.info("Finished nullifying wind speed out of range measurements in dataframe.") 
+        del out_of_range, mask
+        logging.info("Started sinking dataframe.")
+        df_query.collect(engine="streaming").write_parquet(config["processed_data_path"].replace(".parquet", "_filtered.parquet"))
+        df_query = pl.scan_parquet(config["processed_data_path"].replace(".parquet", "_filtered.parquet"))
+        logging.info("Finished nullifying wind speed out of range measurements in dataframe.") 
     
         if args.verbose:
             DataInspector.print_df_state(df_query, ["wind_speed", "wind_direction", "nacelle_direction"])
@@ -630,8 +613,7 @@ def main():
     
     # %%
     if "window_range_flag" in config["filters"]:
-        if RUN_ONCE:
-            logging.info("Nullifying wind speed-power curve out-of-window cells.")
+        logging.info("Nullifying wind speed-power curve out-of-window cells.")
         
         # apply a window range filter to remove data with power values outside of the window from 20 to 3000 kW for wind speeds between 5 and 40 m/s.
         # identifies when turbine is shut down, filtering for normal turbine operation
@@ -651,9 +633,8 @@ def main():
                 
         out_of_window = np.load(fp)
         
-        if RUN_ONCE:
-            # check if wind speed/dir measurements from inoperational turbines differ from fully operational 
-            mask = lambda tid: pl.Series(out_of_window[:, turbine_id_to_index[tid]])
+        # check if wind speed/dir measurements from inoperational turbines differ from fully operational 
+        mask = lambda tid: pl.Series(out_of_window[:, turbine_id_to_index[tid]])
             
         if args.verbose:
             DataInspector.print_pc_remaining_vals(df_query, mask, None,
@@ -698,8 +679,7 @@ def main():
         # loop through each turbine's wind speed and wind direction columns, and compare the distribution of data with and without the inoperational turbines
         threshold = 0.01
         
-        if RUN_ONCE:
-            logging.info("Nullifying wind speed-power curve out-of-window measurements in dataframe.")
+        logging.info("Nullifying wind speed-power curve out-of-window measurements in dataframe.")
             
         df_query = data_filter.conditional_filter(df_query, threshold, mask, None,
                                                     mask_input_features=sorted(data_loader.turbine_ids),
@@ -708,14 +688,13 @@ def main():
         
         # assert df_query.select(pl.col("time").n_unique()).collect().item() == df_query.select(pl.len()).collect().item()
         
-        if RUN_ONCE:
-            del out_of_window, mask
-            # need to sink parquet and recollect to avoid recursion limit error
-            logging.info("Started sinking dataframe.")
-            df_query.collect(engine="streaming").write_parquet(config["processed_data_path"].replace(".parquet", "_filtered.parquet"))
-            df_query = pl.scan_parquet(config["processed_data_path"].replace(".parquet", "_filtered.parquet"))
-            
-            logging.info("Finished nullifying wind speed-power curve out-of-window measurements in dataframe.") 
+        del out_of_window, mask
+        # need to sink parquet and recollect to avoid recursion limit error
+        logging.info("Started sinking dataframe.")
+        df_query.collect(engine="streaming").write_parquet(config["processed_data_path"].replace(".parquet", "_filtered.parquet"))
+        df_query = pl.scan_parquet(config["processed_data_path"].replace(".parquet", "_filtered.parquet"))
+        
+        logging.info("Finished nullifying wind speed-power curve out-of-window measurements in dataframe.") 
             
         if args.verbose:
             DataInspector.print_df_state(df_query, ["wind_speed", "wind_direction", "nacelle_direction"])
@@ -725,8 +704,7 @@ def main():
                                             turbine_ids=data_loader.turbine_ids, continuity_groups=None, label="after_out_of_window")
         
     if "bin_filter" in config["filters"]:
-        if RUN_ONCE:
-            logging.info("Nullifying wind speed-power curve bin-outlier cells.")
+        logging.info("Nullifying wind speed-power curve bin-outlier cells.")
         
         # apply a bin filter to remove data with power values outside of an envelope around median power curve at each wind speed
         fp = config["processed_data_path"].replace(".parquet", "_bin_outliers.npy")
@@ -746,15 +724,13 @@ def main():
                                                                 direction="below"# keep derated cases
                                                                 ) 
             data_filter.multiprocessor = args.multiprocessor
-            if RUN_ONCE:
-                with open(fp, "wb") as fpnt:
-                    np.save(fpnt, bin_outliers)
+            with open(fp, "wb") as fpnt:
+                np.save(fpnt, bin_outliers)
         
         bin_outliers = np.load(fp)
 
-        if RUN_ONCE:
-            # check if wind speed/dir measurements from inoperational turbines differ from fully operational 
-            mask = lambda tid: pl.Series(bin_outliers[:, turbine_id_to_index[tid]])
+        # check if wind speed/dir measurements from inoperational turbines differ from fully operational 
+        mask = lambda tid: pl.Series(bin_outliers[:, turbine_id_to_index[tid]])
         
         # check time series
         if args.verbose:
@@ -818,8 +794,7 @@ def main():
         # fill cells corresponding to values that are outside of power-wind speed bins with Null st they are marked for interpolation via impute or linear/forward fill interpolation later
         # loop through each turbine's wind speed and wind direction columns, and compare the distribution of data with and without the inoperational turbines
         threshold = 0.01
-        if RUN_ONCE:
-            logging.info("Nullifying wind speed-power curve bin outlier measurements in dataframe.")
+        logging.info("Nullifying wind speed-power curve bin outlier measurements in dataframe.")
             
         df_query = data_filter.conditional_filter(df_query, threshold, mask, None,
                                                     mask_input_features=sorted(data_loader.turbine_ids),
@@ -829,12 +804,11 @@ def main():
         
         # assert df_query.select(pl.col("time").n_unique()).collect().item() == df_query.select(pl.len()).collect().item()
         
-        if RUN_ONCE:
-            del bin_outliers, mask
-            logging.info("Started sinking dataframe.")
-            df_query.collect(engine="streaming").write_parquet(config["processed_data_path"].replace(".parquet", "_filtered.parquet"))
-            df_query = pl.scan_parquet(config["processed_data_path"].replace(".parquet", "_filtered.parquet"))
-            logging.info("Finished nullifying wind speed-power curve bin outlier measurements in dataframe.") 
+        del bin_outliers, mask
+        logging.info("Started sinking dataframe.")
+        df_query.collect(engine="streaming").write_parquet(config["processed_data_path"].replace(".parquet", "_filtered.parquet"))
+        df_query = pl.scan_parquet(config["processed_data_path"].replace(".parquet", "_filtered.parquet"))
+        logging.info("Finished nullifying wind speed-power curve bin outlier measurements in dataframe.") 
         
         if args.verbose:
             DataInspector.print_df_state(df_query, ["wind_speed", "wind_direction", "nacelle_direction"])
@@ -849,13 +823,14 @@ def main():
             
         # Nacelle Calibration 
         # Find and correct wind direction offsets from median wind plant wind direction for each turbine
-        if RUN_ONCE:
-            logging.info("Subtracting median wind direction from wind direction and nacelle direction measurements.")
+        logging.info("Subtracting median wind direction from wind direction and nacelle direction measurements.")
         
+        # add the 3 degrees back to the wind direction signal
+        offset = 3.0
+            
         df_query2 = df_query.with_columns((cs.starts_with("wind_direction") + offset).mod(360.0))
         if args.reload_data or args.regenerate_filters or not os.path.exists(config["processed_data_path"].replace(".parquet", "_calibrated_1.parquet")):
-            # add the 3 degrees back to the wind direction signal
-            offset = 3.0
+            
             
             df_query_10min = df_query2\
                                 .with_columns(pl.col("time").dt.round(f"{10}m").alias("time"))\
@@ -882,8 +857,7 @@ def main():
             # df_query_10min = df_query_10min.with_columns(wd_median=wd_median, yaw_median=yaw_median).collect().lazy()
             df_query_10min = pl.concat([df_query_10min, wd_median, nd_median], how="horizontal")
             
-            if RUN_ONCE:
-                del wd_median, nd_median
+            del wd_median, nd_median
                 
             if args.plot:
                 data_inspector.plot_wind_offset(df_query_10min, "Original", data_loader.turbine_ids)
@@ -950,13 +924,11 @@ def main():
                             
                 # bias += DataFilter.wrap_180(DataFilter.circ_mean(df.select(pl.col(f"wind_direction_{turbine_id}") - pl.col(f"nacelle_direction_{turbine_id}")).collect().to_numpy().flatten()))
             
-            if RUN_ONCE:
-                logging.info(f"Average Bias = {bias / len(data_loader.turbine_ids)} deg")
+            logging.info(f"Average Bias = {bias / len(data_loader.turbine_ids)} deg")
 
         # %%
         # Find offset to true North using wake loss profiles
-        if RUN_ONCE:
-            logging.info("Finding offset to true North using wake loss profiles.")
+        logging.info("Finding offset to true North using wake loss profiles.")
 
         # Find offsets between direction of alignment between pairs of turbines 
         # and direction of peak wake losses. Use the average offset found this way 
@@ -1018,8 +990,8 @@ def main():
             not (os.path.exists(config["processed_data_path"].replace(".parquet", "_stddev.parquet")) 
              or os.path.exists(config["processed_data_path"].replace(".parquet", "_split.parquet")) 
              or os.path.exists(config["processed_data_path"].replace(".parquet", "_imputed.parquet"))):
-        if RUN_ONCE:
-            logging.info("Selecting features.")
+        
+        logging.info("Selecting features.")
             
         df_query2 = df_query\
             .with_columns(**{f"ws_horz_{tid}": (pl.col(f"wind_speed_{tid}") * ((pl.col(f"wind_direction_{tid}") + 180.0).radians().sin())) for tid in data_loader.turbine_ids})\
@@ -1066,8 +1038,7 @@ def main():
         fp = config["processed_data_path"].replace(".parquet", "_stddev.parquet")
         if args.reload_data or args.regenerate_filters \
             or (not os.path.exists(fp)):
-            if RUN_ONCE:
-                logging.info("Nullifying standard deviation outliers.")
+            logging.info("Nullifying standard deviation outliers.")
 
             # apply a bin filter to remove data with power values outside of an envelope around median power curve at each wind speed
             
@@ -1077,21 +1048,21 @@ def main():
             std_dev_filter_target_path = os.path.join(os.path.dirname(config["processed_data_path"]), 
                                             os.path.basename(config["processed_data_path"]).replace(".parquet", "_std_dev_outliers"))
             
-            if RUN_ONCE:
-                if os.path.exists(std_dev_filter_temp_path):
-                    rmtree(std_dev_filter_temp_path) 
-                
-                os.makedirs(std_dev_filter_temp_path, exist_ok=True)
-                
-                if args.regenerate_filters and os.path.exists(std_dev_filter_target_path):
-                    rmtree(std_dev_filter_target_path)
-                
-                os.makedirs(std_dev_filter_target_path, exist_ok=True)
+            
+            if os.path.exists(std_dev_filter_temp_path):
+                rmtree(std_dev_filter_temp_path) 
+            
+            os.makedirs(std_dev_filter_temp_path, exist_ok=True)
+            
+            if args.regenerate_filters and os.path.exists(std_dev_filter_target_path):
+                rmtree(std_dev_filter_target_path)
+            
+            os.makedirs(std_dev_filter_target_path, exist_ok=True)
             
             cols = df_query.select(cs.starts_with("ws_horz"), cs.starts_with("ws_vert")).collect_schema().names()
             if config["filters"]["std_range_flag"]["over"] == "asset":
                 total_rows = df_query.select(pl.len()).collect().item()
-                chunk_size = 100_000 * len(cols) #  total_rows * 2 # process a number of cells equal to the twice total row number at a time ,1_000_000_000
+                chunk_size = 1_000_000 * len(cols) #  total_rows * 2 # process a number of cells equal to the twice total row number at a time ,1_000_000_000
                 row_chunk_size = int(chunk_size // len(cols))
                 filenames = np.arange(len(np.arange(0, total_rows, row_chunk_size)))
             else:
@@ -1112,8 +1083,7 @@ def main():
                         if not args.regenerate_filters and os.path.exists(os.path.join(std_dev_filter_target_path, f"{s}.parquet")):
                             used_ram = virtual_memory().percent
                             
-                            if RUN_ONCE:
-                                logging.info(f"Found existing file for rows {start_row} to {end_row} of {total_rows} of std_dev_outliers. Used {used_ram}% of RAM.")
+                            logging.info(f"Found existing file for rows {start_row} to {end_row} of {total_rows} of std_dev_outliers. Used {used_ram}% of RAM.")
                             continue
                         
                         df, max_ram = filters.std_range_flag(
@@ -1129,16 +1099,14 @@ def main():
                                 df], how="horizontal").sink_parquet(os.path.join(std_dev_filter_target_path, f"{s}.parquet"), maintain_order=True)
                         del df
                         
-                        if RUN_ONCE:
-                            logging.info(f"Processing rows {start_row} to {end_row} of {total_rows} of std_dev_outliers. Maximum RAM used was {max_ram}%.")
+                        logging.info(f"Processing rows {start_row} to {end_row} of {total_rows} of std_dev_outliers. Maximum RAM used was {max_ram}%.")
                     
                 else:
                     
                     for c, col in enumerate(cols):
                         if not args.regenerate_filters and os.path.exists(os.path.join(std_dev_filter_target_path, f"{c}.parquet")):
                             used_ram = virtual_memory().percent
-                            if RUN_ONCE:
-                                logging.info(f"Found existing file for column {c} of {len(cols)} of std_dev_outliers. Used {used_ram}% of RAM.")
+                            logging.info(f"Found existing file for column {c} of {len(cols)} of std_dev_outliers. Used {used_ram}% of RAM.")
                             continue
                         
                         df, max_ram = filters.std_range_flag(
@@ -1153,20 +1121,15 @@ def main():
                         df.sink_parquet(os.path.join(std_dev_filter_target_path, f"{c}.parquet"), maintain_order=True)
                         del df
                         
-                        if RUN_ONCE:
-                            logging.info(f"Processing column {c} of {len(cols)} of std_dev_outliers. Maximum RAM used was {max_ram}%.")
+                        logging.info(f"Processing column {c} of {len(cols)} of std_dev_outliers. Maximum RAM used was {max_ram}%.")
                         
-                # move from temp location to permanent
-                # if RUN_ONCE and len(glob(os.path.join(std_dev_filter_temp_path, "*.parquet"))):
-                #     move(std_dev_filter_temp_path, std_dev_filter_target_path)
             
-            if RUN_ONCE:
-                if config["filters"]["std_range_flag"]["over"] == "asset": 
-                    std_dev_outliers = pl.scan_parquet(os.path.join(std_dev_filter_target_path, "*.parquet")).select(pl.exclude("time"))
-                    mask = lambda feat: std_dev_outliers.select(feat).collect().to_series()
-                else:
-                    # std_dev_outliers = pl.scan_parquet(std_dev_filter_target_path)
-                    mask = lambda feat: pl.scan_parquet(os.path.join(std_dev_filter_target_dir, f"{feat}.parquet")).collect().to_series() 
+            if config["filters"]["std_range_flag"]["over"] == "asset": 
+                std_dev_outliers = pl.scan_parquet(os.path.join(std_dev_filter_target_path, "*.parquet")).select(pl.exclude("time"))
+                mask = lambda feat: std_dev_outliers.select(feat).collect().to_series()
+            else:
+                # std_dev_outliers = pl.scan_parquet(std_dev_filter_target_path)
+                mask = lambda feat: pl.scan_parquet(os.path.join(std_dev_filter_target_dir, f"{feat}.parquet")).collect().to_series() 
                 
             # check if wind speed/dir measurements from inoperational turbines differ from fully operational
             ws_horz_cols = [col for col in df_query.collect_schema().names() if col.startswith("ws_horz")]
@@ -1194,8 +1157,7 @@ def main():
             # loop through each turbine's wind speed and wind direction columns, and compare the distribution of data with and without the inoperational turbines
             threshold = 0.01
             
-            if RUN_ONCE:
-                logging.info("Nullifying horizontal/vertical wind speed standard deviation measurements in dataframe.")
+            logging.info("Nullifying horizontal/vertical wind speed standard deviation measurements in dataframe.")
                 
             df_query = data_filter.conditional_filter(df_query, threshold, mask, None,
                                                         mask_input_features=ws_horz_cols+ws_vert_cols,
@@ -1205,18 +1167,16 @@ def main():
             
             # assert df_query.select(pl.col("time").n_unique()).collect().item() == df_query.select(pl.len()).collect().item()
             
-            if RUN_ONCE:
-                del std_dev_outliers
-                
-                # need to sink parquet and recollect to avoid recursion limit error
-                logging.info("Started sinking dataframe.")
-                df_query.sink_parquet(fp, maintain_order=True)
-                df_query = pl.scan_parquet(fp) 
-                logging.info("Finished nullifying horizontal/vertical wind speed standard deviation measurements in dataframe.") 
+            del std_dev_outliers
+            
+            # need to sink parquet and recollect to avoid recursion limit error
+            logging.info("Started sinking dataframe.")
+            df_query.collect(engine="streaming").write_parquet(fp)
+            logging.info("Finished nullifying horizontal/vertical wind speed standard deviation measurements in dataframe.") 
         else:
-            if RUN_ONCE:
-                logging.info("Fetching dataset with nullified standard deviation outliers.")
-            df_query = pl.scan_parquet(fp) 
+            logging.info("Fetching dataset with nullified standard deviation outliers.")
+        
+        df_query = pl.scan_parquet(fp) 
         
         # check time series 
         if args.verbose:
@@ -1229,8 +1189,9 @@ def main():
     if "split" in config["filters"]:
         # TODO this is producing float continuity groups?
         # TODO HIGH add minimum number of non-nan values (ie so we don't have NaNs for all turbines)
+        fp = config["processed_data_path"].replace(".parquet", "_split.parquet")
         if args.reload_data or args.regenerate_filters or not os.path.exists(config["processed_data_path"].replace(".parquet", "_split.parquet")):
-            # if RUN_ONCE:
+            
             logging.info("Split dataset during time steps for which many turbines have missing data.")
             # if there is a short or long gap for some turbines, impute them using the imputing.impute_all_assets_by_correlation function
             #       else if there is a short or long gap for many turbines, split the dataset
@@ -1306,8 +1267,9 @@ def main():
                 # df_query_not_missing.collect().select(pl.col("duration"), pl.col("start_time"), pl.col("end_time"), pl.col("continuity_group"), cs.contains("3"))\
                 #                     .select(cs.starts_with("is_missing") / (pl.col("duration") / np.timedelta64(data_loader.dt, 's')).cast(pl.Int64))
                 
-                logging.info("Starting to split by continuity group.") 
-                df_query[f] = get_continuity_group_index(continuity_groups_df=df_query_not_missing, time_series_df=df_query[f])
+                logging.info("Starting to split by continuity group.")
+                cg_init_idx = df_query[f-1].select(pl.col("continuity_group").max()).collect().item() + 1 if f > 0 else 0
+                df_query[f] = get_continuity_group_index(continuity_groups_df=df_query_not_missing, time_series_df=df_query[f], cg_init_idx=cg_init_idx)
                 
                 logging.info("Finished splitting by continuity group.")
             
@@ -1361,25 +1323,22 @@ def main():
             # x = df_query.collect().partition_by("continuity_group")
             # x[0].select(pl.any_horizontal(cs.numeric().is_not_null().sum() < 2)).item()
             
-            if RUN_ONCE:
-            
-                if df_query.select(pl.len()).collect().item() == 0:
-                    logging.warning(f"No remaining data rows after splicing time steps with over {missing_col_thr} missing columns")
-            
-                # need to sink parquet and recollect to avoid recursion limit error
-                logging.info("Started sinking dataframe.")
-                df_query.sink_parquet(config["processed_data_path"].replace(".parquet", "_split.parquet"), maintain_order=True)
-                df_query = pl.scan_parquet(config["processed_data_path"].replace(".parquet", "_split.parquet"))
-                logging.info("Finished sinking dataframe.")
+            if df_query.select(pl.len()).collect().item() == 0:
+                logging.warning(f"No remaining data rows after splicing time steps with over {missing_col_thr} missing columns")
+        
+            # need to sink parquet and recollect to avoid recursion limit error
+            logging.info("Started sinking dataframe.")
+            df_query.collect(engine="streaming").write_parquet(fp)
+            logging.info("Finished sinking dataframe.")
                  
             # check each split dataframe a) is continuous in time AND b) has <= than the threshold number of missing columns OR for less than the threshold time span
             # for df in df_query:
             #     assert df.select((pl.col("time").diff(null_behavior="drop") == np.timedelta64(data_loader.dt, "s")).all()).collect().item()
             #     assert (df.select((pl.sum_horizontal([(cs.numeric() & cs.contains(col)).is_null() for col in missing_data_cols]) <= missing_col_thr)).collect()
             #             |  ((df.select("time").max().collect().item() - df.select("time").min().collect().item()) < missing_duration_thr))
-        elif RUN_ONCE:
-            df_query = pl.scan_parquet(config["processed_data_path"].replace(".parquet", "_split.parquet"))
-    elif RUN_ONCE:
+        
+        df_query = pl.scan_parquet(fp)
+    else:
         df_query = df_query.with_columns(pl.lit(0).alias("continuity_group"))
 
     # %% check time series
@@ -1404,14 +1363,13 @@ def main():
     # %%
     # df_query.filter(pl.col("continuity_group") == 5).select("time", "ws_vert_1").filter((pl.col("time") > datetime(2020, 5, 23, 20, 45)) & (pl.col("time") < datetime(2020, 5, 23, 21, 45))).collect().to_numpy()[:, 1].flatten() 
     if "impute_missing_data" in config["filters"]:
-        if RUN_ONCE:
-             logging.info("Impute/interpolate turbine missing data from correlated measurements.")
-        
-        if args.reload_data or args.regenerate_filters or not os.path.exists(config["processed_data_path"].replace(".parquet", "_imputed.parquet")):
+        logging.info("Impute/interpolate turbine missing data from correlated measurements.")
+        fp = config["processed_data_path"].replace(".parquet", "_imputed.parquet")
+        if args.reload_data or args.regenerate_filters or not os.path.exists(fp):
             
             # else, for each of those split datasets, impute the values using the imputing.impute_all_assets_by_correlation function
             # fill data on single concatenated dataset
-            save_path = config["processed_data_path"].replace(".parquet", "_imputed.parquet")
+            
             # if os.path.exists(save_path):
             #     df_query = pl.scan_parquet(save_path)
             # NOTE to truly repeat this process, must delete all impute, impute_ws_horz, impute_ws_vert parquets
@@ -1419,7 +1377,7 @@ def main():
                 df_idx=0, 
                 df=df_query.select(pl.col("time"), *[cs.starts_with(feat_type) for feat_type in ["ws_horz", "ws_vert", "nd_cos", "nd_sin"]]), 
                 impute_missing_features=["ws_horz", "ws_vert"],
-                save_path=save_path, 
+                save_path=fp, 
                 # impute_missing_features=["wind_direction", "wind_speed"], 
                 interpolate_missing_features=["ws_horz", "ws_vert", "nd_cos", "nd_sin"], 
                 # interpolate_missing_features=["wind_direction", "wind_speed", "nacelle_direction"], 
@@ -1428,15 +1386,13 @@ def main():
                 parallel=None,
                 r2_threshold=config["filters"]["impute_missing_data"]["r2_threshold"])
 
-            if RUN_ONCE:
-                df_query = df_query.drop([cs.starts_with(feat) for feat in ["ws_horz", "ws_vert", "nd_cos", "nd_sin", "power_output"]]).join(df_query2, on="time", how="left")
-                del df_query2
-                logging.info("Started sinking dataframe.")
-                df_query.sink_parquet(config["processed_data_path"].replace(".parquet", "_imputed.parquet"), maintain_order=True)                
-                df_query = pl.scan_parquet(config["processed_data_path"].replace(".parquet", "_imputed.parquet"))
-                logging.info("Finished sinking dataframe.")
-        elif RUN_ONCE:
-            df_query = pl.scan_parquet(config["processed_data_path"].replace(".parquet", "_imputed.parquet"))
+            df_query = df_query.drop([cs.starts_with(feat) for feat in ["ws_horz", "ws_vert", "nd_cos", "nd_sin", "power_output"]]).join(df_query2, on="time", how="left")
+            del df_query2
+            logging.info("Started sinking dataframe.")
+            df_query.collect(engine="streaming").write_parquet(fp)
+            logging.info("Finished sinking dataframe.")
+        
+        df_query = pl.scan_parquet(fp)
 
     # %% check time series
     if args.verbose:
@@ -1525,96 +1481,96 @@ def main():
     
     # %% SMOOTHING
     if "smooth" in config["filters"]:
-        if RUN_ONCE:
-            if args.reload_data or args.regenerate_filters or not os.path.exists(config["processed_data_path"].replace(".parquet", "_smoothed.parquet")): 
-                # Normalization & Feature Selection
-                logging.info("Smoothing features.")
-                
-                smoothing_func = config["filters"]["smooth"].get("function", "butterworth")
-                smoothing_params = {k: v for k, v in config["filters"]["smooth"].items() if k != "function"}
-                
-                if smoothing_func == "butterworth":
-                    smoothing_params["dt"] = data_loader.dt
-                if smoothing_func == "moving_average":
-                    pass
-                if smoothing_func == "savitzky_golay":
-                    pass
-                
-                # for smoothing_func in ["butterworth", "moving_average", "savitzky_golay"]:
-                df_query = data_filter.smooth(
-                            df_query=df_query, 
-                            feature_types=["ws_horz", "ws_vert"], 
-                            smoothing_function=smoothing_func, 
-                            smoothing_params=smoothing_params,
-                            plot=False
-                        )
-                df_query.sink_parquet(config["processed_data_path"].replace(".parquet", f"_smoothed_{smoothing_func}.parquet"), maintain_order=True)
-                
-            else:
-                df_query = pl.scan_parquet(config["processed_data_path"].replace(".parquet", f"_smoothed_{smoothing_func}.parquet"))
+        
+        if args.reload_data or args.regenerate_filters or not os.path.exists(config["processed_data_path"].replace(".parquet", "_smoothed.parquet")): 
+            # Normalization & Feature Selection
+            logging.info("Smoothing features.")
+            
+            smoothing_func = config["filters"]["smooth"].get("function", "butterworth")
+            smoothing_params = {k: v for k, v in config["filters"]["smooth"].items() if k != "function"}
+            
+            if smoothing_func == "butterworth":
+                smoothing_params["dt"] = data_loader.dt
+            if smoothing_func == "moving_average":
+                pass
+            if smoothing_func == "savitzky_golay":
+                pass
+            
+            # for smoothing_func in ["butterworth", "moving_average", "savitzky_golay"]:
+            df_query = data_filter.smooth(
+                        df_query=df_query, 
+                        feature_types=["ws_horz", "ws_vert"], 
+                        smoothing_function=smoothing_func, 
+                        smoothing_params=smoothing_params,
+                        plot=False
+                    )
+            df_query.sink_parquet(config["processed_data_path"].replace(".parquet", f"_smoothed_{smoothing_func}.parquet"), maintain_order=True)
+            
+        else:
+            df_query = pl.scan_parquet(config["processed_data_path"].replace(".parquet", f"_smoothed_{smoothing_func}.parquet"))
     
     # %%
     if "normalize" in config["filters"]:
-        if RUN_ONCE:
-            if args.reload_data or args.regenerate_filters or not os.path.exists(config["processed_data_path"].replace(".parquet", "_normalized.parquet")): 
-                # Normalization & Feature Selection
-                logging.info("Normalizing features.")
+        
+        if args.reload_data or args.regenerate_filters or not os.path.exists(config["processed_data_path"].replace(".parquet", "_normalized.parquet")): 
+            # Normalization & Feature Selection
+            logging.info("Normalizing features.")
+            
+            dataset_labels = ["imputed", f"smoothed_{smoothing_func}"]
+            for l, ll in zip(dataset_labels, ["unsmoothed", "smoothed"]):
+                fp = config["processed_data_path"].replace(".parquet", f"_{l}.parquet")
+                dfq = pl.scan_parquet(fp)
+            
+                # store min/max of each column to rescale later
+                feature_types = ["nd_cos", "nd_sin", "ws_horz", "ws_vert"]
+                cols = [c for c in df_query.collect_schema().names() if any(c.startswith(ft) for ft in feature_types)]
+                # ws_horz_cols = [col for col in df_query.collect_schema().names() if col.startswith("ws_horz")]
+                # ws_vert_cols = [col for col in df_query.collect_schema().names() if col.startswith("ws_vert")]
                 
-                dataset_labels = ["imputed", f"smoothed_{smoothing_func}"]
-                for l, ll in zip(dataset_labels, ["unsmoothed", "smoothed"]):
-                    fp = config["processed_data_path"].replace(".parquet", f"_{l}.parquet")
-                    dfq = pl.scan_parquet(fp)
+                # sklearn.preprocessing.StandardScaler
+                norm_vals = {}
+                # for feature_type in feature_types:
+                    
+                    # norm_vals[f"{feature_type}_max"] = df_query.select(pl.max_horizontal(cs.starts_with(feature_type).max())).collect().item()
+                    # norm_vals[f"{feature_type}_min"] = df_query.select(pl.min_horizontal(cs.starts_with(feature_type).min())).collect().item()
+                for col in cols:
+                    # feat_type = re.match(f".*(?=\_{data_loader.turbine_signature})", col).group(0)
+                    norm_vals[f"{col}_mean"] = dfq.select(pl.col(col).mean()).collect().item()
+                    norm_vals[f"{col}_std"] = dfq.select(pl.col(col).std()).collect().item()
+
+                norm_vals = pl.DataFrame(norm_vals).select(pl.all())
+                norm_vals.write_csv(config["processed_data_path"].replace(".parquet", f"_{ll}_normalization_consts.csv"))
                 
-                    # store min/max of each column to rescale later
-                    feature_types = ["nd_cos", "nd_sin", "ws_horz", "ws_vert"]
-                    cols = [c for c in df_query.collect_schema().names() if any(c.startswith(ft) for ft in feature_types)]
-                    # ws_horz_cols = [col for col in df_query.collect_schema().names() if col.startswith("ws_horz")]
-                    # ws_vert_cols = [col for col in df_query.collect_schema().names() if col.startswith("ws_vert")]
-                    
-                    # sklearn.preprocessing.StandardScaler
-                    norm_vals = {}
-                    # for feature_type in feature_types:
-                        
-                        # norm_vals[f"{feature_type}_max"] = df_query.select(pl.max_horizontal(cs.starts_with(feature_type).max())).collect().item()
-                        # norm_vals[f"{feature_type}_min"] = df_query.select(pl.min_horizontal(cs.starts_with(feature_type).min())).collect().item()
-                    for col in cols:
-                        # feat_type = re.match(f".*(?=\_{data_loader.turbine_signature})", col).group(0)
-                        norm_vals[f"{col}_mean"] = dfq.select(pl.col(col).mean()).collect().item()
-                        norm_vals[f"{col}_std"] = dfq.select(pl.col(col).std()).collect().item()
-
-                    norm_vals = pl.DataFrame(norm_vals).select(pl.all())
-                    norm_vals.write_csv(config["processed_data_path"].replace(".parquet", f"_{ll}_normalization_consts.csv"))
-                    
-                    if "continuity_group" in dfq.collect_schema().names():
-                        dfq = dfq.select(pl.col("time"), pl.col("continuity_group"), cs.contains("nd_sin"), cs.contains("nd_cos"), cs.contains("ws_horz"), cs.contains("ws_vert"))
-                        time_cols = [pl.col("time"), pl.col("continuity_group")]
-                    else:
-                        time_cols = [pl.col("time")]
-
-                    
-                    # sklearn.preprocessing.StandardScaler
-                    # df_query = df_query.select(time_cols 
-                    #                         + [((2.0 * ((cs.starts_with(feature_type) - norm_vals.select(f"{feature_type}_min").item()) 
-                    #                         / (norm_vals.select(f"{feature_type}_max").item() - norm_vals.select(f"{feature_type}_min").item()))) - 1.0).name.keep()
-                    #                         for feature_type in feature_types])
-                    dfq = dfq.select(time_cols 
-                                            + [((((pl.col(col) - norm_vals.select(f"{col}_mean").item()) 
-                                                    / norm_vals.select(f"{col}_std").item()))).name.keep()
-                                            for col in cols])
-                    
-                    for col in cols:
-                        print(dfq.select(pl.col(col).mean()).collect().item())
-                        print(dfq.select(pl.col(col).std()).collect().item())
-                    
-                    logging.info(f"Started sinking {ll} dataframe.")
-                    dfq.sink_parquet(config["processed_data_path"].replace(".parquet", f"_{ll}_normalized.parquet"), maintain_order=True)
-                    
-                logging.info("Finished normalizing features.")
-            else:
-                if "smooth" in config["filters"]:
-                    df_query = pl.scan_parquet(config["processed_data_path"].replace(".parquet", "_smoothed_normalized.parquet"))
+                if "continuity_group" in dfq.collect_schema().names():
+                    dfq = dfq.select(pl.col("time"), pl.col("continuity_group"), cs.contains("nd_sin"), cs.contains("nd_cos"), cs.contains("ws_horz"), cs.contains("ws_vert"))
+                    time_cols = [pl.col("time"), pl.col("continuity_group")]
                 else:
-                    df_query = pl.scan_parquet(config["processed_data_path"].replace(".parquet", "_unsmoothed_normalized.parquet"))
+                    time_cols = [pl.col("time")]
+
+                
+                # sklearn.preprocessing.StandardScaler
+                # df_query = df_query.select(time_cols 
+                #                         + [((2.0 * ((cs.starts_with(feature_type) - norm_vals.select(f"{feature_type}_min").item()) 
+                #                         / (norm_vals.select(f"{feature_type}_max").item() - norm_vals.select(f"{feature_type}_min").item()))) - 1.0).name.keep()
+                #                         for feature_type in feature_types])
+                dfq = dfq.select(time_cols 
+                                        + [((((pl.col(col) - norm_vals.select(f"{col}_mean").item()) 
+                                                / norm_vals.select(f"{col}_std").item()))).name.keep()
+                                        for col in cols])
+                
+                for col in cols:
+                    print(dfq.select(pl.col(col).mean()).collect().item())
+                    print(dfq.select(pl.col(col).std()).collect().item())
+                
+                logging.info(f"Started sinking {ll} dataframe.")
+                dfq.sink_parquet(config["processed_data_path"].replace(".parquet", f"_{ll}_normalized.parquet"), maintain_order=True)
+                
+            logging.info("Finished normalizing features.")
+        else:
+            if "smooth" in config["filters"]:
+                df_query = pl.scan_parquet(config["processed_data_path"].replace(".parquet", "_smoothed_normalized.parquet"))
+            else:
+                df_query = pl.scan_parquet(config["processed_data_path"].replace(".parquet", "_unsmoothed_normalized.parquet"))
 
 if __name__ == "__main__":
     main()

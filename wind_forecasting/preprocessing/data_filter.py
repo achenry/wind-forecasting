@@ -647,7 +647,7 @@ def add_df_agg_continuity_columns(df):
                 .sort("start_time")\
             .drop_nulls()
 
-def get_continuity_group_index(continuity_groups_df, time_series_df, chunk_size=32):
+def get_continuity_group_index(continuity_groups_df, time_series_df, cg_init_idx=0, chunk_size=32):
     # Create the condition for the group
     group_number = None
 
@@ -661,9 +661,9 @@ def get_continuity_group_index(continuity_groups_df, time_series_df, chunk_size=
         time_cond = pl.col("time").is_between(start, end)
         
         if group_number is None:
-            group_number = pl.when(time_cond).then(pl.lit(i))
+            group_number = pl.when(time_cond).then(pl.lit(cg_init_idx+i))
         else:
-            group_number = group_number.when(time_cond).then(pl.lit(i))
+            group_number = group_number.when(time_cond).then(pl.lit(cg_init_idx+i))
             
         if (i % chunk_size == 0) or (i == total_rows - 1):
             time_series_df = time_series_df.with_columns(continuity_group=group_number.otherwise(pl.col("continuity_group")))
