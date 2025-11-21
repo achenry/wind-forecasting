@@ -905,33 +905,6 @@ def main():
         else:
             biases = np.load(fp)
             
-        for bias, turbine_id in zip(biases, data_loader.turbine_ids):
-            # TODO these are final offsets
-            if turbine_id == "wt033":
-                switch_time = datetime.strptime("11/5/2024 14:06", "%m/%d/%Y %H:%M")
-                expr = (pl.when(pl.col("time") < switch_time).then(pl.col(f"wind_direction_{turbine_id}") - 8.3).otherwise(pl.col(f"wind_direction_{turbine_id}") - 106.8).mod(360.0).alias(f"wind_direction_{turbine_id}"), 
-                        pl.when(pl.col("time") < switch_time).then(pl.col(f"nacelle_direction_{turbine_id}") - 8.3).otherwise(pl.col(f"nacelle_direction_{turbine_id}") - 106.8).mod(360.0).alias(f"nacelle_direction_{turbine_id}"))
-            elif turbine_id == "wt042":
-                switch_time = datetime.strptime("4/12/2025 21:07", "%m/%d/%Y %H:%M")
-                expr = (pl.when(pl.col("time") < switch_time).then(pl.col(f"wind_direction_{turbine_id}") - 7).otherwise(pl.col(f"wind_direction_{turbine_id}") - (-54.4)).mod(360.0).alias(f"wind_direction_{turbine_id}"), 
-                        pl.when(pl.col("time") < switch_time).then(pl.col(f"nacelle_direction_{turbine_id}") - 7).otherwise(pl.col(f"nacelle_direction_{turbine_id}") - (-54.4)).mod(360.0).alias(f"nacelle_direction_{turbine_id}"))
-            elif turbine_id == "wt078":
-                switch_time = datetime.strptime("8/19/2024 13:07", "%m/%d/%Y %H:%M")
-                expr = (pl.when(pl.col("time") < switch_time).then(pl.col(f"wind_direction_{turbine_id}") - (-6.7)).otherwise(pl.col(f"wind_direction_{turbine_id}") - 36.7).mod(360.0).alias(f"wind_direction_{turbine_id}"), 
-                        pl.when(pl.col("time") < switch_time).then(pl.col(f"nacelle_direction_{turbine_id}") - (-6.7)).otherwise(pl.col(f"nacelle_direction_{turbine_id}") - 36.7).mod(360.0).alias(f"nacelle_direction_{turbine_id}"))
-            else:
-                expr = (pl.col(f"wind_direction_{turbine_id}") - bias).mod(360.0).alias(f"wind_direction_{turbine_id}"), (pl.col(f"nacelle_direction_{turbine_id}") - bias).mod(360.0).alias(f"nacelle_direction_{turbine_id}")
-            
-            df_query_10min = df_query_10min.with_columns(*expr)
-            df_query2 = df_query2.with_columns(*expr)
-
-            logging.info(f"Turbine {turbine_id} bias from median wind direction: {bias} deg")
-
-        # df_offsets = pl.DataFrame(df_offsets)
-
-        if args.plot:
-            data_inspector.plot_wind_offset(df_query_10min, "Corrected", data_loader.turbine_ids)
-            
         # make sure we have corrected the bias between wind direction and yaw position by adding 3 deg. to the wind direction
         if args.verbose and False:
             bias = 0
@@ -965,16 +938,36 @@ def main():
                                     save_path=os.path.join(os.path.dirname(config["processed_data_path"]), "pre_correction.png")
                                     )
         
-        if dir_offsets:
-            # Apply Northing offset to each turbine
-            dir_offsets = np.mean(dir_offsets)
-            for turbine_id in data_loader.turbine_ids:
-                # df_query_10min = df_query_10min.with_columns((pl.col(f"wind_direction_{turbine_id}") - dir_offsets).mod(360).alias(f"wind_direction_{turbine_id}"),
-                #                                              (pl.col(f"nacelle_direction_{turbine_id}") - dir_offsets).mod(360).alias(f"nacelle_direction_{turbine_id}"))
+        # Apply final Northing offset to each turbine
+        dir_offsets = np.mean(dir_offsets)
+        for bias, turbine_id in zip(biases, data_loader.turbine_ids):
+            logging.info(f"Turbine {turbine_id} bias from median wind direction: {bias} deg, from power_ratio: {dir_offsets} deg, total = {bias + dir_offsets}")
+            
+            # df_query_10min = df_query_10min.with_columns((pl.col(f"wind_direction_{turbine_id}") - dir_offsets).mod(360).alias(f"wind_direction_{turbine_id}"),
+            #                                              (pl.col(f"nacelle_direction_{turbine_id}") - dir_offsets).mod(360).alias(f"nacelle_direction_{turbine_id}"))
+            
+            if turbine_id in ["wt033", "wt042", "wt078"]:
+                if turbine_id == "wt033":
+                    switch_time = datetime.strptime("11/5/2024 14:06", "%m/%d/%Y %H:%M")
+                    bias_1, bias_2 = 8.3, 106.8
+                    
+                elif turbine_id == "wt042":
+                    switch_time = datetime.strptime("4/12/2025 21:07", "%m/%d/%Y %H:%M")
+                    bias_1, bias_2 = 7, -54.4
+                elif turbine_id == "wt078":
+                    switch_time = datetime.strptime("8/19/2024 13:07", "%m/%d/%Y %H:%M")
+                    bias_1, bias_2 = -6.7, 36.7
                 
-                df_query2 = df_query2.with_columns((pl.col(f"wind_direction_{turbine_id}") - dir_offsets).mod(360).alias(f"wind_direction_{turbine_id}"),
-                                                (pl.col(f"nacelle_direction_{turbine_id}") - dir_offsets).mod(360).alias(f"nacelle_direction_{turbine_id}"))
-
+                expr = (pl.when(pl.col("time") < switch_time).then(pl.col(f"wind_direction_{turbine_id}") - bias_1).otherwise(pl.col(f"wind_direction_{turbine_id}") - bias_2).mod(360.0).alias(f"wind_direction_{turbine_id}"), 
+                        pl.when(pl.col("time") < switch_time).then(pl.col(f"nacelle_direction_{turbine_id}") - bias_1).otherwise(pl.col(f"nacelle_direction_{turbine_id}") - bias_2).mod(360.0).alias(f"nacelle_direction_{turbine_id}"))
+            else:
+                bias += dir_offsets
+                expr = ((pl.col(f"wind_direction_{turbine_id}") - bias).mod(360.0).alias(f"wind_direction_{turbine_id}"), 
+                       (pl.col(f"nacelle_direction_{turbine_id}") - bias).mod(360.0).alias(f"nacelle_direction_{turbine_id}"))
+            
+            df_query_10min = df_query_10min.with_columns(*expr)
+            df_query = df_query.with_columns(*expr)
+            
             # Determine final wind direction correction for each turbine
             # df_offsets = df_offsets.with_columns(
             #     northing_bias=(pl.col("northing_bias") + np.mean(dir_offsets)))\
@@ -990,8 +983,11 @@ def main():
             #                                 plot=args.plot,
             #                                 save_path=os.path.join(os.path.dirname(config["processed_data_path"]), "post_correction.png")
             # ) 
+
+        if args.plot:
+            data_inspector.plot_wind_offset(df_query_10min, "Corrected", data_loader.turbine_ids)
+        
         del df_query_10min
-        df_query = df_query2
         
         # need to sink parquet and recollect to avoid recursion limit error
         fp = config["processed_data_path"].replace(".parquet", "_calibrated_2.parquet")
