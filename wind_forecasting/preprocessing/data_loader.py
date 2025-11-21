@@ -267,6 +267,7 @@ class DataLoader:
                 move(processed_file_paths[0][0], self.save_path)
             
             df_query = pl.scan_parquet(self.save_path)
+            assert df_query.select("time").collect().to_series().is_sorted()
             # turbine ids found in all files so far TODO check if sorted
             self.turbine_ids = self.get_turbine_ids(self.turbine_signature, df_query, sort=True)
             
@@ -387,10 +388,12 @@ class DataLoader:
                                 .sort("time")\
                                     .group_by("time", maintain_order=True)\
                                     .agg(cs.numeric().mean())
+                        assert df.select("time").collect().to_series().is_sorted()
                         logging.info(f"  - Resampling {tid}")
                         df = self._resample_df(df, bounds, fill_null=False)
                         logging.info(f"  - Writing {tid}")
                         df.sink_parquet(grouped_fp, maintain_order=True, row_group_size=100_000)
+                        assert pl.scan_parquet(grouped_fp).select("time").collect().to_series().is_sorted()
                     else:
                         logging.info(f"Loading existing grouped file for turbine id {tid} for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
                 
@@ -404,7 +407,8 @@ class DataLoader:
                 logging.info(f"Loading groupings of {len(processed_file_paths)} files for file set {file_set_idx}, merge index {i} from file. Used RAM = {virtual_memory().percent}%.")
             
             df_queries = pl.scan_parquet(os.path.join(temp_save_dir, f"all_grouped_{file_set_idx}_{i}.parquet"))
-            
+            assert df_queries.select("time").collect().to_series().is_sorted()
+
             logging.info(f"Finished grouping {len(processed_file_paths)} files for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
             
             logging.info(f"Found columns:")
@@ -451,10 +455,12 @@ class DataLoader:
                           .select("index")\
                           .sink_parquet(split_indices_fp, maintain_order=True)
                 
+                
                 pl.concat([pl.Series([0]).alias("index").to_frame(),
                             pl.read_parquet(split_indices_fp),
                             pl.Series([df_queries.select(pl.len()).collect().item()]).alias("index").to_frame()], how="vertical_relaxed")\
                   .write_parquet(split_indices_fp)
+                
                 
             else:
                 logging.info(f"Loading split_indices for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
@@ -485,6 +491,8 @@ class DataLoader:
                         dfq.with_columns(file_set_idx=file_set_idx_offset + jj)\
                            .fill_null(strategy="forward").fill_null(strategy="backward")\
                            .sink_parquet(os.path.join(temp_save_dir, f"merged_{file_set_idx_offset + jj}_{i}.parquet"), maintain_order=True)
+                        
+                        assert pl.scan_parquet(os.path.join(temp_save_dir, f"merged_{file_set_idx_offset + jj}_{i}.parquet")).select("time").collect().to_series().is_sorted()
                     else:
                         logging.info(f"Loaded existing split/filled {j}th of {n_splits} continuous dataframes. Used RAM = {virtual_memory().percent}%.")
                     jj += 1
