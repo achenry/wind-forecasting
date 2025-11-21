@@ -144,20 +144,20 @@ class DataLoader:
             #     executor = MPICommExecutor(MPI.COMM_WORLD, root=0)
             # else:  # "cf" case
             if read_single_files:
+                logging.info(f"✅ Started reading {sum(len(fp) for fp in self.file_paths)} files.")
+                    
+                for file_set_idx, fp in enumerate(self.file_paths):
+                    if not fp:
+                        raise FileExistsError(f"⚠️ File with signature {self.file_signature[file_set_idx]} in directory {self.data_dir[file_set_idx]} doesn't exist.")
+
+                
+                init_used_ram = virtual_memory().percent
+                assert init_used_ram < self.ram_limit - 5, f"RAM limit in yaml config must be at least 5% greater than initial ram value of {init_used_ram}%."
+                    
                 executor = ProcessPoolExecutor(mp_context=mp.get_context("spawn"), max_workers=int(os.environ.get("MAX_WORKERS", mp.cpu_count())))
                 with executor as ex:
-                
-                    logging.info(f"✅ Started reading {sum(len(fp) for fp in self.file_paths)} files.")
-                    
-                    for file_set_idx, fp in enumerate(self.file_paths):
-                        if not fp:
-                            raise FileExistsError(f"⚠️ File with signature {self.file_signature[file_set_idx]} in directory {self.data_dir[file_set_idx]} doesn't exist.")
-
-                    
-                    init_used_ram = virtual_memory().percent
-                    assert init_used_ram < self.ram_limit - 5, f"RAM limit in yaml config must be at least 5% greater than initial ram value of {init_used_ram}%."
-                    
                     if ex is not None:
+                        
                         if read_single_files == "all":
                             file_futures = [] #4% increase in mem
                             for file_set_idx in range(len(self.file_paths)):

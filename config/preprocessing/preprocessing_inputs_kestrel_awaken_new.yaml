@@ -44,7 +44,7 @@ feature_mapping:
       - index
     turbine_id: turbine_id
     turbine_status: WTUR.TurSt
-    wind_direction: WMET.HorWdDir
+    yaw_offset_cw: WMET.HorWdDir
     wind_speed: WMET.HorWdSpd
     power_output: WTUR.W
     nacelle_direction: WNAC.Dir
