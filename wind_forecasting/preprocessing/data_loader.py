@@ -143,7 +143,7 @@ class DataLoader:
             # if self.multiprocessor == "mpi" and mpi_exists:
             #     executor = MPICommExecutor(MPI.COMM_WORLD, root=0)
             # else:  # "cf" case
-            if read_single_files:
+            if read_single_files: # or not all(os.path.exists(fp)):
                 logging.info(f"✅ Started reading {sum(len(fp) for fp in self.file_paths)} files.")
                     
                 for file_set_idx, fp in enumerate(self.file_paths):
