@@ -50,7 +50,7 @@ from openoa.utils import plot, filters, power_curve
 import polars as pl
 import polars.selectors as cs
 import numpy as np
-# import matplotlib
+import matplotlib
 # matplotlib.use('Agg') # Use TkAgg for interactive plots
 # matplotlib.use('TkAgg')
 import matplotlib.pyplot as plt
@@ -226,7 +226,7 @@ def main():
         logging.info(f"Making directory to save_path {os.path.dirname(data_loader.save_path)}")
         os.makedirs(os.path.dirname(data_loader.save_path), exist_ok=True)
 
-        df_query = data_loader.read_multi_files(temp_save_dir, read_single_files=False) # TODO this should be set to all or unprocessed or False, and should change if there are no processed files
+        df_query = data_loader.read_multi_files(temp_save_dir, read_single_files="all") # TODO this should be set to all or unprocessed or False, and should change if there are no processed files
         
         # df = df_query.select("wind_speed_wt001", "wind_direction_wt001", "file_set_idx", "time").collect().select("file_set_idx", "time", cs.starts_with("wind_")).partition_by("file_set_idx")
         # fig, ax = plt.subplots(2, 1, sharex=True)
@@ -265,8 +265,11 @@ def main():
     )
     
     if args.debug:
+        # df_query = df_query.select(["time", "file_set_idx"] + [cs.ends_with(f"wt{i+1:03d}") for i in set(np.concatenate(config["nacelle_calibration_turbine_pairs"]))]).slice(0, int(18 * 30 * np.timedelta64(1, 'D') / np.timedelta64(data_loader.dt, 's'))).collect().lazy()
+        # df_query.sink_parquet("/Users/ahenry/Documents/toolboxes/wind-forecasting/examples/data/awaken_data/awaken_data_processed_debug.parquet")
+        df_query = pl.scan_parquet("/Users/ahenry/Documents/toolboxes/wind-forecasting/examples/data/awaken_data/awaken_data_processed_debug.parquet")
         # .group_by("time", "file_set_idx")\
-        df_query = df_query.slice(0, int(10 * np.timedelta64(1, 'D') / np.timedelta64(data_loader.dt, 's')))
+        # df_query = df_query.slice(0, int(1 * 30 * np.timedelta64(1, 'D') / np.timedelta64(data_loader.dt, 's')))
                         #    .with_columns(pl.col("time").dt.round(f"{1}m").alias("time"))\
                         #    .group_by("time")\
                         #     .agg(cs.numeric().mean()).sort("time")
@@ -276,12 +279,14 @@ def main():
     if args.plot:
         # from datetime import datetime
         # df_query = df_query.with_columns(file_set_idx=pl.when(pl.col("time") < pl.lit(datetime(2024,2,20))).then(0).otherwise(1))
+
+        # df_query.group_by("file_set_idx", maintain_order=True).agg(pl.col("time").last() - pl.col("time").first()).select(pl.col("time").sum()).collect()
         waked_distances = np.array([((data_inspector.fmodel.layout_x[pair[0]] - data_inspector.fmodel.layout_x[pair[1]])**2 + (data_inspector.fmodel.layout_y[pair[0]] - data_inspector.fmodel.layout_y[pair[1]])**2)**0.5 for pair in config["nacelle_calibration_turbine_pairs"] + [[74, 73]]])
         waked_distances / data_inspector.fmodel.core.farm.rotor_diameters[0]
         logging.info("🔄 Generating plots.")
         # x = pl.concat([df.slice(0, ROW_LIMIT) for df in df_query.collect().partition_by("file_set_idx")], how="vertical").lazy()
         # NOTE: GENERATE FIG 3 IN PAPER HERE
-        if True:
+        if False:
             data_inspector.plot_wind_farm(
                 wind_directions=[140],
                 turbine_groups=[np.concatenate(config["nacelle_calibration_turbine_pairs"]), [74, 73], [4]],
@@ -294,23 +299,41 @@ def main():
         #     file_set_idx=pl.when(pl.col("time").is_between(
         #         lower_bound=datetime(year=2024, month=2, day=20), 
         #         upper_bound=datetime(year=2024, month=12, day=20))).then(pl.lit(1)).otherwise(pl.lit(0)))
-        df_query2 = df_query.filter(pl.col("time").is_between(lower_bound=ROW_BOUNDS[0], upper_bound=ROW_BOUNDS[1], closed="both"))
+        # df_query2 = df_query.filter(pl.col("time").is_between(lower_bound=ROW_BOUNDS[0], upper_bound=ROW_BOUNDS[1], closed="both"))
         # file_set_idx=0 (2022/01/01 to 2023/06/30), file_set_idx=1 (2024/02/20 to 2024/12/19)
         if "file_set_idx" in df_query.collect_schema().names():
             file_set_indices = df_query.select("file_set_idx").unique().collect().to_numpy().flatten()
-            df_query2 = df_query.with_columns(pl.col("time").dt.round(f"{1}m").alias("time"))\
-                        .group_by("time", "file_set_idx").agg(cs.numeric().mean()).sort("time")\
-                        .filter(pl.all_horizontal((cs.starts_with("wind_speed") >= 0) & (cs.starts_with("wind_speed") <= 25)))
-        
+            # df_query2 = df_query.with_columns(pl.col("time").dt.round(f"{10}m").alias("time"))\
+            #             .group_by("time", "file_set_idx", maintain_order=True).agg(cs.numeric().mean()) \
+            #             .filter(pl.all_horizontal((cs.starts_with("wind_speed") >= 0) & (cs.starts_with("wind_speed") <= 25))).collect().lazy()
+            df_query2 = pl.scan_parquet("/Users/ahenry/Documents/toolboxes/wind-forecasting/examples/data/awaken_data/awaken_data_processed_debug_10min.parquet")
+
+            h = df_query2.select(cs.starts_with("wind_direction")).collect().unpivot()["value"].to_numpy().flatten()
+            h = df_query2.select(cs.starts_with("nacelle_direction")).collect().unpivot()["value"].to_numpy().flatten()
+            h = h[~np.isnan(h)]
+            fig, ax = plt.subplots(1,1)
+            counts, bins = np.histogram(h)
+            ax.stairs(counts, bins)
+            plt.show()
             
             # NOTE: USE THIS CODE TO GENERATE FIG. 4 IN PAPER   
             if True:
+                ROW_LIMIT = None
+                data_inspector.plot_wind_rose(df_query2.slice(0, ROW_LIMIT), 
+                                                feature_type="wind_direction", turbine_ids=["wt075","wt074"], fig_label=f"wind_rose_all")
+
+                data_inspector.plot_wind_rose(df_query2.slice(0, ROW_LIMIT), 
+                                                feature_type="nacelle_direction", turbine_ids=["wt075","wt074"], fig_label=f"nacelle_rose_all")
+
+                data_inspector.plot_time_series(df_query2.slice(0, ROW_LIMIT), feature_types=["wind_speed", "wind_direction", "power_output"], turbine_ids=["wt075","wt074"], continuity_groups=None, label="pairs")
+
+            if False: 
                 for file_set_idx in file_set_indices:
                     data_inspector.plot_wind_rose(df_query2.filter(pl.col("file_set_idx") == file_set_idx).slice(0, ROW_LIMIT), 
                                                 feature_type="wind_direction", turbine_ids="all", fig_label=f"wind_rose_{file_set_idx}")
 
-                    # data_inspector.plot_wind_rose(df_query2.filter(pl.col("file_set_idx") == file_set_idx).slice(0, ROW_LIMIT), 
-                    #                               feature_type="nacelle_direction", turbine_ids="all", fig_label=f"nacelle_rose_{file_set_idx}")
+                    data_inspector.plot_wind_rose(df_query2.filter(pl.col("file_set_idx") == file_set_idx).slice(0, ROW_LIMIT), 
+                                                  feature_type="nacelle_direction", turbine_ids="all", fig_label=f"nacelle_rose_{file_set_idx}")
                 
                 # NOTE: USE THIS CODE TO GENERATE FIG. 5 IN PAPER, perhaps without row_limit
                 for file_set_idx in file_set_indices:
@@ -931,6 +954,7 @@ def main():
         # Find offset to true North using wake loss profiles
         logging.info("Finding offset to true North using wake loss profiles.")
 
+
         # Find offsets between direction of alignment between pairs of turbines 
         # and direction of peak wake losses. Use the average offset found this way 
         # to identify the Northing correction that should be applied to all turbines 
@@ -1249,7 +1273,7 @@ def main():
                 df_query_missing = df_query_missing.filter(pl.col("duration") > missing_duration_thr)
                 
                 if df_query_not_missing.select(pl.len()).item() == 0:
-                    raise Exception(f"Parameters 'missing_col_thr' or 'missing_duration_thr' are too stringent, can't find any eligible durations of time for file set {file_set_idx} of duration {df_query[f].select(pl.col("time").last() - pl.col("time").first()).collect().item}.")
+                    raise Exception(f"Parameters 'missing_col_thr' or 'missing_duration_thr' are too stringent, can't find any eligible durations of time for file set {file_set_idx} of duration {df_query[f].select(pl.col('time').last() - pl.col('time').first()).collect().item}.")
 
                 df_query_missing = merge_adjacent_periods(agg_df=df_query_missing, dt=data_loader.dt)
                 df_query_not_missing = merge_adjacent_periods(agg_df=df_query_not_missing, dt=data_loader.dt)

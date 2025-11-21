@@ -267,16 +267,16 @@ min_continuous_duration: 2100 # minimum duration of continuous segments to be re
 
 raw_data_directory: 
 # subsets of the data
-- /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/awaken_data/kp.turbine.z02.b0/
+- /Users/ahenry/Documents/toolboxes/wind-forecasting/examples/data/awaken_data/kp.turbine.z02.b0/
 # - /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/raw_awaken2_data/
 
 # processed_data_path: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/awaken_data/awaken_processed.parquet
-processed_data_path: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/awaken_data/awaken_processed.parquet
-temp_storage_dir: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/temp
+processed_data_path: /Users/ahenry/Documents/toolboxes/wind-forecasting/examples/data/awaken_data/awaken_processed.parquet
+temp_storage_dir: /Users/ahenry/Documents/toolboxes/wind-forecasting/examples/data/temp
 
 raw_data_file_signature: 
 - kp.turbine.z02.b0.*.*.*.nc
 # - ./**/KP_SCADA_*.*.parquet
 
-turbine_input_path: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/inputs/turbine_library/ge_282_127.yaml
-farm_input_path: /Users/ahenry/Documents/toolboxes/wind_forecasting/examples/inputs/gch_KP_v4.yaml
+turbine_input_path: /Users/ahenry/Documents/toolboxes/wind-forecasting/examples/inputs/turbine_library/ge_282_127.yaml
+farm_input_path: /Users/ahenry/Documents/toolboxes/wind-forecasting/examples/inputs/gch_KP_v4.yaml
