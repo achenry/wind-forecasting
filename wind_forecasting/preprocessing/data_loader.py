@@ -157,28 +157,25 @@ class DataLoader:
                 executor = ProcessPoolExecutor(mp_context=mp.get_context("spawn"), max_workers=int(os.environ.get("MAX_WORKERS", mp.cpu_count())))
                 with executor as ex:
                     if ex is not None:
-                        
+
                         if read_single_files == "all":
-                            file_futures = [] #4% increase in mem
-                            for file_set_idx in range(len(self.file_paths)):
-                                file_futures.append([])
-                                for f, file_path in enumerate(self.file_paths[file_set_idx]):
-                                    processed_path = os.path.join(temp_save_dir, f"{os.path.splitext(os.path.basename(file_path))[0]}.parquet")
-                                    file_futures[-1].append(ex.submit(self._read_single_file, file_set_idx, f, file_path, 
-                                                                processed_path, len(self.file_paths[file_set_idx])))
+                            file_futures = [[
+                                ex.submit(self._read_single_file, file_set_idx, f, file_path, 
+                                          os.path.join(temp_save_dir, f"{os.path.splitext(os.path.basename(file_path))[0]}.parquet"), 
+                                          len(self.file_paths[file_set_idx])) 
+                                          for f, file_path in enumerate(self.file_paths[file_set_idx])] 
+                                          for file_set_idx in range(len(self.file_paths))] #4% increase in mem
+                            
                         elif read_single_files == "unprocessed":
                             unprocessed_file_path_idx = [[f for f, file_path in enumerate(self.file_paths[file_set_idx]) if not os.path.exists(os.path.join(temp_save_dir, f"{os.path.splitext(os.path.basename(file_path))[0]}.parquet"))] 
                                                         for file_set_idx in range(len(self.file_paths))]
-                    
-                            file_futures = []
-                            for file_set_idx in range(len(self.file_paths)):
-                                file_futures.append([])
-                                for f, file_path in enumerate(self.file_paths[file_set_idx]):
-                                    if f in unprocessed_file_path_idx[file_set_idx]:
-                                        processed_path = os.path.join(temp_save_dir, 
-                                                                f"{os.path.splitext(os.path.basename(file_path))[0]}.parquet")
-                                        file_futures[-1].append(ex.submit(self._read_single_file, file_set_idx, f, file_path, 
-                                                    processed_path, len(self.file_paths[file_set_idx])))
+
+                            file_futures = [[
+                                ex.submit(self._read_single_file, file_set_idx, f, file_path, 
+                                          os.path.join(temp_save_dir, f"{os.path.splitext(os.path.basename(file_path))[0]}.parquet"), 
+                                          len(self.file_paths[file_set_idx])) 
+                                          for f, file_path in enumerate(self.file_paths[file_set_idx]) if f in unprocessed_file_path_idx[file_set_idx]] 
+                                          for file_set_idx in range(len(self.file_paths))]
                     
                     for file_set_idx in range(len(self.file_paths)):
                         for f, fut in enumerate(file_futures[file_set_idx]):

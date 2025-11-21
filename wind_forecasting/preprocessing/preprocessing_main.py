@@ -226,7 +226,7 @@ def main():
         logging.info(f"Making directory to save_path {os.path.dirname(data_loader.save_path)}")
         os.makedirs(os.path.dirname(data_loader.save_path), exist_ok=True)
 
-        df_query = data_loader.read_multi_files(temp_save_dir, read_single_files="all") # TODO this should be set to all or unprocessed or False, and should change if there are no processed files
+        df_query = data_loader.read_multi_files(temp_save_dir, read_single_file=False) # TODO this should be set to all or unprocessed or False, and should change if there are no processed files
         
         # df = df_query.select("wind_speed_wt001", "wind_direction_wt001", "file_set_idx", "time").collect().select("file_set_idx", "time", cs.starts_with("wind_")).partition_by("file_set_idx")
         # fig, ax = plt.subplots(2, 1, sharex=True)
