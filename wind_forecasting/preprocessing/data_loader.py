@@ -586,7 +586,7 @@ class DataLoader:
                             else:
                                 raise Exception("No wind_direction or yaw_offset variable found in data.")
                             
-                            offset = 2.0
+                            offset = 2.0 # TODO make configurable
                             data[f"wind_direction"] = data[f"nacelle_direction"] + delta * data[f"yaw_offset_{direc}"] + offset
                             del data[f"yaw_offset_{direc}"]
                                 
