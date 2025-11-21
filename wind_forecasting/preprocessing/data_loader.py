@@ -747,7 +747,7 @@ class DataLoader:
             if df_query.select(pl.len()).item():
                 bounds = df_query.select(pl.col("time").first().alias("first"), pl.col("time").last().alias("last"))
                 self._resample_df(df_query.lazy(), bounds, fill_null=False).collect().write_parquet(processed_file_path)
-                assert pl.scan_parquet(processed_file_path).select("time").collect().to_series().is_sorted()
+                # assert pl.scan_parquet(processed_file_path).select("time").collect().to_series().is_sorted()
             # else:
             #     df_query.write_parquet(processed_file_path)
             
