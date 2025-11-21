@@ -851,16 +851,16 @@ def main():
         # Find and correct wind direction offsets from median wind plant wind direction for each turbine
         logging.info("Subtracting median wind direction from wind direction and nacelle direction measurements.")
         
-        # add the 3 degrees back to the wind direction signal
-        offset = 3.0
+        # add the 2 degrees back to the wind direction signal
         
-        df_query2 = df_query.with_columns((cs.starts_with("wind_direction") + offset).mod(360.0))
         if args.reload_data or args.regenerate_filters or not os.path.exists(config["processed_data_path"].replace(".parquet", "_calibrated_1.parquet")):
             
-            df_query_10min = df_query2\
+            # averaging over 10mins
+            df_query_10min = df_query\
                                 .with_columns(pl.col("time").dt.round(f"{10}m").alias("time"))\
                                 .group_by("time").agg(cs.numeric().mean()).sort("time")
             
+            # fetching median sin/cos abs wind dir and computing arctan of that
             wd_median = df_query_10min.select(cs.starts_with("wind_direction").radians().sin().name.suffix("_sin"),
                                             cs.starts_with("wind_direction").radians().cos().name.suffix("_cos"))
             
@@ -868,15 +868,14 @@ def main():
                                     wd_median.select(pl.concat_list(cs.ends_with("_cos")).list.drop_nulls().list.median().alias("wd_cos_median"))],
                                 how="horizontal")\
                                 .select(pl.arctan2(pl.col("wd_sin_median"), pl.col("wd_cos_median")).degrees().alias("wd_median"))
-                                # .collect().to_numpy().flatten()
             
+            # fetching median sin/cos abs nacelle dir and computing arctan of that
             nd_median = df_query_10min.select(cs.starts_with("nacelle_direction").radians().sin().name.suffix("_sin"),
                                             cs.starts_with("nacelle_direction").radians().cos().name.suffix("_cos"))
             nd_median = pl.concat([nd_median.select(pl.concat_list(cs.ends_with("_sin")).list.drop_nulls().list.median().alias("nd_sin_median")), 
                                     nd_median.select(pl.concat_list(cs.ends_with("_cos")).list.drop_nulls().list.median().alias("nd_cos_median"))],
                                 how="horizontal")\
                                 .select(pl.arctan2(pl.col("nd_sin_median"), pl.col("nd_cos_median")).degrees().alias("nd_median"))
-                                # .collect().to_numpy().flatten()
 
             # df_query_10min = df_query_10min.with_columns(wd_median=wd_median, yaw_median=yaw_median).collect().lazy()
             df_query_10min = pl.concat([df_query_10min, wd_median, nd_median], how="horizontal")
@@ -907,7 +906,7 @@ def main():
             biases = np.load(fp)
             
         for bias, turbine_id in zip(biases, data_loader.turbine_ids):
-            
+            # TODO these are final offsets
             if turbine_id == "wt033":
                 switch_time = datetime.strptime("11/5/2024 14:06", "%m/%d/%Y %H:%M")
                 expr = (pl.when(pl.col("time") < switch_time).then(pl.col(f"wind_direction_{turbine_id}") - 8.3).otherwise(pl.col(f"wind_direction_{turbine_id}") - 106.8).mod(360.0).alias(f"wind_direction_{turbine_id}"), 
