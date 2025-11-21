@@ -295,13 +295,13 @@ class DataLoader:
                 with executor as ex:
                     if ex is not None:
                         schema_futures = [ex.submit(self._get_schema, fp) for fp in processed_file_paths]
-                
-                    full_schema = schema_futures[0].result()
-                    logging.info(f"  - Schema for {processed_file_paths[0]}: {full_schema}")
-                    for f, fut in enumerate(schema_futures[1:]):
-                        schema = fut.result()
-                        logging.info(f"  - Schema for {processed_file_paths[f+1]}: {schema}")
-                        full_schema.update(schema)
+                    schema_futures = [fut.result() for fut in schema_futures]
+
+                full_schema = schema_futures[0]
+                logging.info(f"  - Schema for {processed_file_paths[0]}: {full_schema}")
+                for f, schema in enumerate(schema_futures[1:]):
+                    logging.info(f"  - Schema for {processed_file_paths[f+1]}: {schema}")
+                    full_schema.update(schema)
             else:
                 full_schema = pl.scan_parquet(processed_file_paths[0]).collect_schema()
             
@@ -332,10 +332,11 @@ class DataLoader:
                 with executor as ex:
                     if ex is not None:
                         time_bounds_futures = [ex.submit(self._get_time_bounds, fp) for fp in processed_file_paths]
-                    for f, fut in enumerate(time_bounds_futures):
-                        start, end = fut.result()
-                        all_time_bounds.append((start, end, f))
-                        logging.info(f"  - Time Bounds for {processed_file_paths[f]}: {all_time_bounds[-1]}")
+                    time_bounds_futures = [fut.result() for fut in time_bounds_futures]
+                
+                for f, (start, end) in enumerate(time_bounds_futures):
+                    all_time_bounds.append((start, end, f))
+                    logging.info(f"  - Time Bounds for {processed_file_paths[f]}: {all_time_bounds[-1]}")
             else:
                 for f, fp in enumerate(processed_file_paths):
                     start, end = self._get_time_bounds(fp)
