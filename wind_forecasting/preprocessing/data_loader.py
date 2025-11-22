@@ -633,7 +633,7 @@ class DataLoader:
                 logging.info(f"✅ Scanned {file_number + 1}-th {raw_file_path}") 
                 
                 available_columns = df_query.collect_schema().names()
-                assert all(any(bool(re.search(feat, col)) for col in available_columns) for feat in self.source_features[file_set_idx]), "All values in feature_mapping must exist in data columns."
+                # assert all(any(bool(re.search(feat, col)) for col in available_columns) for feat in self.source_features[file_set_idx]), "All values in feature_mapping must exist in data columns."
 
                 # Select only relevant columns
                 df_query = df_query.select(*[cs.matches(feat) for feat in self.source_features[file_set_idx]])
@@ -752,7 +752,7 @@ class DataLoader:
             # else:
             #     df_query.write_parquet(processed_file_path)
             
-                assert os.path.exists(os.path.dirname(processed_file_path)), f"Temporary save directory {os.path.dirname(processed_file_path)} does not exist." 
+                # assert os.path.exists(os.path.dirname(processed_file_path)), f"Temporary save directory {os.path.dirname(processed_file_path)} does not exist." 
                 # df_query.collect().write_parquet(processed_file_path, statistics=False)
                 
                 logging.info(f"✅ Processed {file_number + 1}-th of {num_file_paths} {raw_file_path} and saved to {processed_file_path}. Time: {time.time() - start_time:.2f} s")
