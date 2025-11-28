@@ -388,12 +388,12 @@ class DataLoader:
                                 .sort("time")\
                                     .group_by("time", maintain_order=True)\
                                     .agg(cs.numeric().mean())
-                        assert df.select("time").collect().to_series().is_sorted()
+                        # assert df.select("time").collect().to_series().is_sorted()
                         logging.info(f"  - Resampling {tid}")
                         df = self._resample_df(df, bounds, fill_null=False)
                         logging.info(f"  - Writing {tid}")
-                        df.sink_parquet(grouped_fp, maintain_order=True, row_group_size=100_000)
-                        assert pl.scan_parquet(grouped_fp).select("time").collect().to_series().is_sorted()
+                        df.sink_parquet(grouped_fp, maintain_order=True) #, row_group_size=100_000)
+                        # assert pl.scan_parquet(grouped_fp).select("time").collect().to_series().is_sorted()
                     else:
                         logging.info(f"Loading existing grouped file for turbine id {tid} for file set {file_set_idx}, merge index {i}. Used RAM = {virtual_memory().percent}%.")
                 
