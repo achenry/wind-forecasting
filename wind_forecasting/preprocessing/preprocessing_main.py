@@ -266,8 +266,8 @@ def main():
     )
     
     if args.debug:
-        # df_query = df_query.select(["time", "file_set_idx"] + [cs.ends_with(f"wt{i+1:03d}") for i in set(np.concatenate(config["nacelle_calibration_turbine_pairs"]))]).slice(0, int(18 * 30 * np.timedelta64(1, 'D') / np.timedelta64(data_loader.dt, 's'))).collect().lazy()
-        # df_query.sink_parquet("/Users/ahenry/Documents/toolboxes/wind-forecasting/examples/data/awaken_data/awaken_data_processed_debug.parquet")
+        df_query = df_query.select(["time", "file_set_idx"] + [cs.ends_with(f"wt{i+1:03d}") for i in set(np.concatenate(config["nacelle_calibration_turbine_pairs"]))]).slice(0, int(18 * 30 * np.timedelta64(1, 'D') / np.timedelta64(data_loader.dt, 's'))).collect().lazy()
+        df_query.sink_parquet("/Users/ahenry/Documents/toolboxes/wind-forecasting/examples/data/awaken_data/awaken_data_processed_debug.parquet")
         df_query = pl.scan_parquet("/Users/ahenry/Documents/toolboxes/wind-forecasting/examples/data/awaken_data/awaken_data_processed_debug.parquet")
         # .group_by("time", "file_set_idx")\
         # df_query = df_query.slice(0, int(1 * 30 * np.timedelta64(1, 'D') / np.timedelta64(data_loader.dt, 's')))
@@ -1124,7 +1124,7 @@ def main():
             if args.reload_data or args.regenerate_filters \
                 or (not all(os.path.exists(os.path.join(std_dev_filter_target_path, f"{s}.parquet")) for s in filenames)):
                 # TODO use __slots__ for data_loader etc classes to reduce memory load?
-                
+                # df_query = df_query.head(100_000)
                 if config["filters"]["std_range_flag"]["over"] == "asset":
                         
                     # NEED: polars, my OpenOA repository, config file, FLASC data
@@ -1154,7 +1154,7 @@ def main():
                             df], how="horizontal").collect(engine="streaming").write_parquet(os.path.join(std_dev_filter_target_path, f"{s}.parquet"))
                         del df
                         
-                        logging.info(f"Finished processing rows {start_row} to {end_row} of {total_rows} of std_dev_outliers. Maximum RAM used was {max_ram}%.")
+                        logging.info(f"Finished processing rows {start_row} to {end_row} of {total_rows} of std_dev_outliers.")
                     
                 else:
                     
