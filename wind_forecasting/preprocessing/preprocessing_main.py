@@ -62,6 +62,7 @@ from floris import FlorisModel
 ROW_LIMIT = None #60 * 60 * 24 * 30 * 3
 from datetime import datetime
 ROW_BOUNDS = (datetime(year=2024, month=2, day=20), datetime(year=2025, month=3, day=27))
+ROW_BOUNDS = (None, None)
 
 # %%
 
@@ -354,17 +355,21 @@ def main():
                         df=df_query2.filter(pl.col("file_set_idx") == file_set_idx).slice(0, ROW_LIMIT), feature_types=["wind_direction"]), 
                                         return_fig=True)
                     fig.savefig(os.path.join(data_inspector.save_dir, f"wind_dir_histogram_{file_set_idx}.png"))
-        # else:
+        
         if False:
-            df_query.filter(pl.col("time").is_between(lower_bound=ROW_BOUNDS[0], upper_bound=ROW_BOUNDS[1], closed="both"))\
-                                .with_columns(pl.col("time").dt.round(f"{10}m").alias("time"))\
+            df_query.with_columns(pl.col("time").dt.round(f"{10}m").alias("time"))\
                                 .group_by("time", maintain_order=True).agg(cs.numeric().mean())\
-                                .filter(pl.all_horizontal((cs.starts_with("wind_speed") >= 0) & (cs.starts_with("wind_speed") <= 25)))\
-                                .sink_parquet(os.path.join(os.path.dirname(config["processed_data_path"]), os.path.basename(config["processed_data_path"]).replace(".parquet", "_10min.parquet")), statistics=False)
+                                    .select("time", "file_set_idx", cs.starts_with("wind_speed"), cs.starts_with("wind_direction")).unpivot(on=cs.starts_with("wind_speed"), index=["time", "file_set_idx", cs.starts_with("wind_direction")])\
+                                        .filter(pl.col("value").is_between(0, 25, closed="both"))\
+                                            .collect(engine="streaming").pivot(on="variable", values="value", index=["time", "file_set_idx", cs.starts_with("wind_direction")])\
+                                                .write_parquet(os.path.join(os.path.dirname(config["processed_data_path"]), os.path.basename(config["processed_data_path"]).replace(".parquet", "_10min.parquet")))
+                            
+        # .filter(pl.col("time").is_between(lower_bound=ROW_BOUNDS[0], upper_bound=ROW_BOUNDS[1], closed="both"))\
+                            
         df_query2 = pl.scan_parquet(os.path.join(os.path.dirname(config["processed_data_path"]), os.path.basename(config["processed_data_path"]).replace(".parquet", "_10min.parquet")))
         
         data_inspector.plot_wind_rose(df_query2.slice(0, None), feature_type="wind_direction", turbine_ids="all", fig_label=f"wind_rose")
-        data_inspector.plot_wind_speed_weibull(df_query2.slice(0, None), turbine_ids="all", fig_label=f"weibull")
+        data_inspector.plot_wind_speed_weibull(df_query2.slice(0, None), turbine_ids="all", fig_label=f"")
                         
         # data_inspector.plot_correlation(df_query.slice(0, ROW_LIMIT), 
         # data_inspector.get_features(df_query.slice(0, ROW_LIMIT), feature_types=["wind_speed", "wind_direction", "nacelle_direction"], 
@@ -1107,7 +1112,7 @@ def main():
             cols = df_query.select(cs.starts_with("ws_horz"), cs.starts_with("ws_vert")).collect_schema().names()
             if config["filters"]["std_range_flag"]["over"] == "asset":
                 total_rows = df_query.select(pl.len()).collect().item()
-                chunk_size = 100_000_000 * len(cols) #  total_rows * 2 # process a number of cells equal to the twice total row number at a time ,1_000_000_000
+                chunk_size = 10_000_000 * len(cols) #  total_rows * 2 # process a number of cells equal to the twice total row number at a time ,1_000_000_000
                 row_chunk_size = int(chunk_size // len(cols))
                 filenames = np.arange(len(np.arange(0, total_rows, row_chunk_size)))
             else:
@@ -1125,7 +1130,7 @@ def main():
                     # NEED: polars, my OpenOA repository, config file, FLASC data
                     for s, start_row in enumerate(range(0, total_rows, row_chunk_size)):
                         
-                        end_row = start_row + row_chunk_size
+                        end_row = min(start_row + row_chunk_size, total_rows)
                         if not args.regenerate_filters and os.path.exists(os.path.join(std_dev_filter_target_path, f"{s}.parquet")):
                             used_ram = virtual_memory().percent
                             
@@ -1134,8 +1139,8 @@ def main():
                             
                         logging.info(f"Started processing rows {start_row} to {end_row} of {total_rows} of std_dev_outliers.")
                         
-                        df, max_ram = filters.std_range_flag(
-                            data_pl=df_query.slice(start_row, row_chunk_size).select(cs.starts_with("ws_horz"), cs.starts_with("ws_vert")),
+                        df = filters.std_range_flag(
+                            data_pl=df_query.slice(start_row, end_row - start_row).select(cs.starts_with("ws_horz"), cs.starts_with("ws_vert")),
                             threshold=config["filters"]["std_range_flag"]["threshold"], 
                             over=config["filters"]["std_range_flag"]["over"], # asset or time 
                             feature_types=["ws_horz", "ws_vert"],
@@ -1143,8 +1148,9 @@ def main():
                             min_correlated_assets=config["filters"]["std_range_flag"]["min_correlated_assets"],
                             return_ram=True
                         ) 
-                        pl.concat([df_query.slice(start_row, row_chunk_size).select("time"),
-                                df], how="horizontal").collect(engine="streaming").write_parquet(os.path.join(std_dev_filter_target_path, f"{s}.parquet"))
+                        pl.concat([
+                            df_query.slice(start_row, end_row - start_row).select("time"),
+                            df], how="horizontal").collect(engine="streaming").write_parquet(os.path.join(std_dev_filter_target_path, f"{s}.parquet"))
                         del df
                         
                         logging.info(f"Finished processing rows {start_row} to {end_row} of {total_rows} of std_dev_outliers. Maximum RAM used was {max_ram}%.")

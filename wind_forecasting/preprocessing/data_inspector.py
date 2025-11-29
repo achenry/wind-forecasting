@@ -310,11 +310,12 @@ class DataInspector:
                 ax = WindroseAxes(fig, rect)
                 fig.add_axes(ax)
                 
-                ax.bar(direc, wind_spd, normed=True, opening=0.8, edgecolor='white')
-                h, l = ax.get_legend_handles_labels()
+                ax.bar(direc, wind_spd, normed=True, opening=0.8, edgecolor='white', bins=[0, 6, 9, 12, 15, 18])
+                # h, l = ax.get_legend_handles_labels()
                 ax.legend(bbox_to_anchor=(1.05, 0.5), loc="center left")
                 # ax.set_xlim((0, 6))
-                ax.set_ylim((0, 20))
+                ax.set_ylim((0, 16))
+                ax.yaxis.majorTicks[0].set_visible(False)
                 ax.set_title("")
                 # ax.set_title(f"{' '.join(feature_type.split('_')).capitalize()} Rose all Turbines")
                 plt.show()
@@ -512,7 +513,7 @@ class DataInspector:
         if turbine_ids == "all":
             # Extract wind speed data
             wind_speeds = df.select(cs.starts_with("wind_speed")).collect().to_numpy().flatten()
-            # wind_speeds = wind_speeds[(wind_speeds > 0) & (np.isfinite(wind_speeds))]
+            wind_speeds = wind_speeds[(wind_speeds > 0) & (np.isfinite(wind_speeds))]
             # wind_speeds = np.concatenate([wind_speeds[0:1], wind_speeds[1:][np.diff(wind_speeds) != 0]])
             if len(wind_speeds) == 0:
                 print("No valid wind speed data found after filtering")
