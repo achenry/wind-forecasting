@@ -355,11 +355,12 @@ def main():
                                         return_fig=True)
                     fig.savefig(os.path.join(data_inspector.save_dir, f"wind_dir_histogram_{file_set_idx}.png"))
         # else:
-        df_query.filter(pl.col("time").is_between(lower_bound=ROW_BOUNDS[0], upper_bound=ROW_BOUNDS[1], closed="both"))\
-                            .with_columns(pl.col("time").dt.round(f"{10}m").alias("time"))\
-                            .group_by("time", maintain_order=True).agg(cs.numeric().mean())\
-                            .filter(pl.all_horizontal((cs.starts_with("wind_speed") >= 3) & (cs.starts_with("wind_speed") <= 25)))\
-                            .sink_parquet(os.path.join(os.path.dirname(config["processed_data_path"]), os.path.basename(config["processed_data_path"]).replace(".parquet", "_10min.parquet")), statistics=False)
+        if False:
+            df_query.filter(pl.col("time").is_between(lower_bound=ROW_BOUNDS[0], upper_bound=ROW_BOUNDS[1], closed="both"))\
+                                .with_columns(pl.col("time").dt.round(f"{10}m").alias("time"))\
+                                .group_by("time", maintain_order=True).agg(cs.numeric().mean())\
+                                .filter(pl.all_horizontal((cs.starts_with("wind_speed") >= 3) & (cs.starts_with("wind_speed") <= 25)))\
+                                .sink_parquet(os.path.join(os.path.dirname(config["processed_data_path"]), os.path.basename(config["processed_data_path"]).replace(".parquet", "_10min.parquet")), statistics=False)
         df_query2 = pl.scan_parquet(os.path.join(os.path.dirname(config["processed_data_path"]), os.path.basename(config["processed_data_path"]).replace(".parquet", "_10min.parquet")))
         
         data_inspector.plot_wind_rose(df_query2.slice(0, None), feature_type="wind_direction", turbine_ids="all", fig_label=f"wind_rose")

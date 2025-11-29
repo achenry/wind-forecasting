@@ -770,7 +770,7 @@ def compute_offsets(df, fi, turbine_ids, turbine_pairs:list[tuple[int, int]]=Non
         # compute the power ratio downstream power to upstream power for each integer wind direction
         df_sub = df_sub.select(pl.col(f"wd_round"), (pl.col(f"power_output_{tid_down}") / pl.col(f"power_output_{tid_up}")).alias("p_ratio")).collect()
 
-        if (type(plot) is bool and plot) or (type(plot) is list and pair in plot):
+        if (type(plot) is bool and plot) or (type(plot) is list and tuple(pair) in plot):
             fig, ax = plt.subplots(1,1, figsize=(10, 6))
             ax.plot(df_sub.select("wd_round").to_numpy().flatten(), df_sub.select("p_ratio").to_numpy().flatten(), label="_nolegend_")
             ax.plot(dir_align * np.ones(2),[0, 1.25], 'k--', label="Direction of Alignment")
@@ -804,7 +804,7 @@ def compute_offsets(df, fi, turbine_ids, turbine_pairs:list[tuple[int, int]]=Non
         xs = np.arange(-int((2 * prat_hfwdth - 1) / 2),int((2 * prat_hfwdth + 1) / 2),1)
         gauss = -1 * opt_gauss_params.x[2] * np.exp(-0.5 * ((xs - opt_gauss_params.x[0]) / opt_gauss_params.x[1])**2) + 1.
 
-        if (type(plot) is bool and plot) or (type(plot) is list and pair in plot):
+        if (type(plot) is bool and plot) or (type(plot) is list and tuple(pair) in plot):
             ax.plot(xs + nadir, gauss,'k',label="_nolegend_")
             ax.plot(2 * [nadir + opt_gauss_params.x[0]], [0, 1.25], 'r--',label="Direction of Measured Power Nadir")
             ax.legend()
