@@ -311,6 +311,7 @@ class DataInspector:
                 fig.add_axes(ax)
                 
                 ax.bar(direc, wind_spd, normed=True, opening=0.8, edgecolor='white')
+                h, l = ax.get_legend_handles_labels()
                 ax.legend(bbox_to_anchor=(1.05, 0.5), loc="center left")
                 # ax.set_xlim((0, 6))
                 ax.set_ylim((0, 20))
