@@ -596,8 +596,7 @@ class DataLoader:
                                 raise Exception("No wind_direction or yaw_offset variable found in data.")
                             
                             offset = 2.0 # TODO make configurable
-                            data[f"wind_direction"] = data[f"nacelle_direction"] + delta * data[f"yaw_offset_{direc}"]
-                            data[f"nacelle_direction"] -= offset
+                            data[f"wind_direction"] = (data[f"nacelle_direction"] + delta * data[f"yaw_offset_{direc}"]) + offset
                             del data[f"yaw_offset_{direc}"]
                                 
                             del target_features[target_features.index(f"yaw_offset_{direc}")]

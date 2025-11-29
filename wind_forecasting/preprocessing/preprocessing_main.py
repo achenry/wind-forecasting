@@ -852,9 +852,11 @@ def main():
         # Nacelle Calibration 
         # Find and correct wind direction offsets from median wind plant wind direction for each turbine
         logging.info("Subtracting median wind direction from wind direction and nacelle direction measurements.")
+        offset = 2.0
+        use_existing_corrections = True
         
         # just use Eric's corrections
-        if False:
+        if use_existing_corrections:
             final_corrections = pl.read_csv(os.path.join(os.path.dirname(config["processed_data_path"]), "corrections.csv"))
             
             for row in final_corrections.iter_rows(named=True):
@@ -863,20 +865,9 @@ def main():
                 logging.info(f"Turbine {turbine_id} correction: {corrections} deg")
                 
                 if len(corrections) == 1:
-                    expr = [(pl.col(f"wind_direction_{turbine_id}") + corrections[0]).mod(360.0).alias(f"wind_direction_{turbine_id}"), 
-                        (pl.col(f"nacelle_direction_{turbine_id}") + corrections[0]).mod(360.0).alias(f"nacelle_direction_{turbine_id}")]
+                    expr = [(pl.col(f"wind_direction_{turbine_id}") + corrections[0] - offset).mod(360.0).alias(f"wind_direction_{turbine_id}"), 
+                        (pl.col(f"nacelle_direction_{turbine_id}") + corrections[0] - offset).mod(360.0).alias(f"nacelle_direction_{turbine_id}")]
                 else:
-                # if turbine_id in ["wt033", "wt042", "wt078"]:
-                    # if turbine_id == "wt033":
-                    #     switch_time = datetime.strptime("11/5/2024 14:06", "%m/%d/%Y %H:%M")
-                    #     bias_1, bias_2 = 8.3, 106.8
-                        
-                    # elif turbine_id == "wt042":
-                    #     switch_time = datetime.strptime("4/12/2025 21:07", "%m/%d/%Y %H:%M")
-                    #     bias_1, bias_2 = 7, -54.4
-                    # elif turbine_id == "wt078":
-                    #     switch_time = datetime.strptime("8/19/2024 13:07", "%m/%d/%Y %H:%M")
-                    #     bias_1, bias_2 = -6.7, 36.7
                     
                     switch_times = re.findall(r"\d{1,2}/\d{1,2}/\d{4}\s+\d{1,2}:\d{2}\s+UTC", row["Notes"])
                     expr = None
