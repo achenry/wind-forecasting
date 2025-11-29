@@ -313,7 +313,7 @@ class DataInspector:
                 ax.bar(direc, wind_spd, normed=True, opening=0.8, edgecolor='white')
                 ax.legend(bbox_to_anchor=(1.05, 0.5), loc="center left")
                 # ax.set_xlim((0, 6))
-                ax.set_ylim((0, 25))
+                ax.set_ylim((0, 20))
                 ax.set_title("")
                 # ax.set_title(f"{' '.join(feature_type.split('_')).capitalize()} Rose all Turbines")
                 plt.show()
@@ -526,7 +526,7 @@ class DataInspector:
 
             # Plot
             fig, ax = plt.subplots(1, 1, figsize=(10, 6))
-            sns.histplot(wind_speeds, stat='density', kde=False, color='skyblue', label='Observed', ax=ax)
+            sns.histplot(np.unique(wind_speeds), stat='density', kde=False, color='skyblue', label='Observed', ax=ax)
             ax.plot(x, y, 'r-', lw=2, label=f'Weibull (k={shape:.2f}, λ={scale:.2f})')
             
             # ax.set_title('Wind Speed Distribution with Fitted Weibull', fontsize=16)

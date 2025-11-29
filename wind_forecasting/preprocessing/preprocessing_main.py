@@ -359,8 +359,8 @@ def main():
                             .with_columns(pl.col("time").dt.round(f"{10}m").alias("time"))\
                             .group_by("time", maintain_order=True).agg(cs.numeric().mean())\
                             .filter(pl.all_horizontal((cs.starts_with("wind_speed") >= 3) & (cs.starts_with("wind_speed") <= 25)))\
-                            .sink_parquet(os.path.join(os.path.dirname(config["processed_data_path"]), os.path.basename(config["processed_data_path"]).replace(".parquet", "_1min.parquet")), statistics=False)
-        df_query2 = pl.scan_parquet(os.path.join(os.path.dirname(config["processed_data_path"]), os.path.basename(config["processed_data_path"]).replace(".parquet", "_1min.parquet")))
+                            .sink_parquet(os.path.join(os.path.dirname(config["processed_data_path"]), os.path.basename(config["processed_data_path"]).replace(".parquet", "_10min.parquet")), statistics=False)
+        df_query2 = pl.scan_parquet(os.path.join(os.path.dirname(config["processed_data_path"]), os.path.basename(config["processed_data_path"]).replace(".parquet", "_10min.parquet")))
         
         data_inspector.plot_wind_rose(df_query2.slice(0, None), feature_type="wind_direction", turbine_ids="all", fig_label=f"wind_rose")
         data_inspector.plot_wind_speed_weibull(df_query2.slice(0, None), turbine_ids="all", fig_label=f"weibull")
@@ -844,7 +844,7 @@ def main():
     else:
         df_query = pl.scan_parquet(config["processed_data_path"].replace(".parquet", "_filtered.parquet"))
     
-    if "nacelle_calibration" in config["filters"]:
+    if "nacelle_calibration" in config["filters"] and (args.reload_data or args.regenerate_filters or not os.path.exists(config["processed_data_path"].replace(".parquet", "_calibrated_2.parquet"))):
         
         # if args.reload_data or args.regenerate_filters or not os.path.exists(fp):
         
@@ -853,7 +853,7 @@ def main():
         logging.info("Subtracting median wind direction from wind direction and nacelle direction measurements.")
         
         # just use Eric's corrections
-        if True:
+        if False:
             final_corrections = pl.read_csv(os.path.join(os.path.dirname(config["processed_data_path"]), "corrections.csv"))
             
             for row in final_corrections.iter_rows(named=True):
@@ -899,7 +899,7 @@ def main():
                 # averaging over 10mins
                 df_query_10min = df_query\
                                     .with_columns(pl.col("time").dt.round(f"{10}m").alias("time"))\
-                                    .group_by("time").agg(cs.numeric().mean()).sort("time")
+                                    .group_by("time", maintain_order=True).agg(cs.numeric().mean())
                 
                 # fetching median sin/cos abs wind dir and computing arctan of that
                 wd_median = df_query_10min.select(cs.starts_with("wind_direction").radians().sin().name.suffix("_sin"),
@@ -975,7 +975,7 @@ def main():
             # NOTE: Fig. 9 generated here
             dir_offsets = compute_offsets(df_query_10min, data_inspector.fmodel, turbine_ids=data_loader.turbine_ids,
                                         turbine_pairs=config["nacelle_calibration_turbine_pairs"],
-                                        plot=True,#[(18, 19)], #args.plot,
+                                        plot=[(18, 19)], #args.plot,
                                         save_path=os.path.join(os.path.dirname(config["processed_data_path"]), "pre_correction.png")
                                         )
             
@@ -1044,7 +1044,9 @@ def main():
             DataInspector.print_df_state(df_query, ["wind_speed", "wind_direction", "nacelle_direction"])
         if args.plot:
             data_inspector.plot_time_series(df_query.slice(0, ROW_LIMIT), feature_types=["wind_speed", "wind_direction"], turbine_ids=data_loader.turbine_ids, continuity_groups=None, label="after_nacelle_calibration")
-    
+    else:
+        df_query = pl.scan_parquet(config["processed_data_path"].replace(".parquet", "_calibrated_2.parquet"))
+        
     # %% Feature Selection
     # only need to select features if none of the following exist
     if args.reload_data or args.regenerate_filters or \
@@ -1102,17 +1104,8 @@ def main():
 
             # apply a bin filter to remove data with power values outside of an envelope around median power curve at each wind speed
             
-            std_dev_filter_temp_path = os.path.join(config["temp_storage_dir"], 
-                                                os.path.basename(config["processed_data_path"]).replace(".parquet", "_std_dev_outliers"))
-                                        
             std_dev_filter_target_path = os.path.join(os.path.dirname(config["processed_data_path"]), 
                                             os.path.basename(config["processed_data_path"]).replace(".parquet", "_std_dev_outliers"))
-            
-            
-            if os.path.exists(std_dev_filter_temp_path):
-                rmtree(std_dev_filter_temp_path) 
-            
-            os.makedirs(std_dev_filter_temp_path, exist_ok=True)
             
             if args.regenerate_filters and os.path.exists(std_dev_filter_target_path):
                 rmtree(std_dev_filter_target_path)
@@ -1192,7 +1185,7 @@ def main():
                 mask = lambda feat: std_dev_outliers.select(feat).collect().to_series()
             else:
                 # std_dev_outliers = pl.scan_parquet(std_dev_filter_target_path)
-                mask = lambda feat: pl.scan_parquet(os.path.join(std_dev_filter_target_path, f"{feat}.parquet")).collect().to_series() 
+                mask = lambda feat: pl.read_parquet(os.path.join(std_dev_filter_target_path, f"{feat}.parquet")).to_series() 
                 
             # check if wind speed/dir measurements from inoperational turbines differ from fully operational
             ws_horz_cols = [col for col in df_query.collect_schema().names() if col.startswith("ws_horz")]
