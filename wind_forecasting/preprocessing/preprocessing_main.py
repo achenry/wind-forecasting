@@ -359,7 +359,7 @@ def main():
             df_query.filter(pl.col("time").is_between(lower_bound=ROW_BOUNDS[0], upper_bound=ROW_BOUNDS[1], closed="both"))\
                                 .with_columns(pl.col("time").dt.round(f"{10}m").alias("time"))\
                                 .group_by("time", maintain_order=True).agg(cs.numeric().mean())\
-                                .filter(pl.all_horizontal((cs.starts_with("wind_speed") >= 3) & (cs.starts_with("wind_speed") <= 25)))\
+                                .filter(pl.all_horizontal((cs.starts_with("wind_speed") >= 0) & (cs.starts_with("wind_speed") <= 25)))\
                                 .sink_parquet(os.path.join(os.path.dirname(config["processed_data_path"]), os.path.basename(config["processed_data_path"]).replace(".parquet", "_10min.parquet")), statistics=False)
         df_query2 = pl.scan_parquet(os.path.join(os.path.dirname(config["processed_data_path"]), os.path.basename(config["processed_data_path"]).replace(".parquet", "_10min.parquet")))
         
@@ -1116,7 +1116,7 @@ def main():
             cols = df_query.select(cs.starts_with("ws_horz"), cs.starts_with("ws_vert")).collect_schema().names()
             if config["filters"]["std_range_flag"]["over"] == "asset":
                 total_rows = df_query.select(pl.len()).collect().item()
-                chunk_size = 1_000_000 * len(cols) #  total_rows * 2 # process a number of cells equal to the twice total row number at a time ,1_000_000_000
+                chunk_size = 10_000_000 * len(cols) #  total_rows * 2 # process a number of cells equal to the twice total row number at a time ,1_000_000_000
                 row_chunk_size = int(chunk_size // len(cols))
                 filenames = np.arange(len(np.arange(0, total_rows, row_chunk_size)))
             else:
