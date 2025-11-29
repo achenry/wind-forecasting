@@ -1139,12 +1139,15 @@ def main():
                         
                     # NEED: polars, my OpenOA repository, config file, FLASC data
                     for s, start_row in enumerate(range(0, total_rows, row_chunk_size)):
+                        
                         end_row = start_row + row_chunk_size
                         if not args.regenerate_filters and os.path.exists(os.path.join(std_dev_filter_target_path, f"{s}.parquet")):
                             used_ram = virtual_memory().percent
                             
                             logging.info(f"Found existing file for rows {start_row} to {end_row} of {total_rows} of std_dev_outliers. Used {used_ram}% of RAM.")
                             continue
+                            
+                        logging.info(f"Started processing rows {start_row} to {end_row} of {total_rows} of std_dev_outliers.")
                         
                         df, max_ram = filters.std_range_flag(
                             data_pl=df_query.slice(start_row, row_chunk_size).select(cs.starts_with("ws_horz"), cs.starts_with("ws_vert")),
@@ -1156,10 +1159,10 @@ def main():
                             return_ram=True
                         ) 
                         pl.concat([df_query.slice(start_row, row_chunk_size).select("time"),
-                                df], how="horizontal").sink_parquet(os.path.join(std_dev_filter_target_path, f"{s}.parquet"), maintain_order=True)
+                                df], how="horizontal").collect(engine="streaming").write_parquet(os.path.join(std_dev_filter_target_path, f"{s}.parquet"))
                         del df
                         
-                        logging.info(f"Processing rows {start_row} to {end_row} of {total_rows} of std_dev_outliers. Maximum RAM used was {max_ram}%.")
+                        logging.info(f"Finished processing rows {start_row} to {end_row} of {total_rows} of std_dev_outliers. Maximum RAM used was {max_ram}%.")
                     
                 else:
                     
@@ -1189,7 +1192,7 @@ def main():
                 mask = lambda feat: std_dev_outliers.select(feat).collect().to_series()
             else:
                 # std_dev_outliers = pl.scan_parquet(std_dev_filter_target_path)
-                mask = lambda feat: pl.scan_parquet(os.path.join(std_dev_filter_target_dir, f"{feat}.parquet")).collect().to_series() 
+                mask = lambda feat: pl.scan_parquet(os.path.join(std_dev_filter_target_path, f"{feat}.parquet")).collect().to_series() 
                 
             # check if wind speed/dir measurements from inoperational turbines differ from fully operational
             ws_horz_cols = [col for col in df_query.collect_schema().names() if col.startswith("ws_horz")]
