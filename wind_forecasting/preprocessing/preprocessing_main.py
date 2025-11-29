@@ -1146,7 +1146,8 @@ def main():
                             feature_types=["ws_horz", "ws_vert"],
                             r2_threshold=config["filters"]["std_range_flag"]["r2_threshold"],
                             min_correlated_assets=config["filters"]["std_range_flag"]["min_correlated_assets"],
-                            return_ram=True
+                            save_dir=std_dev_filter_target_path,
+                            chunk=s
                         ) 
                         pl.concat([
                             df_query.slice(start_row, end_row - start_row).select("time"),
