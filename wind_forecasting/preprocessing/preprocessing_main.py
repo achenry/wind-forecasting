@@ -1143,7 +1143,7 @@ def main():
                             logging.info(f"Found existing file for rows {start_row} to {end_row} of {total_rows} of std_dev_outliers. Used {used_ram}% of RAM.")
                             continue
                             
-                        logging.info(f"Started processing rows {start_row} to {end_row} of {total_rows} of std_dev_outliers.")
+                        logging.info(f"Started generating flag for rows {start_row} to {end_row} of {total_rows} of std_dev_outliers.")
                         
                         df = filters.std_range_flag(
                             data_pl=df_query.slice(start_row, end_row - start_row).select(cs.starts_with("ws_horz"), cs.starts_with("ws_vert")),
@@ -1156,11 +1156,12 @@ def main():
                             chunk=s,
                             corr_df=corr_df
                         ) 
+                        logging.info(f"Finished generating flag for rows {start_row} to {end_row} of {total_rows} of std_dev_outliers.")
+                        logging.info(f"Started concat/write for rows {start_row} to {end_row} of {total_rows} of std_dev_outliers.")
                         pl.concat([
                             df_query.slice(start_row, end_row - start_row).select("time"),
-                            df], how="horizontal").collect(engine="streaming").write_parquet(os.path.join(std_dev_filter_target_path, f"{s}.parquet"))
-                        
-                        logging.info(f"Finished processing rows {start_row} to {end_row} of {total_rows} of std_dev_outliers.")
+                            df], how="horizontal").sink_parquet(os.path.join(std_dev_filter_target_path, f"{s}.parquet"), maintain_order=True)
+                        logging.info(f"Finished concat/write for rows {start_row} to {end_row} of {total_rows} of std_dev_outliers.")
                     del df, corr_df, turbine_ids, sort_df
                 else:
                     
