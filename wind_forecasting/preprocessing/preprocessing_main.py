@@ -1126,17 +1126,17 @@ def main():
                 # TODO use __slots__ for data_loader etc classes to reduce memory load?
                 # df_query = df_query.head(100_000)
                 if config["filters"]["std_range_flag"]["over"] == "asset":
-                    from openoa.utils.imputing import asset_correlation_matrix_pl, asset_correlation_matrix_pd
+                    from openoa.utils.imputing import asset_correlation_matrix_pl
                     import pandas as pd
                     corr_df = {}
                     turbine_ids = {}
                     sort_df = {}
                     feature_types = ["ws_horz", "ws_vert"]
                     for feat_type in feature_types:
-                        corr_df[feat_type] = asset_correlation_matrix_pl(df_query, feat_type)
+                        corr_df[feat_type] = asset_correlation_matrix_pl(df_query.select(cs.starts_with("ws_horz"), cs.starts_with("ws_vert")), feat_type)
                         turbine_ids= np.array(corr_df.columns)
                         # Sort the correlated values according to the highest value, with nans at the end.
-                        # ix_sort = (-corr_df.to_numpy()).argsort(axis=1)
+                        ix_sort = (-corr_df[feat_type].to_numpy()).argsort(axis=1)
                         # rows = turbine_id, columns = order of correlation from highest to lowest
                         sort_df[feat_type] = pd.DataFrame(turbine_ids[(-corr_df.to_numpy()).argsort(axis=1)], index=turbine_ids)
                         
