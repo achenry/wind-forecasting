@@ -1129,16 +1129,9 @@ def main():
                     from openoa.utils.imputing import asset_correlation_matrix_pl
                     import pandas as pd
                     corr_df = {}
-                    turbine_ids = {}
-                    sort_df = {}
                     feature_types = ["ws_horz", "ws_vert"]
                     for feat_type in feature_types:
                         corr_df[feat_type] = asset_correlation_matrix_pl(df_query.select(cs.starts_with("ws_horz"), cs.starts_with("ws_vert")), feat_type)
-                        turbine_ids = np.array(corr_df[feat_type].columns)
-                        # Sort the correlated values according to the highest value, with nans at the end.
-                        ix_sort = (-corr_df[feat_type].to_numpy()).argsort(axis=1)
-                        # rows = turbine_id, columns = order of correlation from highest to lowest
-                        sort_df[feat_type] = pd.DataFrame(turbine_ids[ix_sort], index=turbine_ids)
                         
                     # NEED: polars, my OpenOA repository, config file, FLASC data
                     for s, start_row in enumerate(range(0, total_rows, row_chunk_size)):
@@ -1161,7 +1154,7 @@ def main():
                             min_correlated_assets=config["filters"]["std_range_flag"]["min_correlated_assets"],
                             save_dir=std_dev_filter_target_path,
                             chunk=s,
-                            corr_df=corr_df, turbine_ids=turbine_ids, ix_sort=ix_sort, sort_df=sort_df
+                            corr_df=corr_df
                         ) 
                         pl.concat([
                             df_query.slice(start_row, end_row - start_row).select("time"),
