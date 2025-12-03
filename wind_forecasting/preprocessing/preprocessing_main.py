@@ -1149,7 +1149,7 @@ def main():
                             data_pl=df_query.slice(start_row, end_row - start_row).select(cs.starts_with("ws_horz"), cs.starts_with("ws_vert")),
                             threshold=config["filters"]["std_range_flag"]["threshold"], 
                             over=config["filters"]["std_range_flag"]["over"], # asset or time 
-                            feature_types=feature_types,
+                            feature_types=["ws_horz", "ws_vert"],
                             r2_threshold=config["filters"]["std_range_flag"]["r2_threshold"],
                             min_correlated_assets=config["filters"]["std_range_flag"]["min_correlated_assets"],
                             save_dir=std_dev_filter_target_path,
