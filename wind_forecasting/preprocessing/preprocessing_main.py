@@ -1111,10 +1111,10 @@ def main():
             
             cols = df_query.select(cs.starts_with("ws_horz"), cs.starts_with("ws_vert")).collect_schema().names()
             if config["filters"]["std_range_flag"]["over"] == "asset":
-                # df_query = df_query.head(10_000) # debugging
-                # chunk_size = 1_000 * len(cols)
+                df_query = df_query.head(10_000) # debugging
+                chunk_size = 1_000 * len(cols)
                 total_rows = df_query.select(pl.len()).collect().item()
-                chunk_size = 1_000_000 * len(cols) #  total_rows * 2 # process a number of cells equal to the twice total row number at a time ,1_000_000_000
+                # chunk_size = 1_000_000 * len(cols) #  total_rows * 2 # process a number of cells equal to the twice total row number at a time ,1_000_000_000
                 row_chunk_size = int(chunk_size // len(cols))
                 filenames = np.arange(len(np.arange(0, total_rows, row_chunk_size)))
             else:
@@ -1152,8 +1152,9 @@ def main():
                             
                         logging.info(f"\nStarted generating flag for rows {start_row} to {end_row} of {total_rows} of std_dev_outliers.")
                         
+                        df = df_query.slice(start_row, end_row - start_row).select(cs.starts_with("ws_horz"), cs.starts_with("ws_vert")).collect()
                         df = filters.std_range_flag(
-                            data_pl=df_query.slice(start_row, end_row - start_row).select(cs.starts_with("ws_horz"), cs.starts_with("ws_vert")).collect(),
+                            data_pl=df,
                             threshold=config["filters"]["std_range_flag"]["threshold"], 
                             over=config["filters"]["std_range_flag"]["over"], # asset or time 
                             feature_types=["ws_horz", "ws_vert"],

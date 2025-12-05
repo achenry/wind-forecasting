@@ -20,7 +20,7 @@ filters:
     threshold_type: scalar
   nacelle_calibration:
   std_range_flag:
-    threshold: 1
+    threshold: 2
     over: asset 
     r2_threshold: 0.85
     min_correlated_assets: 5
