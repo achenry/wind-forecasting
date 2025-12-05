@@ -1139,6 +1139,7 @@ def main():
                         else:
                             logging.info(f"Started generating correlation matrix for feature type {feat_type}. Used {virtual_memory().percent}% of RAM.")
                             corr_df[feat_type] = asset_correlation_matrix_pl(df_query.select(cs.starts_with("ws_horz"), cs.starts_with("ws_vert")), feat_type)
+                            corr_df[feat_type].write_parquet(os.path.join(std_dev_filter_target_path, f"corr_{feat_type}.parquet"))
                             logging.info(f"Finished generating correlation matrix for feature type {feat_type}. Used {virtual_memory().percent}% of RAM.")
                         
                     # NEED: polars, my OpenOA repository, config file, FLASC data
