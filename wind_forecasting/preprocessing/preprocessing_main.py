@@ -1111,6 +1111,7 @@ def main():
             
             cols = df_query.select(cs.starts_with("ws_horz"), cs.starts_with("ws_vert")).collect_schema().names()
             if config["filters"]["std_range_flag"]["over"] == "asset":
+                # df_query = df_query.head(10_000) # debugging
                 total_rows = df_query.select(pl.len()).collect().item()
                 chunk_size = 1_000_000 * len(cols) #  total_rows * 2 # process a number of cells equal to the twice total row number at a time ,1_000_000_000
                 row_chunk_size = int(chunk_size // len(cols))
@@ -1131,9 +1132,13 @@ def main():
                     corr_df = {}
                     feature_types = ["ws_horz", "ws_vert"]
                     for feat_type in feature_types:
-                        logging.info(f"Started generating corrleation matrix for feature type {feat_type}. Used {virtual_memory().percent}% of RAM.")
-                        corr_df[feat_type] = asset_correlation_matrix_pl(df_query.select(cs.starts_with("ws_horz"), cs.starts_with("ws_vert")), feat_type)
-                        logging.info(f"Finished generating corrleation matrix for feature type {feat_type}. Used {virtual_memory().percent}% of RAM.")
+                        if not args.regenerate_filters and os.path.exists(os.path.join(std_dev_filter_target_path, f"corr_{feat_type}.parquet")):
+                            logging.info(f"Found existing file for std_dev_outliers correlation matrix. Used {virtual_memory().percent}% of RAM.")
+                            corr_df[feat_type] = pl.read_parquet(os.path.join(std_dev_filter_target_path, f"corr_{feat_type}.parquet"))
+                        else:
+                            logging.info(f"Started generating correlation matrix for feature type {feat_type}. Used {virtual_memory().percent}% of RAM.")
+                            corr_df[feat_type] = asset_correlation_matrix_pl(df_query.select(cs.starts_with("ws_horz"), cs.starts_with("ws_vert")), feat_type)
+                            logging.info(f"Finished generating correlation matrix for feature type {feat_type}. Used {virtual_memory().percent}% of RAM.")
                         
                     # NEED: polars, my OpenOA repository, config file, FLASC data
                     for s, start_row in enumerate(range(0, total_rows, row_chunk_size)):
@@ -1143,7 +1148,7 @@ def main():
                             logging.info(f"Found existing file for rows {start_row} to {end_row} of {total_rows} of std_dev_outliers. Used {virtual_memory().percent}% of RAM.")
                             continue
                             
-                        logging.info(f"Started generating flag for rows {start_row} to {end_row} of {total_rows} of std_dev_outliers.")
+                        logging.info(f"\nStarted generating flag for rows {start_row} to {end_row} of {total_rows} of std_dev_outliers.")
                         
                         df = filters.std_range_flag(
                             data_pl=df_query.slice(start_row, end_row - start_row).select(cs.starts_with("ws_horz"), cs.starts_with("ws_vert")),
@@ -1155,20 +1160,21 @@ def main():
                             save_dir=std_dev_filter_target_path,
                             chunk=s,
                             corr_df=corr_df
-                        ) 
+                        )
                         logging.info(f"Finished generating flag for rows {start_row} to {end_row} of {total_rows} of std_dev_outliers.")
-                        logging.info(f"Started concat/write for rows {start_row} to {end_row} of {total_rows} of std_dev_outliers.")
                         
+                        logging.info(f"\nStarted concat/write for rows {start_row} to {end_row} of {total_rows} of std_dev_outliers.")
                         
-                        pl.concat([
-                            df_query.slice(start_row, end_row - start_row).select("time"),
-                            df], how="horizontal").collect(
-                                predicate_pushdown = False,
-                                projection_pushdown = False,
-                                slice_pushdown = False,
-                                comm_subplan_elim = False,
-                                comm_subexpr_elim = False
-                                ).write_parquet(os.path.join(std_dev_filter_target_path, f"{s}.parquet"))
+                        # pl.concat([
+                        #     df_query.slice(start_row, end_row - start_row).select("time"),
+                        #     df], how="horizontal").collect(
+                        #         predicate_pushdown = False,
+                        #         projection_pushdown = False,
+                        #         slice_pushdown = False,
+                        #         comm_subplan_elim = False,
+                        #         comm_subexpr_elim = False
+                        #         ).
+                        df.write_parquet(os.path.join(std_dev_filter_target_path, f"chunk_{s}.parquet"))
                         logging.info(f"Finished concat/write for rows {start_row} to {end_row} of {total_rows} of std_dev_outliers.")
                     del df
                 else:
@@ -1188,14 +1194,19 @@ def main():
                             min_correlated_assets=config["filters"]["std_range_flag"]["min_correlated_assets"],
                             return_ram=True
                         )
-                        df.sink_parquet(os.path.join(std_dev_filter_target_path, f"{c}.parquet"), maintain_order=True)
+                        # df.collect(
+                        #     predicate_pushdown = False,
+                        #     projection_pushdown = False,
+                        #     slice_pushdown = False,
+                        #     comm_subplan_elim = False).
+                        df.write_parquet(os.path.join(std_dev_filter_target_path, f"chunk_{c}.parquet"))
                         del df
                         
                         logging.info(f"Processing column {c} of {len(cols)} of std_dev_outliers. Maximum RAM used was {max_ram}%.")
                         
             
             if config["filters"]["std_range_flag"]["over"] == "asset": 
-                std_dev_outliers = pl.scan_parquet(os.path.join(std_dev_filter_target_path, "*.parquet")).select(pl.exclude("time"))
+                std_dev_outliers = pl.scan_parquet(os.path.join(std_dev_filter_target_path, "chunk_*.parquet"))
                 mask = lambda feat: std_dev_outliers.select(feat).collect().to_series()
             else:
                 # std_dev_outliers = pl.scan_parquet(std_dev_filter_target_path)
