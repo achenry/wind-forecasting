@@ -1148,9 +1148,9 @@ def main():
                             logging.info(f"Found existing file for rows {start_row} to {end_row} of {total_rows} of std_dev_outliers. Used {virtual_memory().percent}% of RAM.")
                             continue
                             
-                        logging.info(f"\nStarted generating flag for rows {start_row} to {end_row} of {total_rows} of std_dev_outliers.")
+                        logging.info(f"\nStarted generating/writing flag for rows {start_row} to {end_row} of {total_rows} of std_dev_outliers.")
                         
-                        df = filters.std_range_flag(
+                        filters.std_range_flag(
                             data_pl=df_query.slice(start_row, end_row - start_row).select(cs.starts_with("ws_horz"), cs.starts_with("ws_vert")),
                             threshold=config["filters"]["std_range_flag"]["threshold"], 
                             over=config["filters"]["std_range_flag"]["over"], # asset or time 
@@ -1160,10 +1160,10 @@ def main():
                             save_dir=std_dev_filter_target_path,
                             chunk=s,
                             corr_df=corr_df
-                        )
-                        logging.info(f"Finished generating flag for rows {start_row} to {end_row} of {total_rows} of std_dev_outliers.")
+                        ).write_parquet(os.path.join(std_dev_filter_target_path, f"chunk_{s}.parquet"))
+                        logging.info(f"Finished generating/writing flag for rows {start_row} to {end_row} of {total_rows} of std_dev_outliers.")
                         
-                        logging.info(f"\nStarted concat/write for rows {start_row} to {end_row} of {total_rows} of std_dev_outliers.")
+                        # logging.info(f"\nStarted concat/write for rows {start_row} to {end_row} of {total_rows} of std_dev_outliers.")
                         
                         # pl.concat([
                         #     df_query.slice(start_row, end_row - start_row).select("time"),
@@ -1174,9 +1174,9 @@ def main():
                         #         comm_subplan_elim = False,
                         #         comm_subexpr_elim = False
                         #         ).
-                        df.write_parquet(os.path.join(std_dev_filter_target_path, f"chunk_{s}.parquet"))
-                        logging.info(f"Finished concat/write for rows {start_row} to {end_row} of {total_rows} of std_dev_outliers.")
-                    del df
+                        # df.
+                        # logging.info(f"Finished concat/write for rows {start_row} to {end_row} of {total_rows} of std_dev_outliers.")
+                    # del df
                 else:
                     
                     for c, col in enumerate(cols):
