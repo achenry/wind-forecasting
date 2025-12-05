@@ -1112,6 +1112,7 @@ def main():
             cols = df_query.select(cs.starts_with("ws_horz"), cs.starts_with("ws_vert")).collect_schema().names()
             if config["filters"]["std_range_flag"]["over"] == "asset":
                 # df_query = df_query.head(10_000) # debugging
+                # chunk_size = 1_000 * len(cols)
                 total_rows = df_query.select(pl.len()).collect().item()
                 chunk_size = 1_000_000 * len(cols) #  total_rows * 2 # process a number of cells equal to the twice total row number at a time ,1_000_000_000
                 row_chunk_size = int(chunk_size // len(cols))
@@ -1160,22 +1161,17 @@ def main():
                             save_dir=std_dev_filter_target_path,
                             chunk=s,
                             corr_df=corr_df
-                        ).write_parquet(os.path.join(std_dev_filter_target_path, f"chunk_{s}.parquet"))
+                        ).collect(
+                            optimizations=
+                                pl.QueryOptFlags(
+                                    predicate_pushdown = True,
+                                    projection_pushdown = False,
+                                    slice_pushdown = False,
+                                    comm_subplan_elim = False,
+                                    comm_subexpr_elim = False
+                                )
+                            ).write_parquet(os.path.join(std_dev_filter_target_path, f"chunk_{s}.parquet"))
                         logging.info(f"Finished generating/writing flag for rows {start_row} to {end_row} of {total_rows} of std_dev_outliers.")
-                        
-                        # logging.info(f"\nStarted concat/write for rows {start_row} to {end_row} of {total_rows} of std_dev_outliers.")
-                        
-                        # pl.concat([
-                        #     df_query.slice(start_row, end_row - start_row).select("time"),
-                        #     df], how="horizontal").collect(
-                        #         predicate_pushdown = False,
-                        #         projection_pushdown = False,
-                        #         slice_pushdown = False,
-                        #         comm_subplan_elim = False,
-                        #         comm_subexpr_elim = False
-                        #         ).
-                        # df.
-                        # logging.info(f"Finished concat/write for rows {start_row} to {end_row} of {total_rows} of std_dev_outliers.")
                     # del df
                 else:
                     
@@ -1185,22 +1181,23 @@ def main():
                             logging.info(f"Found existing file for column {c} of {len(cols)} of std_dev_outliers. Used {used_ram}% of RAM.")
                             continue
                         
-                        df, max_ram = filters.std_range_flag(
+                        filters.std_range_flag(
                             data_pl=df_query.select(col),
                             threshold=config["filters"]["std_range_flag"]["threshold"], 
                             over=config["filters"]["std_range_flag"]["over"], # asset or time 
                             feature_types=[re.search(f"\\w+(?=_{data_loader.turbine_signature})", col).group()],
                             r2_threshold=config["filters"]["std_range_flag"]["r2_threshold"],
-                            min_correlated_assets=config["filters"]["std_range_flag"]["min_correlated_assets"],
-                            return_ram=True
-                        )
-                        # df.collect(
-                        #     predicate_pushdown = False,
-                        #     projection_pushdown = False,
-                        #     slice_pushdown = False,
-                        #     comm_subplan_elim = False).
-                        df.write_parquet(os.path.join(std_dev_filter_target_path, f"chunk_{c}.parquet"))
-                        del df
+                            min_correlated_assets=config["filters"]["std_range_flag"]["min_correlated_assets"]
+                        ).collect(
+                            optimizations=
+                                pl.QueryOptFlags(
+                                    predicate_pushdown = False,
+                                    projection_pushdown = False,
+                                    slice_pushdown = False,
+                                    comm_subplan_elim = False,
+                                    comm_subexpr_elim = False
+                                )
+                            ).write_parquet(os.path.join(std_dev_filter_target_path, f"chunk_{c}.parquet"))
                         
                         logging.info(f"Processing column {c} of {len(cols)} of std_dev_outliers. Maximum RAM used was {max_ram}%.")
                         
