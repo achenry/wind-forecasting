@@ -1150,10 +1150,10 @@ def main():
                             logging.info(f"Found existing file for rows {start_row} to {end_row} of {total_rows} of std_dev_outliers. Used {virtual_memory().percent}% of RAM.")
                             continue
                             
-                        logging.info(f"\nStarted generating/writing flag for rows {start_row} to {end_row} of {total_rows} of std_dev_outliers.")
+                        logging.info(f"\nStarted generating flag for rows {start_row} to {end_row} of {total_rows} of std_dev_outliers.")
                         
-                        filters.std_range_flag(
-                            data_pl=df_query.slice(start_row, end_row - start_row).select(cs.starts_with("ws_horz"), cs.starts_with("ws_vert")),
+                        df = filters.std_range_flag(
+                            data_pl=df_query.slice(start_row, end_row - start_row).select(cs.starts_with("ws_horz"), cs.starts_with("ws_vert")).collect(),
                             threshold=config["filters"]["std_range_flag"]["threshold"], 
                             over=config["filters"]["std_range_flag"]["over"], # asset or time 
                             feature_types=["ws_horz", "ws_vert"],
@@ -1162,7 +1162,9 @@ def main():
                             save_dir=std_dev_filter_target_path,
                             chunk=s,
                             corr_df=corr_df
-                        ).write_parquet(os.path.join(std_dev_filter_target_path, f"chunk_{s}.parquet"))
+                        )
+                        logging.info(f"\nStarted writing flag for rows {start_row} to {end_row} of {total_rows} of std_dev_outliers.")
+                        df.write_parquet(os.path.join(std_dev_filter_target_path, f"chunk_{s}.parquet"))
                         # .collect(
                             # optimizations=
                             #     pl.QueryOptFlags(
