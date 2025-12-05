@@ -1164,9 +1164,9 @@ def main():
                         ).collect(
                             optimizations=
                                 pl.QueryOptFlags(
-                                    predicate_pushdown = True,
-                                    projection_pushdown = True,
-                                    slice_pushdown = True,
+                                    predicate_pushdown = False,
+                                    projection_pushdown = False,
+                                    slice_pushdown = False,
                                     
                                     comm_subplan_elim = False,
                                     comm_subexpr_elim = False,
