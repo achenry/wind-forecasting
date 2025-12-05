@@ -1111,8 +1111,8 @@ def main():
             
             cols = df_query.select(cs.starts_with("ws_horz"), cs.starts_with("ws_vert")).collect_schema().names()
             if config["filters"]["std_range_flag"]["over"] == "asset":
-                # df_query = df_query.head(10_000) # debugging
-                # chunk_size = 1_000 * len(cols)
+                df_query = df_query.head(10_000) # debugging
+                chunk_size = 1_000 * len(cols)
                 total_rows = df_query.select(pl.len()).collect().item()
                 chunk_size = 1_000_000 * len(cols) #  total_rows * 2 # process a number of cells equal to the twice total row number at a time ,1_000_000_000
                 row_chunk_size = int(chunk_size // len(cols))
@@ -1165,10 +1165,18 @@ def main():
                             optimizations=
                                 pl.QueryOptFlags(
                                     predicate_pushdown = True,
-                                    projection_pushdown = False,
-                                    slice_pushdown = False,
+                                    projection_pushdown = True,
+                                    slice_pushdown = True,
+                                    
                                     comm_subplan_elim = False,
-                                    comm_subexpr_elim = False
+                                    comm_subexpr_elim = False,
+                                    
+                                    simplify_expression=True,
+                                    cluster_with_columns=True,
+                                    # collapse_joins=True,
+                                    check_order_observe=True,
+                                    fast_projection=True
+                                    
                                 )
                             ).write_parquet(os.path.join(std_dev_filter_target_path, f"chunk_{s}.parquet"))
                         logging.info(f"Finished generating/writing flag for rows {start_row} to {end_row} of {total_rows} of std_dev_outliers.")
@@ -1195,7 +1203,13 @@ def main():
                                     projection_pushdown = False,
                                     slice_pushdown = False,
                                     comm_subplan_elim = False,
-                                    comm_subexpr_elim = False
+                                    comm_subexpr_elim = False,
+                                    
+                                    simplify_expression=True,
+                                    cluster_with_columns=True,
+                                    # collapse_joins=True,
+                                    check_order_observe=True,
+                                    fast_projection=True
                                 )
                             ).write_parquet(os.path.join(std_dev_filter_target_path, f"chunk_{c}.parquet"))
                         
