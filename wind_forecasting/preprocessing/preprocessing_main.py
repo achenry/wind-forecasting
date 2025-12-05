@@ -1146,7 +1146,7 @@ def main():
                     for s, start_row in enumerate(range(0, total_rows, row_chunk_size)):
                         
                         end_row = min(start_row + row_chunk_size, total_rows)
-                        if not args.regenerate_filters and os.path.exists(os.path.join(std_dev_filter_target_path, f"{s}.parquet")):
+                        if not args.regenerate_filters and os.path.exists(os.path.join(std_dev_filter_target_path, f"chunk_{s}.parquet")):
                             logging.info(f"Found existing file for rows {start_row} to {end_row} of {total_rows} of std_dev_outliers. Used {virtual_memory().percent}% of RAM.")
                             continue
                             
@@ -1167,7 +1167,7 @@ def main():
                                 pl.QueryOptFlags(
                                     predicate_pushdown = False,
                                     projection_pushdown = False,
-                                    slice_pushdown = False,
+                                    slice_pushdown = True,
                                     
                                     comm_subplan_elim = False,
                                     comm_subexpr_elim = False,
