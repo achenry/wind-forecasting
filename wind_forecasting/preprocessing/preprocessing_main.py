@@ -1131,18 +1131,16 @@ def main():
                     corr_df = {}
                     feature_types = ["ws_horz", "ws_vert"]
                     for feat_type in feature_types:
-                        logging.info(f"Started generating corrleation matrix for feature type {feat_type}. Used {used_ram}% of RAM.")
+                        logging.info(f"Started generating corrleation matrix for feature type {feat_type}. Used {virtual_memory().percent}% of RAM.")
                         corr_df[feat_type] = asset_correlation_matrix_pl(df_query.select(cs.starts_with("ws_horz"), cs.starts_with("ws_vert")), feat_type)
-                        logging.info(f"Finished generating corrleation matrix for feature type {feat_type}. Used {used_ram}% of RAM.")
+                        logging.info(f"Finished generating corrleation matrix for feature type {feat_type}. Used {virtual_memory().percent}% of RAM.")
                         
                     # NEED: polars, my OpenOA repository, config file, FLASC data
                     for s, start_row in enumerate(range(0, total_rows, row_chunk_size)):
                         
                         end_row = min(start_row + row_chunk_size, total_rows)
                         if not args.regenerate_filters and os.path.exists(os.path.join(std_dev_filter_target_path, f"{s}.parquet")):
-                            used_ram = virtual_memory().percent
-                            
-                            logging.info(f"Found existing file for rows {start_row} to {end_row} of {total_rows} of std_dev_outliers. Used {used_ram}% of RAM.")
+                            logging.info(f"Found existing file for rows {start_row} to {end_row} of {total_rows} of std_dev_outliers. Used {virtual_memory().percent}% of RAM.")
                             continue
                             
                         logging.info(f"Started generating flag for rows {start_row} to {end_row} of {total_rows} of std_dev_outliers.")
@@ -1168,8 +1166,8 @@ def main():
                                 predicate_pushdown = False,
                                 projection_pushdown = False,
                                 slice_pushdown = False,
-                                comm_subplan_elim = False
-                        comm_subexpr_elim = False
+                                comm_subplan_elim = False,
+                                comm_subexpr_elim = False
                                 ).write_parquet(os.path.join(std_dev_filter_target_path, f"{s}.parquet"))
                         logging.info(f"Finished concat/write for rows {start_row} to {end_row} of {total_rows} of std_dev_outliers.")
                     del df
