@@ -1152,7 +1152,7 @@ def main():
                             
                         logging.info(f"\nStarted generating/writing flag for rows {start_row} to {end_row} of {total_rows} of std_dev_outliers.")
                         
-                        df = filters.std_range_flag(
+                        filters.std_range_flag(
                             data_pl=df_query.slice(start_row, end_row - start_row).select(cs.starts_with("ws_horz"), cs.starts_with("ws_vert")),
                             threshold=config["filters"]["std_range_flag"]["threshold"], 
                             over=config["filters"]["std_range_flag"]["over"], # asset or time 
@@ -1162,27 +1162,28 @@ def main():
                             save_dir=std_dev_filter_target_path,
                             chunk=s,
                             corr_df=corr_df
-                        ).collect(
-                            optimizations=
-                                pl.QueryOptFlags(
-                                    predicate_pushdown = True,
-                                    projection_pushdown = True,
-                                    slice_pushdown = True,
+                        ).write_parquet(os.path.join(std_dev_filter_target_path, f"chunk_{s}.parquet"))
+                        # .collect(
+                            # optimizations=
+                            #     pl.QueryOptFlags(
+                            #         predicate_pushdown = True,
+                            #         projection_pushdown = True,
+                            #         slice_pushdown = True,
                                     
-                                    comm_subplan_elim = False,
-                                    comm_subexpr_elim = False,
+                            #         comm_subplan_elim = False,
+                            #         comm_subexpr_elim = False,
                                     
-                                    simplify_expression=True,
-                                    cluster_with_columns=True,
-                                    # collapse_joins=True,
-                                    check_order_observe=True,
-                                    fast_projection=True
+                            #         simplify_expression=True,
+                            #         cluster_with_columns=True,
+                            #         # collapse_joins=True,
+                            #         check_order_observe=True,
+                            #         fast_projection=True
                                     
-                                )
-                            )
-                        df.write_parquet(os.path.join(std_dev_filter_target_path, f"chunk_{s}.parquet"))
+                            #     )
+                            # )
+                        # df.write_parquet(os.path.join(std_dev_filter_target_path, f"chunk_{s}.parquet"))
                         logging.info(f"Finished generating/writing flag for rows {start_row} to {end_row} of {total_rows} of std_dev_outliers.")
-                    del df
+                    # del df
                 else:
                     
                     for c, col in enumerate(cols):
