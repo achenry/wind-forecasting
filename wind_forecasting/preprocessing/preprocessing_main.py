@@ -1159,7 +1159,7 @@ def main():
                         logging.info(f"Started concat/write for rows {start_row} to {end_row} of {total_rows} of std_dev_outliers.")
                         pl.concat([
                             df_query.slice(start_row, end_row - start_row).select("time"),
-                            df], how="horizontal").collect(engine="streaming").write_parquet(os.path.join(std_dev_filter_target_path, f"{s}.parquet"))
+                            df], how="horizontal").collect().write_parquet(os.path.join(std_dev_filter_target_path, f"{s}.parquet"))
                         logging.info(f"Finished concat/write for rows {start_row} to {end_row} of {total_rows} of std_dev_outliers.")
                     del df
                 else:
