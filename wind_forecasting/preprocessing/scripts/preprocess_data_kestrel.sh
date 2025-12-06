@@ -15,8 +15,9 @@ module purge
 module load mamba
 mamba activate wind_forecasting_env
 
-export POLARS_MAX_THREADS=96
-export NUMEXPR_MAX_THREADS=96
+# export POLARS_MAX_THREADS=96
+# export OMP_NUM_THREADS=96, try 48 here (for numpy) and 48 above (for polars), or try omitting thread max lines
+# export NUMEXPR_MAX_THREADS=96
 export MAX_WORKERS=96
 
 python ../preprocessing_main.py --config /$HOME/toolboxes/wind_forecasting_env/wind-forecasting/config/preprocessing/preprocessing_inputs_kestrel_awaken_new.yaml --multiprocessor cf --preprocess_data # --regenerate_filters
