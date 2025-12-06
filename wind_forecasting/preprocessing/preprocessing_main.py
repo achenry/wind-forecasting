@@ -21,8 +21,8 @@ import argparse
 import yaml
 import time
 import re
-from shutil import rmtree, move
-from psutil import virtual_memory
+from shutil import rmtree #, move
+from psutil import virtual_memory, Process
 
 mpi_exists = False
 # try:
@@ -1150,7 +1150,7 @@ def main():
                             logging.info(f"Found existing file for rows {start_row} to {end_row} of {total_rows} of std_dev_outliers. Used {virtual_memory().percent}% of RAM.")
                             continue
                             
-                        logging.info(f"\nStarted generating flag for rows {start_row} to {end_row} of {total_rows} of std_dev_outliers.")
+                        logging.info(f"\nStarted generating flag for rows {start_row} to {end_row} of {total_rows} of std_dev_outliers with number of threads {pl.thread_pool_size(), os.environ.get("POLARS_MAX_THREADS", None), Process().num_threads()}.")
                         
                         df = df_query.slice(start_row, end_row - start_row).select(cs.starts_with("ws_horz"), cs.starts_with("ws_vert")).collect()
                         df = filters.std_range_flag(
