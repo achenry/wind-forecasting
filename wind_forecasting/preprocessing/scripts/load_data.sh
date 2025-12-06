@@ -5,7 +5,7 @@
 ##SBATCH --cpus-per-task=104
 #SBATCH --mem=0
 #SBATCH --account=awaken
-#SBATCH --time=24:00:00
+#SBATCH --time=04:00:00
 #SBATCH --partition=bigmem
 ##SBATCH --partition=standard
 #SBATCH --output=load_data-%j.out
