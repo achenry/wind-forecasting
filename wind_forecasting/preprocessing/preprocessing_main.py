@@ -1377,7 +1377,9 @@ def main():
                     logging.info(f"Total missing duration = {df_query_missing["duration"].sum().total_seconds() / 3600} hours. Total not missing duration = {df_query_not_missing["duration"].sum().total_seconds() / 3600} hours.")
                     # cg_init_idx = df_query[f-1].select(pl.col("continuity_group").max()).collect().item() + 1 if f > 0 else 0
                     
-                    get_continuity_group_index(continuity_groups_df=df_query_not_missing, time_series_df=df_query[f], cg_init_idx=cg_init_idx).sink_parquet(file_set_fp, maintain_order=True)
+                    get_continuity_group_index(continuity_groups_df=df_query_not_missing, time_series_df=df_query[f], cg_init_idx=cg_init_idx)\
+                                  .filter(pl.col("continuity_group") != -1)\
+                                      .drop(cs.contains("is_missing") | cs.contains("num_missing")).sink_parquet(file_set_fp, maintain_order=True)
                     
                     logging.info(f"Finished splitting by continuity group for {f}th of {len(file_set_indices)} file set.")
             
@@ -1418,8 +1420,6 @@ def main():
                     
             # df_query = pl.concat(df_query, how="vertical")\
             df_query = pl.scan_parquet(os.path.join(dirpath, os.path.basename(config["processed_data_path"]).replace(".parquet", f"_split_fs*.parquet")), glob=True)\
-                         .filter(pl.col("continuity_group") != -1)\
-                         .drop(cs.contains("is_missing") | cs.contains("num_missing"))\
                          .sort("time")\
                          .select(*[cs.starts_with(feat_type) for feat_type in ["time", "continuity_group", "ws_horz", "ws_vert", "nd_cos", "nd_sin", "power_output"]])
             # del df_query2
