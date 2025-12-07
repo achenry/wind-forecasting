@@ -1417,7 +1417,7 @@ def main():
                     ax.yaxis.set_major_locator(MaxNLocator(integer=True))
                     
             # df_query = pl.concat(df_query, how="vertical")\
-            df_query = pl.scan_parquet(config["processed_data_path"].replace(".parquet", f"_split_fs*.parquet"), glob=True)\
+            df_query = pl.scan_parquet(os.path.join(dirpath, os.path.basename(config["processed_data_path"]).replace(".parquet", f"_split_fs*.parquet")), glob=True)\
                          .filter(pl.col("continuity_group") != -1)\
                          .drop(cs.contains("is_missing") | cs.contains("num_missing"))\
                          .sort("time")\
