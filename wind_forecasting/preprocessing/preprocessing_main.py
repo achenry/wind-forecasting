@@ -1296,15 +1296,17 @@ def main():
                     not_missing_fp = os.path.join(dirpath, os.path.basename(config["processed_data_path"]).replace(".parquet", f"_not_missing_times_fs{file_set_idx}.parquet"))
                     missing_fp = os.path.join(dirpath, os.path.basename(config["processed_data_path"]).replace(".parquet", f"_missing_times_fs{file_set_idx}.parquet"))
 
+                    df_query[f] = df_query[f] \
+                                .with_columns(*[cs.contains(col).is_null().name.prefix("is_missing_") for col in missing_data_cols])\
+                                .with_columns(**{f"num_missing_{col}": pl.sum_horizontal((cs.contains(col) & cs.starts_with("is_missing"))) for col in missing_data_cols})
+
                     if not args.regenerate_filters and os.path.exists(not_missing_fp) and os.path.exists(missing_fp):
                         logging.info(f"Found existing missing/not missing flags for file set {file_set_idx}.")
                     else:
                         logging.info("")
                         logging.info("")
                         logging.info(f"Generating missing/not missing flags for file set {file_set_idx}.")
-                        df_query[f] = df_query[f] \
-                                            .with_columns(*[cs.contains(col).is_null().name.prefix("is_missing_") for col in missing_data_cols])\
-                                            .with_columns(**{f"num_missing_{col}": pl.sum_horizontal((cs.contains(col) & cs.starts_with("is_missing"))) for col in missing_data_cols})
+                        
                                             
                         # subset of data, indexed by time, which has <= the threshold number of missing columns
                         # check that the number of missing wind dir/speed measurements (over all turbines) is less or equal to missing_col_thr (i.e. both the number of missing wind dirs and wind speeds must be <= missing_col_thr)
@@ -1370,7 +1372,7 @@ def main():
                     df_query_missing = pl.read_parquet(missing_fp)
                     df_query_not_missing = pl.read_parquet(not_missing_fp)
                     
-                    if max_cg is None:
+                    if f == 0:
                         cg_init_idx = 0
                     else:
                         cg_init_idx = max_cg + 1
