@@ -658,7 +658,7 @@ def get_continuity_group_index(continuity_groups_df, time_series_df, cg_init_idx
     time_series_df = time_series_df.with_columns(continuity_group=pl.when(True).then(pl.lit(-1)))
     for i, (start, end) in enumerate(continuity_groups_df.select("start_time", "end_time").iter_rows()):
         # print(i, start, end, duration)
-        # logging.info(f"Getting continuity group index {cg_init_idx+i} of {cg_init_idx+total_rows} for start time {start}, end time {end}, duration {end - start}")
+        logging.info(f"Getting continuity group index {cg_init_idx+i} of {cg_init_idx+total_rows} for start time {start}, end time {end}, duration {end - start}")
         
         time_cond = pl.col("time").is_between(start, end)
         
