@@ -1287,6 +1287,8 @@ def main():
             
             # check for any periods of time for which more than 'missing_col_thr' features have missing data
             for f, file_set_idx in enumerate(file_set_indices):
+                # old_file_set_fp = None
+                max_cg = None
                 file_set_fp = os.path.join(dirpath, os.path.basename(config["processed_data_path"]).replace(".parquet", f"_split_fs{file_set_idx}.parquet"))
                 if not args.regenerate_filters and os.path.exists(file_set_fp):
                     logging.info(f"Found existing split dataframe for file set {file_set_idx}.")
@@ -1368,8 +1370,10 @@ def main():
                     df_query_missing = pl.read_parquet(missing_fp)
                     df_query_not_missing = pl.read_parquet(not_missing_fp)
                     
-                    cg_init_idx = pl.scan_parquet(os.path.join(dirpath, os.path.basename(config["processed_data_path"]).replace(".parquet", f"_split_fs{file_set_indices[f-1]}.parquet")))\
-                                    .select(pl.col("continuity_group").max()).collect().item() + 1 if f > 0 else 0
+                    if max_cg is None:
+                        cg_init_idx = 0
+                    else:
+                        cg_init_idx = max_cg + 1
                                     
                     logging.info("")
                     logging.info(f"Starting to split by continuity group for {f}th of {len(file_set_indices)} file set.")
@@ -1377,9 +1381,11 @@ def main():
                     logging.info(f"Total missing duration = {df_query_missing["duration"].sum().total_seconds() / 3600} hours. Total not missing duration = {df_query_not_missing["duration"].sum().total_seconds() / 3600} hours.")
                     # cg_init_idx = df_query[f-1].select(pl.col("continuity_group").max()).collect().item() + 1 if f > 0 else 0
                     
-                    get_continuity_group_index(continuity_groups_df=df_query_not_missing, time_series_df=df_query[f], cg_init_idx=cg_init_idx)\
+                    df_query[f] = get_continuity_group_index(continuity_groups_df=df_query_not_missing, time_series_df=df_query[f], cg_init_idx=cg_init_idx)\
                                   .filter(pl.col("continuity_group") != -1)\
-                                      .drop(cs.contains("is_missing") | cs.contains("num_missing")).sink_parquet(file_set_fp, maintain_order=True)
+                                      .drop(cs.contains("is_missing") | cs.contains("num_missing"))
+                    max_cg = df_query[f].select(pl.col("continuity_group").max()).collect().item()          
+                    df_query[f].sink_parquet(file_set_fp, maintain_order=True)
                     
                     logging.info(f"Finished splitting by continuity group for {f}th of {len(file_set_indices)} file set.")
             
