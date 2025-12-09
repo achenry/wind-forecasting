@@ -1386,7 +1386,7 @@ def main():
                     df_query[f] = get_continuity_group_index(continuity_groups_df=df_query_not_missing, time_series_df=df_query[f], cg_init_idx=cg_init_idx)\
                                   .filter(pl.col("continuity_group") != -1)\
                                       .drop(cs.contains("is_missing") | cs.contains("num_missing"))
-                    max_cg = df_query[f].select(pl.col("continuity_group").max()).collect().item()          
+                    max_cg = df_query[f].select(pl.col("continuity_group").max()).collect().item() or max_cg
                     df_query[f].sink_parquet(file_set_fp, maintain_order=True)
                     
                     logging.info(f"Finished splitting by continuity group for {f}th of {len(file_set_indices)} file set.")
