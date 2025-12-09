@@ -1292,6 +1292,8 @@ def main():
                 file_set_fp = os.path.join(dirpath, os.path.basename(config["processed_data_path"]).replace(".parquet", f"_split_fs{file_set_idx}.parquet"))
                 if not args.regenerate_filters and os.path.exists(file_set_fp):
                     logging.info(f"Found existing split dataframe for file set {file_set_idx}.")
+                    max_cg = pl.scan_parquet(file_set_fp)\
+                               .select(pl.col("continuity_group").max()).collect().item() or max_cg
                 else:
                     not_missing_fp = os.path.join(dirpath, os.path.basename(config["processed_data_path"]).replace(".parquet", f"_not_missing_times_fs{file_set_idx}.parquet"))
                     missing_fp = os.path.join(dirpath, os.path.basename(config["processed_data_path"]).replace(".parquet", f"_missing_times_fs{file_set_idx}.parquet"))
