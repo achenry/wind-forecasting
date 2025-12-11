@@ -200,13 +200,15 @@ class DataFilter:
             df_query_filt = sosfilt(sos, sub_df.collect().to_numpy(), axis=0)
             df_query_filt = df_query.with_columns([pl.Series(name=feat, 
                                                              values=df_query_filt[:, i]) for i, feat in enumerate(features)])
-            
+            df_query_filt = df_query_filt.slice(400, None) # remove transient at beginning, TODO figure out how much to remove based on dt and freq_cutoff and order
             
         elif smoothing_function == "savitzky_golay":
             from scipy.signal import savgol_filter
             
             df_query_filt = df_query.with_columns([pl.Series(name=feat, 
                                                              values=savgol_filter(sub_df.collect().to_numpy(), window_length=smoothing_params["window_size"], polyorder=smoothing_params["order"], axis=0)[:, i]) for i, feat in enumerate(features)])
+            df_query_filt = df_query_filt.slice(400, None) # remove transient at beginning, TODO figure out how much to remove based on dt and freq_cutoff and order
+            
         else:
             raise ValueError(f"Unknown smoothing function {smoothing_function}")
         
@@ -326,7 +328,7 @@ class DataFilter:
     
     
     
-    def _impute_single_missing_dataset(self, df_idx, df, save_path, impute_missing_features, r2_threshold, parallel=False):
+    def _impute_single_missing_dataset(self, df_idx, df, save_path, dtype, impute_missing_features, r2_threshold, parallel=False):
 
         if parallel == "feature":
             # if self.multiprocessor == "mpi" and mpi_exists:
@@ -349,7 +351,7 @@ class DataFilter:
                 for k, v in futures.items():
                     imputed_vals = v.result()
                     if imputed_vals is not None:
-                        df.update(imputed_vals, on="time").collect().write_parquet(save_path, statistics=False)
+                        df.update(imputed_vals, on="time").with_columns(cs.float().cast(dtype)).collect().write_parquet(save_path, statistics=False)
                         df = pl.scan_parquet(save_path)
                     # df_cols.append(v.result())
         elif parallel == "turbine_id":
@@ -366,7 +368,7 @@ class DataFilter:
                                                             r2_threshold=r2_threshold,
                                                             save_path=save_path)
                 if imputed_vals is not None:
-                    df.update(imputed_vals, on="time").collect().write_parquet(save_path, statistics=False)
+                    df.update(imputed_vals, on="time").with_columns(cs.float().cast(dtype)).collect().write_parquet(save_path, statistics=False)
                     df = pl.scan_parquet(save_path)
                 # df_cols.append(imputed_vals.select(cs.starts_with(f"{feat_type}_")))
                 logging.info(f"Imputed feature {feat_type} in DataFrame {df_idx}.")
@@ -382,7 +384,7 @@ class DataFilter:
                                                             r2_threshold=r2_threshold,
                                                             save_path=save_path)
                 if imputed_vals is not None:
-                    df.update(imputed_vals, on="time").collect().write_parquet(save_path)
+                    df.update(imputed_vals, on="time").with_columns(cs.float().cast(dtype)).collect().write_parquet(save_path)
                     df = pl.scan_parquet(save_path)
                 # df_cols.append(imputed_vals.select(cs.starts_with(f"{feat_type}_")))
                 logging.info(f"Imputed feature {feat_type} in DataFrame {df_idx}.")
@@ -390,9 +392,9 @@ class DataFilter:
         # return pl.concat([df.select([col for col in df.collect_schema().names() if not any(col.startswith(feat_type) for feat_type in impute_missing_features)])]
         #                  + df_cols, how="horizontal")
 
-    def _fill_single_missing_dataset(self, df_idx, df, save_path, impute_missing_features, interpolate_missing_features, r2_threshold, parallel=None):
+    def _fill_single_missing_dataset(self, df_idx, df, save_path, dtype, impute_missing_features, interpolate_missing_features, r2_threshold, parallel=None):
         
-        df = self._impute_single_missing_dataset(df_idx, df, save_path=save_path, impute_missing_features=impute_missing_features, 
+        df = self._impute_single_missing_dataset(df_idx, df, save_path=save_path, dtype=dtype, impute_missing_features=impute_missing_features, 
                                                  r2_threshold=r2_threshold, parallel=parallel)
 
         # if any column is all nulls ... can't be imputed

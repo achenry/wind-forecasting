@@ -1453,7 +1453,7 @@ def main():
         
             # need to sink parquet and recollect to avoid recursion limit error
             logging.info("Started sinking dataframe.")
-            df_query.collect(engine="streaming").write_parquet(fp)
+            df_query.collect().write_parquet(fp)
             logging.info("Finished sinking dataframe.")
                  
             # check each split dataframe a) is continuous in time AND b) has <= than the threshold number of missing columns OR for less than the threshold time span
@@ -1489,7 +1489,6 @@ def main():
     # df_query.filter(pl.col("continuity_group") == 5).select("time", "ws_vert_1").filter((pl.col("time") > datetime(2020, 5, 23, 20, 45)) & (pl.col("time") < datetime(2020, 5, 23, 21, 45))).collect().to_numpy()[:, 1].flatten() 
     if "impute_missing_data" in config["filters"]:
         logging.info("Impute/interpolate turbine missing data from correlated measurements.")
-        df_query = df_query.with_columns(cs.float().cast(pl.Float32))
         fp = config["processed_data_path"].replace(".parquet", "_imputed.parquet")
         if args.reload_data or args.regenerate_filters or not os.path.exists(fp):
             
@@ -1513,6 +1512,7 @@ def main():
                 df=df_query.select(pl.col("time"), *[cs.starts_with(feat_type) for feat_type in ["ws_horz", "ws_vert", "nd_cos", "nd_sin"]]), 
                 impute_missing_features=["ws_horz", "ws_vert"],
                 save_path=fp, 
+                dtype=pl.Float32,
                 # impute_missing_features=["wind_direction", "wind_speed"], 
                 interpolate_missing_features=["ws_horz", "ws_vert", "nd_cos", "nd_sin"], 
                 # interpolate_missing_features=["wind_direction", "wind_speed", "nacelle_direction"], 
@@ -1526,12 +1526,13 @@ def main():
                                .join(df_query2, on="time", how="left")
             del df_query2
             logging.info(f"Started sinking dataframe. Schema: {df_query.collect_schema()}")
-            df_query.with_columns(cs.float().cast(pl.Float32)).collect().write_parquet(fp)
+            df_query.collect().write_parquet(fp)
             logging.info("Finished sinking dataframe.")
         
         df_query = pl.scan_parquet(fp)
     else:
         df_query = df_query.fill_null(strategy="forward").fill_null(strategy="backward")
+    
     # %% check time series
     if args.verbose:
         DataInspector.print_df_state(df_query, ["ws_horz", "ws_vert", "nd_cos", "nd_sin"])
@@ -1622,7 +1623,7 @@ def main():
         smoothing_func = config["filters"]["smooth"].get("function", "butterworth")
         fp = config["processed_data_path"].replace(".parquet", f"_smoothed_{smoothing_func}.parquet")
         if args.reload_data or args.regenerate_filters or not os.path.exists(fp): 
-            # Normalization & Feature Selection
+            
             logging.info("Smoothing features.")
             
             smoothing_params = {k: v for k, v in config["filters"]["smooth"].items() if k != "function"}
@@ -1634,17 +1635,27 @@ def main():
             if smoothing_func == "savitzky_golay":
                 pass
             
-            # for smoothing_func in ["butterworth", "moving_average", "savitzky_golay"]:
-            df_query = data_filter.smooth(
-                        df_query=df_query, 
-                        feature_types=["ws_horz", "ws_vert"], 
-                        smoothing_function=smoothing_func, 
-                        smoothing_params=smoothing_params,
-                        plot=False
-                    )
-            # df_query.sink_parquet(, maintain_order=True)
-            df_query.collect().write_parquet(fp)
+            continuity_groups = df_query.select("continuity_group").unique().collect().to_series().to_numpy()
+            df_query = [df_query.filter(pl.col("continuity_group") == cg) for cg in continuity_groups]
             
+            for cg_idx in range(len(continuity_groups)):
+                cg_fp = fp.replace(".parquet", f"_cg{continuity_groups[cg_idx]}.parquet")
+                # for smoothing_func in ["butterworth", "moving_average", "savitzky_golay"]:
+                df_query[cg_idx] = data_filter.smooth(
+                            df_query=df_query[cg_idx] , 
+                            feature_types=["ws_horz", "ws_vert"], 
+                            smoothing_function=smoothing_func, 
+                            smoothing_params=smoothing_params,
+                            plot=False
+                        )
+                df_query[cg_idx].sink_parquet(cg_fp, maintain_order=True)
+                
+            df_query = pl.scan_parquet(os.path.join(dirpath, os.path.basename(config["processed_data_path"]).replace(".parquet", f"_cg*.parquet")), glob=True)
+            
+            logging.info("Started sinking dataframe.")
+            df_query.collect().write_parquet(fp)
+            logging.info("Finished sinking dataframe.")
+                
         df_query = pl.scan_parquet(fp)
 
     # %%
