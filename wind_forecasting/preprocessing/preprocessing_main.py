@@ -1391,8 +1391,7 @@ def main():
                                       .drop(cs.contains("is_missing") | cs.contains("num_missing"))
                     if df_query[f].select(pl.len()).collect().item():
                         max_cg = df_query[f].select(pl.col("continuity_group").max()).collect().item()
-                        
-                    df_query[f].sink_parquet(file_set_fp, maintain_order=True)
+                        df_query[f].sink_parquet(file_set_fp, maintain_order=True)
                     
                     logging.info(f"Finished splitting by continuity group for {f}th of {len(file_set_indices)} file set.")
             
