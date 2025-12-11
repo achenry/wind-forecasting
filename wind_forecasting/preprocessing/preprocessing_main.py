@@ -1284,11 +1284,12 @@ def main():
             missing_data_cols = ["ws_horz", "ws_vert"]
             
             df_query = [df_query.filter(pl.col("file_set_idx") == file_set_idx) for file_set_idx in file_set_indices]
+            max_cg = None
             
             # check for any periods of time for which more than 'missing_col_thr' features have missing data
             for f, file_set_idx in enumerate(file_set_indices):
                 # old_file_set_fp = None
-                max_cg = None
+                
                 file_set_fp = os.path.join(dirpath, os.path.basename(config["processed_data_path"]).replace(".parquet", f"_split_fs{file_set_idx}.parquet"))
                 if not args.regenerate_filters and os.path.exists(file_set_fp):
                     max_cg = pl.scan_parquet(file_set_fp)\
@@ -1302,79 +1303,79 @@ def main():
                                 .with_columns(*[cs.contains(col).is_null().name.prefix("is_missing_") for col in missing_data_cols])\
                                 .with_columns(**{f"num_missing_{col}": pl.sum_horizontal((cs.contains(col) & cs.starts_with("is_missing"))) for col in missing_data_cols})
 
-                    if not args.regenerate_filters and os.path.exists(not_missing_fp) and os.path.exists(missing_fp):
-                        logging.info(f"Found existing missing/not missing flags for file set {file_set_idx}.")
-                    else:
-                        logging.info("")
-                        logging.info("")
-                        logging.info(f"Generating missing/not missing flags for file set {file_set_idx}.")
-                        
-                                            
-                        # subset of data, indexed by time, which has <= the threshold number of missing columns
-                        # check that the number of missing wind dir/speed measurements (over all turbines) is less or equal to missing_col_thr (i.e. both the number of missing wind dirs and wind speeds must be <= missing_col_thr)
-                        df_query_not_missing_times = add_df_continuity_columns(df_query[f], 
-                                                                            dt=data_loader.dt,
-                                                                            mask=pl.all_horizontal(cs.starts_with("num_missing") <= missing_col_thr) 
-                                                                            #    mask=pl.sum_horizontal(cs.starts_with("num_missing")) <= missing_col_thr, 
-                                                                            )
-
-                        # subset of data, indexed by time, which has > the threshold number of missing wind speed or wind dir
-                        df_query_missing_times = add_df_continuity_columns(df_query[f], 
+                    # if not args.regenerate_filters and os.path.exists(not_missing_fp) and os.path.exists(missing_fp):
+                    #     logging.info(f"Found existing missing/not missing flags for file set {file_set_idx}.")
+                    # else:
+                    logging.info("")
+                    logging.info("")
+                    logging.info(f"Generating missing/not missing flags for file set {file_set_idx}.")
+                    
+                                        
+                    # subset of data, indexed by time, which has <= the threshold number of missing columns
+                    # check that the number of missing wind dir/speed measurements (over all turbines) is less or equal to missing_col_thr (i.e. both the number of missing wind dirs and wind speeds must be <= missing_col_thr)
+                    df_query_not_missing_times = add_df_continuity_columns(df_query[f], 
                                                                         dt=data_loader.dt,
-                                                                        mask=pl.any_horizontal(cs.starts_with("num_missing") > missing_col_thr)
-                                                                        #    mask=pl.sum_horizontal(cs.starts_with("num_missing")) > missing_col_thr, 
+                                                                        mask=pl.all_horizontal(cs.starts_with("num_missing") <= missing_col_thr) 
+                                                                        #    mask=pl.sum_horizontal(cs.starts_with("num_missing")) <= missing_col_thr, 
                                                                         )
 
-                        # start times, end times, and durations of each of the continuous subsets of data in df_query_missing_times 
-                        df_query_not_missing = add_df_agg_continuity_columns(df_query_not_missing_times) 
-                        df_query_missing = add_df_agg_continuity_columns(df_query_missing_times)
-                        
-                        os.remove(not_missing_fp) if os.path.exists(not_missing_fp) else None
-                        os.remove(missing_fp) if os.path.exists(missing_fp) else None
-                        df_query_not_missing.collect().write_parquet(not_missing_fp)
-                        df_query_missing.collect().write_parquet(missing_fp)
-                        df_query_not_missing = pl.read_parquet(not_missing_fp)
-                        df_query_missing = pl.read_parquet(missing_fp)
-                        
-                        # start times, end times, and durations of each of the continuous subsets of data in df_query_not_missing_times 
-                        # AND of each of the continuous subsets of data in df_query_missing_times that are under the threshold duration time 
-                        df_query_not_missing = pl.concat(
-                            [df_query_not_missing, 
-                            df_query_missing.filter(pl.col("duration") <= missing_duration_thr)], how="vertical").sort("start_time")
-                        
-                        df_query_missing = df_query_missing.filter(pl.col("duration") > missing_duration_thr)
-                        
-                        if df_query_not_missing.select(pl.len()).item() == 0:
-                            logging.warning(f"Parameters 'missing_col_thr' or 'missing_duration_thr' are too stringent, can't find any eligible durations of time for file set {file_set_idx} of duration {df_query[f].select(pl.col('time').last() - pl.col('time').first()).collect().item()}.")
+                    # subset of data, indexed by time, which has > the threshold number of missing wind speed or wind dir
+                    df_query_missing_times = add_df_continuity_columns(df_query[f], 
+                                                                    dt=data_loader.dt,
+                                                                    mask=pl.any_horizontal(cs.starts_with("num_missing") > missing_col_thr)
+                                                                    #    mask=pl.sum_horizontal(cs.starts_with("num_missing")) > missing_col_thr, 
+                                                                    )
 
-                        df_query_missing = merge_adjacent_periods(agg_df=df_query_missing, dt=data_loader.dt)
-                        df_query_not_missing = merge_adjacent_periods(agg_df=df_query_not_missing, dt=data_loader.dt)
-                        
-                        df_query_missing = group_df_by_continuity(df=df_query[f], agg_df=df_query_missing, missing_data_cols=missing_data_cols)
-                        df_query_not_missing = group_df_by_continuity(df=df_query[f], agg_df=df_query_not_missing, missing_data_cols=missing_data_cols)
-                        df_query_missing = pl.concat([df_query_missing, 
-                                                     df_query_not_missing.filter(pl.col("duration") < minimum_not_missing_duration)],
-                                                     how="vertical")
-                        df_query_not_missing = df_query_not_missing.filter(pl.col("duration") >= minimum_not_missing_duration)
-                        
-                        # .with_columns(continuity_group=(pl.arange(df_query_missing["continuity_group"].max() + 1, df_query_missing["continuity_group"].max() - 1 + df_query_not_missing.select(pl.len()).item())).cast(pl.Int32))
-                        
-                        # filter out the continuity groups for which any measurement has 0 non-null values, can't impute then
-                        df_query_not_missing = df_query_not_missing.select(pl.col("duration"), pl.col("start_time"), pl.col("end_time"), pl.col("continuity_group"), 
-                                                    cs.starts_with("is_missing") & cs.matches(data_loader.turbine_signature))
-                                            # .filter(pl.all_horizontal(cs.starts_with("is_missing") 
-                                            #                         < ((pl.col("duration") / np.timedelta64(data_loader.dt, 's')).cast(pl.Int64))))
-                                            
-                        # df_query_not_missing.collect().select(pl.col("duration"), pl.col("start_time"), pl.col("end_time"), pl.col("continuity_group"), cs.contains("3"))\
-                        #                     .select(cs.starts_with("is_missing") / (pl.col("duration") / np.timedelta64(data_loader.dt, 's')).cast(pl.Int64))
-                        
-                        df_query_not_missing.with_columns(continuity_group=pl.arange(0, pl.len()).cast(pl.Int32)).write_parquet(not_missing_fp)
-                        df_query_missing.with_columns(continuity_group=pl.arange(0, pl.len()).cast(pl.Int32)).write_parquet(missing_fp)
+                    # start times, end times, and durations of each of the continuous subsets of data in df_query_missing_times 
+                    df_query_not_missing = add_df_agg_continuity_columns(df_query_not_missing_times) 
+                    df_query_missing = add_df_agg_continuity_columns(df_query_missing_times)
+                    
+                    os.remove(not_missing_fp) if os.path.exists(not_missing_fp) else None
+                    os.remove(missing_fp) if os.path.exists(missing_fp) else None
+                    df_query_not_missing.collect().write_parquet(not_missing_fp)
+                    df_query_missing.collect().write_parquet(missing_fp)
+                    df_query_not_missing = pl.read_parquet(not_missing_fp)
+                    df_query_missing = pl.read_parquet(missing_fp)
+                    
+                    # start times, end times, and durations of each of the continuous subsets of data in df_query_not_missing_times 
+                    # AND of each of the continuous subsets of data in df_query_missing_times that are under the threshold duration time 
+                    df_query_not_missing = pl.concat(
+                        [df_query_not_missing, 
+                        df_query_missing.filter(pl.col("duration") <= missing_duration_thr)], how="vertical").sort("start_time")
+                    
+                    df_query_missing = df_query_missing.filter(pl.col("duration") > missing_duration_thr)
+                    
+                    if df_query_not_missing.select(pl.len()).item() == 0:
+                        logging.warning(f"Parameters 'missing_col_thr' or 'missing_duration_thr' are too stringent, can't find any eligible durations of time for file set {file_set_idx} of duration {df_query[f].select(pl.col('time').last() - pl.col('time').first()).collect().item()}.")
+
+                    df_query_missing = merge_adjacent_periods(agg_df=df_query_missing, dt=data_loader.dt)
+                    df_query_not_missing = merge_adjacent_periods(agg_df=df_query_not_missing, dt=data_loader.dt)
+                    
+                    df_query_missing = group_df_by_continuity(df=df_query[f], agg_df=df_query_missing, missing_data_cols=missing_data_cols)
+                    df_query_not_missing = group_df_by_continuity(df=df_query[f], agg_df=df_query_not_missing, missing_data_cols=missing_data_cols)
+                    df_query_missing = pl.concat([df_query_missing, 
+                                                    df_query_not_missing.filter(pl.col("duration") < minimum_not_missing_duration)],
+                                                    how="vertical")
+                    df_query_not_missing = df_query_not_missing.filter(pl.col("duration") >= minimum_not_missing_duration)
+                    
+                    # .with_columns(continuity_group=(pl.arange(df_query_missing["continuity_group"].max() + 1, df_query_missing["continuity_group"].max() - 1 + df_query_not_missing.select(pl.len()).item())).cast(pl.Int32))
+                    
+                    # filter out the continuity groups for which any measurement has 0 non-null values, can't impute then
+                    df_query_not_missing = df_query_not_missing.select(pl.col("duration"), pl.col("start_time"), pl.col("end_time"), pl.col("continuity_group"), 
+                                                cs.starts_with("is_missing") & cs.matches(data_loader.turbine_signature))
+                                        # .filter(pl.all_horizontal(cs.starts_with("is_missing") 
+                                        #                         < ((pl.col("duration") / np.timedelta64(data_loader.dt, 's')).cast(pl.Int64))))
+                                        
+                    # df_query_not_missing.collect().select(pl.col("duration"), pl.col("start_time"), pl.col("end_time"), pl.col("continuity_group"), cs.contains("3"))\
+                    #                     .select(cs.starts_with("is_missing") / (pl.col("duration") / np.timedelta64(data_loader.dt, 's')).cast(pl.Int64))
+                    
+                    df_query_not_missing.with_columns(continuity_group=pl.arange(0, pl.len()).cast(pl.Int32)).write_parquet(not_missing_fp)
+                    df_query_missing.with_columns(continuity_group=pl.arange(0, pl.len()).cast(pl.Int32)).write_parquet(missing_fp)
                     
                     df_query_missing = pl.read_parquet(missing_fp)
                     df_query_not_missing = pl.read_parquet(not_missing_fp)
                     
-                    if f == 0:
+                    if max_cg is None:
                         cg_init_idx = 0
                     else:
                         cg_init_idx = max_cg + 1
@@ -1388,7 +1389,9 @@ def main():
                     df_query[f] = get_continuity_group_index(continuity_groups_df=df_query_not_missing, time_series_df=df_query[f], cg_init_idx=cg_init_idx)\
                                   .filter(pl.col("continuity_group") != -1)\
                                       .drop(cs.contains("is_missing") | cs.contains("num_missing"))
-                    max_cg = df_query[f].select(pl.col("continuity_group").max()).collect().item() or max_cg
+                    if df_query[f].select(pl.len()).collect().item():
+                        max_cg = df_query[f].select(pl.col("continuity_group").max()).collect().item()
+                        
                     df_query[f].sink_parquet(file_set_fp, maintain_order=True)
                     
                     logging.info(f"Finished splitting by continuity group for {f}th of {len(file_set_indices)} file set.")
