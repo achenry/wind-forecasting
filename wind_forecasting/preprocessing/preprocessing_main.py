@@ -1283,6 +1283,7 @@ def main():
             minimum_not_missing_duration = np.timedelta64(config["filters"]["split"]["minimum_not_missing_duration"], "s")
             missing_data_cols = ["ws_horz", "ws_vert"]
             
+            # file_set_indices = [0]
             df_query = [df_query.filter(pl.col("file_set_idx") == file_set_idx) for file_set_idx in file_set_indices]
             max_cg = None
             
@@ -1471,15 +1472,14 @@ def main():
         
     if args.plot:
         continuity_groups = df_query.select("continuity_group").unique().collect().to_numpy().flatten()
-        plot_df = df_query.filter((pl.col("continuity_group") == 0))\
-                          .select(["time", "continuity_group"] + [f"wind_speed_{tid}" for tid in ["5", "74", "75"]] + [f"wind_direction_{tid}" for tid in ["5", "74", "75"]])\
-                          .slice(0, int(3600*24))
+        plot_df = df_query.select(["time", "continuity_group"] + [f"ws_horz_{tid}" for tid in ["wt005", "wt074", "wt075"]] + [f"ws_vert_{tid}" for tid in ["wt005", "wt074", "wt075"]])
+                        #   .slice(0, int(3600*24))
         data_inspector.plot_time_series(
             # pl.concat([df.slice(0, ROW_LIMIT) for df in df_query.collect().partition_by("continuity_group")], how="vertical").lazy(), 
             plot_df,
-            feature_types=["wind_speed", "wind_direction"], 
-            turbine_ids=["5", "74", "75"],#data_loader.turbine_ids, 
-            continuity_groups=[0], #continuity_groups, 
+            feature_types=["ws_horz", "ws_vert"], 
+            turbine_ids=["wt005", "wt074", "wt075"],#data_loader.turbine_ids, 
+            continuity_groups=[0, 1], #continuity_groups, 
             label="after_split")
         # fig = plt.gcf()
         # fig.axes[0].legend(ncols=1, bbox_to_anchor=(1.0, 1.0), loc="upper left")
