@@ -1485,9 +1485,11 @@ def main():
         # fig.axes[0].legend(ncols=1, bbox_to_anchor=(1.0, 1.0), loc="upper left")
     
     # %%
+    
     # df_query.filter(pl.col("continuity_group") == 5).select("time", "ws_vert_1").filter((pl.col("time") > datetime(2020, 5, 23, 20, 45)) & (pl.col("time") < datetime(2020, 5, 23, 21, 45))).collect().to_numpy()[:, 1].flatten() 
     if "impute_missing_data" in config["filters"]:
         logging.info("Impute/interpolate turbine missing data from correlated measurements.")
+        df_query = df_query.with_columns(cs.float().cast(pl.Float32))
         fp = config["processed_data_path"].replace(".parquet", "_imputed.parquet")
         if args.reload_data or args.regenerate_filters or not os.path.exists(fp):
             
@@ -1497,17 +1499,14 @@ def main():
             # if os.path.exists(save_path):
             #     df_query = pl.scan_parquet(save_path)
             # NOTE to truly repeat this process, must delete all impute, impute_ws_horz, impute_ws_vert parquets
-            if df_query.collect().select(pl.any_horizontal(cs.starts_with("ws_horz").is_null().all())).item():
-                logging.error(f"df contains ws_horz columns that are all null - will not be able to impute")
             
-            if df_query.collect().select(pl.any_horizontal(cs.starts_with("ws_vert").is_null().all())).item():
-                logging.error(f"df contains ws_vert columns that are all null - will not be able to impute")
-                
-            if df_query.collect().select(pl.any_horizontal(cs.starts_with("nd_cos").is_null().all())).item():
-                logging.error(f"df contains nd_cos columns that are all null - will not be able to impute")
-                
-            if df_query.collect().select(pl.any_horizontal(cs.starts_with("nd_sin").is_null().all())).item():
-                logging.error(f"df contains nd_sin columns that are all null - will not be able to impute")
+            # df_query = df_query.filter(pl.col("continuity_group").is_in(list(range(1000, 1010)))) # for debugging
+            
+            # for feat_type in ["ws_horz", "ws_vert", "nd_cos", "nd_sin"]:
+            for feature in df_query.collect_schema().names():
+                if (feature.startswith("ws_horz") or feature.startswith("ws_vert") or feature.startswith("nd_cos") or feature.startswith("nd_sin")) and \
+                    df_query.select(pl.any_horizontal(pl.col(feature).is_null().all())).collect().item():
+                        logging.error(f"df contains {feature} column that are all null - will not be able to impute")
             
             df_query2 = data_filter._fill_single_missing_dataset(
                 df_idx=0, 
@@ -1522,10 +1521,12 @@ def main():
                 parallel=None,
                 r2_threshold=config["filters"]["impute_missing_data"]["r2_threshold"])
 
-            df_query = df_query.drop([cs.starts_with(feat) for feat in ["ws_horz", "ws_vert", "nd_cos", "nd_sin", "power_output"]]).join(df_query2, on="time", how="left")
+            df_query = df_query.with_columns(cs.float().cast(pl.Float32))\
+                               .drop([cs.starts_with(feat) for feat in ["ws_horz", "ws_vert", "nd_cos", "nd_sin", "power_output"]])\
+                               .join(df_query2, on="time", how="left")
             del df_query2
-            logging.info("Started sinking dataframe.")
-            df_query.collect(engine="streaming").write_parquet(fp)
+            logging.info(f"Started sinking dataframe. Schema: {df_query.collect_schema()}")
+            df_query.with_columns(cs.float().cast(pl.Float32)).collect().write_parquet(fp)
             logging.info("Finished sinking dataframe.")
         
         df_query = pl.scan_parquet(fp)
@@ -1642,7 +1643,7 @@ def main():
                         plot=False
                     )
             # df_query.sink_parquet(, maintain_order=True)
-            df_query.collect(engine="streaming").write_parquet(fp)
+            df_query.collect().write_parquet(fp)
             
         df_query = pl.scan_parquet(fp)
 
@@ -1703,7 +1704,7 @@ def main():
                     logging.info(f"Feature {col} std = {dfq.select(pl.col(col).std()).collect().item()}")
                 
                 logging.info(f"Started sinking {ll} dataframe.")
-                dfq.collect(engine="streaming").write_parquet(config["processed_data_path"].replace(".parquet", f"_{ll}_normalized.parquet"))
+                dfq.collect().write_parquet(config["processed_data_path"].replace(".parquet", f"_{ll}_normalized.parquet"))
                 
             logging.info("Finished normalizing features.")
         else:
