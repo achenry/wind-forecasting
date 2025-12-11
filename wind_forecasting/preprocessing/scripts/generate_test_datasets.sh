@@ -26,12 +26,12 @@ echo "=== ENVIRONMENT ==="
 module list
 
 #export MODEL_CONFIG_PATH="$HOME/toolboxes/wind_forecasting_env/wind-forecasting/config/training/training_inputs_kestrel_awaken_predGreedy.yaml $HOME/toolboxes/wind_forecasting_env/wind-forecasting/config/training/training_inputs_kestrel_awaken_predLUT.yaml"
-export MODEL_CONFIG_PATH="$HOME/toolboxes/wind_forecasting_env/wind-forecasting/config/training/training_inputs_kestrel_awaken_predLUT.yaml"
+export MODEL_CONFIG_PATHS=$1 #"$HOME/toolboxes/wind_forecasting_env/wind-forecasting/config/training/training_inputs_kestrel_awaken_pred_smoothed.yaml"
 export DATA_CONFIG_PATH="$HOME/toolboxes/wind_forecasting_env/wind-forecasting/config/preprocessing/preprocessing_inputs_kestrel_awaken_new.yaml"
 #export NUMEXPR_MAX_THREADS=104
 
 echo "MODELS=${MODELS}"
-echo "MODEL_CONFIG_PATH=${MODEL_CONFIG_PATH}"
+echo "MODEL_CONFIG_PATHS=${MODEL_CONFIG_PATHS}"
 echo "DATA_CONFIG_PATH=${DATA_CONFIG_PATH}"
 
 # prepare training data first
@@ -45,7 +45,7 @@ mamba activate wind_forecasting_env
 #mpirun -np $SLURM_NTASKS
 WORKER_RANK=0
 export PYFILE_PATH="$HOME/toolboxes/wind_forecasting_env/wind-hybrid-open-controller/whoc/wind_forecast/run_forecaster_validation.py"
-python $PYFILE_PATH --resplit_data --ram_limit 65 --model_config ${MODEL_CONFIG_PATH} --data_config ${DATA_CONFIG_PATH} --simulation_timestep 1 \
+python $PYFILE_PATH --resplit_data --ram_limit 65 --model_config ${MODEL_CONFIG_PATHS} --data_config ${DATA_CONFIG_PATH} --simulation_timestep 1 \
 						--save_dir /projects/awaken/ahenry/wind_forecasting/logging --multiprocessor cf --prediction_type distribution \
 					        --use_trained_models --max_splits 30
 

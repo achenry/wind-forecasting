@@ -30,7 +30,8 @@ echo "SLURM_JOB_NUM_NODES=${SLURM_JOB_NUM_NODES}"
 
 WORKER_RANK=0
 # MDL_CONF_G=$HOME/toolboxes/wind_forecasting_env/wind-forecasting/config/training/training_inputs_kestrel_awaken_predGreedy.yaml
-MDL_CONF_L=$HOME/toolboxes/wind_forecasting_env/wind-forecasting/config/training/training_inputs_kestrel_awaken_predLUT.yaml
+MDL_CONF_L=$1
+#$HOME/toolboxes/wind_forecasting_env/wind-forecasting/config/training/training_inputs_kestrel_awaken_predLUT.yaml
 
 #python ../run_model.py --config $MDL_CONF_G $MDL_CONF_G $MDL_CONF_L $MDL_CONF_L --model informer informer tactis tactis --mode dataset --reload_data 
 # python ../run_model.py --config $MDL_CONF_G $MDL_CONF_L --model tactis tactis --mode dataset --reload_data 
