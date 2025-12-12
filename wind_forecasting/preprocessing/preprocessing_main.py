@@ -1525,7 +1525,7 @@ def main():
                                .drop([cs.starts_with(feat) for feat in ["ws_horz", "ws_vert", "nd_cos", "nd_sin", "power_output"]])\
                                .join(df_query2, on="time", how="left")
             del df_query2
-            logging.info(f"Started sinking dataframe. Schema: {df_query.collect_schema()}")
+            logging.info(f"Started sinking dataframe.")
             df_query.collect().write_parquet(fp)
             logging.info("Finished sinking dataframe.")
         
