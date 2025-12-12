@@ -176,30 +176,35 @@ class DataFilter:
             #                                       **kwargs)
             # sub_df = df_query.select([cs.starts_with(feat_type) for feat_type in feature_types])
             # features = sub_df.collect_schema().names()
-            # dft = np.fft.fft(sub_df.collect().to_numpy(), axis=0)
-            # ts_len = df_query.select(pl.len()).collect().item()
-            # half_len = int(ts_len / 2)
-            # fs_1 = (1 / (ts_len * dt)) * np.arange(1, half_len)
-            # filter_coeffs_1 = 1 / np.sqrt(1 + (fs_1 / kwargs["freq_cutoff"])**(2 * kwargs["order"]))
-            # dft[1:half_len] *= filter_coeffs_1
+            dft = np.fft.fft(sub_df.collect().to_numpy(), axis=0)
+            ts_len = sub_df.select(pl.len()).collect().item()
+            half_len = int(ts_len / 2)
             
-            # fs_2 = 0.5 / dt
-            # filter_coeffs_2 = 1 / np.sqrt(1 + (fs_2 / kwargs["freq_cutoff"])**(2 * kwargs["order"]))
-            # if ts_len % 2 == 0:
-            #     dft[half_len + 1:] *= np.flip(filter_coeffs_2, axis=0)
-            # else:
-            #     dft[half_len:half_len+2, :] = np.sqrt(np.max([filter_coeffs_2, 0], axis=0))
-            #     dft[half_len + 2:, :] *= np.flip(dft, axis=0)
+            fs_1 = (1 / (ts_len * smoothing_params["dt"])) * np.arange(1, half_len)
+            fs_2 = 0.5 / smoothing_params["dt"]
             
-            # ts = np.real(np.fft.ifft(dft, axis=0))
-            # df_query = df_query.with_columns([pl.Series(name=feat, values=ts[:, i]) for i, feat in enumerate(features)])
+            filter_coeffs_1 = 1 / np.sqrt(1 + (fs_1 / smoothing_params["freq_cutoff"])**(2 * smoothing_params["order"]))
+            filter_coeffs_2 = 1 / np.sqrt(1 + (fs_2 / smoothing_params["freq_cutoff"])**(2 * smoothing_params["order"]))
+            filter_coeffs_1 = filter_coeffs_1[:, np.newaxis]
             
-            from scipy.signal import butter, sosfilt
+            dft[1:half_len, :] *= filter_coeffs_1
             
-            sos = butter(N=smoothing_params["order"], Wn=smoothing_params["freq_cutoff"], btype='low', fs=1/smoothing_params["dt"], output='sos')
-            df_query_filt = sosfilt(sos, sub_df.collect().to_numpy(), axis=0)
-            df_query_filt = df_query.with_columns([pl.Series(name=feat, 
-                                                             values=df_query_filt[:, i]) for i, feat in enumerate(features)])
+            if ts_len % 2 == 0:
+                dft[half_len, :] = np.sqrt(np.max([filter_coeffs_2, 0]))
+                dft[half_len + 1:, :] *= np.flip(filter_coeffs_1, axis=0)
+            else:
+                dft[half_len:half_len+2, :] = np.sqrt(np.max([filter_coeffs_2, 0]))
+                dft[half_len + 2:, :] *= np.flip(filter_coeffs_1, axis=0)
+            
+            ts = np.real(np.fft.ifft(dft, axis=0))
+            df_query_filt = df_query.with_columns([pl.Series(name=feat, values=ts[:, i]) for i, feat in enumerate(features)])
+            
+            # from scipy.signal import butter, sosfilt
+            
+            # sos = butter(N=smoothing_params["order"], Wn=smoothing_params["freq_cutoff"], btype='low', fs=1/smoothing_params["dt"], output='sos')
+            # df_query_filt = sosfilt(sos, sub_df.collect().to_numpy(), axis=0)
+            # df_query_filt = df_query.with_columns([pl.Series(name=feat, 
+            #                                                  values=df_query_filt[:, i]) for i, feat in enumerate(features)])
             df_query_filt = df_query_filt.slice(400, None) # remove transient at beginning, TODO figure out how much to remove based on dt and freq_cutoff and order
             
         elif smoothing_function == "savitzky_golay":
@@ -215,8 +220,15 @@ class DataFilter:
         if plot:
             fig, ax = plt.subplots(len(feature_types), 1, sharex=True)
             for ax_idx, feat_type in enumerate(feature_types):
-                ax[ax_idx].plot(df_query.select("time").collect().to_numpy(), df_query.select(cs.starts_with(feat_type)).collect().to_numpy(), "k-", label="original")
-                ax[ax_idx].plot(df_query_filt.select("time").collect().to_numpy(), df_query_filt.select(cs.starts_with(feat_type)).collect().to_numpy(), "r:", label="smoothed")
+                ax[ax_idx].plot(df_query.select("time").collect().to_numpy(), 
+                                df_query.select(cs.starts_with(feat_type)).collect().to_numpy(), 
+                                linestyle="-", label="original")
+                time_sig = df_query_filt.select("time").collect().to_numpy()
+                filt_sig = df_query_filt.select(cs.starts_with(feat_type)).collect().to_numpy()
+                for l, ln in enumerate(ax[ax_idx].get_lines()):
+                    ax[ax_idx].plot(time_sig,
+                                    filt_sig[:, l], 
+                                    linestyle=":", color=ln.get_color(), label="smoothed")
                 ax[ax_idx].set(title=feat_type)#, xlim=(1.295*1e7,1.345*1e7))
                 # filt_ts[:, [i for i in range(len(features)) if feat_type in features[i]]]
             fig.suptitle(f"{' '.join([w.capitalize() for w in smoothing_function.split("_")])}")

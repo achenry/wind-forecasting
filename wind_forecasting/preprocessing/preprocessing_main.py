@@ -1534,6 +1534,8 @@ def main():
             logging.info("Finished sinking dataframe.")
         
         df_query = pl.scan_parquet(fp)
+        assert df_query.select("time").collect().to_series().is_sorted()
+        assert all(typ == pl.Float32 for typ in df_query.select(cs.float()).collect_schema().values())
     else:
         df_query = df_query.fill_null(strategy="forward").fill_null(strategy="backward")
     
@@ -1628,6 +1630,10 @@ def main():
         fp = config["processed_data_path"].replace(".parquet", f"_smoothed_{smoothing_func}.parquet")
         if args.reload_data or args.regenerate_filters or not os.path.exists(fp): 
             
+            # df_query = df_query.with_columns(cs.float().cast(pl.Float32)).sort("time")
+            # df_query = df_query.filter(pl.col("continuity_group").is_in(list(range(1000, 1010))))
+            # df_query = df_query.select(pl.col("time"), pl.col("continuity_group"), cs.ends_with("wt005"), cs.ends_with("wt074"), cs.ends_with("wt075"))
+            
             logging.info("Smoothing features.")
             
             dirpath = os.path.join(os.path.dirname(config["processed_data_path"]), os.path.basename(config["processed_data_path"]).replace(".parquet", "_smooth"))
@@ -1664,6 +1670,8 @@ def main():
             logging.info("Finished sinking dataframe.")
                 
         df_query = pl.scan_parquet(fp)
+        assert df_query.select("time").collect().to_series().is_sorted()
+        assert all(typ == pl.Float32 for typ in df_query.select(cs.float()).collect_schema().values())
 
     # %%
     if "normalize" in config["filters"]:
@@ -1720,6 +1728,9 @@ def main():
                 for col in cols:
                     logging.info(f"Feature {col} mean = {dfq.select(pl.col(col).mean()).collect().item()}")
                     logging.info(f"Feature {col} std = {dfq.select(pl.col(col).std()).collect().item()}")
+                
+                assert dfq.select("time").collect().to_series().is_sorted()
+                assert all(typ == pl.Float32 for typ in dfq.select(cs.float()).collect_schema().values())
                 
                 logging.info(f"Started sinking {ll} dataframe.")
                 dfq.collect().write_parquet(config["processed_data_path"].replace(".parquet", f"_{ll}_normalized.parquet"))
