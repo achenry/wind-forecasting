@@ -1503,6 +1503,7 @@ def main():
             
             # for feat_type in ["ws_horz", "ws_vert", "nd_cos", "nd_sin"]:
             for feature in df_query.collect_schema().names():
+                logging.info(f"Checking for all null columns of feature {feature}.")
                 if (feature.startswith("ws_horz") or feature.startswith("ws_vert") or feature.startswith("nd_cos") or feature.startswith("nd_sin")) and \
                     df_query.select(pl.any_horizontal(pl.col(feature).is_null().all())).collect().item():
                         logging.error(f"df contains {feature} column that are all null - will not be able to impute")
