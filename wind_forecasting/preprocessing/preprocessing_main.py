@@ -1507,6 +1507,8 @@ def main():
                     df_query.select(pl.any_horizontal(pl.col(feature).is_null().all())).collect().item():
                         logging.error(f"df contains {feature} column that are all null - will not be able to impute")
             
+            logging.info(f"Schema: {df_query.collect_schema()}")
+            
             df_query2 = data_filter._fill_single_missing_dataset(
                 df_idx=0, 
                 df=df_query.select(pl.col("time"), *[cs.starts_with(feat_type) for feat_type in ["ws_horz", "ws_vert", "nd_cos", "nd_sin"]]), 
