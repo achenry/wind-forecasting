@@ -1626,6 +1626,9 @@ def main():
             
             logging.info("Smoothing features.")
             
+            dirpath = os.path.join(os.path.dirname(config["processed_data_path"]), os.path.basename(config["processed_data_path"]).replace(".parquet", "_smooth"))
+            os.makedirs(dirpath, exist_ok=True)
+            
             smoothing_params = {k: v for k, v in config["filters"]["smooth"].items() if k != "function"}
             
             if smoothing_func == "butterworth":
@@ -1639,7 +1642,7 @@ def main():
             df_query = [df_query.filter(pl.col("continuity_group") == cg) for cg in continuity_groups]
             
             for cg_idx in range(len(continuity_groups)):
-                cg_fp = fp.replace(".parquet", f"_cg{continuity_groups[cg_idx]}.parquet")
+                cg_fp = os.path.join(dirpath, os.path.basename(config["processed_data_path"]).replace(".parquet", f"_cg{continuity_groups[cg_idx]}.parquet"))
                 # for smoothing_func in ["butterworth", "moving_average", "savitzky_golay"]:
                 df_query[cg_idx] = data_filter.smooth(
                             df_query=df_query[cg_idx] , 
