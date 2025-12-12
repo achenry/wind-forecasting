@@ -1502,10 +1502,11 @@ def main():
             # df_query = df_query.filter(pl.col("continuity_group").is_in(list(range(1000, 1010)))) # for debugging
             
             # for feat_type in ["ws_horz", "ws_vert", "nd_cos", "nd_sin"]:
-            for feature in df_query.collect_schema().names():
+            is_null = df_query.select(cs.float().is_null().all()).collect()
+            for feature in is_null.collect_schema().names():
                 logging.info(f"Checking for all null columns of feature {feature}.")
                 if (feature.startswith("ws_horz") or feature.startswith("ws_vert") or feature.startswith("nd_cos") or feature.startswith("nd_sin")) and \
-                    df_query.select(pl.any_horizontal(pl.col(feature).is_null().all())).collect().item():
+                    is_null.select(pl.col(feature)).item():
                         logging.error(f"df contains {feature} column that are all null - will not be able to impute")
             
             logging.info(f"Schema: {df_query.collect_schema()}")
@@ -1722,6 +1723,7 @@ def main():
                 
                 logging.info(f"Started sinking {ll} dataframe.")
                 dfq.collect().write_parquet(config["processed_data_path"].replace(".parquet", f"_{ll}_normalized.parquet"))
+                logging.info(f"Finished sinking {ll} dataframe.")
                 
             logging.info("Finished normalizing features.")
         else:
