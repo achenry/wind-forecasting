@@ -1485,7 +1485,10 @@ def main():
         # fig.axes[0].legend(ncols=1, bbox_to_anchor=(1.0, 1.0), loc="upper left")
     
     # %%
-    
+    # df_query = df_query.with_columns(cs.float().cast(pl.Float32)).sort("time")\
+    #         .filter(pl.col("continuity_group").is_in(list(range(1000, 1010))))
+        # df_query = df_query.select(pl.col("time"), pl.col("continuity_group"), cs.ends_with("wt005"), cs.ends_with("wt074"), cs.ends_with("wt075"))
+            
     # df_query.filter(pl.col("continuity_group") == 5).select("time", "ws_vert_1").filter((pl.col("time") > datetime(2020, 5, 23, 20, 45)) & (pl.col("time") < datetime(2020, 5, 23, 21, 45))).collect().to_numpy()[:, 1].flatten() 
     if "impute_missing_data" in config["filters"]:
         logging.info("Impute/interpolate turbine missing data from correlated measurements.")
@@ -1508,8 +1511,6 @@ def main():
                 if (feature.startswith("ws_horz") or feature.startswith("ws_vert") or feature.startswith("nd_cos") or feature.startswith("nd_sin")) and \
                     is_null.select(pl.col(feature)).item():
                         logging.error(f"df contains {feature} column that are all null - will not be able to impute")
-            
-            logging.info(f"Schema: {df_query.collect_schema()}")
             
             df_query2 = data_filter._fill_single_missing_dataset(
                 df_idx=0, 
@@ -1534,6 +1535,7 @@ def main():
             logging.info("Finished sinking dataframe.")
         
         df_query = pl.scan_parquet(fp)
+        
         assert df_query.select("time").collect().to_series().is_sorted()
         assert all(typ == pl.Float32 for typ in df_query.select(cs.float()).collect_schema().values())
     else:
@@ -1630,10 +1632,6 @@ def main():
         fp = config["processed_data_path"].replace(".parquet", f"_smoothed_{smoothing_func}.parquet")
         if args.reload_data or args.regenerate_filters or not os.path.exists(fp): 
             
-            # df_query = df_query.with_columns(cs.float().cast(pl.Float32)).sort("time")
-            # df_query = df_query.filter(pl.col("continuity_group").is_in(list(range(1000, 1010))))
-            # df_query = df_query.select(pl.col("time"), pl.col("continuity_group"), cs.ends_with("wt005"), cs.ends_with("wt074"), cs.ends_with("wt075"))
-            
             logging.info("Smoothing features.")
             
             dirpath = os.path.join(os.path.dirname(config["processed_data_path"]), os.path.basename(config["processed_data_path"]).replace(".parquet", "_smooth"))
@@ -1659,7 +1657,8 @@ def main():
                             feature_types=["ws_horz", "ws_vert"], 
                             smoothing_function=smoothing_func, 
                             smoothing_params=smoothing_params,
-                            plot=False
+                            plot=False,
+                            dtype=pl.Float32
                         )
                 df_query[cg_idx].sink_parquet(cg_fp, maintain_order=True)
                 
@@ -1676,7 +1675,9 @@ def main():
     # %%
     if "normalize" in config["filters"]:
         
-        if args.reload_data or args.regenerate_filters or not os.path.exists(config["processed_data_path"].replace(".parquet", "_normalized.parquet")): 
+        if args.reload_data or args.regenerate_filters or \
+            not all(os.path.exists(fp) for fp in 
+                    [config["processed_data_path"].replace(".parquet", f"_{ll}_normalized.parquet") for ll in ["unsmoothed", "smoothed"]]): 
             # Normalization & Feature Selection
             logging.info("Normalizing features.")
             
@@ -1743,5 +1744,17 @@ def main():
             else:
                 df_query = pl.scan_parquet(config["processed_data_path"].replace(".parquet", "_unsmoothed_normalized.parquet"))
 
+        if args.plot:
+            continuity_groups = df_query.select("continuity_group").unique().collect().to_numpy().flatten()
+            plot_df = df_query.select(["time", "continuity_group"] + [f"ws_horz_{tid}" for tid in ["wt005", "wt074", "wt075"]] + [f"ws_vert_{tid}" for tid in ["wt005", "wt074", "wt075"]])
+                            #   .slice(0, int(3600*24))
+            data_inspector.plot_time_series(
+                # pl.concat([df.slice(0, ROW_LIMIT) for df in df_query.collect().partition_by("continuity_group")], how="vertical").lazy(), 
+                plot_df,
+                feature_types=["ws_horz", "ws_vert"], 
+                turbine_ids=["wt005", "wt074", "wt075"],#data_loader.turbine_ids, 
+                continuity_groups=continuity_groups, 
+                label="after_normalize")
+        
 if __name__ == "__main__":
     main()

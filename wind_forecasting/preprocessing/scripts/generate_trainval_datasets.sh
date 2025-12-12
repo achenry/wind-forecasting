@@ -12,18 +12,8 @@
 # salloc --account=awaken --time=01:00:00 --gpus=2 --ntasks-per-node=2 --partition=debug
 
 module purge
-eval "$(conda shell.bash hook)"
+# eval "$(conda shell.bash hook)"
 conda activate wind_forecasting_env
-
-#export NUMEXPR_MAX_THREADS=128
-
-API_FILE="../.wandb_api_key"
-if [ -f "${API_FILE}" ]; then
-  source "${API_FILE}"
-else
-  echo "ERROR: WANDB API‑key file not found at ${API_FILE}" >&2
-  exit 1
-fi
 
 echo "SLURM_NTASKS=${SLURM_NTASKS}"
 echo "SLURM_JOB_NUM_NODES=${SLURM_JOB_NUM_NODES}"

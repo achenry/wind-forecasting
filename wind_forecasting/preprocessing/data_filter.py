@@ -163,7 +163,7 @@ class DataFilter:
         logging.info(f"Finished generating std out of range filter for {df_query.collect_schema().names()}")
         return mask 
     
-    def smooth(self, df_query, feature_types, smoothing_function="butterworth", smoothing_params=None, plot=False):
+    def smooth(self, df_query, feature_types, dtype, smoothing_function="butterworth", smoothing_params=None, plot=False):
         
         sub_df = df_query.select([cs.starts_with(feat_type) for feat_type in feature_types])
         features = sub_df.collect_schema().names()
@@ -197,7 +197,7 @@ class DataFilter:
                 dft[half_len + 2:, :] *= np.flip(filter_coeffs_1, axis=0)
             
             ts = np.real(np.fft.ifft(dft, axis=0))
-            df_query_filt = df_query.with_columns([pl.Series(name=feat, values=ts[:, i]) for i, feat in enumerate(features)])
+            df_query_filt = df_query.with_columns([pl.Series(name=feat, values=ts[:, i]).cast(dtype) for i, feat in enumerate(features)])
             
             # from scipy.signal import butter, sosfilt
             
@@ -211,7 +211,7 @@ class DataFilter:
             from scipy.signal import savgol_filter
             
             df_query_filt = df_query.with_columns([pl.Series(name=feat, 
-                                                             values=savgol_filter(sub_df.collect().to_numpy(), window_length=smoothing_params["window_size"], polyorder=smoothing_params["order"], axis=0)[:, i]) for i, feat in enumerate(features)])
+                                                             values=savgol_filter(sub_df.collect().to_numpy(), window_length=smoothing_params["window_size"], polyorder=smoothing_params["order"], axis=0)[:, i]).cast(dtype) for i, feat in enumerate(features)])
             df_query_filt = df_query_filt.slice(400, None) # remove transient at beginning, TODO figure out how much to remove based on dt and freq_cutoff and order
             
         else:
