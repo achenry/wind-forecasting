@@ -1056,7 +1056,8 @@ def main():
             .with_columns(**{f"ws_vert_{tid}": (pl.col(f"wind_speed_{tid}") * ((pl.col(f"wind_direction_{tid}") + 180.0).radians().cos())) for tid in data_loader.turbine_ids})\
             .with_columns(**{f"nd_cos_{tid}": ((pl.col(f"nacelle_direction_{tid}")).radians().cos()) for tid in data_loader.turbine_ids})\
             .with_columns(**{f"nd_sin_{tid}": ((pl.col(f"nacelle_direction_{tid}")).radians().sin()) for tid in data_loader.turbine_ids})\
-            .select(pl.col("time"), pl.col("file_set_idx"), cs.starts_with("ws_horz"), cs.starts_with("ws_vert"), cs.starts_with("nd_sin"), cs.starts_with("nd_cos"), cs.starts_with("power_output"))
+            .select(pl.col("time"), pl.col("file_set_idx"), cs.starts_with("ws_horz"), cs.starts_with("ws_vert"), cs.starts_with("nd_sin"), cs.starts_with("nd_cos"), cs.starts_with("power_output"))\
+            .with_columns(cs.float().cast(pl.Float32))
         
         # df_query2.filter(pl.col("continuity_group") == 5).select("time", "ws_horz_1", "ws_vert_1").filter((pl.col("time") > datetime(2020, 5, 24, 4, 30)) & (pl.col("time") < datetime(2020, 5, 24, 6, 30))).collect().to_numpy()[:, 1].flatten() 
         if False:
@@ -1519,8 +1520,7 @@ def main():
                 df_idx=0, 
                 df=df_query.select(pl.col("time"), *[cs.starts_with(feat_type) for feat_type in ["ws_horz", "ws_vert", "nd_cos", "nd_sin"]]), 
                 impute_missing_features=["ws_horz", "ws_vert"],
-                save_path=fp, 
-                dtype=pl.Float32,
+                save_path=fp,
                 # impute_missing_features=["wind_direction", "wind_speed"], 
                 interpolate_missing_features=["ws_horz", "ws_vert", "nd_cos", "nd_sin"], 
                 # interpolate_missing_features=["wind_direction", "wind_speed", "nacelle_direction"], 
@@ -1529,6 +1529,7 @@ def main():
                 parallel=None,
                 r2_threshold=config["filters"]["impute_missing_data"]["r2_threshold"])
 
+            assert df_query.select("time").collect().to_series().is_sorted()
             df_query = df_query.with_columns(cs.float().cast(pl.Float32))\
                                .drop([cs.starts_with(feat) for feat in ["ws_horz", "ws_vert", "nd_cos", "nd_sin", "power_output"]])\
                                .join(df_query2, on="time", how="left")
