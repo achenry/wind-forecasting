@@ -1461,8 +1461,11 @@ def main():
             #     assert df.select((pl.col("time").diff(null_behavior="drop") == np.timedelta64(data_loader.dt, "s")).all()).collect().item()
             #     assert (df.select((pl.sum_horizontal([(cs.numeric() & cs.contains(col)).is_null() for col in missing_data_cols]) <= missing_col_thr)).collect()
             #             |  ((df.select("time").max().collect().item() - df.select("time").min().collect().item()) < missing_duration_thr))
-        
+        else:
+            logging.info("Fetching split dataset.")
+            
         df_query = pl.scan_parquet(fp)
+        assert df_query.select("time").collect().to_series().is_sorted()
     else:
         df_query = df_query.with_columns(pl.lit(0).alias("continuity_group"))
 
