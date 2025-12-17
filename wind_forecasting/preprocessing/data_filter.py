@@ -394,8 +394,10 @@ class DataFilter:
                                                             r2_threshold=r2_threshold,
                                                             save_path=save_path)
                 if imputed_vals is not None:
+                    assert imputed_vals.select("time").collect().to_series().is_sorted()
                     df.update(imputed_vals, on="time").collect().write_parquet(save_path)
                     df = pl.scan_parquet(save_path)
+                    assert df.select("time").collect().to_series().is_sorted()
                 # df_cols.append(imputed_vals.select(cs.starts_with(f"{feat_type}_")))
                 logging.info(f"Imputed feature {feat_type} in DataFrame {df_idx}.")
         return df
