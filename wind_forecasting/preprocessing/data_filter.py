@@ -380,7 +380,7 @@ class DataFilter:
                                                             r2_threshold=r2_threshold,
                                                             save_path=save_path)
                 if imputed_vals is not None:
-                    df.update(imputed_vals.with_columns(cs.float().cast(dtype)), on="time").collect().write_parquet(save_path, statistics=False)
+                    df.update(imputed_vals, on="time").with_columns(cs.float().cast(dtype)).collect().write_parquet(save_path)
                     df = pl.scan_parquet(save_path)
                 # df_cols.append(imputed_vals.select(cs.starts_with(f"{feat_type}_")))
                 logging.info(f"Imputed feature {feat_type} in DataFrame {df_idx}.")
@@ -396,7 +396,7 @@ class DataFilter:
                                                             r2_threshold=r2_threshold,
                                                             save_path=save_path)
                 if imputed_vals is not None:
-                    df.update(imputed_vals.with_columns(cs.float().cast(dtype)), on="time").collect().write_parquet(save_path)
+                    df.update(imputed_vals, on="time").with_columns(cs.float().cast(dtype)).collect().write_parquet(save_path)
                     df = pl.scan_parquet(save_path)
                 # df_cols.append(imputed_vals.select(cs.starts_with(f"{feat_type}_")))
                 logging.info(f"Imputed feature {feat_type} in DataFrame {df_idx}.")
