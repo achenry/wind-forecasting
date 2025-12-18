@@ -1253,7 +1253,7 @@ def main():
             df_query.collect(engine="streaming").write_parquet(fp)
             logging.info("Finished nullifying horizontal/vertical wind speed standard deviation measurements in dataframe.") 
         else:
-            logging.info("Fetching dataset with nullified standard deviation outliers.")
+            logging.info("Loading dataset with nullified standard deviation outliers.")
         
         df_query = pl.scan_parquet(fp) 
         
