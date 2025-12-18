@@ -1495,10 +1495,10 @@ def main():
             
     # df_query.filter(pl.col("continuity_group") == 5).select("time", "ws_vert_1").filter((pl.col("time") > datetime(2020, 5, 23, 20, 45)) & (pl.col("time") < datetime(2020, 5, 23, 21, 45))).collect().to_numpy()[:, 1].flatten() 
     if "impute_missing_data" in config["filters"]:
-        logging.info("Impute/interpolate turbine missing data from correlated measurements.")
+        
         fp = config["processed_data_path"].replace(".parquet", "_imputed.parquet")
         if args.reload_data or args.regenerate_filters or not os.path.exists(fp):
-            
+            logging.info("Impute/interpolate turbine missing data from correlated measurements.")
             # else, for each of those split datasets, impute the values using the imputing.impute_all_assets_by_correlation function
             # fill data on single concatenated dataset
             
@@ -1537,7 +1537,9 @@ def main():
             logging.info(f"Started sinking dataframe.")
             df_query.collect().write_parquet(fp)
             logging.info("Finished sinking dataframe.")
-        
+        else:
+            logging.info("Loading imputed/interpolated turbine missing data from correlated measurements.")
+            
         df_query = pl.scan_parquet(fp)
         
         assert df_query.select("time").collect().to_series().is_sorted()
