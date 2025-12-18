@@ -1271,11 +1271,11 @@ def main():
 
         fp = config["processed_data_path"].replace(".parquet", "_split.parquet")
         if args.reload_data or args.regenerate_filters or not os.path.exists(fp):
-            
+            logging.info("Split dataset during time steps for which many turbines have missing data.")
             dirpath = os.path.join(os.path.dirname(config["processed_data_path"]), os.path.basename(config["processed_data_path"]).replace(".parquet", "_split"))
             os.makedirs(dirpath, exist_ok=True)
             
-            logging.info("Split dataset during time steps for which many turbines have missing data.")
+            
             # if there is a short or long gap for some turbines, impute them using the imputing.impute_all_assets_by_correlation function
             #       else if there is a short or long gap for many turbines, split the dataset
             assert config["filters"]["split"]["missing_col_thr"] <= len(data_loader.turbine_ids) 
@@ -1463,7 +1463,7 @@ def main():
             #     assert (df.select((pl.sum_horizontal([(cs.numeric() & cs.contains(col)).is_null() for col in missing_data_cols]) <= missing_col_thr)).collect()
             #             |  ((df.select("time").max().collect().item() - df.select("time").min().collect().item()) < missing_duration_thr))
         else:
-            logging.info("Fetching split dataset.")
+            logging.info("Loading split dataset.")
             
         df_query = pl.scan_parquet(fp)
         assert df_query.select("time").collect().to_series().is_sorted()
