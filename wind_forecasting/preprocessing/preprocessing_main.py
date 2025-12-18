@@ -846,6 +846,7 @@ def main():
             if args.plot:
                 data_inspector.plot_time_series(df_query.slice(0, ROW_LIMIT), feature_types=["wind_speed", "wind_direction"], turbine_ids=data_loader.turbine_ids, continuity_groups=None, label="after_bin_outlier")
     else:
+        logging.info("Loading dataset with filters applied.")
         df_query = pl.scan_parquet(config["processed_data_path"].replace(".parquet", "_filtered.parquet"))
     
     if "nacelle_calibration" in config["filters"] and (args.reload_data or args.regenerate_filters or not os.path.exists(config["processed_data_path"].replace(".parquet", "_calibrated_2.parquet"))):
