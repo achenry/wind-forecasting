@@ -1652,12 +1652,12 @@ def main():
             if smoothing_func == "savitzky_golay":
                 pass
             
-            if False:
-                continuity_groups = df_query.select("continuity_group").unique().collect().to_series().to_numpy()
-                df_query = [df_query.filter(pl.col("continuity_group") == cg) for cg in continuity_groups]
-                
-                for cg_idx in range(len(continuity_groups)):
-                    cg_fp = os.path.join(dirpath, os.path.basename(config["processed_data_path"]).replace(".parquet", f"_cg{continuity_groups[cg_idx]}.parquet"))
+            continuity_groups = df_query.select("continuity_group").unique().collect().to_series().to_numpy()
+            df_query = [df_query.filter(pl.col("continuity_group") == cg) for cg in continuity_groups]
+            
+            for cg_idx in range(len(continuity_groups)):
+                cg_fp = os.path.join(dirpath, os.path.basename(config["processed_data_path"]).replace(".parquet", f"_cg{continuity_groups[cg_idx]}.parquet"))
+                if args.reload_data or args.regenerate_filters or not os.path.exists(cg_fp):
                     # for smoothing_func in ["butterworth", "moving_average", "savitzky_golay"]:
                     df_query[cg_idx] = data_filter.smooth(
                                 df_query=df_query[cg_idx] , 
@@ -1668,6 +1668,8 @@ def main():
                                 dtype=pl.Float32
                             )
                     df_query[cg_idx].sink_parquet(cg_fp, maintain_order=True)
+                else:
+                    df_query[cg_idx] = pl.scan_parquet(cg_fp)
                 
             df_query = pl.scan_parquet(os.path.join(dirpath, os.path.basename(config["processed_data_path"]).replace(".parquet", f"_cg*.parquet")), glob=True)\
                          .sort("time")
@@ -1732,7 +1734,8 @@ def main():
                 dfq = dfq.select(time_cols 
                                         + [((((pl.col(col) - norm_vals.select(f"{col}_mean").item()) 
                                                 / norm_vals.select(f"{col}_std").item()))).name.keep()
-                                        for col in cols])
+                                        for col in cols])\
+                         .with_columns(cs.float().cast(pl.Float32))
                 
                 for col in cols:
                     logging.info(f"Feature {col} mean = {dfq.select(pl.col(col).mean()).collect().item()}")
