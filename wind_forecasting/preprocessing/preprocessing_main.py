@@ -1540,7 +1540,7 @@ def main():
         else:
             logging.info("Loading imputed/interpolated turbine missing data from correlated measurements.")
             
-        df_query = pl.scan_parquet(fp).with_columns(cs.float().cast(pl.Float32)).sort("time")
+        df_query = pl.scan_parquet(fp).with_columns(cs.float().cast(pl.Float32))
         
         assert df_query.select("time").collect().to_series().is_sorted()
         assert all(typ == pl.Float32 for typ in df_query.select(cs.float()).collect_schema().values())
