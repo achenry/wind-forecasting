@@ -1652,23 +1652,25 @@ def main():
             if smoothing_func == "savitzky_golay":
                 pass
             
-            continuity_groups = df_query.select("continuity_group").unique().collect().to_series().to_numpy()
-            df_query = [df_query.filter(pl.col("continuity_group") == cg) for cg in continuity_groups]
-            
-            for cg_idx in range(len(continuity_groups)):
-                cg_fp = os.path.join(dirpath, os.path.basename(config["processed_data_path"]).replace(".parquet", f"_cg{continuity_groups[cg_idx]}.parquet"))
-                # for smoothing_func in ["butterworth", "moving_average", "savitzky_golay"]:
-                df_query[cg_idx] = data_filter.smooth(
-                            df_query=df_query[cg_idx] , 
-                            feature_types=["ws_horz", "ws_vert"], 
-                            smoothing_function=smoothing_func, 
-                            smoothing_params=smoothing_params,
-                            plot=False,
-                            dtype=pl.Float32
-                        )
-                df_query[cg_idx].sink_parquet(cg_fp, maintain_order=True)
+            if False:
+                continuity_groups = df_query.select("continuity_group").unique().collect().to_series().to_numpy()
+                df_query = [df_query.filter(pl.col("continuity_group") == cg) for cg in continuity_groups]
                 
-            df_query = pl.scan_parquet(os.path.join(dirpath, os.path.basename(config["processed_data_path"]).replace(".parquet", f"_cg*.parquet")), glob=True)
+                for cg_idx in range(len(continuity_groups)):
+                    cg_fp = os.path.join(dirpath, os.path.basename(config["processed_data_path"]).replace(".parquet", f"_cg{continuity_groups[cg_idx]}.parquet"))
+                    # for smoothing_func in ["butterworth", "moving_average", "savitzky_golay"]:
+                    df_query[cg_idx] = data_filter.smooth(
+                                df_query=df_query[cg_idx] , 
+                                feature_types=["ws_horz", "ws_vert"], 
+                                smoothing_function=smoothing_func, 
+                                smoothing_params=smoothing_params,
+                                plot=False,
+                                dtype=pl.Float32
+                            )
+                    df_query[cg_idx].sink_parquet(cg_fp, maintain_order=True)
+                
+            df_query = pl.scan_parquet(os.path.join(dirpath, os.path.basename(config["processed_data_path"]).replace(".parquet", f"_cg*.parquet")), glob=True)\
+                         .sort("time")
             
             logging.info("Started sinking dataframe.")
             df_query.collect().write_parquet(fp)
