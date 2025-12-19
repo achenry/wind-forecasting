@@ -361,7 +361,7 @@ class DataFilter:
                 for k, v in futures.items():
                     imputed_vals = v.result()
                     if imputed_vals is not None:
-                        df.update(imputed_vals.with_columns(cs.float().cast(dtype)), on="time").collect().write_parquet(save_path, statistics=False)
+                        df.update(imputed_vals, on="time").collect().write_parquet(save_path, statistics=False)
                         df = pl.scan_parquet(save_path)
                     # df_cols.append(v.result())
         elif parallel == "turbine_id":
@@ -405,8 +405,7 @@ class DataFilter:
         #                  + df_cols, how="horizontal")
 
     def _fill_single_missing_dataset(self, df_idx, df, save_path, impute_missing_features, interpolate_missing_features, r2_threshold, parallel=None):
-        
-        df = self._impute_single_missing_dataset(df_idx, df, save_path=save_path, impute_missing_features=impute_missing_features, 
+        df = self._impute_single_missing_dataset(df_idx, df, save_path=save_path, impute_missing_features=impute_missing_features,
                                                  r2_threshold=r2_threshold, parallel=parallel)
 
         # if any column is all nulls ... can't be imputed

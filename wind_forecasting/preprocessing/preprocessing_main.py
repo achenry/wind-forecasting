@@ -251,7 +251,6 @@ def main():
     assert all(any(prefix in col for col in df_query.collect_schema().names()) for prefix in ["time", "wind_speed_", "wind_direction_", "nacelle_direction_", "power_output_"]), "DataFrame must contain columns 'time', then columns with prefixes 'wind_speed_', 'wind_direction_', 'power_output_', 'nacelle_direction_'"
     assert df_query.select("time").collect().to_series().is_sorted(), "Loaded data should be sorted by time!"
     assert all(any(f"{prefix}{tid}" in col for col in df_query.collect_schema().names() if col not in ["time", "file_set_idx"]) for prefix in ["wind_speed_", "wind_direction_", "nacelle_direction_", "power_output_"] for tid in data_loader.turbine_ids), "DataFrame must contain columns with prefixes 'wind_speed_', 'wind_direction_', 'power_output_', 'nacelle_direction_' and suffixes for each turbine id" 
-    assert df_query.select("time").collect().to_series().is_sorted()
     # assert df_query.select(pl.all_horizontal(cs.numeric().is_null().sum() == 0)).collect().item() # TODO df_query.select(["turbine_status_32", "turbine_status_41"]).collect() are null
     # df_query = df_query.group_by("time").agg(cs.numeric().mean())
     # df_query.collect(engine="streaming").write_parquet(config["processed_data_path"], statistics=False)
@@ -1541,7 +1540,7 @@ def main():
         else:
             logging.info("Loading imputed/interpolated turbine missing data from correlated measurements.")
             
-        df_query = pl.scan_parquet(fp)
+        df_query = pl.scan_parquet(fp).with_columns(cs.float().cast(pl.Float32))
         
         assert df_query.select("time").collect().to_series().is_sorted()
         assert all(typ == pl.Float32 for typ in df_query.select(cs.float()).collect_schema().values())
