@@ -12,8 +12,9 @@
 # salloc --account=awaken --time=01:00:00 --gpus=2 --ntasks-per-node=2 --partition=debug
 
 module purge
+ml mamba
 # eval "$(conda shell.bash hook)"
-conda activate wind_forecasting_env
+mamba activate wind_forecasting_env
 
 echo "SLURM_NTASKS=${SLURM_NTASKS}"
 echo "SLURM_JOB_NUM_NODES=${SLURM_JOB_NUM_NODES}"

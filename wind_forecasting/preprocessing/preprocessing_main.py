@@ -1672,13 +1672,14 @@ def main():
                     df_query[cg_idx] = pl.scan_parquet(cg_fp)
                 
             df_query = pl.scan_parquet(os.path.join(dirpath, os.path.basename(config["processed_data_path"]).replace(".parquet", f"_cg*.parquet")), glob=True)\
+                         .with_columns(cs.float().cast(pl.Float32))\
                          .sort("time")
             
             logging.info("Started sinking dataframe.")
             df_query.collect().write_parquet(fp)
             logging.info("Finished sinking dataframe.")
                 
-        df_query = pl.scan_parquet(fp).with_columns(cs.float().cast(pl.Float32))
+        df_query = pl.scan_parquet(fp)
         assert df_query.select("time").collect().to_series().is_sorted()
         assert all(typ == pl.Float32 for typ in df_query.select(cs.float()).collect_schema().values())
 
