@@ -1,6 +1,6 @@
 #!/bin/bash 
 #SBATCH --account=awaken
-#SBATCH --time=02:00:00
+#SBATCH --time=01:00:00
 #SBATCH --output=%j-%x.out
 #SBATCH --nodes=1
 ##SBATCH --ntasks-per-node=1
@@ -8,6 +8,7 @@
 #SBATCH --ntasks=104
 #SBATCH --mem=0
 #SBATCH --exclusive
+#SBATCH --partition=debug
 
 # salloc --account=awaken --time=01:00:00 --gpus=2 --ntasks-per-node=2 --partition=debug
 
