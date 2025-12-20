@@ -4,6 +4,7 @@ import os
 
 def main():
     file_directory = "/scratch/ahenry/kfs3-flash/"
+    file_directory = "/Users/ahenry/Documents/toolboxes/wind_forecasting/examples/data/awaken_data"
     filenames = ["awaken_processed_imputed.parquet", 
                  "awaken_processed_smoothed_butterworth.parquet",
                  "awaken_processed_smoothed_normalized.parquet",
