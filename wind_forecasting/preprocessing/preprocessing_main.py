@@ -94,7 +94,7 @@ def main():
     config["turbine_input_path"] = os.path.expanduser(config["turbine_input_path"]) 
     config["farm_input_path"] = os.path.expanduser(config["farm_input_path"])
     
-    assert (not args.reload_data and os.path.exists(config["processed_data_path"])) or all(os.path.exists(fp) for fp in config["raw_data_directory"]), f"One of {config[path_key]} doesn't exist."
+    assert (not args.reload_data and os.path.exists(config["processed_data_path"])) or all(os.path.exists(fp) for fp in config["raw_data_directory"]), f"One of paths doesn't exist."
     
     for path_key in ["turbine_input_path", "farm_input_path"]:
         assert os.path.exists(config[path_key]), f"{config[path_key]} doesn't exist."
@@ -1530,9 +1530,9 @@ def main():
                 r2_threshold=config["filters"]["impute_missing_data"]["r2_threshold"])
 
             assert df_query.select("time").collect().to_series().is_sorted()
-            df_query = df_query.with_columns(cs.float().cast(pl.Float32))\
-                               .drop([cs.starts_with(feat) for feat in ["ws_horz", "ws_vert", "nd_cos", "nd_sin", "power_output"]])\
-                               .join(df_query2, on="time", how="left")
+            df_query = df_query.drop([cs.starts_with(feat) for feat in ["ws_horz", "ws_vert", "nd_cos", "nd_sin", "power_output"]])\
+                               .join(df_query2, on="time", how="left")\
+                             .with_columns(cs.float().cast(pl.Float32))
             del df_query2
             logging.info(f"Started sinking dataframe.")
             df_query.collect().write_parquet(fp)
@@ -1540,7 +1540,7 @@ def main():
         else:
             logging.info("Loading imputed/interpolated turbine missing data from correlated measurements.")
             
-        df_query = pl.scan_parquet(fp).with_columns(cs.float().cast(pl.Float32))
+        df_query = pl.scan_parquet(fp) #.with_columns(cs.float().cast(pl.Float32))
         
         assert df_query.select("time").collect().to_series().is_sorted()
         assert all(typ == pl.Float32 for typ in df_query.select(cs.float()).collect_schema().values())
