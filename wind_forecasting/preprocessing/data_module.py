@@ -361,17 +361,18 @@ class DataModule():
                     
                     for split in splits:
                         datasets = []
-                        setattr(self, f"{split}_dataset", pl.collect_all(getattr(self, f"{split}_dataset")))
+                        # setattr(self, f"{split}_dataset", pl.collect_all(getattr(self, f"{split}_dataset")))
                         split_ds = getattr(self, f"{split}_dataset")
                         for d in range(len(split_ds)):
                             for turbine_id in self.target_suffixes:
                                 item_id = f"TURBINE{turbine_id}_SPLIT{d}"
-                                start_time = pd.Period(split_ds[d].select(pl.col("time").first()).item(), freq=self.freq)
+                                start_time = pd.Period(split_ds[d].select(pl.col("time").first()).collect().item(), freq=self.freq)
                                 if verbose:
                                     logging.info(f"Transforming {split} dataset {item_id} into polars form.")
-                                ds = self.get_df_by_turbine(split_ds[d], turbine_id)
+                                ds = self.get_df_by_turbine(split_ds[d], turbine_id).collect()
                                 dt = pd.Timedelta(start_time.freq)
-                                datasets.append(pl.DataFrame(
+                                datasets.append(
+                                    pl.DataFrame(
                                     {   "item_id": [item_id] * len(ds),
                                         "time": pl.datetime_range(
                                             start=start_time.start_time,
@@ -382,8 +383,9 @@ class DataModule():
                                             closed="left"
                                         ).alias("time"), 
                                       f"feat_static_cat": [[self.target_suffixes.index(re.search("(?<=TURBINE)\\w+(?=_SPLIT)", item_id).group(0))]] * len(ds), 
-                                      **{f"target_{i}": ds[col] for i, col in enumerate(self.target_prefixes)}, 
-                                      **{f"feat_dynamic_real_{i}": ds[col] for i, col in enumerate(self.feat_dynamic_real_prefixes)}}))
+                                      **{f"target_{i}": ds.select(col).to_series() for i, col in enumerate(self.target_prefixes)}, 
+                                      **{f"feat_dynamic_real_{i}": ds.select(col).to_series() for i, col in enumerate(self.feat_dynamic_real_prefixes)}})
+                                    )
                         
                         setattr(self, f"{split}_dataset", pl.concat(datasets, how="vertical"))
                         
@@ -398,7 +400,7 @@ class DataModule():
                     for split in splits:
                         datasets = []
                         # item_ids = list(getattr(self, f"{split}_dataset").keys())
-                        setattr(self, f"{split}_dataset", pl.collect_all(getattr(self, f"{split}_dataset")))
+                        # setattr(self, f"{split}_dataset", pl.collect_all(getattr(self, f"{split}_dataset")))
                         split_ds = getattr(self, f"{split}_dataset")
                         for d in range(len(split_ds)):
                             for turbine_id in self.target_suffixes:
@@ -406,10 +408,10 @@ class DataModule():
                                 if verbose:
                                     logging.info(f"Transforming {split} dataset {item_id} into numpy form.")
                                 # ds = getattr(self, f"{split}_dataset")[item_id]
-                                start_time = pd.Period(split_ds[d].select(pl.col("time").first()).item(), freq=self.freq)
+                                start_time = pd.Period(split_ds[d].select(pl.col("time").first()).collect().item(), freq=self.freq)
                                 # self.get_df_by_turbine(split_ds[d], turbine_id)
                                 # ds = split_ds[d].select(self.feat_dynamic_real_prefixes + self.target_prefixes)
-                                ds = self.get_df_by_turbine(split_ds[d], turbine_id).to_numpy().T
+                                ds = self.get_df_by_turbine(split_ds[d], turbine_id).collect().to_numpy().T
                                 datasets.append({
                                     "target": ds[-len(self.target_prefixes):, :],
                                     "item_id": item_id,
@@ -452,15 +454,15 @@ class DataModule():
                         #             assume_sorted=True, assume_resampled=True, unchecked=True
                         #     ))
                         datasets = []
-                        setattr(self, f"{split}_dataset", pl.collect_all(getattr(self, f"{split}_dataset")))
+                        # setattr(self, f"{split}_dataset", pl.collect_all(getattr(self, f"{split}_dataset")))
                         split_ds = getattr(self, f"{split}_dataset")
                         for d in range(len(split_ds)):
                             item_id = f"SPLIT{d}"
-                            start_time = pd.Period(split_ds[d].select(pl.col("time").first()).item(), freq=self.freq)
+                            start_time = pd.Period(split_ds[d].select(pl.col("time").first()).collect().item(), freq=self.freq)
                             
                             if verbose:
                                 logging.info(f"Transforming {split} dataset {item_id} into polars form.")
-                            ds = split_ds[d].select([pl.col("time")] + self.feat_dynamic_real_cols + self.target_cols)
+                            ds = split_ds[d].select([pl.col("time")] + self.feat_dynamic_real_cols + self.target_cols).collect()
                             dt = pd.Timedelta(start_time.freq)
                             datasets.append(pl.DataFrame(
                                 {"item_id": [item_id] * len(ds),
@@ -472,8 +474,8 @@ class DataModule():
                                         time_unit="ns",
                                         closed="left"
                                     ).alias("time"),
-                                    **{f"target_{i}": ds[col] for i, col in enumerate(self.target_cols)}, 
-                                    **{f"feat_dynamic_real_{i}": ds[col] for i, col in enumerate(self.feat_dynamic_real_cols)}}))
+                                    **{f"target_{i}": ds.select(col).to_series() for i, col in enumerate(self.target_cols)}, 
+                                    **{f"feat_dynamic_real_{i}": ds.select(col).to_series() for i, col in enumerate(self.feat_dynamic_real_cols)}}))
                         
                         setattr(self, f"{split}_dataset", pl.concat(datasets, how="vertical"))
                          
@@ -483,7 +485,7 @@ class DataModule():
                     for split in splits:
                         datasets = []
                         
-                        setattr(self, f"{split}_dataset", pl.collect_all(getattr(self, f"{split}_dataset")))
+                        # setattr(self, f"{split}_dataset", pl.collect_all(getattr(self, f"{split}_dataset")))
                         split_ds = getattr(self, f"{split}_dataset")
                         # item_ids = list(getattr(self, f"{split}_dataset").keys())
                         for d in range(len(split_ds)):
@@ -491,8 +493,8 @@ class DataModule():
                             if self.verbose:
                                 logging.info(f"Transforming {split} dataset {item_id} into numpy form.")
                             # ds = getattr(self, f"{split}_dataset")[item_id]
-                            start_time = pd.Period(split_ds[d].select(pl.col("time").first()).item(), freq=self.freq)
-                            ds = split_ds[d].select(self.feat_dynamic_real_cols + self.target_cols).to_numpy().T
+                            start_time = pd.Period(split_ds[d].select(pl.col("time").first()).collect().item(), freq=self.freq)
+                            ds = split_ds[d].select(self.feat_dynamic_real_cols + self.target_cols).collect().to_numpy().T
                             datasets.append({
                                 "target": ds[-len(self.target_cols):, :],
                                  "item_id": item_id,
