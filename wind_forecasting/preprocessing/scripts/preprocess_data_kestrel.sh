@@ -4,7 +4,7 @@
 #SBATCH --ntasks=96 # NOTE use 1 for st_dev calc
 #SBATCH --mem=0
 #SBATCH --account=awaken
-#SBATCH --time=48:00:00
+#SBATCH --time=08:00:00
 #SBATCH --partition=bigmem
 ##SBATCH --time=01:00:00
 ##SBATCH --partition=standard
