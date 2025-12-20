@@ -129,10 +129,11 @@ class DataModule():
         norm_scale_cols = [col for col in norm_consts if col.endswith("_std")]
 
         if len(norm_mean_cols) > 0 and len(norm_scale_cols) > 0:
-            norm_mean_cols = [col.replace("_mean", "") for col in norm_mean_cols]
-            norm_scale_cols = [col.replace("_std", "") for col in norm_scale_cols]
-            return {"offset_": norm_consts[norm_mean_cols].to_dict(), "scale_": norm_consts[norm_scale_cols].to_dict()}
-        
+            # norm_mean_cols = [col.replace("_mean", "") for col in norm_mean_cols]
+            # norm_scale_cols = [col.replace("_std", "") for col in norm_scale_cols]
+            return {"offset_": {k.replace("_mean", ""): v for k, v in norm_consts[norm_mean_cols].iloc[0].to_dict().items()}, 
+                    "scale_": {k.replace("_std", ""): v for k, v in norm_consts[norm_scale_cols].iloc[0].to_dict().items()}}
+
         norm_min_cols = [col for col in norm_consts if col.endswith("_min")]
         norm_max_cols = [col for col in norm_consts if col.endswith("_max")]
         data_min = norm_consts[norm_min_cols].values.flatten()

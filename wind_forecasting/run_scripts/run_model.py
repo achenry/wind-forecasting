@@ -448,7 +448,7 @@ def main():
         db_connection_info = None # Will hold pg_config if PostgreSQL is used
         db_setup_params = None # Initialize
         
-            # Use globals() to fetch the module and estimator classes dynamically
+        # Use globals() to fetch the module and estimator classes dynamically
         LightningModuleClass = globals()[f"{args.model.capitalize()}LightningModule"]
         EstimatorClass = globals()[f"{args.model.capitalize()}Estimator"]
         DistrOutputClass = globals()[config["model"]["distr_output"]["class"]]
@@ -487,7 +487,7 @@ def main():
         else:
              logging.info("No connection info returned (likely SQLite or Journal mode).")
 
-    if args.mode in ["dataset", "train", "test"]:
+    if args.mode in ["train", "test"]:
         
         # get parameters expected by estimator and trainer
         estimator_sig = inspect.signature(EstimatorClass.__init__)
