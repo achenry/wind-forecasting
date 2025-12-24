@@ -348,7 +348,7 @@ class DataModule():
                 
                 self.continuity_groups = dataset.select(pl.col("continuity_group").unique()).collect().to_numpy().flatten()
                 
-                self.continuity_groups = [0,1,2]
+                # self.continuity_groups = [0,1,2]
                 datasets = self.split_dataset([dataset.filter(pl.col("continuity_group") == cg) for cg in self.continuity_groups], splits)
                     
                 # for split in splits:
