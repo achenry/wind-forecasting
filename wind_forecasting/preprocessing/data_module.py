@@ -367,26 +367,23 @@ class DataModule():
                     #     },
                     #     index=static_index
                     # )
-                    
+                    temp_dir = os.path.join(os.path.dirname(self.train_ready_data_path), "splits_temp")
                     for split in splits:
-                        transformed_datasets = []
                         # setattr(self, f"{split}_dataset", pl.collect_all(getattr(self, f"{split}_dataset")))
                         split_ds = datasets[split]
-                        temp_dir = os.path.join(os.path.dirname(self.train_ready_data_path), "temp")
-
+                        
                         for d, ds in enumerate(split_ds):
+                            start_time = pd.Period(ds.select(pl.col("time").first()).collect().item(), freq=self.freq)
                             for turbine_id in self.target_suffixes:
                                 item_id = f"TURBINE{turbine_id}_SPLIT{d}"
-                                start_time = pd.Period(ds.select(pl.col("time").first()).collect().item(), freq=self.freq)
-                                if verbose:
-                                    logging.info(f"Transforming {split} dataset {item_id} into polars form.")
-                                    
                                 temp_path = os.path.join(
                                     temp_dir,
                                     os.path.basename(self.data_path).replace(".parquet", f"_{split}_{item_id}.parquet")
                                 )
                                 
                                 if reload or not os.path.exists(temp_path):
+                                    if verbose:
+                                        logging.info(f"Transforming {split} dataset {item_id} into polars form.")
                                     ds_len = ds.select(pl.len()).collect().item()
                                     dt = pd.Timedelta(start_time.freq)
                                     
@@ -402,13 +399,21 @@ class DataModule():
                                                 *[pl.col(col).alias(f"target_{i}") for i, col in enumerate(self.target_prefixes)],
                                                 *[pl.col(col).alias(f"feat_dynamic_real_{i}") for i, col in enumerate(self.feat_dynamic_real_prefixes)])\
                                         .sink_parquet(temp_path, maintain_order=True)
+                                elif verbose:
+                                    logging.info(f"Loading existing cached file {temp_path} for {split} dataset {item_id}.")
+                                    
+                        # datasets[split] = pl.concat([
+                        #     pl.scan_parquet(os.path.join(
+                        #             temp_dir,
+                        #             os.path.basename(self.data_path).replace(".parquet", f"_{split}_TURBINE{turbine_id}_SPLIT{d}.parquet")
+                        #         )) for d in range(len(split_ds)) for turbine_id in self.target_suffixes], 
+                        #     how="vertical")
                         
-                        datasets[split] = pl.concat([
-                            pl.scan_parquet(os.path.join(
+                        datasets[split] = pl.scan_parquet(os.path.join(
                                     temp_dir,
-                                    os.path.basename(self.data_path).replace(".parquet", f"_{split}_TURBINE{turbine_id}_SPLIT{d}.parquet")
-                                )) for d in range(len(split_ds)) for turbine_id in self.target_suffixes], 
-                            how="vertical")
+                                    os.path.basename(self.data_path).replace(".parquet", f"_{split}_TURBINE*_SPLIT*.parquet")
+                                ), glob=True)\
+                                    .sort("item_id", maintain_order=True)
                         
                         # setattr(self, f"{split}_dataset", 
                         #         PolarsDataset({f"TURBINE{turbine_id}_SPLIT{d}": self.get_df_by_turbine(ds, turbine_id) for d, ds in enumerate(split_ds) for turbine_id in self.target_suffixes}, 
@@ -460,6 +465,7 @@ class DataModule():
                 datasets = self.split_dataset([dataset.filter(pl.col("continuity_group") == cg) for cg in self.continuity_groups], splits)
                     
                 if self.as_lazyframe:
+                    temp_dir = os.path.join(os.path.dirname(self.train_ready_data_path), "splits_temp")
                     for split in splits:
                         # split_ds = getattr(self, f"{split}_dataset")
                         # setattr(self, f"{split}_dataset", 
@@ -499,12 +505,17 @@ class DataModule():
                                             *[pl.col(col).alias(f"feat_dynamic_real_{i}") for i, col in enumerate(self.feat_dynamic_real_cols)])\
                                     .sink_parquet(temp_path, maintain_order=True)
                         
-                        datasets[split] = pl.concat([
-                            pl.scan_parquet(os.path.join(
-                                    temp_dir,
-                                    os.path.basename(self.data_path).replace(".parquet", f"_{split}_SPLIT{d}.parquet")
-                                )) for d in range(len(split_ds))], 
-                            how="vertical")
+                        # datasets[split] = pl.concat([
+                        #     pl.scan_parquet(os.path.join(
+                        #             temp_dir,
+                        #             os.path.basename(self.data_path).replace(".parquet", f"_{split}_SPLIT{d}.parquet")
+                        #         )) for d in range(len(split_ds))], 
+                        #     how="vertical")
+                        datasets[split] = pl.scan_parquet(
+                            os.path.join(temp_dir, 
+                                         os.path.basename(self.data_path).replace(".parquet", f"_{split}_SPLIT*.parquet")), 
+                            glob=True)\
+                                .sort("item_id", maintain_order=True)
                         # datasets[split] = pl.concat(transformed_datasets, how="vertical")
                          
                 else:
