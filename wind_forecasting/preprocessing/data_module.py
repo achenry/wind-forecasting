@@ -199,13 +199,15 @@ class DataModule():
             logging.info(f"Found continuity groups {self.continuity_groups}") 
         # dataset.target_cols = self.target_cols 
         
+        temp_fp = f"{self.train_ready_data_path}.done"
+        
         if self.verbose:
-            logging.info(f"Writing resampled/sorted parquet to {self.train_ready_data_path}.done") 
+            logging.info(f"Writing resampled/sorted parquet to {temp_fp}") 
 
         # TODO HIGH there may be a racing condition here if multiple workers are writing to the same file e.g. for tuning
         # confirm that this only occurs on rank 0
-        temp_fp = f"{self.train_ready_data_path}.done"
-        dataset.collect(_eager=True).write_parquet(temp_fp, statistics=False)
+        
+        dataset.sink_parquet(temp_fp, maintain_order=True)
         
         # if os.path.exists(self.train_ready_data_path):
         #     os.remove(self.train_ready_data_path)
@@ -371,11 +373,11 @@ class DataModule():
                         # setattr(self, f"{split}_dataset", pl.collect_all(getattr(self, f"{split}_dataset")))
                         split_ds = datasets[split]
                         temp_dir = os.path.join(os.path.dirname(self.train_ready_data_path), "temp")
-                        
-                        for d in range(len(split_ds)):
+
+                        for d, ds in enumerate(split_ds):
                             for turbine_id in self.target_suffixes:
                                 item_id = f"TURBINE{turbine_id}_SPLIT{d}"
-                                start_time = pd.Period(split_ds[d].select(pl.col("time").first()).collect().item(), freq=self.freq)
+                                start_time = pd.Period(ds.select(pl.col("time").first()).collect().item(), freq=self.freq)
                                 if verbose:
                                     logging.info(f"Transforming {split} dataset {item_id} into polars form.")
                                     
@@ -383,20 +385,23 @@ class DataModule():
                                     temp_dir,
                                     os.path.basename(self.data_path).replace(".parquet", f"_{split}_{item_id}.parquet")
                                 )
-                                ds_len = split_ds[d].select(pl.len()).collect().item()
-                                dt = pd.Timedelta(start_time.freq)
-                                self.get_df_by_turbine(split_ds[d], turbine_id)\
-                                    .select(item_id=pl.lit(item_id),
-                                            time=pl.datetime_range(
-                                                    start=start_time.start_time,
-                                                    end=start_time.start_time + (dt * ds_len),
-                                                    interval=dt,
-                                                    time_unit="ns",
-                                                    closed="left"),
-                                            feat_static_cat=pl.lit([self.target_suffixes.index(re.search("(?<=TURBINE)\\w+(?=_SPLIT)", item_id).group(0))]),
-                                            *[pl.col(col).alias(f"target_{i}") for i, col in enumerate(self.target_prefixes)],
-                                            *[pl.col(col).alias(f"feat_dynamic_real_{i}") for i, col in enumerate(self.feat_dynamic_real_prefixes)])\
-                                    .sink_parquet(temp_path, maintain_order=True)
+                                
+                                if reload or not os.path.exists(temp_path):
+                                    ds_len = ds.select(pl.len()).collect().item()
+                                    dt = pd.Timedelta(start_time.freq)
+                                    
+                                    self.get_df_by_turbine(ds, turbine_id)\
+                                        .select(item_id=pl.lit(item_id),
+                                                time=pl.datetime_range(
+                                                        start=start_time.start_time,
+                                                        end=start_time.start_time + (dt * ds_len),
+                                                        interval=dt,
+                                                        time_unit="ns",
+                                                        closed="left"),
+                                                feat_static_cat=pl.lit([self.target_suffixes.index(re.search("(?<=TURBINE)\\w+(?=_SPLIT)", item_id).group(0))]),
+                                                *[pl.col(col).alias(f"target_{i}") for i, col in enumerate(self.target_prefixes)],
+                                                *[pl.col(col).alias(f"feat_dynamic_real_{i}") for i, col in enumerate(self.feat_dynamic_real_prefixes)])\
+                                        .sink_parquet(temp_path, maintain_order=True)
                         
                         datasets[split] = pl.concat([
                             pl.scan_parquet(os.path.join(
@@ -405,7 +410,6 @@ class DataModule():
                                 )) for d in range(len(split_ds)) for turbine_id in self.target_suffixes], 
                             how="vertical")
                         
-                                
                         # setattr(self, f"{split}_dataset", 
                         #         PolarsDataset({f"TURBINE{turbine_id}_SPLIT{d}": self.get_df_by_turbine(ds, turbine_id) for d, ds in enumerate(split_ds) for turbine_id in self.target_suffixes}, 
                         #                 target=self.target_prefixes, timestamp="time", freq=self.freq, 
@@ -418,16 +422,16 @@ class DataModule():
                         # item_ids = list(getattr(self, f"{split}_dataset").keys())
                         # setattr(self, f"{split}_dataset", pl.collect_all(getattr(self, f"{split}_dataset")))
                         split_ds = datasets[split]
-                        for d in range(len(split_ds)):
+                        for d, ds in enumerate(split_ds):
                             for turbine_id in self.target_suffixes:
                                 item_id = f"TURBINE{turbine_id}_SPLIT{d}"
                                 if verbose:
                                     logging.info(f"Transforming {split} dataset {item_id} into numpy form.")
                                 # ds = getattr(self, f"{split}_dataset")[item_id]
-                                start_time = pd.Period(split_ds[d].select(pl.col("time").first()).collect().item(), freq=self.freq)
+                                start_time = pd.Period(ds.select(pl.col("time").first()).collect().item(), freq=self.freq)
                                 # self.get_df_by_turbine(split_ds[d], turbine_id)
                                 # ds = split_ds[d].select(self.feat_dynamic_real_prefixes + self.target_prefixes)
-                                ds = self.get_df_by_turbine(split_ds[d], turbine_id).collect().to_numpy().T
+                                ds = self.get_df_by_turbine(ds, turbine_id).collect().to_numpy().T
                                 transformed_datasets.append({
                                     "target": ds[-len(self.target_prefixes):, :],
                                     "item_id": item_id,
@@ -468,10 +472,10 @@ class DataModule():
                         transformed_datasets = []
                         # setattr(self, f"{split}_dataset", pl.collect_all(getattr(self, f"{split}_dataset")))
                         split_ds = getattr(self, f"{split}_dataset")
-                        for d in range(len(split_ds)):
+                        for d, ds in enumerate(split_ds):
                             item_id = f"SPLIT{d}"
-                            start_time = pd.Period(split_ds[d].select(pl.col("time").first()).collect().item(), freq=self.freq)
-                            
+                            start_time = pd.Period(ds.select(pl.col("time").first()).collect().item(), freq=self.freq)
+
                             if verbose:
                                 logging.info(f"Transforming {split} dataset {item_id} into polars form.")
                             
@@ -479,20 +483,21 @@ class DataModule():
                                 temp_dir,
                                 os.path.basename(self.data_path).replace(".parquet", f"_{split}_{item_id}.parquet")
                             )
-                            ds_len = split_ds[d].select(pl.len()).collect().item()
-                            dt = pd.Timedelta(start_time.freq)
-                            split_ds[d].select([pl.col("time")] + self.feat_dynamic_real_cols + self.target_cols)\
-                                .select(item_id=pl.lit(item_id),
-                                        time=pl.datetime_range(
-                                                start=start_time.start_time,
-                                                end=start_time.start_time + (dt * ds_len),
-                                                interval=dt,
-                                                time_unit="ns",
-                                                closed="left"),
-                                        feat_static_cat=pl.lit([self.target_suffixes.index(re.search("(?<=TURBINE)\\w+(?=_SPLIT)", item_id).group(0))]),
-                                        *[pl.col(col).alias(f"target_{i}") for i, col in enumerate(self.target_cols)],
-                                        *[pl.col(col).alias(f"feat_dynamic_real_{i}") for i, col in enumerate(self.feat_dynamic_real_cols)])\
-                                .sink_parquet(temp_path, maintain_order=True)
+                            if reload or not os.path.exists(temp_path):
+                                ds_len = ds.select(pl.len()).collect().item()
+                                dt = pd.Timedelta(start_time.freq)
+                                ds.select([pl.col("time")] + self.feat_dynamic_real_cols + self.target_cols)\
+                                    .select(item_id=pl.lit(item_id),
+                                            time=pl.datetime_range(
+                                                    start=start_time.start_time,
+                                                    end=start_time.start_time + (dt * ds_len),
+                                                    interval=dt,
+                                                    time_unit="ns",
+                                                    closed="left"),
+                                            feat_static_cat=pl.lit([self.target_suffixes.index(re.search("(?<=TURBINE)\\w+(?=_SPLIT)", item_id).group(0))]),
+                                            *[pl.col(col).alias(f"target_{i}") for i, col in enumerate(self.target_cols)],
+                                            *[pl.col(col).alias(f"feat_dynamic_real_{i}") for i, col in enumerate(self.feat_dynamic_real_cols)])\
+                                    .sink_parquet(temp_path, maintain_order=True)
                         
                         datasets[split] = pl.concat([
                             pl.scan_parquet(os.path.join(
@@ -511,13 +516,13 @@ class DataModule():
                         # setattr(self, f"{split}_dataset", pl.collect_all(getattr(self, f"{split}_dataset")))
                         split_ds = datasets[split]
                         # item_ids = list(getattr(self, f"{split}_dataset").keys())
-                        for d in range(len(split_ds)):
+                        for d, ds in enumerate(split_ds):
                             item_id = f"SPLIT{d}"
                             if self.verbose:
                                 logging.info(f"Transforming {split} dataset {item_id} into numpy form.")
                             # ds = getattr(self, f"{split}_dataset")[item_id]
-                            start_time = pd.Period(split_ds[d].select(pl.col("time").first()).collect().item(), freq=self.freq)
-                            ds = split_ds[d].select(self.feat_dynamic_real_cols + self.target_cols).collect().to_numpy().T
+                            start_time = pd.Period(ds.select(pl.col("time").first()).collect().item(), freq=self.freq)
+                            ds = ds.select(self.feat_dynamic_real_cols + self.target_cols).collect().to_numpy().T
                             transformed_datasets.append({
                                 "target": ds[-len(self.target_cols):, :],
                                  "item_id": item_id,
@@ -544,7 +549,7 @@ class DataModule():
                     try:
                         # Write to temp file
                         if self.as_lazyframe:
-                            datasets[split].sink_parquet(temp_path, maintain_order=True)
+                            datasets[split].collect().write_parquet(temp_path)
                         else:
                             with open(temp_path, 'wb') as fp:
                                 pickle.dump(datasets[split], fp)
