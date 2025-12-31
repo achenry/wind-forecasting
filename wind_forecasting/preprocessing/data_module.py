@@ -100,7 +100,7 @@ class DataModule():
         
         for split in splits:
             dataset = self.datasets[split]
-            if dataset.select(pl.len()).collect().item() == 0:
+            if (self.as_lazyframe and dataset.select(pl.len()).collect().item() == 0) or (not self.as_lazyframe and sum(ds["target"].shape[1] for ds in dataset) == 0):
                 logging.warning(f"Rank {rank}: {split} dataset is empty! This may cause validation issues.")
                 continue
                 
@@ -153,6 +153,7 @@ class DataModule():
     def generate_datasets(self):
         
         dataset = IterableLazyFrame(data_path=self.data_path, dtype=self.dtype)
+        dataset = dataset.head(100000)
         
         # add warning if upsampling
         dataset_dt = dataset.select(pl.col("time").diff()).slice(1, 1).collect().item()
@@ -324,6 +325,10 @@ class DataModule():
             split_path = self.get_split_file_path(split)
             exists = os.path.exists(split_path)
             logging.info(f"Rank {rank}: Split file {split}: {split_path} (exists: {exists})")
+        
+        if self.as_lazyframe:
+            temp_dir = os.path.join(os.path.dirname(self.train_ready_data_path), "splits_temp")
+            os.makedirs(temp_dir, exist_ok=True)
     
         if rank == 0 and (reload or not split_files_exist):
             logging.info(f"Rank {rank}: Scanning dataset {self.train_ready_data_path}.")
@@ -353,27 +358,13 @@ class DataModule():
                 # self.continuity_groups = [0,1,2]
                 datasets = self.split_dataset([dataset.filter(pl.col("continuity_group") == cg) for cg in self.continuity_groups], splits)
                     
-                # for split in splits:
-                #     setattr(self, f"{split}_dataset", datasets[split])
-                
-                
-                os.makedirs(os.path.join(os.path.dirname(self.train_ready_data_path), "temp"), exist_ok=True)
-                
                 if self.as_lazyframe:
-                    # static_index = [f"TURBINE{turbine_id}_SPLIT{cg}" for turbine_id in self.target_suffixes for cg in self.train_dataset["continuity_group"].unique().collect()]
-                    # self.static_features = pd.DataFrame(
-                    #     {
-                            # "turbine_id": pd.Categorical(turbine_id for turbine_id in self.target_suffixes for cg in self.train_dataset["continuity_group"].unique().collect())
-                    #     },
-                    #     index=static_index
-                    # )
-                    temp_dir = os.path.join(os.path.dirname(self.train_ready_data_path), "splits_temp")
+                    
                     for split in splits:
                         # setattr(self, f"{split}_dataset", pl.collect_all(getattr(self, f"{split}_dataset")))
                         split_ds = datasets[split]
                         
                         for d, ds in enumerate(split_ds):
-                            start_time = pd.Period(ds.select(pl.col("time").first()).collect().item(), freq=self.freq)
                             for turbine_id in self.target_suffixes:
                                 item_id = f"TURBINE{turbine_id}_SPLIT{d}"
                                 temp_path = os.path.join(
@@ -384,7 +375,9 @@ class DataModule():
                                 if reload or not os.path.exists(temp_path):
                                     if verbose:
                                         logging.info(f"Transforming {split} dataset {item_id} into polars form.")
+                                        
                                     ds_len = ds.select(pl.len()).collect().item()
+                                    start_time = pd.Period(ds.select(pl.col("time").first()).collect().item(), freq=self.freq)
                                     dt = pd.Timedelta(start_time.freq)
                                     
                                     self.get_df_by_turbine(ds, turbine_id)\
@@ -400,7 +393,7 @@ class DataModule():
                                                 *[pl.col(col).alias(f"feat_dynamic_real_{i}") for i, col in enumerate(self.feat_dynamic_real_prefixes)])\
                                         .sink_parquet(temp_path, maintain_order=True)
                                 elif verbose:
-                                    logging.info(f"Loading existing cached file {temp_path} for {split} dataset {item_id}.")
+                                    logging.info(f"Loading existing cached file for {split} dataset {item_id}.")
                                     
                         # datasets[split] = pl.concat([
                         #     pl.scan_parquet(os.path.join(
@@ -415,11 +408,6 @@ class DataModule():
                                 ), glob=True)\
                                     .sort("item_id", maintain_order=True)
                         
-                        # setattr(self, f"{split}_dataset", 
-                        #         PolarsDataset({f"TURBINE{turbine_id}_SPLIT{d}": self.get_df_by_turbine(ds, turbine_id) for d, ds in enumerate(split_ds) for turbine_id in self.target_suffixes}, 
-                        #                 target=self.target_prefixes, timestamp="time", freq=self.freq, 
-                        #                 feat_dynamic_real=self.feat_dynamic_real_prefixes, static_features=self.static_features, 
-                        #                 assume_sorted=True, assume_resampled=True, unchecked=True))
                 else:
                     # convert dictionary of item_id: lazyframe datasets into list of dictionaries with numpy arrays for data
                     for split in splits:
@@ -465,32 +453,22 @@ class DataModule():
                 datasets = self.split_dataset([dataset.filter(pl.col("continuity_group") == cg) for cg in self.continuity_groups], splits)
                     
                 if self.as_lazyframe:
-                    temp_dir = os.path.join(os.path.dirname(self.train_ready_data_path), "splits_temp")
                     for split in splits:
-                        # split_ds = getattr(self, f"{split}_dataset")
-                        # setattr(self, f"{split}_dataset", 
-                        #         PolarsDataset(
-                        #             {f"SPLIT{d}": ds.select([pl.col("time")] + self.feat_dynamic_real_cols + self.target_cols) for d, ds in enumerate(split_ds)}, 
-                        #             timestamp="time", freq=self.freq, 
-                        #             target=self.target_cols, feat_dynamic_real=self.feat_dynamic_real_cols, static_features=self.static_features, 
-                        #             assume_sorted=True, assume_resampled=True, unchecked=True
-                        #     ))
-                        transformed_datasets = []
-                        # setattr(self, f"{split}_dataset", pl.collect_all(getattr(self, f"{split}_dataset")))
                         split_ds = getattr(self, f"{split}_dataset")
                         for d, ds in enumerate(split_ds):
                             item_id = f"SPLIT{d}"
-                            start_time = pd.Period(ds.select(pl.col("time").first()).collect().item(), freq=self.freq)
 
-                            if verbose:
-                                logging.info(f"Transforming {split} dataset {item_id} into polars form.")
-                            
                             temp_path = os.path.join(
                                 temp_dir,
                                 os.path.basename(self.data_path).replace(".parquet", f"_{split}_{item_id}.parquet")
                             )
+                            
                             if reload or not os.path.exists(temp_path):
+                                if verbose:
+                                    logging.info(f"Transforming {split} dataset {item_id} into polars form.")
+                                    
                                 ds_len = ds.select(pl.len()).collect().item()
+                                start_time = pd.Period(ds.select(pl.col("time").first()).collect().item(), freq=self.freq)
                                 dt = pd.Timedelta(start_time.freq)
                                 ds.select([pl.col("time")] + self.feat_dynamic_real_cols + self.target_cols)\
                                     .select(item_id=pl.lit(item_id),
@@ -504,6 +482,8 @@ class DataModule():
                                             *[pl.col(col).alias(f"target_{i}") for i, col in enumerate(self.target_cols)],
                                             *[pl.col(col).alias(f"feat_dynamic_real_{i}") for i, col in enumerate(self.feat_dynamic_real_cols)])\
                                     .sink_parquet(temp_path, maintain_order=True)
+                            elif verbose:
+                                    logging.info(f"Loading existing cached file for {split} dataset {item_id}.")
                         
                         # datasets[split] = pl.concat([
                         #     pl.scan_parquet(os.path.join(
@@ -547,7 +527,10 @@ class DataModule():
             
             # Log generated dataset sizes
             for split in splits:
-                dataset_size = datasets[split].select(pl.len()).collect().item() if datasets[split] is not None else 0
+                if self.as_lazyframe:
+                    dataset_size = datasets[split].select(pl.len()).collect().item() if datasets[split] is not None else 0
+                else:
+                    dataset_size = sum(ds["target"].shape[1] for ds in datasets[split]) if datasets[split] is not None else 0
                 logging.info(f"Rank 0: Generated {split} dataset size: {dataset_size} samples (context_length={self.context_length}, prediction_length={self.prediction_length})")
             
             if save:
@@ -579,7 +562,9 @@ class DataModule():
                             except OSError as cleanup_error:
                                 logging.error(f"Rank 0: Error removing temp file {temp_path}: {cleanup_error}")
                 
-                shutil.rmtree(os.path.join(os.path.dirname(self.train_ready_data_path), "temp"))
+                if self.as_lazyframe:
+                    # Clean up temporary directory
+                    shutil.rmtree(os.path.join(os.path.dirname(self.train_ready_data_path), "splits_temp"))
                 
         # Only use barrier if PyTorch distributed is actually initialized
         # In tuning mode with independent workers, we don't need/want a barrier
@@ -637,19 +622,17 @@ class DataModule():
 
             # Log dataset sizes and validate loaded splits for compatibility with current context_length
             for split in splits:
-                dataset_size = datasets[split].select(pl.len()).collect().item() if datasets[split] is not None else 0
+                if self.as_lazyframe:
+                    dataset_size = datasets[split].select(pl.len()).collect().item() if datasets[split] is not None else 0
+                else:
+                    dataset_size = sum(ds["target"].shape[1] for ds in datasets[split]) if datasets[split] is not None else 0
                 logging.info(f"Rank {rank}: Loaded {split} dataset size: {dataset_size} samples")
-            
-            self.datasets = datasets
+
+        self.datasets = datasets
+        
+        if rank != 0 or (not reload and split_files_exist):
             self._validate_loaded_splits(splits, rank)
 
-        # for split, datasets in [("train", self.train_dataset), ("val", self.val_dataset), ("test", self.test_dataset)]:
-        #     for ds in iter(datasets):
-        #         for key in ["target", "feat_dynamic_real"]:
-        #             print(f"{split} {key} {ds['item_id']} dataset - num nan/nulls = {ds[key].select(pl.sum_horizontal((cs.numeric().is_null() | cs.numeric().is_nan()).sum())).collect().item()}")
-          
-        # return dataset
-        
     def get_df_by_turbine(self, dataset, turbine_id):
         return dataset.select(pl.col("time"), *[col for col in (self.feat_dynamic_real_cols + self.target_cols) if col.endswith(f"_{turbine_id}")])\
                         .rename(mapping={**{f"{tgt_col}_{turbine_id}": tgt_col for tgt_col in self.target_prefixes},
@@ -663,10 +646,6 @@ class DataModule():
                                        + [pl.col(f"{feat_col}_{turbine_id}") for feat_col in self.feat_dynamic_real_prefixes]
                 ) for ds in datasets for turbine_id in self.target_suffixes
         ]
-
-    # def denormalize(self, split):
-    #     assert split in ["train", "test", "val"]
-    #     ds = getattr(self, f"{split}_dataset")
         
     def split_dataset(self, dataset, splits):
         train_datasets = []
