@@ -153,7 +153,7 @@ class DataModule():
     def generate_datasets(self):
         
         dataset = IterableLazyFrame(data_path=self.data_path, dtype=self.dtype)
-        dataset = dataset.head(100000)
+        # dataset = dataset.head(100000)
         
         # add warning if upsampling
         dataset_dt = dataset.select(pl.col("time").diff()).slice(1, 1).collect().item()
