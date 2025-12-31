@@ -674,12 +674,7 @@ class DataModule():
                 # if slc.stop - slc.start >= self.context_length + self.prediction_length:
                 
                 if round(min(self.train_split, self.val_split, self.test_split) * (slc.stop - slc.start)) >= self.context_length + self.prediction_length: 
-                    # split_dataset.append(slice_data_entry(ds, slice_=slc))
-                    # logging.info(f"full dataset cg {cg} split {split_idx} 
-                    #                 start time = {split_dataset[-1]['start']}, 
-                    #                 end time = {split_dataset[-1]['start'] + split_dataset[-1]['target'].shape[1]}, 
-                    #                 duration = {split_dataset[-1]['target'].shape[1] * pd.Timedelta(split_dataset[-1]['start'].freq)}")
-
+                    
                     datasets.append(ds.select(pl.exclude("continuity_group")).slice(slc.start, slc.stop - slc.start))
                     start_time = datasets[-1].select(pl.col("time").first()).collect().item()
                     end_time = datasets[-1].select(pl.col("time").last()).collect().item()
@@ -687,7 +682,7 @@ class DataModule():
                     logging.info(f"full dataset cg {cg} split {split_idx}, start time = {start_time}, end time = {end_time}, duration = {duration}")
                 else:
                     logging.info(f"Can't split dataset {cg} into {self.n_splits} , not enough data points, returning whole.")
-                    # split_dataset = [ds]
+                    
                     self.rows_per_split[cg] *= self.n_splits
                     datasets.append(ds.select(pl.exclude("continuity_group")))
                     break
