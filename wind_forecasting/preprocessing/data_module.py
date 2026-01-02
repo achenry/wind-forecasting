@@ -543,7 +543,6 @@ class DataModule():
                         # Write to temp file
                         if self.as_lazyframe:
                             datasets[split].collect().write_parquet(temp_path)
-                            datasets[split].scan_parquet(temp_path)  # reload as lazyframe
                         else:
                             with open(temp_path, 'wb') as fp:
                                 pickle.dump(datasets[split], fp)
