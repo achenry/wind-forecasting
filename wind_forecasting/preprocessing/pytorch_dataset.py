@@ -8,7 +8,7 @@ and applies necessary transformations for model training.
 import logging
 import pickle
 # from memory_profiler import profile
-from line_profiler import profile
+# from line_profiler import profile
 from typing import List, Optional, Any
 import numpy as np
 import pandas as pd

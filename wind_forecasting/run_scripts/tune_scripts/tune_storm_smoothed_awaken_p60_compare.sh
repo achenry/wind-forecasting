@@ -1,6 +1,6 @@
 #!/bin/bash
 
-#SBATCH --partition=cfdg.p
+#SBATCH --partition=all_gpu.p
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=4
 #SBATCH --cpus-per-task=8

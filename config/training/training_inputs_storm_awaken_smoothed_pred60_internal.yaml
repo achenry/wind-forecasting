@@ -69,10 +69,10 @@ dataset:
   sampler: "random"
   data_path: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/DATA/preprocessed_awaken_data/awaken_processed_smoothed_normalized.parquet
   normalization_consts_path: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/DATA/preprocessed_awaken_data/awaken_processed_smoothed_normalization_consts.csv
-  context_length: 80      # STEPS (not seconds!) - matches ctx80 in filenames
-  prediction_length: 4    # STEPS (not seconds!) - matches pred4 in filenames
+  context_length: 1200      # in seconds (80 steps * 15s)
+  prediction_length: 60    # in seconds (4 steps * 15s)
   target_turbine_ids:     # Leave blank for all 88 turbines
-  normalize: false        # USE DENORMALIZED DATA (internal/model normalization)
+  normalize: false        # USE INTERNAL NORMALIZATION (denormalized data)
   batch_size: 128
   base_batch_size: 128
   workers: 4
