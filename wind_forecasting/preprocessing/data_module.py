@@ -454,7 +454,7 @@ class DataModule():
                     
                 if self.as_lazyframe:
                     for split in splits:
-                        split_ds = getattr(self, f"{split}_dataset")
+                        split_ds = datasets[split]
                         for d, ds in enumerate(split_ds):
                             item_id = f"SPLIT{d}"
 
@@ -478,7 +478,6 @@ class DataModule():
                                                     interval=dt,
                                                     time_unit="ns",
                                                     closed="left"),
-                                            feat_static_cat=pl.lit([self.target_suffixes.index(re.search("(?<=TURBINE)\\w+(?=_SPLIT)", item_id).group(0))]),
                                             *[pl.col(col).alias(f"target_{i}") for i, col in enumerate(self.target_cols)],
                                             *[pl.col(col).alias(f"feat_dynamic_real_{i}") for i, col in enumerate(self.feat_dynamic_real_cols)])\
                                     .sink_parquet(temp_path, maintain_order=True)
@@ -544,6 +543,7 @@ class DataModule():
                         # Write to temp file
                         if self.as_lazyframe:
                             datasets[split].collect().write_parquet(temp_path)
+                            datasets[split].scan_parquet(temp_path)  # reload as lazyframe
                         else:
                             with open(temp_path, 'wb') as fp:
                                 pickle.dump(datasets[split], fp)
@@ -551,6 +551,8 @@ class DataModule():
                         # Atomic rename - if file exists, this will overwrite it atomically
                         logging.info(f"Rank 0: Atomically moving {temp_path} to {final_path}")
                         os.replace(temp_path, final_path)  # os.replace is atomic on POSIX
+                        if self.as_lazyframe:
+                            datasets[split] = pl.scan_parquet(final_path)  # reload as lazyframe
                         logging.info(f"Rank 0: Successfully saved {split} data to {final_path}")
                     except Exception as e:
                         logging.error(f"Rank 0: Error saving {split} data: {e}")
