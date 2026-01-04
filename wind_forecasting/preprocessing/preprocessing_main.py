@@ -1669,7 +1669,7 @@ def main():
                                 dtype=pl.Float32
                     )
                     
-                    df_query[cg_idx].collect().write(cg_fp)
+                    df_query[cg_idx].collect().write_parquet(cg_fp)
                 else:
                     df_query[cg_idx] = pl.scan_parquet(cg_fp)
                 
