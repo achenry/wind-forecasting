@@ -1668,7 +1668,7 @@ def main():
                                 dtype=pl.Float32
                     )
                     
-                    df_query[cg_idx].sink_parquet(cg_fp, maintain_order=True)
+                    df_query[cg_idx].collect().write(cg_fp)
                 else:
                     df_query[cg_idx] = pl.scan_parquet(cg_fp)
                 
