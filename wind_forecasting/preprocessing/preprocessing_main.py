@@ -1659,6 +1659,7 @@ def main():
                 cg_fp = os.path.join(dirpath, os.path.basename(config["processed_data_path"]).replace(".parquet", f"_cg{continuity_groups[cg_idx]}.parquet"))
                 if args.reload_data or args.regenerate_filters or not os.path.exists(cg_fp):
                     # for smoothing_func in ["butterworth", "moving_average", "savitzky_golay"]:
+                    logging.info(f"Smoothing continuity group {continuity_groups[cg_idx]} and writing to {cg_fp}.")
                     df_query[cg_idx] = data_filter.smooth(
                                 df_query=df_query[cg_idx] , 
                                 feature_types=["ws_horz", "ws_vert"], 
