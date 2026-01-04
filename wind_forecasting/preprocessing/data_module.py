@@ -618,9 +618,9 @@ class DataModule():
                             except OSError as cleanup_error:
                                 logging.error(f"Rank 0: Error removing temp file {temp_path}: {cleanup_error}")
                 
-                if self.as_lazyframe:
-                    # Clean up temporary directory
-                    shutil.rmtree(os.path.join(os.path.dirname(self.train_ready_data_path), "splits_temp"))
+                # if self.as_lazyframe:
+                #     # Clean up temporary directory
+                #     shutil.rmtree(os.path.join(os.path.dirname(self.train_ready_data_path), "splits_temp"))
                 
         # Only use barrier if PyTorch distributed is actually initialized
         # In tuning mode with independent workers, we don't need/want a barrier
