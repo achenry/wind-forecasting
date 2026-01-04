@@ -1,5 +1,14 @@
 # 🌪️ Wind Forecasting Framework
 
+Prepare data splits:
+`cd wind-forecasting/wind_forecasting/preprocessing/scripts/; sbatch load_data.sh`
+`cd wind-forecasting/wind_forecasting/preprocessing/scripts/; sbatch preprocess_data_kestrel.sh`
+`cd wind-forecasting/wind_forecasting/preprocessing/scripts/; ./split_datasets.sh`
+
+Tune/Train SVRs:
+`cd wind-hybrid-open-controller/whoc/wind_forecast/run_scripts; ./run_all_tuning_kestrel.sh`
+`cd wind-hybrid-open-controller/whoc/wind_forecast/run_scripts; ./run_all_training_kestrel.sh`
+
 <div align="center">
 
 ![Project Status](https://img.shields.io/badge/status-active%20development-green)

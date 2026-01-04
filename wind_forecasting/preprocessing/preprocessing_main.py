@@ -1682,7 +1682,7 @@ def main():
                 
         df_query = pl.scan_parquet(fp)
         
-        if True:
+        if False:
             import glob
             df_query.group_by("continuity_group", maintain_order=True).agg(pl.all().slice(0, pl.len() - 400)).explode(pl.all().exclude("continuity_group")).collect().write_parquet(fp)
             
