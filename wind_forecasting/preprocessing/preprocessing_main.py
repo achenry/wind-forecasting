@@ -1671,6 +1671,7 @@ def main():
                     
                     df_query[cg_idx].collect().write_parquet(cg_fp)
                 else:
+                    logging.info(f"Loading existing smoothed continuity group {continuity_groups[cg_idx]} from {cg_fp}.")
                     df_query[cg_idx] = pl.scan_parquet(cg_fp)
                 
             df_query = pl.scan_parquet(os.path.join(dirpath, os.path.basename(config["processed_data_path"]).replace(".parquet", f"_cg*.parquet")), glob=True)\
@@ -1769,7 +1770,7 @@ def main():
             else:
                 df_query = pl.scan_parquet(config["processed_data_path"].replace(".parquet", "_unsmoothed_normalized.parquet"))
             
-            if True:
+            if False:
                 pl.scan_parquet(config["processed_data_path"].replace(".parquet", "_smoothed_normalized.parquet"))\
                   .group_by("continuity_group", maintain_order=True).agg(pl.all().slice(0, pl.len() - 400))\
                   .explode(pl.all().exclude("continuity_group"))\

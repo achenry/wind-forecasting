@@ -153,7 +153,7 @@ class DataModule():
     def generate_datasets(self):
         
         dataset = IterableLazyFrame(data_path=self.data_path, dtype=self.dtype)
-        dataset = dataset.filter(pl.col("continuity_group").is_in([507, 1249,  388,  400,  791]))
+        # dataset = dataset.filter(pl.col("continuity_group").is_in([507, 1249,  388,  400,  791]))
         # dataset = dataset.head(1000000)
         
         # add warning if upsampling
