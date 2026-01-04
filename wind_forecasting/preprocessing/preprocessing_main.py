@@ -1666,7 +1666,8 @@ def main():
                                 smoothing_params=smoothing_params,
                                 plot=False,
                                 dtype=pl.Float32
-                            )
+                    )
+                    
                     df_query[cg_idx].sink_parquet(cg_fp, maintain_order=True)
                 else:
                     df_query[cg_idx] = pl.scan_parquet(cg_fp)
@@ -1680,10 +1681,21 @@ def main():
             logging.info("Finished sinking dataframe.")
                 
         df_query = pl.scan_parquet(fp)
+        
+        if True:
+            import glob
+            df_query.group_by("continuity_group", maintain_order=True).agg(pl.all().slice(0, pl.len() - 400)).explode(pl.all().exclude("continuity_group")).collect().write_parquet(fp)
+            
+            dirpath = os.path.join(os.path.dirname(config["processed_data_path"]), os.path.basename(config["processed_data_path"]).replace(".parquet", "_smooth"))
+            
+            for f, fp in enumerate(glob.glob(os.path.join(dirpath, os.path.basename(config["processed_data_path"]).replace(".parquet", f"_cg*.parquet")))):
+                df_cg = pl.scan_parquet(fp)
+                df_cg.slice(0, df_cg.select(pl.len()).collect().item() - 400).collect().write_parquet(fp)
+        
         assert df_query.select("time").collect().to_series().is_sorted()
         assert all(typ == pl.Float32 for typ in df_query.select(cs.float()).collect_schema().values())
 
-    # %%
+    # %%x
     if "normalize" in config["filters"]:
         
         if args.reload_data or args.regenerate_filters or \
@@ -1755,11 +1767,25 @@ def main():
                 df_query = pl.scan_parquet(config["processed_data_path"].replace(".parquet", "_smoothed_normalized.parquet"))
             else:
                 df_query = pl.scan_parquet(config["processed_data_path"].replace(".parquet", "_unsmoothed_normalized.parquet"))
+            
+            if True:
+                pl.scan_parquet(config["processed_data_path"].replace(".parquet", "_smoothed_normalized.parquet"))\
+                  .group_by("continuity_group", maintain_order=True).agg(pl.all().slice(0, pl.len() - 400))\
+                  .explode(pl.all().exclude("continuity_group"))\
+                  .collect().write_parquet(config["processed_data_path"].replace(".parquet", "_smoothed_normalized.parquet"))
+                pl.scan_parquet(config["processed_data_path"].replace(".parquet", "_unsmoothed_normalized.parquet"))\
+                  .group_by("continuity_group", maintain_order=True).agg(pl.all().slice(0, pl.len() - 400))\
+                  .explode(pl.all().exclude("continuity_group"))\
+                  .collect().write_parquet(config["processed_data_path"].replace(".parquet", "_unsmoothed_normalized.parquet"))
+            
 
         if args.plot:
             continuity_groups = df_query.select("continuity_group").unique().collect().to_numpy().flatten()
-            plot_df = df_query.select(["time", "continuity_group"] + [f"ws_horz_{tid}" for tid in ["wt005", "wt074", "wt075"]] + [f"ws_vert_{tid}" for tid in ["wt005", "wt074", "wt075"]])
+            plot_df = df_query.select(["time", "continuity_group"] + 
+                                      [f"{feat_type}_{tid}" for feat_type in ["ws_horz", "ws_vert"] for tid in ["wt005", "wt074", "wt075"]])
                             #   .slice(0, int(3600*24))
+            
+            continuity_groups = np.random.choice(continuity_groups, size=min(5, len(continuity_groups)), replace=False)
             data_inspector.plot_time_series(
                 # pl.concat([df.slice(0, ROW_LIMIT) for df in df_query.collect().partition_by("continuity_group")], how="vertical").lazy(), 
                 plot_df,

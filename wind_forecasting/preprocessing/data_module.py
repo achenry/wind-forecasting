@@ -153,15 +153,32 @@ class DataModule():
     def generate_datasets(self):
         
         dataset = IterableLazyFrame(data_path=self.data_path, dtype=self.dtype)
-        # dataset = dataset.head(100000)
+        dataset = dataset.filter(pl.col("continuity_group").is_in([507, 1249,  388,  400,  791]))
+        # dataset = dataset.head(1000000)
         
         # add warning if upsampling
         dataset_dt = dataset.select(pl.col("time").diff()).slice(1, 1).collect().item()
+        
         if dataset_dt.total_seconds() > int(re.search("\\d+", self.freq).group()):
             logging.warning(f"Downsampling dataset with frequency of {dataset_dt} seconds to {self.freq}.")
+        
         dataset = dataset.with_columns(time=pl.col("time").dt.round(self.freq))\
                     .group_by("time").agg(cs.numeric().mean())\
                     .sort(["continuity_group", "time"])
+                    
+        
+        if False:
+            suffixes = ["_wt005", "_wt074", "_wt075"]
+            for cg in dataset.select(pl.col("continuity_group").unique()).collect().to_numpy().flatten():
+                fig, ax = plt.subplots(len(self.target_prefixes), 1, sharex=True)
+                ds = dataset.filter(pl.col("continuity_group") == cg)
+                time = ds.select("time").collect().to_numpy()
+                for ax_idx, feat_type in enumerate(self.target_prefixes):
+                    ax[ax_idx].plot(time, 
+                                    ds.select([f"{feat_type}{sfx}" for sfx in suffixes]).collect().to_numpy(), 
+                                    linestyle="-", label="original")
+                    ax[ax_idx].set(title=feat_type)#, xlim=(1.295*1e7,1.345*1e7))
+            fig.show()
                     
         if not self.use_normalization:
             # if we don't want the normalized data generated in preprocessing_main, we need to denormalize/inverse transform it here
@@ -334,7 +351,20 @@ class DataModule():
             logging.info(f"Rank {rank}: Scanning dataset {self.train_ready_data_path}.")
             dataset = IterableLazyFrame(data_path=self.train_ready_data_path, dtype=self.dtype)
             logging.info(f"Rank {rank}: Finished scanning dataset {self.train_ready_data_path}.")
-
+            
+            # ds = dataset._df.collect().partition_by("continuity_group")
+            # sub_ds = ds[9]
+            # fig, axs = plt.subplots(4, 1, figsize=(10, 8))
+            # axs[0].plot(sub_ds.select(pl.col("time")).to_numpy().flatten(),
+            #             sub_ds.select(cs.starts_with("ws_horz")).to_numpy())
+            # axs[1].plot(sub_ds.select(pl.col("time")).to_numpy().flatten(),
+            #             sub_ds.select(cs.starts_with("ws_vert")).to_numpy())
+            # axs[2].plot(sub_ds.select(pl.col("time")).to_numpy().flatten(),
+            #             sub_ds.select(cs.starts_with("nd_cos")).to_numpy())
+            # axs[3].plot(sub_ds.select(pl.col("time")).to_numpy().flatten(),
+            #             sub_ds.select(cs.starts_with("nd_sin")).to_numpy())
+            # for sub_ds in ds:
+                
             # sets self.continuity_groups, self.target_cols, self.target_suffixes, self.feat_dynamic_real_cols, self.num_target_vars, 
             #       self.num_feat_dynamic_real, self.num_feat_static_cat, self.num_feat_static_real, self.static_features, self.cardinality
             self.get_dataset_info(dataset)
@@ -451,7 +481,20 @@ class DataModule():
                 
                 # generate an iterablelazy frame for each continuity group and split within it
                 datasets = self.split_dataset([dataset.filter(pl.col("continuity_group") == cg) for cg in self.continuity_groups], splits)
-                    
+                
+                if False:
+                    split = "test"
+                    suffixes = ["wt005", "wt074", "wt075"]
+                    for cg, ds in enumerate(datasets[split]):
+                        fig, ax = plt.subplots(len(self.target_prefixes), 1, sharex=True)
+                        time = ds.select("time").collect().to_numpy()
+                        for ax_idx, feat_type in enumerate(self.target_prefixes):
+                            ax[ax_idx].plot(time[:-400, :], 
+                                            ds.select([f"{feat_type}_{sfx}" for sfx in suffixes]).collect().to_numpy()[:-400, :], 
+                                            linestyle="-", label="original")
+                            ax[ax_idx].set(title=feat_type)#, xlim=(1.295*1e7,1.345*1e7))
+                    fig.show()    
+                
                 if self.as_lazyframe:
                     for split in splits:
                         split_ds = datasets[split]
@@ -481,6 +524,7 @@ class DataModule():
                                             *[pl.col(col).alias(f"target_{i}") for i, col in enumerate(self.target_cols)],
                                             *[pl.col(col).alias(f"feat_dynamic_real_{i}") for i, col in enumerate(self.feat_dynamic_real_cols)])\
                                     .sink_parquet(temp_path, maintain_order=True)
+                                    
                             elif verbose:
                                     logging.info(f"Loading existing cached file for {split} dataset {item_id}.")
                         
@@ -495,6 +539,17 @@ class DataModule():
                                          os.path.basename(self.data_path).replace(".parquet", f"_{split}_SPLIT*.parquet")), 
                             glob=True)\
                                 .sort("item_id", maintain_order=True)
+                        
+                        if False:  
+                            for cg, ds in enumerate([datasets[split].filter(pl.col("item_id") == item_id) for item_id in datasets[split].select(pl.col("item_id").unique()).collect().to_numpy().flatten()]):
+                                fig, ax = plt.subplots(2, 1, sharex=True)
+                                for ax_idx, pfx in enumerate(self.target_prefixes):
+                                    target_cols = [f"{pfx}_{sfx}" for sfx in ["wt005", "wt074", "wt075"]]
+                                    target_cols = [f"target_{self.target_cols.index(sfx)}" for sfx in target_cols]
+                                    ax[ax_idx].plot(ds.select("time").collect().to_numpy()[:-400, :], 
+                                            ds.select(target_cols).collect().to_numpy()[:-400, :], 
+                                            linestyle="-")
+                            fig.show()
                         # datasets[split] = pl.concat(transformed_datasets, how="vertical")
                          
                 else:
