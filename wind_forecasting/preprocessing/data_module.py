@@ -225,7 +225,7 @@ class DataModule():
         # TODO HIGH there may be a racing condition here if multiple workers are writing to the same file e.g. for tuning
         # confirm that this only occurs on rank 0
         
-        dataset.sink_parquet(temp_fp, maintain_order=True)
+        dataset.collect().write_parquet(temp_fp)
         
         # if os.path.exists(self.train_ready_data_path):
         #     os.remove(self.train_ready_data_path)
