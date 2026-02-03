@@ -6,7 +6,7 @@
 #SBATCH --cpus-per-task=8
 #SBATCH --mem-per-cpu=8192
 #SBATCH --gres=gpu:4
-#SBATCH --time=5-00:00
+#SBATCH --time=7-00:00
 #SBATCH --job-name=smoothed60_train_ext
 #SBATCH --output=/dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/slurm_logs/smoothed60_train_ext_%j.out
 #SBATCH --error=/dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/slurm_logs/smoothed60_train_ext_%j.err
