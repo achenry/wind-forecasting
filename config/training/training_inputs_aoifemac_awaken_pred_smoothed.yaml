@@ -3,7 +3,7 @@
 experiment:
   username: aoife-henry
   project_name: wind_forecasting_awaken_pred60
-  run_name: kestrel_awaken_pred60
+  run_name: kestrel_awaken_pred60_20260205101102
   log_dir: /Users/ahenry/Documents/toolboxes/wind-forecasting/logging/
   project_root: /Users/ahenry/Documents/toolboxes/wind-forecasting
   notes: "Tuning AWAKEN with Informer+"
@@ -20,7 +20,7 @@ logging:
 
 optuna:
   save_trial_code: false      # Default false
-  n_trials_per_worker: 100     # Test a total of 4*12=48 trials
+  n_trials_per_worker: 220     # Test a total of 4*12=48 trials
   total_study_trials:
   max_epochs: 20              # epochs per trial
   sampler: "random"           # Options: "random" (ExpectedNumInstanceSampler), "sequential" (SequentialSampler)
