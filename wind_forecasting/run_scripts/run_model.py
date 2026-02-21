@@ -890,7 +890,8 @@ def main():
         
         n_training_samples = 0
         if data_module.as_lazyframe:
-            for ds in data_module.train_dataset.partition_by("item_id"):
+            # LazyFrame needs to be collected before partition_by
+            for ds in data_module.train_dataset.collect().partition_by("item_id"):
                 a, b = estimator_kwargs["train_sampler"]._get_bounds(ds.select(cs.starts_with("target_0")))
                 n_training_samples += (b - a + 1)
         else:
@@ -902,17 +903,20 @@ def main():
         assert estimator_kwargs["num_batches_per_epoch"] is None or isinstance(estimator_kwargs["num_batches_per_epoch"], int)
         
         # Log warning if using random sampler with null limit_train_batches
+        # ALWAYS set true_num_batches_per_epoch so the estimator can calculate scheduler steps
         if estimator_kwargs["num_batches_per_epoch"] is None:
             sampler_type = config["dataset"].get("sampler", "sequential")
             if sampler_type == "random":
                 logging.warning("Using random sampler (ExpectedNumInstanceSampler) with limit_train_batches=null. "
                             "Consider setting an explicit integer value for limit_train_batches to avoid potential issues.")
-            elif sampler_type == "sequential":
-                estimator_kwargs["true_num_batches_per_epoch"] = n_training_steps
+            # Always set true_num_batches_per_epoch regardless of sampler type
+            estimator_kwargs["true_num_batches_per_epoch"] = n_training_steps
+            logging.info(f"Set true_num_batches_per_epoch to {n_training_steps} (calculated from {n_training_samples} training samples / batch_size {data_module.batch_size})")
         else:
-            logging.warning(f"true_num_batches_per_epoch is set to {estimator_kwargs['num_batches_per_epoch']}")
+            logging.warning(f"limit_train_batches is set to {estimator_kwargs['num_batches_per_epoch']}")
             n_training_steps = min(n_training_steps, estimator_kwargs["num_batches_per_epoch"])
-            estimator_kwargs["true_num_batches_per_epoch"] = n_training_steps #estimator_kwargs["num_batches_per_epoch"]
+            estimator_kwargs["true_num_batches_per_epoch"] = n_training_steps
+            logging.info(f"Set true_num_batches_per_epoch to {n_training_steps} (limited by limit_train_batches={estimator_kwargs['num_batches_per_epoch']})")
         
         if  "d_model" in model_hparams: # and "dim_feedforward" not in model_hparams
             # set dim_feedforward to 4x the d_model found in this trial
