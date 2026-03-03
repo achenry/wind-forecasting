@@ -765,8 +765,10 @@ def pi_normalized_average_width(predicted_mean, true_values, predicted_std, conf
         raise ValueError("Confidence level must be between 0 and 1 (exclusive).")
     
     true_range = np.max(true_values, axis=0) - np.min(true_values, axis=0)
-    if np.any(true_range == 0):
-        raise ValueError("The range of true values cannot be zero. Cannot normalize.")
+    
+    true_range[true_range == 0] = np.nan
+    # if np.any(true_range == 0):
+        # raise ValueError("The range of true values cannot be zero. Cannot normalize.")
 
     z_score = np.abs(norm.ppf((1 - confidence_level) / 2))  # Two-tailed Z-score
     upper_bound = predicted_mean + z_score * predicted_std
