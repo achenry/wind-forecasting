@@ -65,7 +65,8 @@ module load git
 eval "\$(conda shell.bash hook)"
 conda activate wf_env_storm
 
-export PGPASSWORD="\${LOCAL_PG_PASSWORD}"
+export LOCAL_PG_PASSWORD="${LOCAL_PG_PASSWORD}"
+export PGPASSWORD="${LOCAL_PG_PASSWORD}"
 export WORKER_RANK=0
 export CUDA_VISIBLE_DEVICES=0
 

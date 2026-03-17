@@ -24,7 +24,7 @@ from wind_forecasting.utils.optuna_config_utils import generate_db_setup_params,
 
 def tune_model(model, config, study_name, optuna_storage, lightning_module_class, estimator_class,
                distr_output_class, data_module,
-               trial_protection_callback=None, seed=42, tuning_phase=0, restart_tuning=False, optimize_callbacks=None,):
+               trial_protection_callback=None, seed=42, tuning_phase=0, restart_tuning=False, optimize_callbacks=None, dynamic_params=None):
 
     # Log safely without credentials if they were included (they aren't for socket trust)
     if hasattr(optuna_storage, "url"):
@@ -286,6 +286,9 @@ def tune_model(model, config, study_name, optuna_storage, lightning_module_class
         # --------------------------------------
 
     # Worker ID already fetched above for study creation/loading
+    # Merge any externally-provided dynamic_params (e.g., stage1_fixed_params for TACTiS Phase 2)
+    # with locally-computed ones (e.g., resample_freq_choices)
+    _external_dynamic_params = dynamic_params or {}
     dynamic_params = None
     
     if tuning_phase == 0 and worker_id == "0":
@@ -333,6 +336,13 @@ def tune_model(model, config, study_name, optuna_storage, lightning_module_class
     if resample_freq_choices is None:
         logging.warning("'optuna.resample_freq_choices' not found in config. Default to 60s.")
         resample_freq_choices = [60]
+
+    # Merge external dynamic_params (e.g., stage1_fixed_params) with local ones
+    if _external_dynamic_params:
+        if dynamic_params is None:
+            dynamic_params = {}
+        dynamic_params.update(_external_dynamic_params)
+        logging.info(f"Merged external dynamic_params keys: {list(_external_dynamic_params.keys())}")
 
     tuning_objective = MLTuningObjective(model=model, config=config,
                                         lightning_module_class=lightning_module_class,

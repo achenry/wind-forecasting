@@ -460,6 +460,12 @@ def main():
         logging.info("Generating Optuna DB setup parameters...")
         db_setup_params = generate_db_setup_params(args.model, config)
 
+        # When tuning TACTiS with two-stage phases, append phase suffix to study name
+        # so Phase 1 and Phase 2 results don't collide in the same database
+        if args.mode == "tune" and args.model == "tactis" and args.tuning_phase > 0:
+            db_setup_params["base_study_prefix"] += f"_phase{args.tuning_phase}"
+            logging.info(f"TACTiS two-stage tuning: phase {args.tuning_phase}, study prefix: {db_setup_params['base_study_prefix']}")
+
         # Determine if restart_tuning should be overridden
         # We never want to restart/delete the study when just loading parameters
         effective_restart_tuning = args.restart_tuning
@@ -504,8 +510,37 @@ def main():
         if args.use_tuned_parameters:
             try:
                 logging.info(f"Getting tuned parameters.")
-                
-                tuned_params = get_tuned_params(optuna_storage, db_setup_params["base_study_prefix"])
+
+                # For TACTiS with two-phase tuning, load BOTH phase studies and merge
+                if args.model == "tactis":
+                    phase1_prefix = db_setup_params["base_study_prefix"] + "_phase1"
+                    phase2_prefix = db_setup_params["base_study_prefix"] + "_phase2"
+                    p1_params = None
+                    p2_params = None
+                    try:
+                        p1_params = get_tuned_params(optuna_storage, phase1_prefix)
+                        logging.info(f"TACTiS: loaded {len(p1_params) if p1_params else 0} Phase 1 params from '{phase1_prefix}'")
+                    except FileNotFoundError:
+                        logging.info(f"TACTiS: no Phase 1 study found at '{phase1_prefix}', trying base prefix")
+                    try:
+                        p2_params = get_tuned_params(optuna_storage, phase2_prefix)
+                        logging.info(f"TACTiS: loaded {len(p2_params) if p2_params else 0} Phase 2 params from '{phase2_prefix}'")
+                    except FileNotFoundError:
+                        logging.info(f"TACTiS: no Phase 2 study found at '{phase2_prefix}', trying base prefix")
+
+                    if p1_params or p2_params:
+                        tuned_params = {}
+                        if p1_params:
+                            tuned_params.update(p1_params)
+                        if p2_params:
+                            tuned_params.update(p2_params)  # Phase 2 overrides shared keys
+                        logging.info(f"TACTiS: merged {len(tuned_params)} params from Phase 1 + Phase 2")
+                    else:
+                        # Fallback to single-study loading (legacy / phase 0)
+                        logging.info("TACTiS: no phase-specific studies found, falling back to base prefix")
+                        tuned_params = get_tuned_params(optuna_storage, db_setup_params["base_study_prefix"])
+                else:
+                    tuned_params = get_tuned_params(optuna_storage, db_setup_params["base_study_prefix"])
                 
                 if tuned_params is not None:
                     # tuned_params = {'context_length_factor': 3, 'batch_size': 256, 'num_encoder_layers': 2, 'num_decoder_layers': 2, 'dim_feedforward': 2048, 'n_heads': 6, 'factor': 1, 'moving_avg': 21, 'lr': 4.7651748046751395e-05, 'weight_decay': 0.0, 'dropout': 0.0982708428790269}
@@ -1007,6 +1042,16 @@ def main():
 
         # Callbacks from config will be handled by MLTuningObjective.
 
+        # For TACTiS Phase 2 tuning, load Phase 1 best params as stage1_fixed_params
+        dynamic_params = {}
+        if args.model == "tactis" and args.tuning_phase == 2:
+            phase1_prefix = db_setup_params["base_study_prefix"].replace("_phase2", "_phase1")
+            phase1_params = get_tuned_params(optuna_storage, phase1_prefix)
+            if phase1_params is None:
+                raise RuntimeError(f"Phase 1 study '{phase1_prefix}' has no completed trials. Run Phase 1 first.")
+            dynamic_params["stage1_fixed_params"] = phase1_params
+            logging.info(f"TACTiS Phase 2: loaded {len(phase1_params)} fixed Stage 1 params from '{phase1_prefix}'")
+
         # Normal execution - pass the OOM protection wrapper and constructed storage URL
         tune_model(model=args.model, config=config, # Pass full config here for model/trainer params
                    study_name=db_setup_params["base_study_prefix"],
@@ -1017,7 +1062,8 @@ def main():
                    data_module=data_module,
                    trial_protection_callback=handle_trial_with_oom_protection,
                    seed=args.seed, tuning_phase=args.tuning_phase,
-                   restart_tuning=args.restart_tuning) # Add restart_tuning parameter
+                   restart_tuning=args.restart_tuning,
+                   dynamic_params=dynamic_params if dynamic_params else None)
 
         # After training completes
         torch.cuda.empty_cache()

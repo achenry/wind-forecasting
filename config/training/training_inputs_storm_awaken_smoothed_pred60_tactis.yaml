@@ -1,0 +1,166 @@
+experiment:
+  username: jmb0507
+  project_name: train_awaken_storm_smoothed_pred60_tactis
+  run_name: tune_awaken_smoothed_pred60_tactis
+  project_root: /user/taed7566/Forecasting/wind-forecasting
+  log_dir: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/
+  notes: "Two-stage tuning/training for TACTiS-2 on smoothed AWAKEN data (ctx80, pred4, 15s)"
+  extra_tags: ["tactis2", "two-stage", "smoothed", "pred60", "internal_norm", "awaken", "15s", "ctx80"]
+
+logging:
+  entity: jmb0507-cu-boulder
+  wandb_mode: online
+  save_code: false
+  wandb_dir: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs
+  optuna_dir: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/optuna
+  checkpoint_dir: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/checkpoints
+  chkp_dir_suffix: "_smoothed_60_tactis"
+  slurm_output_dir: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/slurm_logs
+
+optuna:
+  save_trial_code: false
+  n_trials_per_worker: 50
+  total_study_trials: 200
+  max_epochs: 30
+  sampler: "random"
+  sampler_params:
+    tpe:
+      n_startup_trials: 8
+      multivariate: true
+      constant_liar: true
+      group: false
+  base_limit_train_batches: 5000
+  metric: "val_loss"
+  direction: "minimize"
+  resample_freq_choices: [15, 30, 45, 60]
+
+  pruning:
+    enabled: true
+    type: "successivehalving"
+    min_resource: 5
+    reduction_factor: 2
+    min_early_stopping_rate: 0
+    bootstrap_count: 5
+
+  visualization:
+    enabled: true
+    output_dir: ${logging.optuna_dir}/visualizations
+    plots:
+      optimization_history: true
+      parameter_importance: true
+      slice_plot: true
+
+  storage:
+    backend: "postgresql"
+    use_tcp: true
+    use_socket: false
+    db_host: "pg.optuna.uni-oldenburg.de"
+    db_port: 5432
+    db_name: "optuna"
+    db_user: "optuna02"
+    db_password_env_var: "LOCAL_PG_PASSWORD"
+
+  dashboard:
+    enabled: false
+    port: 8088
+    log_file: "${logging.optuna_dir}/optuna_dashboard.log"
+
+dataset:
+  sampler: "random"
+  data_path: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/DATA/preprocessed_awaken_data/awaken_processed_smoothed_normalized.parquet
+  normalization_consts_path: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/DATA/preprocessed_awaken_data/awaken_processed_smoothed_normalization_consts.csv
+  context_length: 1200      # in seconds (80 steps * 15s)
+  prediction_length: 60    # in seconds (4 steps * 15s)
+  target_turbine_ids:     # Leave blank for all 88 turbines
+  normalize: false        # USE INTERNAL NORMALIZATION (denormalized data)
+  batch_size: 128
+  base_batch_size: 128
+  workers: 4
+  overfit: false
+  test_split: 0.10
+  val_split: 0.10
+  resample_freq: 15s
+  n_splits: 1
+  per_turbine_target: true
+  use_pytorch_dataloader: true
+
+model:
+  distr_output:
+    class: LowRankMultivariateNormalOutput
+    kwargs:
+      rank: 8
+
+  # TACTiS-2 - Two-stage training with internal normalization
+  tactis:
+    initial_stage: 1
+    stage2_start_epoch: 20
+    input_encoding_normalization: true
+    scaling: "std"
+    loss_normalization: "both"
+    encoder_type: "standard"
+    num_parallel_samples: 200
+    marginal_embedding_dim_per_head: 8
+    marginal_num_heads: 5
+    marginal_num_layers: 4
+    flow_input_encoder_layers: 6
+    flow_series_embedding_dim: 5
+    copula_embedding_dim_per_head: 8
+    copula_num_heads: 5
+    copula_num_layers: 2
+    copula_input_encoder_layers: 1
+    copula_series_embedding_dim: 48
+    decoder_dsf_num_layers: 2
+    decoder_dsf_hidden_dim: 256
+    decoder_mlp_num_layers: 3
+    decoder_mlp_hidden_dim: 16
+    decoder_transformer_num_layers: 3
+    decoder_transformer_embedding_dim_per_head: 16
+    decoder_transformer_num_heads: 6
+    decoder_num_bins: 50
+    lr_stage1: 5e-6
+    lr_stage2: 2e-6
+    weight_decay_stage1: 1e-5
+    weight_decay_stage2: 1e-5
+    dropout_rate: 0.1
+    gradient_clip_val_stage1: 1000.0
+    gradient_clip_val_stage2: 1000.0
+    warmup_steps_s1: 0.10
+    steps_to_decay_s1: 0.90
+    eta_min_fraction_s1: 0.01
+    warmup_steps_s2: 0.10
+    steps_to_decay_s2: 0.90
+    eta_min_fraction_s2: 0.01
+
+callbacks:
+  progress_bar:
+    class_path: lightning.pytorch.callbacks.TQDMProgressBar
+    init_args:
+      refresh_rate: 100
+      leave: true
+  model_checkpoint:
+    class_path: lightning.pytorch.callbacks.ModelCheckpoint
+    init_args:
+      dirpath: ${logging.checkpoint_dir}
+      filename: '{epoch}-{step}-{val_loss:.2f}'
+      monitor: 'val_loss'
+      mode: 'min'
+      save_top_k: 1
+      save_last: true
+      verbose: true
+  lr_monitor:
+    class_path: lightning.pytorch.callbacks.LearningRateMonitor
+    init_args:
+      logging_interval: step
+      log_momentum: false
+  dead_neuron_monitor:
+    enabled: false
+
+trainer:
+  val_check_interval: 1.0
+  accelerator: gpu
+  devices: auto
+  num_nodes: 1
+  strategy: ddp
+  max_epochs: 100
+  limit_train_batches: 5000
+  log_every_n_steps: 100
