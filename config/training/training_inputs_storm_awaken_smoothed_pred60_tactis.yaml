@@ -117,10 +117,10 @@ model:
     decoder_transformer_embedding_dim_per_head: 16
     decoder_transformer_num_heads: 6
     decoder_num_bins: 50
-    lr_stage1: 5e-6
-    lr_stage2: 2e-6
-    weight_decay_stage1: 1e-5
-    weight_decay_stage2: 1e-5
+    lr_stage1: 5.0e-6
+    lr_stage2: 2.0e-6
+    weight_decay_stage1: 1.0e-5
+    weight_decay_stage2: 1.0e-5
     dropout_rate: 0.1
     gradient_clip_val_stage1: 1000.0
     gradient_clip_val_stage2: 1000.0
