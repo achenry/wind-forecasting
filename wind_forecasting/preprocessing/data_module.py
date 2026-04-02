@@ -36,7 +36,7 @@ class DataModule():
     # DataModule should use a polars LazyFrame and sink it into a parquet,
     # and store the indices in the full dataset to use for each cg, split_idx, and training/test/validation split
     """
-    data_path: str
+    normalized_data_path: str
     n_splits: int
     continuity_groups: List[int] | None
     train_split: float
@@ -60,7 +60,8 @@ class DataModule():
     persistent_workers: bool = True
     
     def __post_init__(self):
-            
+        
+        assert "normalized" in self.normalized_data_path, "normalized_data_path must point to a file with normalized data"
         # convert context and prediction length from seconds to time stesp based on freq
         self.context_length = int(pd.Timedelta(self.context_length, unit="s") / pd.Timedelta(self.freq))
         self.prediction_length = int(pd.Timedelta(self.prediction_length, unit="s") / pd.Timedelta(self.freq))
@@ -72,10 +73,10 @@ class DataModule():
     def set_train_ready_path(self):
         sfx = f"ctx{self.context_length}_pred{self.prediction_length}"
         if self.use_normalization:
-            self.train_ready_data_path = self.data_path.replace(
+            self.train_ready_data_path = self.normalized_data_path.replace(
                 ".parquet", f"_train_ready_{self.freq}_{'per_turbine' if self.per_turbine_target else 'all_turbine'}_{sfx}.parquet")
         else:
-            self.train_ready_data_path = self.data_path.replace(
+            self.train_ready_data_path = self.normalized_data_path.replace(
                 ".parquet", f"_train_ready_{self.freq}_{'per_turbine' if self.per_turbine_target else 'all_turbine'}_{sfx}_denormalize.parquet")
      
     def get_split_file_path(self, split):
@@ -152,7 +153,7 @@ class DataModule():
      
     def generate_datasets(self):
         
-        dataset = IterableLazyFrame(data_path=self.data_path, dtype=self.dtype)
+        dataset = IterableLazyFrame(data_path=self.normalized_data_path, dtype=self.dtype)
         # dataset = dataset.filter(pl.col("continuity_group").is_in([507, 1249,  388,  400,  791]))
         # dataset = dataset.head(1000000)
         
@@ -182,6 +183,7 @@ class DataModule():
                     
         if not self.use_normalization:
             # if we don't want the normalized data generated in preprocessing_main, we need to denormalize/inverse transform it here
+            
             scaler_params = self.compute_scaler_params()
             # feat_types = list(scaler_params["min_"])
             # dataset = dataset.with_columns([(cs.starts_with(feat_type) - scaler_params["min_"][feat_type]) 
@@ -399,7 +401,7 @@ class DataModule():
                                 item_id = f"TURBINE{turbine_id}_SPLIT{d}"
                                 temp_path = os.path.join(
                                     temp_dir,
-                                    os.path.basename(self.data_path).replace(".parquet", f"_{split}_{item_id}.parquet")
+                                    os.path.basename(self.normalized_data_path).replace(".parquet", f"_{split}_{item_id}.parquet")
                                 )
                                 
                                 if reload or not os.path.exists(temp_path):
@@ -434,7 +436,7 @@ class DataModule():
                         
                         datasets[split] = pl.scan_parquet(os.path.join(
                                     temp_dir,
-                                    os.path.basename(self.data_path).replace(".parquet", f"_{split}_TURBINE*_SPLIT*.parquet")
+                                    os.path.basename(self.normalized_data_path).replace(".parquet", f"_{split}_TURBINE*_SPLIT*.parquet")
                                 ), glob=True)\
                                     .sort("item_id", maintain_order=True)
                         
@@ -503,7 +505,7 @@ class DataModule():
 
                             temp_path = os.path.join(
                                 temp_dir,
-                                os.path.basename(self.data_path).replace(".parquet", f"_{split}_{item_id}.parquet")
+                                os.path.basename(self.normalized_data_path).replace(".parquet", f"_{split}_{item_id}.parquet")
                             )
                             
                             if reload or not os.path.exists(temp_path):
@@ -536,7 +538,7 @@ class DataModule():
                         #     how="vertical")
                         datasets[split] = pl.scan_parquet(
                             os.path.join(temp_dir, 
-                                         os.path.basename(self.data_path).replace(".parquet", f"_{split}_SPLIT*.parquet")), 
+                                         os.path.basename(self.normalized_data_path).replace(".parquet", f"_{split}_SPLIT*.parquet")), 
                             glob=True)\
                                 .sort("item_id", maintain_order=True)
                         
