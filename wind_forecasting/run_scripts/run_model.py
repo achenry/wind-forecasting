@@ -1052,6 +1052,31 @@ def main():
             dynamic_params["stage1_fixed_params"] = phase1_params
             logging.info(f"TACTiS Phase 2: loaded {len(phase1_params)} fixed Stage 1 params from '{phase1_prefix}'")
 
+            # Find Phase 1 best trial's checkpoint for loading pre-trained marginals
+            import optuna as _optuna
+            phase1_studies = [s for s in _optuna.study.get_all_study_summaries(storage=optuna_storage)
+                              if phase1_prefix in s.study_name]
+            if phase1_studies:
+                phase1_study_name = phase1_studies[0].study_name
+                phase1_study = _optuna.load_study(study_name=phase1_study_name, storage=optuna_storage)
+                best_trial_number = phase1_study.best_trial.number
+                chkp_dir_suffix = config.get("logging", {}).get("chkp_dir_suffix", "")
+                checkpoint_dir = os.path.join(
+                    config["logging"]["checkpoint_dir"],
+                    f"tactis{chkp_dir_suffix}",
+                    f"trial_{best_trial_number}"
+                )
+                ckpt_files = [f for f in os.listdir(checkpoint_dir)
+                              if f.endswith('.ckpt') and 'last' not in f]
+                if ckpt_files:
+                    phase1_ckpt = os.path.join(checkpoint_dir, sorted(ckpt_files)[-1])
+                    dynamic_params["phase1_checkpoint_path"] = phase1_ckpt
+                    logging.info(f"TACTiS Phase 2: will load Phase 1 checkpoint from {phase1_ckpt}")
+                else:
+                    logging.warning(f"TACTiS Phase 2: No checkpoint found in {checkpoint_dir}")
+            else:
+                logging.warning(f"TACTiS Phase 2: Could not find Phase 1 study matching '{phase1_prefix}'")
+
         # Normal execution - pass the OOM protection wrapper and constructed storage URL
         tune_model(model=args.model, config=config, # Pass full config here for model/trainer params
                    study_name=db_setup_params["base_study_prefix"],

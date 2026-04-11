@@ -344,6 +344,12 @@ def tune_model(model, config, study_name, optuna_storage, lightning_module_class
         dynamic_params.update(_external_dynamic_params)
         logging.info(f"Merged external dynamic_params keys: {list(_external_dynamic_params.keys())}")
 
+    # Extract phase1_checkpoint_path from dynamic_params if provided (for Phase 2 tuning)
+    phase1_checkpoint_path = None
+    if dynamic_params and "phase1_checkpoint_path" in dynamic_params:
+        phase1_checkpoint_path = dynamic_params.pop("phase1_checkpoint_path")
+        logging.info(f"Phase 2: Will load Phase 1 checkpoint from {phase1_checkpoint_path}")
+
     tuning_objective = MLTuningObjective(model=model, config=config,
                                         lightning_module_class=lightning_module_class,
                                         estimator_class=estimator_class,
@@ -355,7 +361,8 @@ def tune_model(model, config, study_name, optuna_storage, lightning_module_class
                                         seed=seed,
                                         tuning_phase=tuning_phase,
                                         dynamic_params=dynamic_params,
-                                        study_config_params=study_config_params)
+                                        study_config_params=study_config_params,
+                                        phase1_checkpoint_path=phase1_checkpoint_path)
 
     # Use the trial protection callback if provided
     objective_fn = (lambda trial: trial_protection_callback(tuning_objective, trial)) if trial_protection_callback else tuning_objective

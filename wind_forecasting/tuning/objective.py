@@ -41,7 +41,8 @@ from wind_forecasting.tuning.utils.metrics_utils import (
 class MLTuningObjective:
     def __init__(self, *, model, config, lightning_module_class, estimator_class,
                  distr_output_class, max_epochs, limit_train_batches, data_module,
-                 metric, seed=42, tuning_phase=0, dynamic_params=None, study_config_params=None):
+                 metric, seed=42, tuning_phase=0, dynamic_params=None, study_config_params=None,
+                 phase1_checkpoint_path=None):
         self.model = model
         self.config = config
         self.lightning_module_class = lightning_module_class
@@ -55,6 +56,7 @@ class MLTuningObjective:
         self.tuning_phase = tuning_phase
         self.dynamic_params = dynamic_params
         self.study_config_params = study_config_params or {}
+        self.phase1_checkpoint_path = phase1_checkpoint_path
 
         self.config["trainer"]["max_epochs"] = max_epochs
         self.config["trainer"]["limit_train_batches"] = limit_train_batches
@@ -410,6 +412,11 @@ class MLTuningObjective:
         if "use_pytorch_dataloader" in self.config["dataset"]:
             estimator_kwargs["use_pytorch_dataloader"] = self.config["dataset"]["use_pytorch_dataloader"]
             logging.info(f"Trial {trial.number}: Setting use_pytorch_dataloader={self.config['dataset']['use_pytorch_dataloader']} from config")
+
+        # Phase 2: pass Phase 1 checkpoint path for loading pre-trained marginals
+        if self.tuning_phase == 2 and self.phase1_checkpoint_path:
+            estimator_kwargs["phase1_checkpoint_path"] = self.phase1_checkpoint_path
+            logging.info(f"Trial {trial.number}: Phase 2 will load Phase 1 checkpoint: {self.phase1_checkpoint_path}")
 
         # Get the metric key from config
         metric_to_return = self.config.get("trainer", {}).get("monitor_metric", "val_loss") # Default to val_loss
