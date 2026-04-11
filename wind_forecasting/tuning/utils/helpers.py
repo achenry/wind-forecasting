@@ -207,20 +207,27 @@ def calculate_dynamic_limit_train_batches(
 def create_trial_checkpoint_callback(
     trial_number: int,
     config: Dict[str, Any],
-    model_name: str
+    model_name: str,
+    tuning_phase: int = 0
 ) -> ModelCheckpoint:
     """
     Create a trial-specific ModelCheckpoint callback.
-    
+
     Args:
         trial_number: Trial number
         config: Configuration dictionary
         model_name: Model name
-        
+        tuning_phase: Tuning phase (0=legacy, 1=marginals, 2=copula)
+
     Returns:
         ModelCheckpoint instance
     """
-    monitor_metric = config.get("trainer", {}).get("monitor_metric", "val_loss")
+    # Phase 2: monitor copula-specific metric (only logged in Stage 2,
+    # so ModelCheckpoint won't save during Stage 1 warm-up)
+    if tuning_phase == 2:
+        monitor_metric = "val_copula_loss"
+    else:
+        monitor_metric = config.get("trainer", {}).get("monitor_metric", "val_loss")
     checkpoint_mode = "min" if config.get("optuna", {}).get("direction", "minimize") == "minimize" else "max"
     
     # Create a unique directory for this trial's checkpoints
@@ -255,29 +262,38 @@ def setup_trial_callbacks(
     config: Dict[str, Any],
     model_name: str,
     pruning_enabled: bool,
-    trial_checkpoint_callback: ModelCheckpoint
+    trial_checkpoint_callback: ModelCheckpoint,
+    tuning_phase: int = 0,
+    stage2_start_epoch: int = None
 ) -> List[pl.Callback]:
     """
     Setup all callbacks for a trial.
-    
+
     Args:
         trial: Optuna trial object
         config: Configuration dictionary
         model_name: Model name
         pruning_enabled: Whether pruning is enabled
         trial_checkpoint_callback: Trial-specific checkpoint callback
-        
+        tuning_phase: Tuning phase (0=legacy, 1=marginals, 2=copula)
+        stage2_start_epoch: For Phase 2, skip pruning before this epoch
+
     Returns:
         List of callback instances
     """
     current_callbacks = []
-    
+
     # Add pruning callback if enabled
     if pruning_enabled:
         pruning_monitor_metric = config.get("trainer", {}).get("monitor_metric", "val_loss")
-        pruning_callback = SafePruningCallback(trial, monitor=pruning_monitor_metric)
+        # Phase 2: skip reporting before copula is active
+        s2e = stage2_start_epoch if tuning_phase == 2 else None
+        pruning_callback = SafePruningCallback(trial, monitor=pruning_monitor_metric, stage2_start_epoch=s2e)
         current_callbacks.append(pruning_callback)
-        logging.info(f"Added pruning callback for trial {trial.number}, monitoring '{pruning_monitor_metric}'")
+        if s2e:
+            logging.info(f"Added pruning callback for trial {trial.number}, monitoring '{pruning_monitor_metric}' (Phase 2: skipping reports before epoch {s2e})")
+        else:
+            logging.info(f"Added pruning callback for trial {trial.number}, monitoring '{pruning_monitor_metric}'")
     
     # Add trial-specific ModelCheckpoint
     current_callbacks.append(trial_checkpoint_callback)

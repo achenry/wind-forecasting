@@ -178,12 +178,14 @@ class MLTuningObjective:
         
         # Create trial-specific checkpoint callback
         trial_checkpoint_callback = create_trial_checkpoint_callback(
-            trial.number, self.config, self.model
+            trial.number, self.config, self.model, tuning_phase=self.tuning_phase
         )
-        
+
         # Setup all callbacks for this trial
+        stage2_start_epoch = params.get('stage2_start_epoch') if self.tuning_phase == 2 else None
         final_callbacks = setup_trial_callbacks(
-            trial, self.config, self.model, self.pruning_enabled, trial_checkpoint_callback
+            trial, self.config, self.model, self.pruning_enabled, trial_checkpoint_callback,
+            tuning_phase=self.tuning_phase, stage2_start_epoch=stage2_start_epoch
         )
 
         trial_trainer_kwargs = {k: v for k, v in self.config["trainer"].items() if k != 'callbacks'}
@@ -616,8 +618,11 @@ class MLTuningObjective:
                 wandb.finish()
 
         # Return metric to Optuna
-        metric_to_return = self.config.get("trainer", {}).get("monitor_metric", "val_loss")
-        
+        if self.tuning_phase == 2:
+            metric_to_return = "val_copula_loss"
+        else:
+            metric_to_return = self.config.get("trainer", {}).get("monitor_metric", "val_loss")
+
         metric_value = validate_metrics_for_return(agg_metrics, metric_to_return, trial.number)
         logging.info(f"Trial {trial.number} - This metric is from the trial-specific checkpoint: {os.path.basename(checkpoint_path)}")
         return metric_value
