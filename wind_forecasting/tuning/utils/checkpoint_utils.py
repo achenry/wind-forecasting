@@ -207,8 +207,10 @@ def prepare_model_init_args(
             logging.warning(f"Hyperparameter '{key}' not found in checkpoint, using default value from config: {val}")
 
     # Check for missing required arguments
+    # phase1_checkpoint_path is None when re-instantiating Phase 2 from checkpoint
+    # (marginals are already in the checkpoint being loaded, no need to reload)
     missing_args = [k for k, v in init_args.items()
-                   if v is None and k not in ['model_config', 'initial_stage']]
+                   if v is None and k not in ['model_config', 'initial_stage', 'phase1_checkpoint_path']]
 
     if missing_args:
         error_msg = f"Missing required hyperparameters in checkpoint even after checking defaults: {missing_args}"
