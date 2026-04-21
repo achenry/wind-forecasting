@@ -1,12 +1,12 @@
 #!/bin/bash
 
-#SBATCH --partition=all_gpu.p
+#SBATCH --partition=cfdg.p
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem-per-cpu=8192
 #SBATCH --gres=gpu:H100:1
-#SBATCH --time=1-00:00
+#SBATCH --time=7-00:00
 #SBATCH --job-name=tactis_train_resume
 #SBATCH --output=/dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/slurm_logs/tactis_train_resume_%j.out
 #SBATCH --error=/dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/slurm_logs/tactis_train_resume_%j.err
@@ -93,10 +93,13 @@ python ${WORK_DIR}/run_scripts/run_model.py \
   --seed 42 \
   --checkpoint ${CHECKPOINT_PATH} \
   --override trainer.max_epochs=200 \
-      trainer.limit_train_batches=null \
+      trainer.limit_train_batches=20000 \
       trainer.val_check_interval=1.0 \
       trainer.strategy=auto \
-      trainer.devices=1
+      trainer.devices=1 \
+      model.tactis.skip_copula=false \
+      model.tactis.stage2_start_epoch=30 \
+      callbacks.model_checkpoint.init_args.monitor=val_total_nll
 
 TRAIN_EXIT_CODE=$?
 

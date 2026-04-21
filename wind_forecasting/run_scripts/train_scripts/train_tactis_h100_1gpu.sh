@@ -1,12 +1,12 @@
 #!/bin/bash
 
-#SBATCH --partition=all_gpu.p
+#SBATCH --partition=cfdg.p
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem-per-cpu=8192
 #SBATCH --gres=gpu:H100:1
-#SBATCH --time=1-00:00
+#SBATCH --time=7-00:00
 #SBATCH --job-name=tactis_train
 #SBATCH --output=/dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/slurm_logs/tactis_train_%j.out
 #SBATCH --error=/dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/slurm_logs/tactis_train_%j.err
@@ -15,9 +15,12 @@
 #SBATCH --gres-flags=enforce-binding
 
 # =============================================================================
-# TRAINING SCRIPT - TACTIS-2 ON H100
-# Trains TACTiS-2 with best tuned hyperparameters
-# Uses 1x H100 GPU via all_gpu.p partition (max 1 day)
+# TRAINING SCRIPT - TACTIS-2 ON H100 (cfdg002)
+# Full two-stage training with Phase 1 + Phase 2 tuned hyperparameters
+# Uses 1x H100 GPU via cfdg.p partition (7-day walltime)
+# Stage 1 (epochs 0-29): marginals with Phase 1 best arch + lr
+# Stage 2 (epochs 30-199): copula with Phase 2 best arch + lr
+# Metric: val_total_nll (copula_loss - marginal_logdet, consistent across stages)
 # =============================================================================
 
 export MODEL_NAME="tactis"
@@ -88,10 +91,13 @@ python ${WORK_DIR}/run_scripts/run_model.py \
   --use_tuned_parameters \
   --seed 42 \
   --override trainer.max_epochs=200 \
-      trainer.limit_train_batches=null \
+      trainer.limit_train_batches=20000 \
       trainer.val_check_interval=1.0 \
       trainer.strategy=auto \
-      trainer.devices=1
+      trainer.devices=1 \
+      model.tactis.skip_copula=false \
+      model.tactis.stage2_start_epoch=30 \
+      callbacks.model_checkpoint.init_args.monitor=val_total_nll
 
 TRAIN_EXIT_CODE=$?
 
