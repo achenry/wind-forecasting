@@ -13,17 +13,18 @@
 #SBATCH --hint=nomultithread
 #SBATCH --distribution=block:block
 #SBATCH --gres-flags=enforce-binding
+#SBATCH --signal=B:USR1@300
 
 # =============================================================================
 # TRAINING SCRIPT - TACTIS-2 ON H100 (RESUME FROM CHECKPOINT)
 # Resumes TACTiS-2 training from a checkpoint with best tuned hyperparameters
-# Uses 1x H100 GPU via all_gpu.p partition (max 1 day)
+# Uses 1x H100 GPU via cfdg.p partition
+# --signal=B:USR1@300 triggers Lightning's auto-save 5 min before walltime
 # =============================================================================
 
 export MODEL_NAME="tactis"
 
-# Set this to the path of the checkpoint to resume from
-CHECKPOINT_PATH="${CHECKPOINT_PATH:-latest}"
+CHECKPOINT_PATH="${CHECKPOINT_PATH:-/dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/rescue_stage2_resume_ready_epoch=90-step=600000-val_total_nll=-1198.08.ckpt}"
 
 # --- Base Directories ---
 BASE_DIR="/user/taed7566/Forecasting/wind-forecasting"
@@ -92,7 +93,7 @@ python ${WORK_DIR}/run_scripts/run_model.py \
   --use_tuned_parameters \
   --seed 42 \
   --checkpoint ${CHECKPOINT_PATH} \
-  --override trainer.max_epochs=200 \
+  --override trainer.max_epochs=110 \
       trainer.limit_train_batches=20000 \
       trainer.val_check_interval=1.0 \
       trainer.strategy=auto \

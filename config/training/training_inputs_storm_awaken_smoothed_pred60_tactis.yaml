@@ -147,6 +147,26 @@ callbacks:
       save_top_k: 1
       save_last: true
       verbose: true
+  model_checkpoint_periodic:
+    class_path: lightning.pytorch.callbacks.ModelCheckpoint
+    init_args:
+      dirpath: ${logging.checkpoint_dir}
+      filename: 'periodic-{epoch}-{step}'
+      every_n_epochs: 5
+      save_top_k: -1
+      save_last: false
+      monitor: null
+      verbose: true
+  model_checkpoint_stage2:
+    class_path: lightning.pytorch.callbacks.ModelCheckpoint
+    init_args:
+      dirpath: ${logging.checkpoint_dir}
+      filename: 'best_copula_{epoch}_{val_copula_loss:.4f}'
+      monitor: val_copula_loss
+      mode: min
+      save_top_k: 3
+      save_last: false
+      verbose: true
   lr_monitor:
     class_path: lightning.pytorch.callbacks.LearningRateMonitor
     init_args:
