@@ -24,7 +24,7 @@
 
 export MODEL_NAME="tactis"
 
-CHECKPOINT_PATH="${CHECKPOINT_PATH:-/dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/rescue_stage2_resume_ready_epoch=90-step=600000-val_total_nll=-1198.08.ckpt}"
+CHECKPOINT_PATH="${CHECKPOINT_PATH:-/dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/rerun_from_epoch=94_step=616518.ckpt}"
 
 # --- Base Directories ---
 BASE_DIR="/user/taed7566/Forecasting/wind-forecasting"
@@ -93,13 +93,14 @@ python ${WORK_DIR}/run_scripts/run_model.py \
   --use_tuned_parameters \
   --seed 42 \
   --checkpoint ${CHECKPOINT_PATH} \
-  --override trainer.max_epochs=110 \
+  --override trainer.max_epochs=26 \
       trainer.limit_train_batches=20000 \
       trainer.val_check_interval=1.0 \
       trainer.strategy=auto \
       trainer.devices=1 \
       model.tactis.skip_copula=false \
       model.tactis.stage2_start_epoch=30 \
+      model.tactis.initial_stage=2 \
       callbacks.model_checkpoint.init_args.monitor=val_total_nll
 
 TRAIN_EXIT_CODE=$?
