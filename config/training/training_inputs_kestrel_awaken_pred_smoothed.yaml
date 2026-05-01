@@ -165,7 +165,7 @@ model:
     lr_stage2: 2e-6
     weight_decay_stage1: 1e-5
     weight_decay_stage2: 1e-5
-    # Dropout & Clipping
+    # Dropout & Clippingf
     dropout_rate: 0.1
     gradient_clip_val_stage1: 1000.0
     gradient_clip_val_stage2: 1000.0
