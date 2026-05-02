@@ -73,16 +73,14 @@ optuna:
       slice_plot: true
 
   storage:
-    backend: "postgresql"
-    use_tcp: true
-    use_socket: false
-    db_host: "pg-windforecasting-aiven-wind-forecasting.e.aivencloud.com"
-    db_port: 12472
-    db_name: "optuna"
-    db_user: "avnadmin"
-    db_password_env_var: "AIVEN_PG_PASSWORD"
-    sslmode: "require"
-    sslrootcert_path: "config/certs/aiven_pg_ca.pem"
+    # SQLite chosen because compute nodes cannot resolve Aiven's public PostgreSQL host
+    # (DNS NXDOMAIN observed on both cfdg002 and mpcg001 — see slurm_logs/dns_probe_*.out).
+    # Prior pilot studies on this HPC also used SQLite — see existing files at
+    # /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/optuna/sqlite/.
+    backend: "sqlite"
+    sqlite_path: "/dss/work/taed7566/Forecasting_Outputs/wind-forecasting/optuna/sqlite/tuning_tactis_pred60_reg_pilot_v1.db"
+    sqlite_wal: true       # Enable WAL mode for better concurrent-write performance
+    sqlite_timeout: 600    # 10 min timeout to ride out lock contention from parallel workers
 
   dashboard:
     enabled: false

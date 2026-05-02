@@ -6,6 +6,7 @@
 #SBATCH --cpus-per-task=8
 #SBATCH --mem-per-cpu=8016
 #SBATCH --gres=gpu:H100:4           # Explicit H100 (mpcg nodes); avoids accidentally landing on cfdg001 A100:8
+#SBATCH --exclude=cfdg002,cfdg001   # Force mpcg landing — cfdg002 has no public-DNS access (would block SQLite path lookup races etc.)
 #SBATCH --time=23:59:00             # all_gpu.p has 24h ceiling
 #SBATCH --job-name=p60reg_pilot_tactis
 #SBATCH --output=/dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/slurm_logs/p60reg_pilot_tactis_%j.out
