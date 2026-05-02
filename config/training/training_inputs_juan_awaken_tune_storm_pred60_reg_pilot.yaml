@@ -41,7 +41,7 @@ logging:
 optuna:
   save_trial_code: false
   n_trials_per_worker: 50
-  total_study_trials: 40       # PILOT: small budget; full study comes later if pilot passes
+  total_study_trials: 100      # PILOT: moderate budget for 20 parallel workers (5 jobs × 4 H100s)
   max_epochs: 20               # PILOT: short trials; long enough to see flow collapse if it happens
   sampler: "tpe"               # TPE prioritizes exploiting good regions — good for narrow tuning
   sampler_params:

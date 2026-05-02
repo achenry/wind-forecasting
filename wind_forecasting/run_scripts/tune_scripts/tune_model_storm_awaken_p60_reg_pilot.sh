@@ -1,12 +1,12 @@
 #!/bin/bash
 
-#SBATCH --partition=cfdg.p
+#SBATCH --partition=all_gpu.p       # all_gpu.p includes mpcg H100 nodes (cfdg currently planned/unavailable)
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=4         # 4 H100 GPUs, one worker per GPU
 #SBATCH --cpus-per-task=8
 #SBATCH --mem-per-cpu=8016
-#SBATCH --gres=gpu:4
-#SBATCH --time=1-12:00              # 36h ceiling for pilot (40 trials × 20 epochs / 4 workers ≈ 24h expected)
+#SBATCH --gres=gpu:H100:4           # Explicit H100 (mpcg nodes); avoids accidentally landing on cfdg001 A100:8
+#SBATCH --time=23:59:00             # all_gpu.p has 24h ceiling
 #SBATCH --job-name=p60reg_pilot_tactis
 #SBATCH --output=/dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/slurm_logs/p60reg_pilot_tactis_%j.out
 #SBATCH --error=/dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/slurm_logs/p60reg_pilot_tactis_%j.err
@@ -45,7 +45,12 @@ export LOG_DIR="${OUTPUT_DIR}/logs"
 export CONFIG_FILE="${BASE_DIR}/config/training/training_inputs_juan_awaken_tune_storm_pred60_reg_pilot.yaml"
 export MODEL_NAME="tactis"
 export TUNING_PHASE="1"           # Stage 1 only (where the flow collapse lives)
-export RESTART_TUNING_FLAG="--restart_tuning"  # Fresh study for pilot
+# RESTART_TUNING_FLAG empty: all jobs attach to base_study_prefix (no job-id suffix). The
+# first rank-0 to start creates the study; subsequent ranks load_if_exists=True. This lets
+# us run multiple SBATCH jobs in parallel against the same study for higher throughput.
+# Study name uniqueness comes from the unique run_name in the YAML
+# (tune_awaken_tactis_pred60_reg_pilot_v1).
+export RESTART_TUNING_FLAG=""
 export AUTO_EXIT_WHEN_DONE="true"
 export NUMEXPR_MAX_THREADS=128
 
