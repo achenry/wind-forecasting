@@ -106,6 +106,17 @@ def generate_db_setup_params(model: str, model_config: Dict) -> Dict:
             sqlite_db_path_str = str(sqlite_db_path_from_config).replace("${logging.optuna_dir}", resolved_optuna_dir)
         resolved_sqlite_db_path = resolve_path(project_root, sqlite_db_path_str) # Make absolute
         db_setup_params["sqlite_db_path"] = resolved_sqlite_db_path
+        # Alias under the name the storage layer (optuna_storage.py:setup_sqlite) actually
+        # reads. Without this, the YAML's sqlite_db_path config is silently ignored and the
+        # storage layer falls back to '<cwd>/<study_name>.db', which produces a nondeterministic
+        # path depending on launch directory.
+        db_setup_params["sqlite_path"] = resolved_sqlite_db_path
+        # Also pass through SQLite WAL/timeout knobs so they reach setup_sqlite without
+        # round-tripping through the YAML's free-form storage section.
+        if "sqlite_wal" in storage_cfg:
+            db_setup_params["sqlite_wal"] = storage_cfg["sqlite_wal"]
+        if "sqlite_timeout" in storage_cfg:
+            db_setup_params["sqlite_timeout"] = storage_cfg["sqlite_timeout"]
     
     elif backend == "postgresql":
         # PostgreSQL specific configuration
