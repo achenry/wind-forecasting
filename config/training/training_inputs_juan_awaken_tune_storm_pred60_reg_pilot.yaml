@@ -78,7 +78,9 @@ optuna:
     # Prior pilot studies on this HPC also used SQLite — see existing files at
     # /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/optuna/sqlite/.
     backend: "sqlite"
-    sqlite_path: "/dss/work/taed7566/Forecasting_Outputs/wind-forecasting/optuna/sqlite/tuning_tactis_pred60_reg_pilot_v1.db"
+    # Note: YAML key is `sqlite_db_path` (read by optuna_config_utils.py:100). The
+    # downstream `sqlite_path` in optuna_storage.py is populated from this.
+    sqlite_db_path: "/dss/work/taed7566/Forecasting_Outputs/wind-forecasting/optuna/sqlite/tuning_tactis_pred60_reg_pilot_v1.db"
     sqlite_wal: true       # Enable WAL mode for better concurrent-write performance
     sqlite_timeout: 600    # 10 min timeout to ride out lock contention from parallel workers
 
@@ -91,7 +93,13 @@ dataset:
     sampler: "random"
     data_path: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/DATA/preprocessed_awaken_data/awaken_processed_normalized.parquet
     normalization_consts_path:  /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/DATA/preprocessed_awaken_data/awaken_processed_normalization_consts.csv
-    context_length: 1200    # 1200s / 15s resample = 80 steps (matches broken checkpoint context_length=80)
+    # context_length 1500s -> 100 steps at 15s. Chosen because a pre-built train_ready cache
+    # exists at /dss/work/.../awaken_processed_normalized_train_ready_15s_per_turbine_ctx100_pred4_denormalize.parquet
+    # (461MB, dated Oct 11 2025). Using ctx=80 would force regeneration which hits a known
+    # bug in data_module.generate_datasets() (column name resolution: looks for unsuffixed
+    # 'nd_cos' but parquet has 'nd_cos_1..88'). The reg-pilot's purpose is to validate the
+    # `a` regularizer mechanism — context length is not a determining factor for that.
+    context_length: 1500    # 1500s / 15s resample = 100 steps (matches existing train_ready cache)
     prediction_length: 60   # 60s / 15s = 4 steps (matches broken checkpoint prediction_length=4)
     target_turbine_ids:
     normalize: true         # TACTiS-2 has internal StdScaler; normalized parquet is fine for it
