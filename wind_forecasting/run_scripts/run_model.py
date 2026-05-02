@@ -259,9 +259,7 @@ def main():
         persistent_workers = num_workers > 0
         
         data_module = DataModule(
-            # Field renamed from data_path -> normalized_data_path in data_module.py;
-            # keep YAML key as-is (data_path) for backward compat with existing configs.
-            normalized_data_path=config["dataset"]["data_path"],
+            data_path=config["dataset"]["data_path"],
             n_splits=config["dataset"]["n_splits"],
             continuity_groups=None,
             train_split=(1.0 - config["dataset"]["val_split"] - config["dataset"]["test_split"]),
