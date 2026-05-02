@@ -313,6 +313,10 @@ def setup_trial_callbacks(
             if cb_name == 'dead_neuron_monitor':
                 logging.debug(f"Trial {trial.number}: Skipping '{cb_name}' config here, will be handled separately.")
                 continue
+
+            if cb_name == 'marginal_health_monitor':
+                logging.debug(f"Trial {trial.number}: Skipping '{cb_name}' config here, will be handled separately (needs trial object).")
+                continue
             
             # Instantiate general callbacks
             if isinstance(cb_setting, dict) and 'class_path' in cb_setting:
@@ -347,7 +351,29 @@ def setup_trial_callbacks(
         dead_neuron_callback = DeadNeuronMonitor()
         current_callbacks.append(dead_neuron_callback)
         logging.info(f"Trial {trial.number}: Added DeadNeuronMonitor callback (enabled by boolean flag).")
-    
+
+    # Add MarginalHealthMonitor (TACTiS-2 only): Optuna-aware pruning of trials whose DSF
+    # `a` parameter still explodes despite regularization. See pytorch_transformer_ts/
+    # tactis_2/callbacks.py for the underlying logic.
+    marginal_health_setting = callback_configurations_dict.get('marginal_health_monitor', {})
+    if (
+        model_name == "tactis"
+        and isinstance(marginal_health_setting, dict)
+        and marginal_health_setting.get('enabled', False)
+    ):
+        try:
+            from pytorch_transformer_ts.tactis_2.callbacks import MarginalHealthMonitor
+            mhm_init_args = marginal_health_setting.get('init_args', {}).copy()
+            mhm_init_args['optuna_trial'] = trial  # Inject trial for pruning logic
+            marginal_health_callback = MarginalHealthMonitor(**mhm_init_args)
+            current_callbacks.append(marginal_health_callback)
+            logging.info(
+                f"Trial {trial.number}: Added MarginalHealthMonitor callback "
+                f"(explode_threshold={mhm_init_args.get('explode_threshold', 50.0)})"
+            )
+        except Exception as e:
+            logging.error(f"Trial {trial.number}: Error instantiating MarginalHealthMonitor: {e}", exc_info=True)
+
     return general_instantiated_callbacks + current_callbacks
 
 
