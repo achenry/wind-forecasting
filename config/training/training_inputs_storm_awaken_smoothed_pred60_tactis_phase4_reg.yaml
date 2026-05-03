@@ -44,6 +44,13 @@ logging:
   chkp_dir_suffix: "_smoothed_60_phase2_trial65_v1"
   slurm_output_dir: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/slurm_logs
 
+# Stub optuna section — required because run_model.py:313 unconditionally accesses
+# config["optuna"]["visualization"]["enabled"] even in --mode train. Disabled here
+# since this is a single training run (no Optuna study).
+optuna:
+  visualization:
+    enabled: false
+
 dataset:
   sampler: "random"
   data_path: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/DATA/preprocessed_awaken_data/awaken_processed_smoothed_normalized.parquet
