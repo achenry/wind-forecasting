@@ -79,8 +79,11 @@ export PGPASSWORD="${LOCAL_PG_PASSWORD}"
 echo "=== STARTING DDP TRAINING (4 GPUs) ==="
 date +"%Y-%m-%d %H:%M:%S"
 
-# Single python invocation; Lightning DDP handles the 4 ranks internally
-python ${WORK_DIR}/run_scripts/run_model.py \
+# srun launches one task per --ntasks (SLURM_NTASKS_PER_NODE), each with one GPU.
+# Lightning auto-detects rank/world_size from SLURM env vars and rendezvouses via TCPStore.
+# Pattern matches the existing train_storm_smoothed_awaken_p60_external.sh (multi-GPU DDP).
+# Without srun, only 1 task launches and DDP rendezvous times out (1/N clients joined).
+srun python ${WORK_DIR}/run_scripts/run_model.py \
     --config ${CONFIG_FILE} \
     --model ${MODEL_NAME} \
     --mode train \
