@@ -1,14 +1,14 @@
 #!/bin/bash
 
-#SBATCH --partition=all_gpu.p
+#SBATCH --partition=cfdg.p              # H100 nodes — user-requested
 #SBATCH --nodes=1
-#SBATCH --ntasks-per-node=4
+#SBATCH --ntasks-per-node=4              # 4 H100 DDP — cfdg002 has 4× H100 (3 currently free; queues if all busy)
 #SBATCH --cpus-per-task=8
 #SBATCH --mem-per-cpu=8016
-#SBATCH --gres=gpu:H100:4
-#SBATCH --exclude=cfdg001,cfdg002
-#SBATCH --time=23:59:00
-#SBATCH --job-name=tactis_p4_reg
+#SBATCH --gres=gpu:H100:4                # Force H100; excludes cfdg001's A100s
+#SBATCH --exclude=cfdg001                # cfdg001 is A100; exclude to land on cfdg002 H100
+#SBATCH --time=2-00:00                   # 2 days (cfdg.p allows up to 7d; 2d is plenty for 30 epochs)
+#SBATCH --job-name=tactis_phase2_trial65
 #SBATCH --output=/dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/slurm_logs/tactis_p4_reg_%j.out
 #SBATCH --error=/dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/slurm_logs/tactis_p4_reg_%j.err
 #SBATCH --hint=nomultithread
