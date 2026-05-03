@@ -2,10 +2,10 @@
 
 #SBATCH --partition=cfdg.p              # H100 nodes — user-requested 7-day cluster
 #SBATCH --nodes=1
-#SBATCH --ntasks-per-node=3              # 3 H100 DDP — cfdg002 has 3 free; queues if all busy
-#SBATCH --cpus-per-task=8
+#SBATCH --ntasks-per-node=1              # SINGLE-GPU — DDP across 3 H100 hung at NCCL BROADCAST in 2 prior attempts
+#SBATCH --cpus-per-task=16
 #SBATCH --mem-per-cpu=8016
-#SBATCH --gres=gpu:H100:3                # H100 only; excludes A100 nodes
+#SBATCH --gres=gpu:H100:1                # 1× H100 — same pattern that pilot tuning workers used (--single_gpu)
 #SBATCH --exclude=cfdg001                # cfdg001 is A100; force cfdg002 H100 landing
 #SBATCH --time=7-00:00                   # 7 days — cfdg.p max
 #SBATCH --job-name=tactis_phase5_full
@@ -85,15 +85,18 @@ if [ -z "${LOCAL_PG_PASSWORD:-}" ]; then
 fi
 export PGPASSWORD="${LOCAL_PG_PASSWORD}"
 
-echo "=== STARTING DDP TRAINING (3× H100 srun) ==="
+echo "=== STARTING SINGLE-GPU TRAINING (1× H100 — sidesteps NCCL DDP hangs from prior attempts) ==="
 date +"%Y-%m-%d %H:%M:%S"
 
-# srun launches 3 tasks (one per GPU); Lightning auto-detects DDP world_size from SLURM
-srun python ${WORK_DIR}/run_scripts/run_model.py \
+# --single_gpu forces Lightning devices=1 + auto strategy (no DDP). Pattern matches pilot
+# tuning workers (which all worked fine). Two prior multi-GPU DDP attempts hung at NCCL
+# BROADCAST seq ~75064 after ~30 min runtime. 1-GPU avoids the issue entirely.
+python ${WORK_DIR}/run_scripts/run_model.py \
     --config ${CONFIG_FILE} \
     --model ${MODEL_NAME} \
     --mode train \
-    --seed 42
+    --seed 42 \
+    --single_gpu
 
 EXIT_CODE=$?
 
