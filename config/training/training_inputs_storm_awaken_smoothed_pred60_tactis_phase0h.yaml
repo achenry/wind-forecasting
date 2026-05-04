@@ -1,21 +1,29 @@
 ## ============================================================================
 ## TACTiS-2 PHASE 0h — full Stage1+Stage2 retrain with v2 regularization
 ## ============================================================================
-## Single-run decision experiment: re-run Phase 5 v1 hparams with v2 deeper-fix
-## defenses + winning a_max from Phase 0g'. If F⁻¹(U) std > 0.5 at end of
-## Stage 1 AND sample-axis std > 0.05 at end of Stage 2, we're DONE — no need
-## for the broader Phase 1 pilot or the original Phase 3 full retrain.
+## Production-grade decision experiment: re-run Phase 5 v1's EXACT compute
+## budget (100 epochs) with v2 deeper-fix defenses + Phase 0g' winning a_max=3.
+## If F⁻¹(U) std MEDIAN > 0.05 at end of Stage 1 AND sample-axis std > 0.05 at
+## end of Stage 2 (Aoife's metric), this IS the deployable model — no need
+## for Phase 1 pilot or further retraining.
 ##
-## Compute budget: 30 epochs total (vs v1's 100):
-##   Stage 1: epochs 0-19 (20 epochs — collapse fully develops by ep24 in v1, so
-##            20 is sufficient to evaluate whether v2 prevents it)
-##   Stage 2: epochs 20-29 (10 epochs — enough for copula to bootstrap on
-##            top of the now-broader marginals; val_copula_loss=inf bug is
-##            now fixed so we'll actually see Stage 2 progress in WandB)
-## Wall time: ~3h on 1× H100 single-GPU (matches v1 cadence, fewer epochs).
+## Compute budget: 100 epochs total (matches v1 exactly for clean A/B):
+##   Stage 1: epochs 0-29 (30 epochs — full marginal training under tight cap)
+##   Stage 2: epochs 30-99 (70 epochs — full copula bootstrap; val_copula_loss
+##            =inf bug is now fixed so we'll actually see Stage 2 progress)
+## Wall time: ~16h on 1× H100 single-GPU (matches v1's 15h53m wall).
 ##
-## Set after Phase 0g' completes: __A_MAX__ → winning a_max value
-## (will be sed-replaced by submit_phase0h.sh; default=5.0 if not provided)
+## Phase 0g' winners baked in:
+##   a_max = 3.0           — Phase 0g' confirmed: F⁻¹ median 0.094 (3× others),
+##                            min 0.088 (10× others), sa_std mean 0.078 (crosses
+##                            Aoife's 0.05 threshold even in Stage-1-only probe)
+##   log_density_max = 0.0 — Phase 0g winner (marginal benefit but clear sign)
+##
+## Intermediate-checkpoint probing during training: every 5 epochs, both the
+## defensive on_train_epoch_end save (manual_save_epoch{N}.ckpt) AND the
+## Lightning periodic callback save (periodic-epoch={N}-step={M}.ckpt) write
+## to the run dir. Probe with probe_compare_runs.py at any time — does NOT
+## interrupt training.
 ## ============================================================================
 
 experiment:
@@ -69,7 +77,7 @@ model:
   ## TACTiS-2 — Trial #65 winning architecture (matches Phase 5 v1 exactly) ##
   tactis:
     initial_stage: 1
-    stage2_start_epoch: 20            # Stage 1 collapses by ep24 in v1 — 20 ep is sufficient evaluation window
+    stage2_start_epoch: 30            # Match v1 exactly — 30 ep Stage 1 + 70 ep Stage 2
     input_encoding_normalization: true
     scaling: "std"
     loss_normalization: "none"
@@ -179,6 +187,6 @@ trainer:
   devices: auto
   num_nodes: 1
   strategy: ddp
-  max_epochs: 30                    # 20 ep S1 + 10 ep S2 = 30 total (vs v1's 100)
+  max_epochs: 100                   # 30 ep S1 + 70 ep S2 — matches v1 exactly for A/B
   limit_train_batches: 5000
   log_every_n_steps: 100
