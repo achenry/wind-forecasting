@@ -344,6 +344,26 @@ def tune_model(model, config, study_name, optuna_storage, lightning_module_class
         dynamic_params.update(_external_dynamic_params)
         logging.info(f"Merged external dynamic_params keys: {list(_external_dynamic_params.keys())}")
 
+    # FOCUSED-STUDY OVERRIDES: forward selected keys from optuna YAML config to
+    # the estimator's dynamic_kwargs. Allows a YAML to lock a Phase-1 search-space
+    # param to a single value (e.g., "lambda_a_reg_fixed: 0.46") while keeping
+    # the rest of the search space intact. Used for tune_log_density_max_focused
+    # to sweep ONLY log_density_max with the regularizer lambdas held constant.
+    _focused_keys = [
+        "lambda_a_reg_fixed",
+        "lambda_log_density_fixed",
+        "log_density_max",        # list of choices (e.g., [-2.0, 0.0, 1.0, 3.0])
+        "lambda_a_reg",           # list of choices, if used as categorical
+        "lambda_log_density",     # list of choices, if used as categorical
+    ]
+    _optuna_cfg = config.get("optuna", {}) or {}
+    for _k in _focused_keys:
+        if _k in _optuna_cfg:
+            if dynamic_params is None:
+                dynamic_params = {}
+            dynamic_params[_k] = _optuna_cfg[_k]
+            logging.info(f"Focused-study override: dynamic_params[{_k!r}] = {_optuna_cfg[_k]!r}")
+
     # Extract phase1_checkpoint_path from dynamic_params if provided (for Phase 2 tuning)
     phase1_checkpoint_path = None
     if dynamic_params and "phase1_checkpoint_path" in dynamic_params:
