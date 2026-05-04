@@ -1,0 +1,181 @@
+## ============================================================================
+## TACTiS-2 PHASE 0d SMOKE TEST — deeper-fix v2 quick verification
+## ============================================================================
+## ~30 minute single-GPU smoke test on cfdg.p H100 to confirm the v2 changes
+## (per-datapoint log-density penalty, smooth a-cap, lambda schedule) all work
+## end-to-end before we commit to a full pilot/retrain.
+##
+## Pass criteria (Phase 0d):
+##   1. Forward + backward pass completes for 3 epochs (no NaN/Inf in loss)
+##   2. New WandB metrics appear: log_density_reg/{loss_term, max_log_density,
+##      mean_log_density, schedule_mult}
+##   3. a_reg/max_a peaks LOWER than v1 baseline (smooth-cap working)
+##   4. Step runtime comparable to v1 (no major slowdown from new penalty)
+##   5. log_density_reg/max_log_density stays finite (not exploding to inf)
+##
+## NOT a convergence test — 3 epochs × 200 batches is far too short. We're only
+## verifying integration: the new code paths execute, log, and don't break.
+## ============================================================================
+
+experiment:
+  username: jmb0507
+  project_name: smoke_test_v2_tactis_phase0d
+  run_name: smoke_v2_tactis_smoothed_pred60_phase0d
+  project_root: /user/taed7566/Forecasting/wind-forecasting
+  log_dir: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/
+  notes: "PHASE 0d SMOKE TEST — verify deeper-fix v2 (log-density penalty, smooth a-cap, lambda schedule) integrates cleanly"
+  extra_tags: ["tactis2", "smoke_test", "deeper_fix_v2", "phase0d"]
+
+logging:
+  entity: jmb0507-cu-boulder
+  wandb_mode: online
+  save_code: false
+  wandb_dir: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs
+  optuna_dir: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/optuna
+  checkpoint_dir: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/checkpoints
+  chkp_dir_suffix: "_smoke_v2_phase0d"
+  slurm_output_dir: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/slurm_logs
+
+# Stub optuna section — required by run_model.py:313 even in --mode train.
+optuna:
+  visualization:
+    enabled: false
+
+dataset:
+  sampler: "random"
+  data_path: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/DATA/preprocessed_awaken_data/awaken_processed_smoothed_normalized.parquet
+  normalization_consts_path: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/DATA/preprocessed_awaken_data/awaken_processed_smoothed_normalization_consts.csv
+  context_length: 1200      # 80 steps × 15s — matches existing ctx80_pred4_denormalize cache
+  prediction_length: 60     # 4 steps × 15s
+  target_turbine_ids:
+  normalize: false          # TACTiS-2 internal scaling
+  batch_size: 64            # ← matches Trial #65 (so timing comparable to v1)
+  base_batch_size: 128
+  workers: 4
+  overfit: false
+  test_split: 0.10
+  val_split: 0.10
+  resample_freq: 15s
+  n_splits: 1
+  per_turbine_target: true
+  use_pytorch_dataloader: true
+
+model:
+  distr_output:
+    class: LowRankMultivariateNormalOutput
+    kwargs:
+      rank: 8
+
+  ## TACTiS-2 — Trial #65 winning architecture (matches Phase 5 exactly except for v2 reg additions) ##
+  tactis:
+    initial_stage: 1
+    # CRITICAL: stage2_start_epoch >> max_epochs forces pure Stage 1 throughout the smoke test.
+    # We want to exercise the v2 regularization (which is Stage-1-only via apply_reg gate) — so
+    # never trigger the stage 2 transition.
+    stage2_start_epoch: 999
+    input_encoding_normalization: true
+    scaling: "std"
+    loss_normalization: "none"
+    encoder_type: "standard"
+    num_parallel_samples: 200
+    bagging_size: null
+
+    marginal_embedding_dim_per_head: 32
+    marginal_num_heads: 4
+    marginal_num_layers: 3
+    flow_input_encoder_layers: 5
+    flow_series_embedding_dim: 16
+
+    # Copula params present but unused (stage2_start_epoch=999 keeps copula off).
+    copula_embedding_dim_per_head: 8
+    copula_num_heads: 5
+    copula_num_layers: 2
+    copula_input_encoder_layers: 1
+    copula_series_embedding_dim: 48
+    ac_mlp_num_layers: 2
+    ac_mlp_dim: 128
+
+    decoder_dsf_num_layers: 3
+    decoder_dsf_hidden_dim: 64
+    decoder_mlp_num_layers: 2
+    decoder_mlp_hidden_dim: 8
+    decoder_transformer_num_layers: 4
+    decoder_transformer_embedding_dim_per_head: 64
+    decoder_transformer_num_heads: 5
+    decoder_num_bins: 100
+
+    stage1_activation_function: "relu"
+    lr_stage1: 9.881673103861262e-06
+    weight_decay_stage1: 0.0
+    gradient_clip_val_stage1: 5.0
+    eta_min_fraction_s1: 0.0010773892179890717
+    warmup_steps_s1: 0.10
+    steps_to_decay_s1: 0.90
+
+    # Stage 2 params present but unused.
+    stage2_activation_function: "relu"
+    lr_stage2: 2.0e-6
+    weight_decay_stage2: 1.0e-5
+    gradient_clip_val_stage2: 1.0
+    eta_min_fraction_s2: 0.01
+    warmup_steps_s2: 0.10
+    steps_to_decay_s2: 0.90
+
+    dropout_rate: 0.005
+
+    # ============================================
+    # v1 regularization (Fix D — keep, second line of defense)
+    # ============================================
+    lambda_a_reg: 0.45969083674293004
+    a_reg_threshold: 3.0
+
+    # ============================================
+    # v2 deeper-fix — NEW HPARAMS being smoke-tested
+    # ============================================
+    # Fix A: per-(batch, vars) log-density penalty (the actual quantity that
+    # explodes during collapse). Threshold log_density_max=3 → density ≤ 20.
+    # Smoke value 0.5 — middle of [1e-4, 10] log-uniform pilot range — gives
+    # us non-trivial penalty term so we can verify it logs and gradients flow.
+    lambda_log_density: 0.5
+    log_density_max: 3.0
+
+    # Fix B: smooth `a` cap. a_max=20 catches max-a~720 (broken epoch=122)
+    # without disrupting healthy max-a~21 (Trial #65 pilot probes). Smooth
+    # rational saturation, gradients flow above the cap (unlike hard clamp).
+    a_max: 20.0
+
+callbacks:
+  progress_bar:
+    class_path: lightning.pytorch.callbacks.TQDMProgressBar
+    init_args:
+      refresh_rate: 50
+      leave: true
+  model_checkpoint:
+    class_path: lightning.pytorch.callbacks.ModelCheckpoint
+    init_args:
+      dirpath: ${logging.checkpoint_dir}
+      filename: '{epoch}-{step}-{val_loss:.2f}'
+      monitor: 'val_loss'
+      mode: 'min'
+      save_top_k: 1
+      save_last: true
+      verbose: true
+  lr_monitor:
+    class_path: lightning.pytorch.callbacks.LearningRateMonitor
+    init_args:
+      logging_interval: step
+      log_momentum: false
+  dead_neuron_monitor:
+    enabled: false
+  marginal_health_monitor:
+    enabled: false                  # No-op in --mode train (no Optuna trial). Smoke test only — kill-switch not needed.
+
+trainer:
+  val_check_interval: 1.0
+  accelerator: gpu
+  devices: auto
+  num_nodes: 1
+  strategy: ddp
+  max_epochs: 3                     # SMOKE TEST — only 3 epochs
+  limit_train_batches: 200          # ~10× smaller than v1 (5000) — keeps wall-time at ~30 min
+  log_every_n_steps: 25             # finer-grained logging so we see new metrics quickly
