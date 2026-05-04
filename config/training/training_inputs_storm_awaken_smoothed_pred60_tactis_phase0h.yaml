@@ -1,0 +1,184 @@
+## ============================================================================
+## TACTiS-2 PHASE 0h — full Stage1+Stage2 retrain with v2 regularization
+## ============================================================================
+## Single-run decision experiment: re-run Phase 5 v1 hparams with v2 deeper-fix
+## defenses + winning a_max from Phase 0g'. If F⁻¹(U) std > 0.5 at end of
+## Stage 1 AND sample-axis std > 0.05 at end of Stage 2, we're DONE — no need
+## for the broader Phase 1 pilot or the original Phase 3 full retrain.
+##
+## Compute budget: 30 epochs total (vs v1's 100):
+##   Stage 1: epochs 0-19 (20 epochs — collapse fully develops by ep24 in v1, so
+##            20 is sufficient to evaluate whether v2 prevents it)
+##   Stage 2: epochs 20-29 (10 epochs — enough for copula to bootstrap on
+##            top of the now-broader marginals; val_copula_loss=inf bug is
+##            now fixed so we'll actually see Stage 2 progress in WandB)
+## Wall time: ~3h on 1× H100 single-GPU (matches v1 cadence, fewer epochs).
+##
+## Set after Phase 0g' completes: __A_MAX__ → winning a_max value
+## (will be sed-replaced by submit_phase0h.sh; default=5.0 if not provided)
+## ============================================================================
+
+experiment:
+  username: jmb0507
+  project_name: train_phase0h_v2_full_decision
+  run_name: phase0h_v2_amax___A_MAX__
+  project_root: /user/taed7566/Forecasting/wind-forecasting
+  log_dir: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/
+  notes: "PHASE 0h — full v2 retrain (Stage 1 + Stage 2) with winning a_max from 0g'"
+  extra_tags: ["tactis2", "phase0h", "smoothed", "pred60", "ctx80", "deeper_fix_v2", "decision_run", "amax___A_MAX__"]
+
+logging:
+  entity: jmb0507-cu-boulder
+  wandb_mode: online
+  save_code: false
+  wandb_dir: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs
+  optuna_dir: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/optuna
+  checkpoint_dir: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/checkpoints
+  chkp_dir_suffix: "_phase0h_v2_amax___A_MAX__"
+  slurm_output_dir: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/slurm_logs
+
+optuna:
+  visualization:
+    enabled: false
+
+dataset:
+  sampler: "random"
+  data_path: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/DATA/preprocessed_awaken_data/awaken_processed_smoothed_normalized.parquet
+  normalization_consts_path: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/DATA/preprocessed_awaken_data/awaken_processed_smoothed_normalization_consts.csv
+  context_length: 1200
+  prediction_length: 60
+  target_turbine_ids:
+  normalize: false
+  batch_size: 64
+  base_batch_size: 128
+  workers: 4
+  overfit: false
+  test_split: 0.10
+  val_split: 0.10
+  resample_freq: 15s
+  n_splits: 1
+  per_turbine_target: true
+  use_pytorch_dataloader: true
+
+model:
+  distr_output:
+    class: LowRankMultivariateNormalOutput
+    kwargs:
+      rank: 8
+
+  ## TACTiS-2 — Trial #65 winning architecture (matches Phase 5 v1 exactly) ##
+  tactis:
+    initial_stage: 1
+    stage2_start_epoch: 20            # Stage 1 collapses by ep24 in v1 — 20 ep is sufficient evaluation window
+    input_encoding_normalization: true
+    scaling: "std"
+    loss_normalization: "none"
+    encoder_type: "standard"
+    num_parallel_samples: 200
+    bagging_size: null
+
+    marginal_embedding_dim_per_head: 32
+    marginal_num_heads: 4
+    marginal_num_layers: 3
+    flow_input_encoder_layers: 5
+    flow_series_embedding_dim: 16
+
+    copula_embedding_dim_per_head: 8
+    copula_num_heads: 5
+    copula_num_layers: 2
+    copula_input_encoder_layers: 1
+    copula_series_embedding_dim: 48
+    ac_mlp_num_layers: 2
+    ac_mlp_dim: 128
+
+    decoder_dsf_num_layers: 3
+    decoder_dsf_hidden_dim: 64
+    decoder_mlp_num_layers: 2
+    decoder_mlp_hidden_dim: 8
+    decoder_transformer_num_layers: 4
+    decoder_transformer_embedding_dim_per_head: 64
+    decoder_transformer_num_heads: 5
+    decoder_num_bins: 100
+
+    stage1_activation_function: "relu"
+    lr_stage1: 9.881673103861262e-06
+    weight_decay_stage1: 0.0
+    gradient_clip_val_stage1: 5.0
+    eta_min_fraction_s1: 0.0010773892179890717
+    warmup_steps_s1: 0.10
+    steps_to_decay_s1: 0.90
+
+    stage2_activation_function: "relu"
+    lr_stage2: 2.0e-6
+    weight_decay_stage2: 1.0e-5
+    gradient_clip_val_stage2: 1.0
+    eta_min_fraction_s2: 0.01
+    warmup_steps_s2: 0.10
+    steps_to_decay_s2: 0.90
+
+    dropout_rate: 0.005
+
+    # v1 reg (Fix D — second line of defense)
+    lambda_a_reg: 0.45969083674293004
+    a_reg_threshold: 3.0
+
+    # v2 deeper-fix
+    lambda_log_density: 0.5
+    log_density_max: 0.0              # Phase 0g winner (marginal benefit, clear sign)
+    a_max: __A_MAX__                  # SED-REPLACED by submit_phase0h.sh after 0g' analysis
+
+callbacks:
+  progress_bar:
+    class_path: lightning.pytorch.callbacks.TQDMProgressBar
+    init_args:
+      refresh_rate: 100
+      leave: true
+  model_checkpoint:
+    class_path: lightning.pytorch.callbacks.ModelCheckpoint
+    init_args:
+      dirpath: ${logging.checkpoint_dir}
+      filename: '{epoch}-{step}-{val_loss:.2f}'
+      monitor: 'val_loss'
+      mode: 'min'
+      save_top_k: 1
+      save_last: true
+      verbose: true
+  model_checkpoint_periodic:
+    class_path: lightning.pytorch.callbacks.ModelCheckpoint
+    init_args:
+      dirpath: ${logging.checkpoint_dir}
+      filename: 'periodic-{epoch}-{step}'
+      every_n_epochs: 5
+      save_top_k: -1
+      save_last: false
+      monitor: null
+      verbose: true
+  model_checkpoint_stage2:
+    class_path: lightning.pytorch.callbacks.ModelCheckpoint
+    init_args:
+      dirpath: ${logging.checkpoint_dir}
+      filename: 'best_copula_{epoch}_{val_copula_loss:.4f}'
+      monitor: val_copula_loss
+      mode: min
+      save_top_k: 3
+      save_last: false
+      verbose: true
+  lr_monitor:
+    class_path: lightning.pytorch.callbacks.LearningRateMonitor
+    init_args:
+      logging_interval: step
+      log_momentum: false
+  dead_neuron_monitor:
+    enabled: false
+  marginal_health_monitor:
+    enabled: false                  # No-op in --mode train (no Optuna trial)
+
+trainer:
+  val_check_interval: 1.0
+  accelerator: gpu
+  devices: auto
+  num_nodes: 1
+  strategy: ddp
+  max_epochs: 30                    # 20 ep S1 + 10 ep S2 = 30 total (vs v1's 100)
+  limit_train_batches: 5000
+  log_every_n_steps: 100
