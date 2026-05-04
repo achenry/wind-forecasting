@@ -7,7 +7,7 @@
 #SBATCH --mem-per-cpu=8016
 #SBATCH --gres=gpu:H100:4
 #SBATCH --exclude=cfdg001
-#SBATCH --time=02:30:00              # 2.5h — Phase 0g hit 1.5h timeout, give margin
+#SBATCH --time=03:00:00              # 3h — give margin (mpcg002 may be slower than cfdg002 H100)
 #SBATCH --job-name=tactis_amax_sweep
 #SBATCH --output=/dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/slurm_logs/tactis_amax_sweep_%j.out
 #SBATCH --error=/dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/slurm_logs/tactis_amax_sweep_%j.err
@@ -106,7 +106,10 @@ for i in "${!A_MAX_VALUES[@]}"; do
 
     echo "Launching worker ${i} on GPU ${i} with a_max=${AMAX}"
 
-    CUDA_VISIBLE_DEVICES=${i} nohup bash -c "
+    # SLURM_PROCID=${i} ensures unique run_id per worker even if timestamps collide
+    # (run_model.py:332 builds unique_id = "<timestamp>_<SLURM_PROCID>_<gpu_id>";
+    # without per-worker SLURM_PROCID all workers wrote to same run_dir).
+    SLURM_PROCID=${i} WORKER_RANK=${i} CUDA_VISIBLE_DEVICES=${i} nohup bash -c "
         module purge
         module load slurm/hpc-2023/23.02.7
         module load hpc-env/13.1

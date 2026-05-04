@@ -120,7 +120,8 @@ for i in "${!THRESHOLDS[@]}"; do
 
     echo "Launching worker ${i} on GPU ${i} with threshold=${THR}"
 
-    CUDA_VISIBLE_DEVICES=${i} nohup bash -c "
+    # SLURM_PROCID=${i} ensures unique run_id per worker even if timestamps collide
+    SLURM_PROCID=${i} WORKER_RANK=${i} CUDA_VISIBLE_DEVICES=${i} nohup bash -c "
         module purge
         module load slurm/hpc-2023/23.02.7
         module load hpc-env/13.1
