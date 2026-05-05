@@ -1,0 +1,192 @@
+## ============================================================================
+## TACTiS-2 PHASE 0i-B — recommendation #2 ablation: unsmoothed data, a_max=3
+## ============================================================================
+## Hypothesis: the smoothed dataset (Butterworth filter, ~33-min cutoff) makes
+## persistence baseline artificially strong (~0.08 m/s error at 60s ahead) and
+## may have caused the model to learn a degenerate "predict the smoothed mean"
+## mode that doesn't track real wind dynamics. Training on unsmoothed data
+## should expose richer 15-60s dynamics and let the model learn meaningful
+## short-horizon uncertainty.
+##
+## Changes vs Phase 0h:
+##   data_path:                    smoothed → UNSMOOTHED parquet
+##   normalization_consts_path:    smoothed → UNSMOOTHED CSV
+##   a_max:                        unchanged (3.0)
+##   lambda_log_density:           unchanged (0.5)
+##   project_name + run_name:      tagged for unsmoothed
+##
+## Other Trial #65 winning hparams unchanged. 100 epochs (30 S1 + 70 S2).
+##
+## Expected outcome (if hypothesis right):
+##   - Persistence baseline CRPS will be MUCH larger on unsmoothed test data,
+##     setting a more honest bar
+##   - Model trained on unsmoothed data will produce wider ensembles since the
+##     true signal has more 15-60s variability
+##   - CRPS skill vs persistence may improve dramatically (model has room to
+##     beat a less-trivial baseline)
+## ============================================================================
+
+experiment:
+  username: jmb0507
+  project_name: train_phase0i_b_unsmoothed_amax3
+  run_name: phase0i_b_unsmoothed_amax3
+  project_root: /user/taed7566/Forecasting/wind-forecasting
+  log_dir: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/
+  notes: "PHASE 0i-B — recommendation #2 ablation: unsmoothed data with Phase 0h's a_max=3 reg"
+  extra_tags: ["tactis2", "phase0i_b", "unsmoothed", "pred60", "ctx80", "deeper_fix_v2", "amax3"]
+
+logging:
+  entity: jmb0507-cu-boulder
+  wandb_mode: online
+  save_code: false
+  wandb_dir: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs
+  optuna_dir: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/optuna
+  checkpoint_dir: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/checkpoints
+  chkp_dir_suffix: "_phase0i_b_unsmoothed_amax3"
+  slurm_output_dir: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/slurm_logs
+
+optuna:
+  visualization:
+    enabled: false
+
+dataset:
+  sampler: "random"
+  data_path: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/DATA/preprocessed_awaken_data/awaken_processed_unsmoothed_normalized.parquet
+  normalization_consts_path: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/DATA/preprocessed_awaken_data/awaken_processed_unsmoothed_normalization_consts.csv
+  context_length: 1200
+  prediction_length: 60
+  target_turbine_ids:
+  normalize: false
+  batch_size: 64
+  base_batch_size: 128
+  workers: 4
+  overfit: false
+  test_split: 0.10
+  val_split: 0.10
+  resample_freq: 15s
+  n_splits: 1
+  per_turbine_target: true
+  use_pytorch_dataloader: true
+
+model:
+  distr_output:
+    class: LowRankMultivariateNormalOutput
+    kwargs:
+      rank: 8
+
+  ## TACTiS-2 — Trial #65 winning architecture (unchanged from Phase 0h) ##
+  tactis:
+    initial_stage: 1
+    stage2_start_epoch: 30
+    input_encoding_normalization: true
+    scaling: "std"
+    loss_normalization: "none"
+    encoder_type: "standard"
+    num_parallel_samples: 200
+    bagging_size: null
+
+    marginal_embedding_dim_per_head: 32
+    marginal_num_heads: 4
+    marginal_num_layers: 3
+    flow_input_encoder_layers: 5
+    flow_series_embedding_dim: 16
+
+    copula_embedding_dim_per_head: 8
+    copula_num_heads: 5
+    copula_num_layers: 2
+    copula_input_encoder_layers: 1
+    copula_series_embedding_dim: 48
+    ac_mlp_num_layers: 2
+    ac_mlp_dim: 128
+
+    decoder_dsf_num_layers: 3
+    decoder_dsf_hidden_dim: 64
+    decoder_mlp_num_layers: 2
+    decoder_mlp_hidden_dim: 8
+    decoder_transformer_num_layers: 4
+    decoder_transformer_embedding_dim_per_head: 64
+    decoder_transformer_num_heads: 5
+    decoder_num_bins: 100
+
+    stage1_activation_function: "relu"
+    lr_stage1: 9.881673103861262e-06
+    weight_decay_stage1: 0.0
+    gradient_clip_val_stage1: 5.0
+    eta_min_fraction_s1: 0.0010773892179890717
+    warmup_steps_s1: 0.10
+    steps_to_decay_s1: 0.90
+
+    stage2_activation_function: "relu"
+    lr_stage2: 2.0e-6
+    weight_decay_stage2: 1.0e-5
+    gradient_clip_val_stage2: 1.0
+    eta_min_fraction_s2: 0.01
+    warmup_steps_s2: 0.10
+    steps_to_decay_s2: 0.90
+
+    dropout_rate: 0.005
+
+    # v1 reg (Fix D — kept unchanged)
+    lambda_a_reg: 0.45969083674293004
+    a_reg_threshold: 3.0
+
+    # v2 deeper-fix — UNCHANGED from Phase 0h (only the data is different)
+    lambda_log_density: 0.5
+    log_density_max: 0.0
+    a_max: 3.0
+
+callbacks:
+  progress_bar:
+    class_path: lightning.pytorch.callbacks.TQDMProgressBar
+    init_args:
+      refresh_rate: 100
+      leave: true
+  model_checkpoint:
+    class_path: lightning.pytorch.callbacks.ModelCheckpoint
+    init_args:
+      dirpath: ${logging.checkpoint_dir}
+      filename: '{epoch}-{step}-{val_loss:.2f}'
+      monitor: 'val_loss'
+      mode: 'min'
+      save_top_k: 1
+      save_last: true
+      verbose: true
+  model_checkpoint_periodic:
+    class_path: lightning.pytorch.callbacks.ModelCheckpoint
+    init_args:
+      dirpath: ${logging.checkpoint_dir}
+      filename: 'periodic-{epoch}-{step}'
+      every_n_epochs: 5
+      save_top_k: -1
+      save_last: false
+      monitor: null
+      verbose: true
+  model_checkpoint_stage2:
+    class_path: lightning.pytorch.callbacks.ModelCheckpoint
+    init_args:
+      dirpath: ${logging.checkpoint_dir}
+      filename: 'best_copula_{epoch}_{val_copula_loss:.4f}'
+      monitor: val_copula_loss
+      mode: min
+      save_top_k: 3
+      save_last: false
+      verbose: true
+  lr_monitor:
+    class_path: lightning.pytorch.callbacks.LearningRateMonitor
+    init_args:
+      logging_interval: step
+      log_momentum: false
+  dead_neuron_monitor:
+    enabled: false
+  marginal_health_monitor:
+    enabled: false
+
+trainer:
+  val_check_interval: 1.0
+  accelerator: gpu
+  devices: auto
+  num_nodes: 1
+  strategy: ddp
+  max_epochs: 100
+  limit_train_batches: 5000
+  log_every_n_steps: 100

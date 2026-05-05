@@ -505,7 +505,15 @@ class DataModule():
                 
                 # generate an iterablelazy frame for each continuity group and split within it
                 datasets = self.split_dataset([dataset.filter(pl.col("continuity_group") == cg) for cg in self.continuity_groups], splits)
-                    
+
+                # Persist the per-split lists on self so downstream getattr(self, "{split}_dataset") works.
+                # The property accessors (train_dataset / val_dataset / test_dataset, lines 72-103) read from
+                # self.datasets, so we assign there rather than setattr (the properties are read-only).
+                if not hasattr(self, "datasets") or self.datasets is None:
+                    self.datasets = {}
+                for split in splits:
+                    self.datasets[split] = datasets[split]
+
                 if self.as_lazyframe:
                     for split in splits:
                         split_ds = getattr(self, f"{split}_dataset")
@@ -524,6 +532,15 @@ class DataModule():
                                 ds_len = ds.select(pl.len()).collect().item()
                                 start_time = pd.Period(ds.select(pl.col("time").first()).collect().item(), freq=self.freq)
                                 dt = pd.Timedelta(start_time.freq)
+                                # When per_turbine_target=False, item_id is just "SPLIT{d}" with no TURBINE prefix,
+                                # so the (?<=TURBINE)\w+(?=_SPLIT) regex returns None. Fall back to category 0
+                                # in the all-turbine case (no single turbine to associate with).
+                                _turbine_match = re.search(r"(?<=TURBINE)\w+(?=_SPLIT)", item_id)
+                                _feat_static_cat_value = (
+                                    self.target_suffixes.index(_turbine_match.group(0))
+                                    if _turbine_match is not None
+                                    else 0
+                                )
                                 ds.select([pl.col("time")] + self.feat_dynamic_real_cols + self.target_cols)\
                                     .select(item_id=pl.lit(item_id),
                                             time=pl.datetime_range(
@@ -532,7 +549,7 @@ class DataModule():
                                                     interval=dt,
                                                     time_unit="ns",
                                                     closed="left"),
-                                            feat_static_cat=pl.lit([self.target_suffixes.index(re.search("(?<=TURBINE)\\w+(?=_SPLIT)", item_id).group(0))]),
+                                            feat_static_cat=pl.lit([_feat_static_cat_value]),
                                             *[pl.col(col).alias(f"target_{i}") for i, col in enumerate(self.target_cols)],
                                             *[pl.col(col).alias(f"feat_dynamic_real_{i}") for i, col in enumerate(self.feat_dynamic_real_cols)])\
                                     .sink_parquet(temp_path, maintain_order=True)
@@ -616,9 +633,12 @@ class DataModule():
                             except OSError as cleanup_error:
                                 logging.error(f"Rank 0: Error removing temp file {temp_path}: {cleanup_error}")
                 
-                if self.as_lazyframe:
-                    # Clean up temporary directory
-                    shutil.rmtree(os.path.join(os.path.dirname(self.train_ready_data_path), "splits_temp"))
+                # NOTE: do NOT rmtree splits_temp — datasets[split] above is a lazy scan_parquet
+                # over splits_temp/_SPLIT*.parquet (line ~556). Removing the dir invalidates the
+                # LazyFrame; the validation harness then crashes with FileNotFoundError when it
+                # later .collect()s. The temp files are small (per-split slices); leave them.
+                # if self.as_lazyframe:
+                #     shutil.rmtree(os.path.join(os.path.dirname(self.train_ready_data_path), "splits_temp"))
                 
         # Only use barrier if PyTorch distributed is actually initialized
         # In tuning mode with independent workers, we don't need/want a barrier
