@@ -1,0 +1,176 @@
+## ============================================================================
+## TACTiS-2 PHASE 0i-C — mini-pilot trial C0 (CONTROL: no a_floor penalty)
+## ============================================================================
+## Confirms the baseline a-distribution matches Phase 0i-B at a comparable
+## training duration. Same hparams as Phase 0i-B but Stage 1 only (25 epochs,
+## stage2_start_epoch unreachable). Expected: layer-0 frac(a<0.1) ≈ 0.5+ (the
+## broken baseline).
+##
+## Mini-pilot purpose: 5-trial sweep of (a_floor_threshold, lambda_a_floor)
+## on Stage 1 only. Pick the config that minimizes layer-0 frac(a<0.1) without
+## regressing val_loss by more than 5%. Then commit to production Phase 0i-C.
+## See plan: /user/taed7566/.claude/plans/moonlit-sprouting-gosling.md
+## ============================================================================
+
+experiment:
+  username: jmb0507
+  project_name: train_phase0i_c_pilot_W1_W
+  run_name: phase0i_c_pilot_W1_w1.39_l1.0
+  project_root: /user/taed7566/Forecasting/wind-forecasting
+  log_dir: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/
+  notes: "PHASE 0i-C pilot C3 — strong lambda at floor 0.5; Stage 1 only, 25 epochs"
+  extra_tags: ["tactis2", "phase0i_c", "pilot", "W1_W", "w1.39", "unsmoothed", "stage1_only"]
+
+logging:
+  entity: jmb0507-cu-boulder
+  wandb_mode: online
+  save_code: false
+  wandb_dir: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs
+  optuna_dir: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/optuna
+  checkpoint_dir: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/checkpoints
+  chkp_dir_suffix: "_phase0i_c_pilot_W1_W"
+  slurm_output_dir: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/slurm_logs
+
+optuna:
+  visualization:
+    enabled: false
+
+dataset:
+  sampler: "random"
+  data_path: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/DATA/preprocessed_awaken_data/awaken_processed_unsmoothed_normalized.parquet
+  normalization_consts_path: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/DATA/preprocessed_awaken_data/awaken_processed_unsmoothed_normalization_consts.csv
+  context_length: 1200
+  prediction_length: 60
+  target_turbine_ids:
+  normalize: false
+  batch_size: 64
+  base_batch_size: 128
+  workers: 4
+  overfit: false
+  test_split: 0.10
+  val_split: 0.10
+  resample_freq: 15s
+  n_splits: 1
+  per_turbine_target: true
+  use_pytorch_dataloader: true
+
+model:
+  distr_output:
+    class: LowRankMultivariateNormalOutput
+    kwargs:
+      rank: 8
+
+  tactis:
+    initial_stage: 1
+    stage2_start_epoch: 999       # never enter Stage 2 in pilot — Stage 1 only
+    input_encoding_normalization: true
+    scaling: "std"
+    loss_normalization: "none"
+    encoder_type: "standard"
+    num_parallel_samples: 200
+    bagging_size: null
+
+    marginal_embedding_dim_per_head: 32
+    marginal_num_heads: 4
+    marginal_num_layers: 3
+    flow_input_encoder_layers: 5
+    flow_series_embedding_dim: 16
+
+    copula_embedding_dim_per_head: 8
+    copula_num_heads: 5
+    copula_num_layers: 2
+    copula_input_encoder_layers: 1
+    copula_series_embedding_dim: 48
+    ac_mlp_num_layers: 2
+    ac_mlp_dim: 128
+
+    decoder_dsf_num_layers: 3
+    decoder_dsf_hidden_dim: 64
+    decoder_mlp_num_layers: 2
+    decoder_mlp_hidden_dim: 8
+    decoder_transformer_num_layers: 4
+    decoder_transformer_embedding_dim_per_head: 64
+    decoder_transformer_num_heads: 5
+    decoder_num_bins: 100
+
+    stage1_activation_function: "relu"
+    lr_stage1: 9.881673103861262e-06
+    weight_decay_stage1: 0.0
+    gradient_clip_val_stage1: 5.0
+    eta_min_fraction_s1: 0.0010773892179890717
+    warmup_steps_s1: 0.10
+    steps_to_decay_s1: 0.90
+
+    stage2_activation_function: "relu"
+    lr_stage2: 2.0e-6
+    weight_decay_stage2: 1.0e-5
+    gradient_clip_val_stage2: 1.0
+    eta_min_fraction_s2: 0.01
+    warmup_steps_s2: 0.10
+    steps_to_decay_s2: 0.90
+
+    dropout_rate: 0.005
+
+    # v1 reg (Fix D)
+    lambda_a_reg: 0.45969083674293004
+    a_reg_threshold: 3.0
+
+    # v2 deeper-fix
+    lambda_log_density: 0.5
+    log_density_max: 0.0
+    a_max: 3.0
+
+    # Fix Sa (NEW): a_floor regularizer — CONTROL: disabled
+    # Fix Sa kept at C3 (proven to mechanically fix a-distribution)
+    lambda_a_floor: 5.0
+    a_floor_threshold: 0.5
+
+    # Fix Sw (NEW): w-entropy regularizer (real F1+F2 root cause per 2026-05-09)
+    lambda_w_entropy: 1.0
+    w_entropy_min: 1.39
+
+callbacks:
+  progress_bar:
+    class_path: lightning.pytorch.callbacks.TQDMProgressBar
+    init_args:
+      refresh_rate: 100
+      leave: true
+  model_checkpoint:
+    class_path: lightning.pytorch.callbacks.ModelCheckpoint
+    init_args:
+      dirpath: ${logging.checkpoint_dir}
+      filename: '{epoch}-{step}-{val_loss:.2f}'
+      monitor: 'val_loss'
+      mode: 'min'
+      save_top_k: 1
+      save_last: true
+      verbose: true
+  model_checkpoint_periodic:
+    class_path: lightning.pytorch.callbacks.ModelCheckpoint
+    init_args:
+      dirpath: ${logging.checkpoint_dir}
+      filename: 'periodic-{epoch}-{step}'
+      every_n_epochs: 5
+      save_top_k: -1
+      save_last: false
+      monitor: null
+      verbose: true
+  lr_monitor:
+    class_path: lightning.pytorch.callbacks.LearningRateMonitor
+    init_args:
+      logging_interval: step
+      log_momentum: false
+  dead_neuron_monitor:
+    enabled: false
+  marginal_health_monitor:
+    enabled: false
+
+trainer:
+  val_check_interval: 1.0
+  accelerator: gpu
+  devices: auto
+  num_nodes: 1
+  strategy: ddp
+  max_epochs: 25                  # Stage 1 only (stage2_start_epoch=999)
+  limit_train_batches: 2000       # Reduced from 5000 for pilot speed
+  log_every_n_steps: 100
