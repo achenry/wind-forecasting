@@ -51,7 +51,7 @@
 export MODEL_NAME="tactis"
 
 if [ -z "${PILOT_VARIANT:-}" ]; then
-    echo "ERROR: PILOT_VARIANT env var required (one of G0, G1, G2, G3, G4)" >&2
+    echo "ERROR: PILOT_VARIANT env var required (one of G0, G1, G2, G3, G4, G5, G6)" >&2
     exit 1
 fi
 
@@ -61,6 +61,8 @@ case "${PILOT_VARIANT}" in
     G2) DESC="finer: K=21, monotonic_delta" ;;
     G3) DESC="K=11, post_hoc_sort crossing fix (no gradient through sort)" ;;
     G4) DESC="K=11 + Energy Score λ=0.5 N=8 (defence-in-depth)" ;;
+    G5) DESC="extension: K=11 + ES λ=1.0 N=8 (G4 winner with doubled ES weight)" ;;
+    G6) DESC="extension: K=21 + ES λ=0.5 N=8 (G4 winner with denser quantile grid)" ;;
     *) echo "ERROR: unknown PILOT_VARIANT=${PILOT_VARIANT}" >&2; exit 1 ;;
 esac
 
