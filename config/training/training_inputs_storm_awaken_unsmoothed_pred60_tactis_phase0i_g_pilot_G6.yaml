@@ -1,0 +1,196 @@
+## ============================================================================
+## TACTiS-2 PHASE 0i-G — F-PILOT G0 (Path 2: Quantile head + pinball loss)
+## ============================================================================
+## Phase 0i-F (CP on Phase 0i-B ep74) is the operational deliverable. Phase
+## 0i-G is the next architectural attempt to make the MODEL itself produce
+## samples that fan out — replacing DSF marginal + NLL with K-quantile head
+## + pinball loss. Pinball has K independent terms; predictions for q_0.05
+## and q_0.95 cannot both be jointly minimised by a delta function, so the
+## model is STRUCTURALLY incapable of collapsing.
+##
+## G-pilot: 5 trials × 25 epochs Stage 1 only. Each varies ONE knob.
+##   G0 — BASELINE: K=11 default spread, monotonic_delta crossing fix
+##   G1 — coarser:  K=7
+##   G2 — finer:    K=21
+##   G3 — sort:     K=11, post_hoc_sort crossing fix (no gradient through sort)
+##   G4 — defence:  K=11 + ES regularizer λ=0.5 N=8 (in case pinball alone undershoots)
+##
+## Pass criterion (per trial):
+##   - probe_sample_diversity median F^-1(0.95)-F^-1(0.05) > 1.0 std units
+##     (vs 0.27 broken baseline; 4× improvement)
+##   - val_pinball within 5% of G0 control (no NLL/objective collapse)
+##   - sample-axis std on validation batch > 0.3 std units (F1 fix)
+##
+## See plan: /user/taed7566/.claude/plans/moonlit-sprouting-gosling.md
+## ============================================================================
+
+experiment:
+  username: jmb0507
+  project_name: train_phase0i_g_pilot_G6
+  run_name: phase0i_g_pilot_G6_K21_pinballES
+  project_root: /user/taed7566/Forecasting/wind-forecasting
+  log_dir: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/
+  notes: "PHASE 0i-G G6 extension — same as G4 but K=21 (denser quantile grid; tests whether wider central support helps when paired with ES)"
+  extra_tags: ["tactis2", "phase0i_g", "pilot", "G6", "quantile", "pinball+ES", "K21", "unsmoothed", "stage1_only"]
+
+logging:
+  entity: jmb0507-cu-boulder
+  wandb_mode: online
+  save_code: false
+  wandb_dir: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs
+  optuna_dir: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/optuna
+  checkpoint_dir: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/checkpoints
+  chkp_dir_suffix: "_phase0i_g_pilot_G6"
+  slurm_output_dir: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/slurm_logs
+
+optuna:
+  visualization:
+    enabled: false
+
+dataset:
+  sampler: "random"
+  data_path: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/DATA/preprocessed_awaken_data/awaken_processed_unsmoothed_normalized.parquet
+  normalization_consts_path: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/DATA/preprocessed_awaken_data/awaken_processed_unsmoothed_normalization_consts.csv
+  context_length: 1200
+  prediction_length: 60
+  target_turbine_ids:
+  normalize: false
+  batch_size: 64
+  base_batch_size: 128
+  workers: 4
+  overfit: false
+  test_split: 0.10
+  val_split: 0.10
+  resample_freq: 15s
+  n_splits: 1
+  per_turbine_target: true
+  use_pytorch_dataloader: true
+
+model:
+  distr_output:
+    class: LowRankMultivariateNormalOutput
+    kwargs:
+      rank: 8
+
+  tactis:
+    initial_stage: 1
+    stage2_start_epoch: 999       # never enter Stage 2 in pilot — Stage 1 only
+    input_encoding_normalization: true
+    scaling: "std"
+    loss_normalization: "none"
+    encoder_type: "standard"
+    num_parallel_samples: 200
+    bagging_size: null
+
+    marginal_embedding_dim_per_head: 32
+    marginal_num_heads: 4
+    marginal_num_layers: 3
+    flow_input_encoder_layers: 5
+    flow_series_embedding_dim: 16
+
+    copula_embedding_dim_per_head: 8
+    copula_num_heads: 5
+    copula_num_layers: 2
+    copula_input_encoder_layers: 1
+    copula_series_embedding_dim: 48
+    ac_mlp_num_layers: 2
+    ac_mlp_dim: 128
+
+    # DSF hparams kept for backward-compat plumbing (not used when flow_type=quantile)
+    decoder_dsf_num_layers: 3
+    decoder_dsf_hidden_dim: 64
+    decoder_mlp_num_layers: 2
+    decoder_mlp_hidden_dim: 8
+    decoder_transformer_num_layers: 4
+    decoder_transformer_embedding_dim_per_head: 64
+    decoder_transformer_num_heads: 5
+    decoder_num_bins: 100
+
+    stage1_activation_function: "relu"
+    lr_stage1: 9.881673103861262e-06   # inherited from Phase 0i-D; may need re-tune for pinball
+    weight_decay_stage1: 0.0
+    gradient_clip_val_stage1: 5.0
+    eta_min_fraction_s1: 0.0010773892179890717
+    warmup_steps_s1: 0.10
+    steps_to_decay_s1: 0.90
+
+    stage2_activation_function: "relu"
+    lr_stage2: 2.0e-6
+    weight_decay_stage2: 1.0e-5
+    gradient_clip_val_stage2: 1.0
+    eta_min_fraction_s2: 0.01
+    warmup_steps_s2: 0.10
+    steps_to_decay_s2: 0.90
+
+    dropout_rate: 0.005
+
+    # === DSF regularizers — ALL DISABLED (quantile head bypasses DSF entirely) ===
+    lambda_a_reg: 0.0
+    a_reg_threshold: 3.0
+    lambda_log_density: 0.0
+    log_density_max: 0.0
+    a_max: 0.0
+    lambda_a_floor: 0.0
+    a_floor_threshold: 0.5
+    lambda_w_entropy: 0.0
+    w_entropy_min: 2.0
+
+    # === Phase 0i-G Quantile marginal (PRIMARY) ===
+    marginal_flow_type: quantile
+    decoder_quantile_levels: [0.01, 0.05, 0.10, 0.15, 0.20, 0.25, 0.30, 0.35, 0.40, 0.45, 0.50, 0.55, 0.60, 0.65, 0.70, 0.75, 0.80, 0.85, 0.90, 0.95, 0.99]
+    decoder_quantile_mlp_layers: 2
+    decoder_quantile_mlp_dim: 64
+    decoder_quantile_crossing_fix: monotonic_delta
+
+    # === Sd proper-scoring-rule loss family — DISABLED in G0 (pinball alone) ===
+    lambda_energy_score: 0.5
+    energy_score_num_samples: 8
+    lambda_variogram: 0.0
+    variogram_p: 0.5
+    trajectory_noise_std: 0.0
+
+callbacks:
+  progress_bar:
+    class_path: lightning.pytorch.callbacks.TQDMProgressBar
+    init_args:
+      refresh_rate: 100
+      leave: true
+  model_checkpoint:
+    class_path: lightning.pytorch.callbacks.ModelCheckpoint
+    init_args:
+      dirpath: ${logging.checkpoint_dir}
+      filename: '{epoch}-{step}-{val_loss:.2f}'
+      monitor: 'val_loss'
+      mode: 'min'
+      save_top_k: 1
+      save_last: true
+      verbose: true
+  model_checkpoint_periodic:
+    class_path: lightning.pytorch.callbacks.ModelCheckpoint
+    init_args:
+      dirpath: ${logging.checkpoint_dir}
+      filename: 'periodic-{epoch}-{step}'
+      every_n_epochs: 5
+      save_top_k: -1
+      save_last: false
+      monitor: null
+      verbose: true
+  lr_monitor:
+    class_path: lightning.pytorch.callbacks.LearningRateMonitor
+    init_args:
+      logging_interval: step
+      log_momentum: false
+  dead_neuron_monitor:
+    enabled: false
+  marginal_health_monitor:
+    enabled: false
+
+trainer:
+  val_check_interval: 1.0
+  accelerator: gpu
+  devices: auto
+  num_nodes: 1
+  strategy: ddp
+  max_epochs: 25
+  limit_train_batches: 2000
+  log_every_n_steps: 100
