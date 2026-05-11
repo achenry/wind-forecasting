@@ -22,8 +22,8 @@ experiment:
   run_name: phase0i_g_quantile_pinball
   project_root: /user/taed7566/Forecasting/wind-forecasting
   log_dir: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/
-  notes: "PHASE 0i-G production — Quantile head + pinball; FILL IN PILOT WINNER HPARAMS"
-  extra_tags: ["tactis2", "phase0i_g", "production", "quantile", "pinball", "unsmoothed"]
+  notes: "PHASE 0i-G production — Quantile head + pinball + ES (G4 pilot winner: F⁻¹ width 2.19 vs 0.026 baseline)"
+  extra_tags: ["tactis2", "phase0i_g", "production", "quantile", "pinball+ES", "K11", "monotonic_delta", "unsmoothed"]
 
 logging:
   entity: jmb0507-cu-boulder
@@ -126,18 +126,22 @@ model:
     lambda_w_entropy: 0.0
     w_entropy_min: 2.0
 
-    # === Phase 0i-G Quantile marginal (PRIMARY) ===
-    # PLACEHOLDER: update with pilot winner's quantile_levels + crossing_fix
+    # === Phase 0i-G Quantile marginal (G4 PILOT WINNER) ===
+    # Pilot result: G4 (K=11, monotonic_delta, pinball+ES) gave F^-1 width 2.19 std-units
+    # (8x DSF baseline of 0.27, well above >1.0 primary threshold). Pinball-only trials
+    # G0-G3 all failed (F^-1 ~0.02-0.05); the Energy Score regularizer is what breaks
+    # the collapse, and it works on top of the quantile head (unlike Phase 0i-D where
+    # ES on top of DSF was attenuated by the inverse-DSF Jacobian).
     marginal_flow_type: quantile
     decoder_quantile_levels: [0.01, 0.05, 0.1, 0.25, 0.4, 0.5, 0.6, 0.75, 0.9, 0.95, 0.99]
     decoder_quantile_mlp_layers: 2
     decoder_quantile_mlp_dim: 64
     decoder_quantile_crossing_fix: monotonic_delta
 
-    # === Sd proper-scoring-rule loss — set lambda_energy_score > 0 if G4 wins ===
-    lambda_energy_score: 0.0   # PLACEHOLDER: bump to 0.5 if G4 wins decision tree
+    # === Sd Energy Score regularizer (G4 pilot winner — ENABLED in production) ===
+    lambda_energy_score: 0.5   # G4 winning value
     energy_score_num_samples: 8
-    lambda_variogram: 0.0
+    lambda_variogram: 0.0      # Not used in G4 (variogram disabled)
     variogram_p: 0.5
     trajectory_noise_std: 0.0
 
