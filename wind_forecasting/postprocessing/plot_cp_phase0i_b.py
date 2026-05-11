@@ -389,40 +389,53 @@ def plot_coverage_breakdowns(
     plt.close(fig)
     out.append(fname)
 
-    # By regime
+    # By regime — robust polars-native version
+    # Compute per-time regime by averaging std across many turbine targets, not just one.
     target_cols_in_truth = [c for c in truth_df.columns if c.startswith("target_")]
-    # Use any target's truth to derive regime — pick a representative wt050 horz
-    rep_target_idx = N_TURBINES // 2
-    rep_col = f"target_{rep_target_idx}"
-    if rep_col in truth_df.columns:
-        regime = regime_from_truth_window(truth_df[rep_col].to_numpy())
-        # Map intervals.time to regime via truth_df.time index
-        truth_times = truth_df["time"].to_numpy()
-        time_to_regime = dict(zip(truth_times.tolist(), regime.tolist()))
+    if target_cols_in_truth:
+        # Use the mean abs-deviation across all horz components as the regime signal
+        horz_cols = [c for c in target_cols_in_truth
+                     if int(c.split("_")[1]) < N_TURBINES]
+        if not horz_cols:
+            horz_cols = target_cols_in_truth[:N_TURBINES]
+        truth_arr = truth_df.select(horz_cols).to_numpy()  # (n_time, n_turbines)
+        # Per-timestep cross-turbine variability (proxy: rolling std of mean across turbines)
+        global_signal = truth_arr.mean(axis=1)
+        regime = regime_from_truth_window(global_signal, window_size=40)
+        regime_df = pl.DataFrame({
+            "time": truth_df["time"].to_numpy(),
+            "regime": regime,
+        })
 
-        sub_all = intervals.filter((pl.col("alpha") == alpha_focus)
-                                    & (pl.col("lead_step") == 0))
+        sub_all = (intervals
+                   .filter((pl.col("alpha") == alpha_focus)
+                           & (pl.col("lead_step") == 0))
+                   .join(regime_df, on="time", how="inner"))
         if len(sub_all) > 0:
-            cov_per_regime: dict = defaultdict(list)
-            width_per_regime: dict = defaultdict(list)
-            for row in sub_all.iter_rows(named=True):
-                t = row["time"]
-                if t in time_to_regime:
-                    r = time_to_regime[t]
-                    in_band = float(row["lower_cp"] <= row["truth"] <= row["upper_cp"])
-                    cov_per_regime[r].append(in_band)
-                    width_per_regime[r].append(row["upper_cp"] - row["lower_cp"])
+            sub_all = sub_all.with_columns(
+                in_band=((pl.col("truth") >= pl.col("lower_cp"))
+                         & (pl.col("truth") <= pl.col("upper_cp"))).cast(pl.Float64),
+                width=(pl.col("upper_cp") - pl.col("lower_cp")),
+            )
+            agg = (sub_all.group_by("regime")
+                   .agg(pl.col("in_band").mean().alias("coverage"),
+                        pl.col("width").mean().alias("width"),
+                        pl.len().alias("n")))
             regimes = ["calm", "transitional", "gusty"]
-            covs_r = [float(np.mean(cov_per_regime[r])) if cov_per_regime[r] else np.nan
-                      for r in regimes]
-            ws_r = [float(np.mean(width_per_regime[r])) if width_per_regime[r] else np.nan
-                    for r in regimes]
+            agg_dict = {r["regime"]: r for r in agg.to_dicts()}
+            covs_r = [agg_dict[r]["coverage"] if r in agg_dict else np.nan for r in regimes]
+            ws_r = [agg_dict[r]["width"] if r in agg_dict else np.nan for r in regimes]
+            ns_r = [agg_dict[r]["n"] if r in agg_dict else 0 for r in regimes]
+
             fig, axes = plt.subplots(1, 2, figsize=(12, 5))
-            axes[0].bar(regimes, covs_r,
-                        color=[cp_palette["regime_calm"], "#cccccc", cp_palette["regime_gusty"]],
-                        edgecolor="black")
+            colors = [cp_palette["regime_calm"], "#cccccc", cp_palette["regime_gusty"]]
+            x = np.arange(len(regimes))
+            axes[0].bar(x, [c if not np.isnan(c) else 0 for c in covs_r],
+                        color=colors, edgecolor="black", width=0.6)
             axes[0].axhline(nominal, color="red", lw=1.5, ls="--",
                             label=f"Nominal {nominal:.2f}")
+            axes[0].set_xticks(x)
+            axes[0].set_xticklabels([f"{r}\n(n={ns_r[i]})" for i, r in enumerate(regimes)])
             axes[0].set_ylabel("Empirical coverage")
             axes[0].set_ylim(0, 1.05)
             axes[0].set_title(f"Coverage by regime (α={alpha_focus})")
@@ -431,15 +444,18 @@ def plot_coverage_breakdowns(
             for i, c in enumerate(covs_r):
                 if not np.isnan(c):
                     axes[0].text(i, c + 0.01, f"{c:.3f}", ha="center", fontsize=9)
-            axes[1].bar(regimes, ws_r,
-                        color=[cp_palette["regime_calm"], "#cccccc", cp_palette["regime_gusty"]],
-                        edgecolor="black")
+
+            axes[1].bar(x, [w if not np.isnan(w) else 0 for w in ws_r],
+                        color=colors, edgecolor="black", width=0.6)
+            axes[1].set_xticks(x)
+            axes[1].set_xticklabels([f"{r}\n(n={ns_r[i]})" for i, r in enumerate(regimes)])
             axes[1].set_ylabel("Mean band width (m/s)")
             axes[1].set_title(f"Band width by regime (α={alpha_focus})")
             axes[1].grid(True, alpha=0.3, axis="y")
             for i, w in enumerate(ws_r):
                 if not np.isnan(w):
-                    axes[1].text(i, w + 0.01, f"{w:.3f}", ha="center", fontsize=9)
+                    axes[1].text(i, w + (max(ws_r) * 0.02 if max(ws_r) > 0 else 0.01),
+                                 f"{w:.3f}", ha="center", fontsize=9)
             fname = output_dir / "groupD_coverage_and_width_by_regime.png"
             fig.savefig(fname, dpi=120, bbox_inches="tight")
             plt.close(fig)
@@ -506,12 +522,17 @@ def plot_metrics_table(
 ) -> list[Path]:
     """Rendered table summarizing CRPS, MAE, RMSE, coverage, width per lead."""
     out: list[Path] = []
-    # Aggregate per lead
+    # Aggregate per lead. Use drop_nulls() before mean so NaN-rows (e.g. lead 0
+    # persistence-skill is undefined) don't propagate.
     agg_cols = [c for c in metrics_df.columns if c.startswith("coverage_a")
                 or c.startswith("width_a") or c.startswith("winkler_a")
                 or c in ("mae", "rmse", "crps_raw", "skill_skill")]
-    agg = metrics_df.group_by("lead_step").agg([pl.col(c).mean() for c in agg_cols
-                                                   if c in metrics_df.columns]).sort("lead_step")
+    agg_cols = [c for c in agg_cols if c in metrics_df.columns]
+    # Build aggregation excluding NaN per column to avoid NaN propagation
+    agg = (metrics_df
+           .group_by("lead_step")
+           .agg([pl.col(c).drop_nans().mean().alias(c) for c in agg_cols])
+           .sort("lead_step"))
 
     # Render as a simple text-table image
     fig, ax = plt.subplots(figsize=(max(8, 1.5 + 1.5 * len(agg.columns)), 0.5 + 0.4 * len(agg)))
