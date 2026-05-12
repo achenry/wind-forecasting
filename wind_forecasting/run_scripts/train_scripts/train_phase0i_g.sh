@@ -1,13 +1,13 @@
 #!/bin/bash
 
-#SBATCH --partition=cfdg.p
+#SBATCH --partition=cfdg.p,all_gpu.p
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=16
 #SBATCH --mem-per-cpu=8016
 #SBATCH --gres=gpu:H100:1
 #SBATCH --exclude=cfdg001
-#SBATCH --time=48:00:00
+#SBATCH --time=24:00:00
 #SBATCH --job-name=tactis_phase0i_g
 #SBATCH --output=/dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/slurm_logs/tactis_phase0i_g_%j.out
 #SBATCH --error=/dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/slurm_logs/tactis_phase0i_g_%j.err
@@ -18,13 +18,17 @@
 # =============================================================================
 # TACTiS-2 PHASE 0i-G PRODUCTION — Quantile-head marginal + pinball, full retrain
 # =============================================================================
-# Submit AFTER G-pilot identifies a winner. Update phase0i_g.yaml to carry
-# the winning (quantile_levels, crossing_fix) AND optional ES if the pilot's
-# median F^-1 width was in [0.5, 1.0] (per decision tree in plan).
+# 24h time limit (compatible with all_gpu.p's 24h cap). Designed to be submitted
+# 2-3× as a dependency chain to accumulate 48-72h total training time. The
+# script auto-detects the latest last.ckpt in the project's checkpoint tree;
+# first submission finds none → fresh start; subsequent submissions resume.
 #
-# Submit:
+# Submit chain (3 dependent jobs = ~72h budget, matches Phase 0i-B's compute):
 #   eval "$(grep '^export LOCAL_PG_PASSWORD=' ~/.zshrc)"
-#   sbatch --export=ALL,LOCAL_PG_PASSWORD train_phase0i_g.sh
+#   J1=$(sbatch --parsable --export=ALL,LOCAL_PG_PASSWORD train_phase0i_g.sh)
+#   J2=$(sbatch --parsable --dependency=afterany:$J1 --export=ALL,LOCAL_PG_PASSWORD train_phase0i_g.sh)
+#   J3=$(sbatch --parsable --dependency=afterany:$J2 --export=ALL,LOCAL_PG_PASSWORD train_phase0i_g.sh)
+#   echo "submitted $J1 -> $J2 -> $J3"
 #
 # Pass criterion (validation):
 #   - probe_sample_diversity median F^-1 width > 1.0 std units
@@ -84,14 +88,30 @@ fi
 export PGPASSWORD="${LOCAL_PG_PASSWORD}"
 
 date +"%Y-%m-%d %H:%M:%S"
-echo "=== STARTING SINGLE-GPU TRAINING (phase0i_g production) ==="
+
+# --- Auto-resume: find the most recent last.ckpt in this project's tree ---
+# project_name from config: train_phase0i_g_quantile_pinball
+# checkpoint_dir convention: ${LOG_DIR}/${project_name}_tactis/<timestamp>_w_g/last.ckpt
+PROJECT_CKPT_ROOT="${LOG_DIR}/train_phase0i_g_quantile_pinball_tactis"
+RESUME_CKPT=""
+if [ -d "$PROJECT_CKPT_ROOT" ]; then
+    RESUME_CKPT=$(ls -t "$PROJECT_CKPT_ROOT"/*/last.ckpt 2>/dev/null | head -1)
+fi
+if [ -n "$RESUME_CKPT" ] && [ -f "$RESUME_CKPT" ]; then
+    echo "=== RESUMING FROM ${RESUME_CKPT} ==="
+    CKPT_ARG="--checkpoint ${RESUME_CKPT}"
+else
+    echo "=== STARTING FRESH SINGLE-GPU TRAINING (phase0i_g production) ==="
+    CKPT_ARG=""
+fi
 
 python ${WORK_DIR}/run_scripts/run_model.py \
     --config ${CONFIG_FILE} \
     --model ${MODEL_NAME} \
     --mode train \
     --seed 42 \
-    --single_gpu
+    --single_gpu \
+    ${CKPT_ARG}
 
 EXIT_CODE=$?
 
