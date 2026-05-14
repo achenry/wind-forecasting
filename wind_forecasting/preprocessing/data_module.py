@@ -653,7 +653,7 @@ class DataModule:
                                 if reload or not os.path.exists(temp_path):
                                     if verbose:
                                         logging.info(
-                                            f"Transforming {split} dataset {item_id} into polars form."
+                                            f"Transforming {split} dataset {item_id} of {len(split_ds)} into polars form."
                                         )
 
                                     ds_len = ds.select(pl.len()).collect().item()
@@ -854,7 +854,7 @@ class DataModule:
                             if reload or not os.path.exists(temp_path):
                                 if verbose:
                                     logging.info(
-                                        f"Transforming {split} dataset {item_id} into polars form."
+                                        f"Transforming {split} dataset {item_id} of {len(split_ds)} into polars form."
                                     )
 
                                 ds_len = ds.select(pl.len()).collect().item()
