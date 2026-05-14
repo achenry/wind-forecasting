@@ -1,14 +1,10 @@
 #!/bin/bash 
 #SBATCH --account=awaken
-#SBATCH --time=01:00:00
+#SBATCH --time=24:00:00
 #SBATCH --output=%j-%x.out
 #SBATCH --nodes=1
-##SBATCH --ntasks-per-node=1
-##SBATCH --cpus-per-task=104
-#SBATCH --ntasks=104
-#SBATCH --mem=0
-#SBATCH --exclusive
-#SBATCH --partition=debug
+#SBATCH --ntasks-per-node=104
+#SBATCH --partition=bigmem
 
 # salloc --account=awaken --time=01:00:00 --gpus=2 --ntasks-per-node=2 --partition=debug
 
@@ -27,4 +23,4 @@ MDL_CONF_L=$1
 
 #python ../run_model.py --config $MDL_CONF_G $MDL_CONF_G $MDL_CONF_L $MDL_CONF_L --model informer informer tactis tactis --mode dataset --reload_data 
 # python ../run_model.py --config $MDL_CONF_G $MDL_CONF_L --model tactis tactis --mode dataset --reload_data 
-python ../../run_scripts/run_model.py --config $MDL_CONF_L $MDL_CONF_L --model tactis informer --mode dataset --reload_data 
+python ../../run_scripts/run_model.py --config $MDL_CONF_L $MDL_CONF_L --model tactis informer --mode dataset # --reload_data 
