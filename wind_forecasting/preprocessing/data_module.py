@@ -69,7 +69,40 @@ class DataModule():
         assert self.prediction_length > 0, "prediction_length must be provided in seconds, and must be greaterthan resample_freq."
         
         self.set_train_ready_path()
-    
+
+    @property
+    def train_dataset(self):
+        """Return the training dataset from the datasets dictionary.
+
+        Provides backward-compatible attribute access for code that expects
+        data_module.train_dataset instead of data_module.datasets["train"].
+        """
+        if not hasattr(self, 'datasets') or self.datasets is None:
+            return None
+        return self.datasets.get("train")
+
+    @property
+    def val_dataset(self):
+        """Return the validation dataset from the datasets dictionary.
+
+        Provides backward-compatible attribute access for code that expects
+        data_module.val_dataset instead of data_module.datasets["val"].
+        """
+        if not hasattr(self, 'datasets') or self.datasets is None:
+            return None
+        return self.datasets.get("val")
+
+    @property
+    def test_dataset(self):
+        """Return the test dataset from the datasets dictionary.
+
+        Provides backward-compatible attribute access for code that expects
+        data_module.test_dataset instead of data_module.datasets["test"].
+        """
+        if not hasattr(self, 'datasets') or self.datasets is None:
+            return None
+        return self.datasets.get("test")
+
     def set_train_ready_path(self):
         sfx = f"ctx{self.context_length}_pred{self.prediction_length}"
         if self.use_normalization:
@@ -115,13 +148,34 @@ class DataModule():
                         logging.error(f"Rank {rank}: {split} dataset samples are too short ({target_length}) for context_length={self.context_length} + prediction_length={self.prediction_length} = {min_required_length}")
                         raise ValueError(f"Loaded {split} dataset is incompatible with current context_length={self.context_length}")
             elif isinstance(dataset, pl.LazyFrame):
-                # For Polars DataFrame, check the length of the target column
-                item_ids = dataset.select("item_id").unique().collect()
-                target_length = dataset.select(pl.len()).collect().item()
-                tgt_length = [dataset.filter(pl.col("item_id") == item_id[0]).select(pl.len()).collect().item() for item_id in item_ids.iter_rows()]
-                if any(l < min_required_length for l in tgt_length):
-                    logging.error(f"Rank {rank}: {split} dataset samples are too short ({target_length}) for context_length={self.context_length} + prediction_length={self.prediction_length} = {min_required_length}")
-                    raise ValueError(f"Loaded {split} dataset is incompatible with current context_length={self.context_length}")
+                # For Polars DataFrame, use a single group_by to get all item lengths at once (O(1) vs O(n))
+                item_lengths = dataset.group_by("item_id").agg(pl.len().alias("_item_len")).collect()
+                total_items = item_lengths.height
+                short_items_df = item_lengths.filter(pl.col("_item_len") < min_required_length).sort("_item_len")
+
+                if short_items_df.height > 0:
+                    shortest_len = short_items_df["_item_len"].min()
+
+                    logging.warning(f"Rank {rank}: {split} dataset has {short_items_df.height}/{total_items} items shorter than "
+                                   f"min_required_length={min_required_length} (context_length={self.context_length} + "
+                                   f"prediction_length={self.prediction_length}). Shortest item has {shortest_len} rows.")
+
+                    # Show up to 10 shortest items for debugging
+                    for row in short_items_df.head(10).iter_rows():
+                        logging.warning(f"  - item_id='{row[0]}' has only {row[1]} rows (need >= {min_required_length})")
+                    if short_items_df.height > 10:
+                        logging.warning(f"  ... and {short_items_df.height - 10} more short items")
+
+                    # Filter out short items instead of failing
+                    valid_items = item_lengths.filter(pl.col("_item_len") >= min_required_length)["item_id"]
+                    if valid_items.len() == 0:
+                        raise ValueError(f"ALL {total_items} items in {split} dataset are shorter than "
+                                        f"context_length={self.context_length} + prediction_length={self.prediction_length} = {min_required_length}. "
+                                        f"Cannot proceed — reduce context_length or use longer data.")
+
+                    self.datasets[split] = dataset.filter(pl.col("item_id").is_in(valid_items))
+                    logging.warning(f"Rank {rank}: Filtered {split} dataset from {total_items} to {valid_items.len()} items "
+                                   f"(removed {short_items_df.height} short items)")
                         
         logging.info(f"Rank {rank}: Validation passed for loaded splits with context_length={self.context_length}, prediction_length={self.prediction_length}")
     
@@ -483,6 +537,15 @@ class DataModule():
                 
                 # generate an iterablelazy frame for each continuity group and split within it
                 datasets = self.split_dataset([dataset.filter(pl.col("continuity_group") == cg) for cg in self.continuity_groups], splits)
+
+                # Persist the per-split lists on self so downstream getattr(self, "{split}_dataset") works.
+                # The property accessors (train_dataset / val_dataset / test_dataset, lines 72-103) read from
+                # self.datasets, so we assign there rather than setattr (the properties are read-only).
+                if not hasattr(self, "datasets") or self.datasets is None:
+                    self.datasets = {}
+                for split in splits:
+                    self.datasets[split] = datasets[split]
+
                 
                 if False:
                     split = "test"
@@ -515,6 +578,15 @@ class DataModule():
                                 ds_len = ds.select(pl.len()).collect().item()
                                 start_time = pd.Period(ds.select(pl.col("time").first()).collect().item(), freq=self.freq)
                                 dt = pd.Timedelta(start_time.freq)
+                                # When per_turbine_target=False, item_id is just "SPLIT{d}" with no TURBINE prefix,
+                                # so the (?<=TURBINE)\w+(?=_SPLIT) regex returns None. Fall back to category 0
+                                # in the all-turbine case (no single turbine to associate with).
+                                _turbine_match = re.search(r"(?<=TURBINE)\w+(?=_SPLIT)", item_id)
+                                _feat_static_cat_value = (
+                                    self.target_suffixes.index(_turbine_match.group(0))
+                                    if _turbine_match is not None
+                                    else 0
+                                )
                                 ds.select([pl.col("time")] + self.feat_dynamic_real_cols + self.target_cols)\
                                     .select(item_id=pl.lit(item_id),
                                             time=pl.datetime_range(
@@ -523,6 +595,7 @@ class DataModule():
                                                     interval=dt,
                                                     time_unit="ns",
                                                     closed="left"),
+                                            feat_static_cat=pl.lit([_feat_static_cat_value]),
                                             *[pl.col(col).alias(f"target_{i}") for i, col in enumerate(self.target_cols)],
                                             *[pl.col(col).alias(f"feat_dynamic_real_{i}") for i, col in enumerate(self.feat_dynamic_real_cols)])\
                                     .sink_parquet(temp_path, maintain_order=True)
@@ -620,8 +693,11 @@ class DataModule():
                             except OSError as cleanup_error:
                                 logging.error(f"Rank 0: Error removing temp file {temp_path}: {cleanup_error}")
                 
+                # NOTE: do NOT rmtree splits_temp — datasets[split] above is a lazy scan_parquet
+                # over splits_temp/_SPLIT*.parquet (line ~556). Removing the dir invalidates the
+                # LazyFrame; the validation harness then crashes with FileNotFoundError when it
+                # later .collect()s. The temp files are small (per-split slices); leave them.
                 # if self.as_lazyframe:
-                #     # Clean up temporary directory
                 #     shutil.rmtree(os.path.join(os.path.dirname(self.train_ready_data_path), "splits_temp"))
                 
         # Only use barrier if PyTorch distributed is actually initialized
@@ -685,6 +761,23 @@ class DataModule():
                 else:
                     dataset_size = sum(ds["target"].shape[1] for ds in datasets[split]) if datasets[split] is not None else 0
                 logging.info(f"Rank {rank}: Loaded {split} dataset size: {dataset_size} samples")
+
+            # Filter out items that are too short for the current context_length + prediction_length
+            if self.as_lazyframe:
+                min_required = self.context_length + self.prediction_length
+                for split in splits:
+                    if datasets[split] is not None:
+                        # Get item lengths and filter to keep only valid items
+                        item_lengths = datasets[split].group_by("item_id").agg(pl.len().alias("_item_len")).collect()
+                        valid_items = item_lengths.filter(pl.col("_item_len") >= min_required).select("item_id")
+                        short_items = item_lengths.filter(pl.col("_item_len") < min_required)
+
+                        if short_items.height > 0:
+                            original_count = item_lengths.height
+                            datasets[split] = datasets[split].filter(pl.col("item_id").is_in(valid_items["item_id"]))
+                            logging.warning(f"Rank {rank}: Filtered out {short_items.height}/{original_count} items from {split} dataset "
+                                           f"that were shorter than min_required={min_required} (context_length={self.context_length} + "
+                                           f"prediction_length={self.prediction_length})")
 
         self.datasets = datasets
         

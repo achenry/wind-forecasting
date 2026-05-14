@@ -24,7 +24,7 @@ from wind_forecasting.utils.optuna_config_utils import generate_db_setup_params,
 
 def tune_model(model, config, study_name, optuna_storage, lightning_module_class, estimator_class,
                distr_output_class, data_module,
-               trial_protection_callback=None, seed=42, tuning_phase=0, restart_tuning=False, optimize_callbacks=None,):
+               trial_protection_callback=None, seed=42, tuning_phase=0, restart_tuning=False, optimize_callbacks=None, dynamic_params=None):
 
     # Log safely without credentials if they were included (they aren't for socket trust)
     if hasattr(optuna_storage, "url"):
@@ -286,6 +286,9 @@ def tune_model(model, config, study_name, optuna_storage, lightning_module_class
         # --------------------------------------
 
     # Worker ID already fetched above for study creation/loading
+    # Merge any externally-provided dynamic_params (e.g., stage1_fixed_params for TACTiS Phase 2)
+    # with locally-computed ones (e.g., resample_freq_choices)
+    _external_dynamic_params = dynamic_params or {}
     dynamic_params = None
     
     if tuning_phase == 0 and worker_id == "0":
@@ -334,6 +337,39 @@ def tune_model(model, config, study_name, optuna_storage, lightning_module_class
         logging.warning("'optuna.resample_freq_choices' not found in config. Default to 60s.")
         resample_freq_choices = [60]
 
+    # Merge external dynamic_params (e.g., stage1_fixed_params) with local ones
+    if _external_dynamic_params:
+        if dynamic_params is None:
+            dynamic_params = {}
+        dynamic_params.update(_external_dynamic_params)
+        logging.info(f"Merged external dynamic_params keys: {list(_external_dynamic_params.keys())}")
+
+    # FOCUSED-STUDY OVERRIDES: forward selected keys from optuna YAML config to
+    # the estimator's dynamic_kwargs. Allows a YAML to lock a Phase-1 search-space
+    # param to a single value (e.g., "lambda_a_reg_fixed: 0.46") while keeping
+    # the rest of the search space intact. Used for tune_log_density_max_focused
+    # to sweep ONLY log_density_max with the regularizer lambdas held constant.
+    _focused_keys = [
+        "lambda_a_reg_fixed",
+        "lambda_log_density_fixed",
+        "log_density_max",        # list of choices (e.g., [-2.0, 0.0, 1.0, 3.0])
+        "lambda_a_reg",           # list of choices, if used as categorical
+        "lambda_log_density",     # list of choices, if used as categorical
+    ]
+    _optuna_cfg = config.get("optuna", {}) or {}
+    for _k in _focused_keys:
+        if _k in _optuna_cfg:
+            if dynamic_params is None:
+                dynamic_params = {}
+            dynamic_params[_k] = _optuna_cfg[_k]
+            logging.info(f"Focused-study override: dynamic_params[{_k!r}] = {_optuna_cfg[_k]!r}")
+
+    # Extract phase1_checkpoint_path from dynamic_params if provided (for Phase 2 tuning)
+    phase1_checkpoint_path = None
+    if dynamic_params and "phase1_checkpoint_path" in dynamic_params:
+        phase1_checkpoint_path = dynamic_params.pop("phase1_checkpoint_path")
+        logging.info(f"Phase 2: Will load Phase 1 checkpoint from {phase1_checkpoint_path}")
+
     tuning_objective = MLTuningObjective(model=model, config=config,
                                         lightning_module_class=lightning_module_class,
                                         estimator_class=estimator_class,
@@ -345,7 +381,8 @@ def tune_model(model, config, study_name, optuna_storage, lightning_module_class
                                         seed=seed,
                                         tuning_phase=tuning_phase,
                                         dynamic_params=dynamic_params,
-                                        study_config_params=study_config_params)
+                                        study_config_params=study_config_params,
+                                        phase1_checkpoint_path=phase1_checkpoint_path)
 
     # Use the trial protection callback if provided
     objective_fn = (lambda trial: trial_protection_callback(tuning_objective, trial)) if trial_protection_callback else tuning_objective

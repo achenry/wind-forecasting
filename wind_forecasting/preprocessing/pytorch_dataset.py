@@ -8,7 +8,7 @@ and applies necessary transformations for model training.
 import logging
 import pickle
 # from memory_profiler import profile
-from line_profiler import profile
+# from line_profiler import profile
 from typing import List, Optional, Any
 import numpy as np
 import pandas as pd
@@ -187,8 +187,8 @@ class WindForecastingDatamodule(L.LightningDataModule):
             num_workers=self.num_workers,
             pin_memory=self.pin_memory,
             persistent_workers=self.num_workers>0,
-            prefetch_factor=2 if (self.num_workers > 0) else None
-            # drop_last=True,  # Important for DDP to avoid uneven batch sizes
+            prefetch_factor=2 if (self.num_workers > 0) else None,
+            drop_last=self.world_size > 1  # Required for DDP to avoid uneven batch sizes
         )
         
     def val_dataloader(self):
@@ -220,25 +220,34 @@ class WindForecastingDatamodule(L.LightningDataModule):
             num_workers=self.num_workers,
             pin_memory=self.pin_memory,
             persistent_workers=self.num_workers>0,
-            prefetch_factor=2 if (self.num_workers > 0) else None
-            # drop_last=False,  # Keep all validation samples
+            prefetch_factor=2 if (self.num_workers > 0) else None,
+            drop_last=self.world_size > 1  # Required for DDP
         )
+
+    @property
+    def test_dataset(self):
+        """Test dataset property - returns None as test data loading is not yet implemented.
+
+        To enable test data loading, extend __init__ to accept test_data_path
+        and setup() to process test data similar to train/val.
+        """
+        return getattr(self, '_test_dataset', None)
 
     def test_dataloader(self):
         # The same pattern applies for testing.
         if self.test_dataset is None:
             return None
-            
+
         return DataLoader(
-            self.train_dataset,
+            self.test_dataset,  # Fixed: was self.train_dataset (copy-paste bug)
             batch_size=self.batch_size,
-            shuffle=False,  # Never shuffle validation data
+            shuffle=False,  # Never shuffle test data
             # worker_init_fn=self.__class__._worker_init_fn,
             num_workers=self.num_workers,
             pin_memory=self.pin_memory,
             persistent_workers=self.num_workers>0,
             prefetch_factor=2 if (self.num_workers > 0) else None
-            # drop_last=False,  # Keep all validation samples
+            # drop_last=False,  # Keep all test samples
         )
 
 

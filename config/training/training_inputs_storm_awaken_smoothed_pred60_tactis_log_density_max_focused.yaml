@@ -1,0 +1,220 @@
+## ============================================================================
+## TACTiS-2 PHASE 1 FOCUSED TUNING — sweep log_density_max only
+## ============================================================================
+## Short Optuna study (~12 trials × 5 epochs each) to learn at which
+## log_density_max threshold the per-datapoint penalty actually fires for
+## *covert* sharpening (not just catastrophic collapse).
+##
+## Why this matters: smoke test (epoch 3 healthy training) showed
+## max_log_density ≈ -5 nats. With threshold +3, the penalty needs the model to
+## gain 8+ nats of log-density before firing — that's a large window for collapse
+## to happen invisibly. Lower thresholds (0, -2) make the penalty fire earlier,
+## but might over-penalize healthy training. This study finds the sweet spot.
+##
+## Fixed (held constant via dynamic_params overrides):
+##   lambda_a_reg = 0.46  (Trial #65 winning value, known to be insufficient alone)
+##   lambda_log_density = 0.5  (mid log-uniform pilot range, decent prior)
+##   a_max = 20.0  (Fix B smooth cap, fixed at LightningModule default)
+##
+## Swept (the only param Optuna varies):
+##   log_density_max ∈ [-2.0, 0.0, 1.0, 3.0]  (4 categorical values)
+##
+## Other Phase 1 params (architecture, lr, etc.) Optuna still searches freely —
+## so the study uses ~12 trials to cover the 4 thresholds × 3 random architecture
+## samples per threshold. With max_epochs=5 and limit_train_batches=500, each
+## trial is ~10-15 min on H100. Total study: ~3 hours on 4 H100 (parallel).
+##
+## After the study: read each trial's a_reg/max_a, log_density_reg/loss_term,
+## log_density_reg/max_log_density. The threshold value that produces the
+## smallest max_a (or smallest val_marginal_logdet) at end-of-training wins.
+## ============================================================================
+
+experiment:
+  username: jmb0507
+  project_name: train_awaken_storm_smoothed_pred60_tactis_log_density_max_focused
+  run_name: tune_log_density_max_focused_v2
+  project_root: /user/taed7566/Forecasting/wind-forecasting
+  log_dir: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/
+  notes: "FOCUSED — sweep log_density_max only with lambdas held at known-good values"
+  extra_tags: ["tactis2", "phase1", "smoothed", "pred60", "ctx80", "log_density_max_focused", "deeper_fix_v2"]
+
+logging:
+  entity: jmb0507-cu-boulder
+  wandb_mode: online
+  save_code: false
+  wandb_dir: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs
+  optuna_dir: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/optuna
+  checkpoint_dir: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/checkpoints
+  chkp_dir_suffix: "_smoothed_60_log_density_max_focused"
+  slurm_output_dir: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/slurm_logs
+
+optuna:
+  save_trial_code: false
+  n_trials_per_worker: 4              # 4 workers × 4 trials = 16 trials max (will hit total cap first)
+  total_study_trials: 12              # FOCUSED: small budget — 4 thresholds × 3 random arch samples
+  max_epochs: 5                       # FOCUSED: short trials — just enough to see whether reg fires
+  sampler: "random"
+  sampler_params:
+    tpe:
+      n_startup_trials: 8
+      multivariate: true
+      constant_liar: true
+      group: false
+  base_limit_train_batches: 500       # FOCUSED: 10× smaller than reg_pilot's 5000 — fast iteration
+  metric: "val_loss"
+  direction: "minimize"
+  resample_freq_choices: [60]         # single value — no resample sweep in this focused study
+
+  # FOCUSED-STUDY OVERRIDES (forwarded to dynamic_params via core.py:_focused_keys)
+  # Lock the regularizer lambdas to their known-good values from Trial #65 + smoke test.
+  lambda_a_reg_fixed: 0.45969083674293004
+  lambda_log_density_fixed: 0.5
+  # Sweep ONLY this — 4 categorical values
+  log_density_max: [-2.0, 0.0, 1.0, 3.0]
+
+  pruning:
+    enabled: false                    # FOCUSED: don't prune — every trial's metrics are what we want to compare
+
+  visualization:
+    enabled: true
+    output_dir: ${logging.optuna_dir}/visualizations
+    plots:
+      optimization_history: true
+      parameter_importance: true
+      slice_plot: true
+
+  storage:
+    backend: "postgresql"
+    use_tcp: true
+    use_socket: false
+    db_host: "pg.optuna.uni-oldenburg.de"
+    db_port: 5432
+    db_name: "optuna"
+    db_user: "optuna02"
+    db_password_env_var: "LOCAL_PG_PASSWORD"
+
+  dashboard:
+    enabled: false
+    port: 8088
+    log_file: "${logging.optuna_dir}/optuna_dashboard.log"
+
+dataset:
+  sampler: "random"
+  data_path: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/DATA/preprocessed_awaken_data/awaken_processed_smoothed_normalized.parquet
+  normalization_consts_path: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/DATA/preprocessed_awaken_data/awaken_processed_smoothed_normalization_consts.csv
+  context_length: 1200
+  prediction_length: 60
+  target_turbine_ids:
+  normalize: false
+  batch_size: 64
+  base_batch_size: 128
+  workers: 4
+  overfit: false
+  test_split: 0.10
+  val_split: 0.10
+  resample_freq: 15s
+  n_splits: 1
+  per_turbine_target: true
+  use_pytorch_dataloader: true
+
+model:
+  distr_output:
+    class: LowRankMultivariateNormalOutput
+    kwargs:
+      rank: 8
+
+  tactis:
+    initial_stage: 1
+    stage2_start_epoch: 999           # FORCE pure Stage 1 — we only care about marginal-flow behavior here
+    input_encoding_normalization: true
+    scaling: "std"
+    loss_normalization: "none"
+    encoder_type: "standard"
+    num_parallel_samples: 200
+
+    # Default values for params Optuna will search but we want sensible fallbacks
+    marginal_embedding_dim_per_head: 32
+    marginal_num_heads: 4
+    marginal_num_layers: 3
+    flow_input_encoder_layers: 5
+    flow_series_embedding_dim: 16
+    copula_embedding_dim_per_head: 8
+    copula_num_heads: 5
+    copula_num_layers: 2
+    copula_input_encoder_layers: 1
+    copula_series_embedding_dim: 48
+    decoder_dsf_num_layers: 3
+    decoder_dsf_hidden_dim: 64
+    decoder_mlp_num_layers: 2
+    decoder_mlp_hidden_dim: 8
+    decoder_transformer_num_layers: 4
+    decoder_transformer_embedding_dim_per_head: 64
+    decoder_transformer_num_heads: 5
+    decoder_num_bins: 100
+
+    stage1_activation_function: "relu"
+    lr_stage1: 9.881673103861262e-06
+    weight_decay_stage1: 0.0
+    gradient_clip_val_stage1: 5.0
+    eta_min_fraction_s1: 0.0010773892179890717
+    warmup_steps_s1: 0.10
+    steps_to_decay_s1: 0.90
+
+    stage2_activation_function: "relu"
+    lr_stage2: 2.0e-6
+    weight_decay_stage2: 1.0e-5
+    gradient_clip_val_stage2: 1.0
+    eta_min_fraction_s2: 0.01
+    warmup_steps_s2: 0.10
+    steps_to_decay_s2: 0.90
+
+    dropout_rate: 0.005
+
+    # v1 reg defaults (held constant in this focused study)
+    lambda_a_reg: 0.45969083674293004
+    a_reg_threshold: 3.0
+
+    # v2 deeper-fix defaults
+    lambda_log_density: 0.5
+    log_density_max: 3.0              # Optuna will override this per-trial via the search space
+    a_max: 20.0
+
+callbacks:
+  progress_bar:
+    class_path: lightning.pytorch.callbacks.TQDMProgressBar
+    init_args:
+      refresh_rate: 50
+      leave: true
+  model_checkpoint:
+    class_path: lightning.pytorch.callbacks.ModelCheckpoint
+    init_args:
+      dirpath: ${logging.checkpoint_dir}
+      filename: '{epoch}-{step}-{val_loss:.2f}'
+      monitor: 'val_loss'
+      mode: 'min'
+      save_top_k: 1
+      save_last: true
+      verbose: true
+  lr_monitor:
+    class_path: lightning.pytorch.callbacks.LearningRateMonitor
+    init_args:
+      logging_interval: step
+      log_momentum: false
+  dead_neuron_monitor:
+    enabled: false
+  marginal_health_monitor:
+    enabled: true
+    init_args:
+      explode_threshold: 50.0
+      only_stage: 1
+      objective_metric: "val_total_nll_epoch"
+
+trainer:
+  val_check_interval: 1.0
+  accelerator: gpu
+  devices: auto
+  num_nodes: 1
+  strategy: ddp
+  max_epochs: 5
+  limit_train_batches: 500
+  log_every_n_steps: 25
