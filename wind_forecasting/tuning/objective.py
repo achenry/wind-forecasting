@@ -12,7 +12,8 @@ import torch
 import gc
 import inspect
 import numpy as np
-import pandas as pd
+import polars as pl
+
 import wandb
 from lightning.pytorch.loggers import WandbLogger
 import optuna
@@ -40,7 +41,8 @@ from wind_forecasting.tuning.utils.metrics_utils import (
 class MLTuningObjective:
     def __init__(self, *, model, config, lightning_module_class, estimator_class,
                  distr_output_class, max_epochs, limit_train_batches, data_module,
-                 metric, seed=42, tuning_phase=0, dynamic_params=None, study_config_params=None):
+                 metric, seed=42, tuning_phase=0, dynamic_params=None, study_config_params=None,
+                 phase1_checkpoint_path=None):
         self.model = model
         self.config = config
         self.lightning_module_class = lightning_module_class
@@ -54,6 +56,7 @@ class MLTuningObjective:
         self.tuning_phase = tuning_phase
         self.dynamic_params = dynamic_params
         self.study_config_params = study_config_params or {}
+        self.phase1_checkpoint_path = phase1_checkpoint_path
 
         self.config["trainer"]["max_epochs"] = max_epochs
         self.config["trainer"]["limit_train_batches"] = limit_train_batches
@@ -148,9 +151,7 @@ class MLTuningObjective:
             scaling_factor = self.base_batch_size / current_batch_size
             # BUGFIX Preserve float type for epoch validation
             if isinstance(base_val_check_interval, float) and base_val_check_interval <= 1.0:
-                # # TODO why can't we round this too? 
                 dynamic_val_check_interval = base_val_check_interval
-                # dynamic_val_check_interval = base_val_check_interval * scaling_factor
             else:
                 dynamic_val_check_interval = max(1.0, round(base_val_check_interval * scaling_factor))
             
@@ -179,12 +180,14 @@ class MLTuningObjective:
         
         # Create trial-specific checkpoint callback
         trial_checkpoint_callback = create_trial_checkpoint_callback(
-            trial.number, self.config, self.model
+            trial.number, self.config, self.model, tuning_phase=self.tuning_phase
         )
-        
+
         # Setup all callbacks for this trial
+        stage2_start_epoch = params.get('stage2_start_epoch') if self.tuning_phase == 2 else None
         final_callbacks = setup_trial_callbacks(
-            trial, self.config, self.model, self.pruning_enabled, trial_checkpoint_callback
+            trial, self.config, self.model, self.pruning_enabled, trial_checkpoint_callback,
+            tuning_phase=self.tuning_phase, stage2_start_epoch=stage2_start_epoch
         )
 
         trial_trainer_kwargs = {k: v for k, v in self.config["trainer"].items() if k != 'callbacks'}
@@ -262,6 +265,10 @@ class MLTuningObjective:
             run_name = f"{self.config['experiment']['run_name']}_rank_{os.environ.get('WORKER_RANK', '0')}_trial_{trial.number}"
             
             # Initialize a new W&B run for this specific trial
+            logging.info(f"WANDB_DIR == {os.environ["WANDB_DIR"]}")
+            logging.info(f"self.config['logging']['wandb_dir'] == {self.config['logging']['wandb_dir']}")
+            assert os.path.exists(self.config['logging']['wandb_dir'])
+            # if False:
             wandb.init(
                 # Core identification
                 project=project_name,
@@ -283,7 +290,8 @@ class MLTuningObjective:
 
             # Create a WandbLogger using the current W&B run
             # log_model=False as we only want metrics for this trial logger
-            wandb_logger_trial = WandbLogger(log_model=False, experiment=wandb.run, save_dir=self.config['logging']['wandb_dir'])
+            # TODO offline temporarily
+            wandb_logger_trial = WandbLogger(log_model=False, experiment=wandb.run, save_dir=self.config['logging']['wandb_dir'])#, offline=True)
             logging.info(f"Rank {os.environ.get('WORKER_RANK', '0')}: Created WandbLogger for trial {trial.number}")
 
             # Add the trial-specific logger to the trainer kwargs for this worker
@@ -358,15 +366,17 @@ class MLTuningObjective:
         logging.info(f"  - trainer limit_train_batches: {trial_trainer_kwargs.get('limit_train_batches', 'NOT SET')}")
         logging.info(f"  - Expected total batches: {trial_trainer_kwargs.get('max_epochs', 0) * estimator_kwargs['num_batches_per_epoch']}")
         
-        # Calculate actual number of training samples TODO this will not work with expectednumsampler...
-        n_training_samples = 0
-        for ds in self.data_module.train_dataset:
-            a, b = estimator_kwargs["train_sampler"]._get_bounds(ds["target"])
-            n_training_samples += (b - a + 1)
-        actual_batches = np.ceil(n_training_samples / estimator_kwargs['batch_size']).astype(int)
-        logging.info(f"  - Total training samples: {n_training_samples}")
-        logging.info(f"  - Actual batches from data: {actual_batches}")
-        logging.info(f"  - DataLoader will provide: min({actual_batches}, {estimator_kwargs['num_batches_per_epoch']}) = {min(actual_batches, estimator_kwargs['num_batches_per_epoch'])} batches/epoch")
+        # Calculate actual number of training samples TODO this only works with SequentialSampler
+        # n_training_samples = 0
+        # # for ds in self.data_module.train_dataset:
+        # for target_len in self.data_module.train_dataset.group_by("item_id").agg(pl.len())["len"]:
+        #     # a, b = estimator_kwargs["train_sampler"]._get_bounds(ds["target"])
+        #     a, b = estimator_kwargs["train_sampler"]._get_bounds(np.zeros((1, target_len)))
+        #     n_training_samples += (b - a + 1)
+        # actual_batches = np.ceil(n_training_samples / estimator_kwargs['batch_size']).astype(int)
+        # logging.info(f"  - Total training samples: {n_training_samples}")
+        # logging.info(f"  - Actual batches from data: {actual_batches}")
+        # logging.info(f"  - DataLoader will provide: min({actual_batches}, {estimator_kwargs['num_batches_per_epoch']}) = {min(actual_batches, estimator_kwargs['num_batches_per_epoch'])} batches/epoch")
         
         # CRITICAL: Check if we're using ExpectedNumInstanceSampler with Cyclic wrapper
         if isinstance(estimator_kwargs["train_sampler"], ExpectedNumInstanceSampler):
@@ -402,6 +412,11 @@ class MLTuningObjective:
         if "use_pytorch_dataloader" in self.config["dataset"]:
             estimator_kwargs["use_pytorch_dataloader"] = self.config["dataset"]["use_pytorch_dataloader"]
             logging.info(f"Trial {trial.number}: Setting use_pytorch_dataloader={self.config['dataset']['use_pytorch_dataloader']} from config")
+
+        # Phase 2: pass Phase 1 checkpoint path for loading pre-trained marginals
+        if self.tuning_phase == 2 and self.phase1_checkpoint_path:
+            estimator_kwargs["phase1_checkpoint_path"] = self.phase1_checkpoint_path
+            logging.info(f"Trial {trial.number}: Phase 2 will load Phase 1 checkpoint: {self.phase1_checkpoint_path}")
 
         # Get the metric key from config
         metric_to_return = self.config.get("trainer", {}).get("monitor_metric", "val_loss") # Default to val_loss
@@ -469,16 +484,16 @@ class MLTuningObjective:
                     logging.info(f"Trial {trial.number}: Using PyTorch DataLoader with file paths:")
                     logging.info(f"  Training data: {train_data_path}")
                     logging.info(f"  Validation data: {val_data_path}")
-                    
+                    num_workers = 0 # TODO is this causing too many files issue?, this should be configurable how many indices in sequential sampler to skip for validation
                     estimator.train(
                         training_data=train_data_path,
                         validation_data=val_data_path,
                         forecast_generator=forecast_generator,
                         # Pass additional kwargs that might be needed for PyTorch dataloaders
-                        num_workers=4,
+                        num_workers=num_workers,
                         pin_memory=True,
-                        persistent_workers=True,
-                        skip_indices=self.data_module.prediction_length # TODO this should be configurable how many indices in sequential sampler to skip for validation
+                        persistent_workers=(num_workers > 0),
+                        skip_indices=self.data_module.prediction_length 
                     )
                 else:
                     # Original GluonTS data loading
@@ -610,8 +625,11 @@ class MLTuningObjective:
                 wandb.finish()
 
         # Return metric to Optuna
-        metric_to_return = self.config.get("trainer", {}).get("monitor_metric", "val_loss")
-        
+        if self.tuning_phase == 2:
+            metric_to_return = "val_copula_loss"
+        else:
+            metric_to_return = self.config.get("trainer", {}).get("monitor_metric", "val_loss")
+
         metric_value = validate_metrics_for_return(agg_metrics, metric_to_return, trial.number)
         logging.info(f"Trial {trial.number} - This metric is from the trial-specific checkpoint: {os.path.basename(checkpoint_path)}")
         return metric_value

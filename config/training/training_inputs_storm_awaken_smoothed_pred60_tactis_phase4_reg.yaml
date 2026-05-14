@@ -1,0 +1,206 @@
+## ============================================================================
+## TACTiS-2 PHASE 2 TRAINING (Stage 2 / copula-only) — Trial #65 winner
+## ============================================================================
+## Loads pilot Trial #65's Stage 1 checkpoint (regularized, healthy marginal)
+## and runs Stage 2 training only (marginals frozen, copula trained).
+##
+## Pilot lineage:
+##   Optuna study: tuning_tactis_tune_awaken_smoothed_pred60_tactis_reg_pilot_v1_phase1
+##   Best trial:    #65, val_loss=-765.37, F^-1(U) std=2.14 (HEALTHY CDF)
+##                  vs broken epoch=122: F^-1(U) std=0.0005 (collapse)
+##                  → 4,280× more spread at inference time
+##   Checkpoint:    /dss/work/.../trial_65/trial_65_epoch=19-step=400000-val_loss=-765.37.ckpt
+##
+## Mechanism (per pytorch_transformer_ts.tactis_2.lightning_module.on_fit_start):
+##   1. phase1_checkpoint_path is set → load the checkpoint
+##   2. _apply_stage2_parameter_freezing() called → freeze marginal/flow weights
+##   3. set_stage(2) called → switch to Stage 2 mode
+##   4. self.stage = 2 → training_step uses Stage 2 optimizer; lambda_a_reg
+##      regularizer is GATED OFF (apply_reg requires stage==1)
+##
+## Pass criteria for Phase 5 (full retrain):
+##   1. val_copula_loss converges (decreases steadily over 30 epochs)
+##   2. F^-1(U) probe on final ckpt: std > 0.5 (verifies marginal still healthy
+##      after frozen + copula training)
+##   3. Inference verification (Aoife's setup): sample-axis std > 0.05
+## ============================================================================
+
+experiment:
+  username: jmb0507
+  project_name: train_awaken_storm_smoothed_pred60_tactis_phase2_trial65
+  run_name: train_phase2_tactis_smoothed_pred60_trial65_v1
+  project_root: /user/taed7566/Forecasting/wind-forecasting
+  log_dir: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/
+  notes: "PHASE 2 training with Trial #65 frozen Stage 1 + copula training (Stage 2 only)"
+  extra_tags: ["tactis2", "phase2_only", "smoothed", "pred60", "ctx80", "trial65_winner"]
+
+logging:
+  entity: jmb0507-cu-boulder
+  wandb_mode: online
+  save_code: false
+  wandb_dir: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs
+  optuna_dir: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/optuna
+  checkpoint_dir: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/checkpoints
+  chkp_dir_suffix: "_smoothed_60_phase2_trial65_v1"
+  slurm_output_dir: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/slurm_logs
+
+# Stub optuna section — required because run_model.py:313 unconditionally accesses
+# config["optuna"]["visualization"]["enabled"] even in --mode train. Disabled here
+# since this is a single training run (no Optuna study).
+optuna:
+  visualization:
+    enabled: false
+
+dataset:
+  sampler: "random"
+  data_path: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/DATA/preprocessed_awaken_data/awaken_processed_smoothed_normalized.parquet
+  normalization_consts_path: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/DATA/preprocessed_awaken_data/awaken_processed_smoothed_normalization_consts.csv
+  context_length: 1200      # 80 steps × 15s. Trial #65: ctx_factor=20 × pred_steps=4 = 80 ✓
+  prediction_length: 60     # 4 steps × 15s
+  target_turbine_ids:
+  normalize: false          # TACTiS-2 internal scaling
+  batch_size: 64            # ← Trial #65
+  base_batch_size: 128
+  workers: 4
+  overfit: false
+  test_split: 0.10
+  val_split: 0.10
+  resample_freq: 15s
+  n_splits: 1
+  per_turbine_target: true
+  use_pytorch_dataloader: true
+
+model:
+  distr_output:
+    class: LowRankMultivariateNormalOutput
+    kwargs:
+      rank: 8
+
+  ## TACTiS-2 — architecture MUST match Trial #65 checkpoint exactly so the
+  ## state_dict loads cleanly via on_fit_start. Marginal/decoder values verbatim
+  ## from the Optuna study; copula values are carry-forward from prior storm
+  ## pred60 YAML (will train fresh on top of frozen marginal).
+  tactis:
+    initial_stage: 2                # Phase 2 — start directly in Stage 2
+    stage2_start_epoch: 0           # No Stage 1 pre-training; load checkpoint instead
+    input_encoding_normalization: true
+    scaling: "std"
+    loss_normalization: "none"      # ← Trial #65
+    encoder_type: "standard"        # ← Trial #65
+    num_parallel_samples: 200
+    bagging_size: null              # ← Trial #65
+
+    # Marginal CDF Encoder (FROZEN — must match Trial #65 checkpoint architecture)
+    marginal_embedding_dim_per_head: 32  # ← Trial #65
+    marginal_num_heads: 4                # ← Trial #65
+    marginal_num_layers: 3               # ← Trial #65
+    flow_input_encoder_layers: 5         # ← Trial #65
+    flow_series_embedding_dim: 16        # ← Trial #65
+
+    # Copula Encoder (TRAINS — defaults from prior storm pred60 YAML)
+    copula_embedding_dim_per_head: 8
+    copula_num_heads: 5
+    copula_num_layers: 2
+    copula_input_encoder_layers: 1
+    copula_series_embedding_dim: 48
+    ac_mlp_num_layers: 2
+    ac_mlp_dim: 128
+
+    # Decoder (FROZEN — must match Trial #65 checkpoint architecture)
+    decoder_dsf_num_layers: 3            # ← Trial #65
+    decoder_dsf_hidden_dim: 64           # ← Trial #65
+    decoder_mlp_num_layers: 2            # ← Trial #65
+    decoder_mlp_hidden_dim: 8            # ← Trial #65
+    decoder_transformer_num_layers: 4    # ← Trial #65
+    decoder_transformer_embedding_dim_per_head: 64  # ← Trial #65
+    decoder_transformer_num_heads: 5     # ← Trial #65
+    decoder_num_bins: 100                # ← Trial #65
+
+    # Stage 1 optimizer (NOT USED in this phase — we start directly at Stage 2 — but
+    # required to instantiate the LightningModule. Use Trial #65's values for consistency.)
+    stage1_activation_function: "relu"   # ← Trial #65
+    lr_stage1: 9.881673103861262e-06     # ← Trial #65
+    weight_decay_stage1: 0.0             # ← Trial #65
+    gradient_clip_val_stage1: 5.0        # ← Trial #65
+    eta_min_fraction_s1: 0.0010773892179890717  # ← Trial #65
+    warmup_steps_s1: 0.10
+    steps_to_decay_s1: 0.90
+
+    # Stage 2 optimizer (USED — drives copula training)
+    stage2_activation_function: "relu"
+    lr_stage2: 2.0e-6
+    weight_decay_stage2: 1.0e-5
+    gradient_clip_val_stage2: 1.0
+    eta_min_fraction_s2: 0.01
+    warmup_steps_s2: 0.10
+    steps_to_decay_s2: 0.90
+
+    dropout_rate: 0.005               # ← Trial #65
+
+    # Regularization (NOT applied in Stage 2 — apply_reg gate requires stage==1, but
+    # we set Trial #65's values for fidelity. The training_step regularizer will be
+    # automatically gated off since self.stage == 2 on this run.)
+    lambda_a_reg: 0.45969083674293004    # ← Trial #65
+    a_reg_threshold: 3.0
+
+    # Phase 2 mechanism: load Trial #65's Stage 1 checkpoint. Picked up by
+    # run_model.py: model_hparams = config['model']['tactis'] → estimator_kwargs.update(...)
+    # → TACTiS2Estimator(phase1_checkpoint_path=...) → LightningModule loads via
+    # on_fit_start, freezes marginal, sets stage=2.
+    phase1_checkpoint_path: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/checkpoints/tactis_smoothed_60_tactis_reg_pilot_v1/trial_65/trial_65_epoch=19-step=400000-val_loss=-765.37.ckpt
+
+callbacks:
+  progress_bar:
+    class_path: lightning.pytorch.callbacks.TQDMProgressBar
+    init_args:
+      refresh_rate: 100
+      leave: true
+  model_checkpoint:
+    class_path: lightning.pytorch.callbacks.ModelCheckpoint
+    init_args:
+      dirpath: ${logging.checkpoint_dir}
+      filename: '{epoch}-{step}-{val_loss:.2f}'
+      monitor: 'val_loss'
+      mode: 'min'
+      save_top_k: 1
+      save_last: true
+      verbose: true
+  model_checkpoint_periodic:
+    class_path: lightning.pytorch.callbacks.ModelCheckpoint
+    init_args:
+      dirpath: ${logging.checkpoint_dir}
+      filename: 'periodic-{epoch}-{step}'
+      every_n_epochs: 5
+      save_top_k: -1
+      save_last: false
+      monitor: null
+      verbose: true
+  model_checkpoint_stage2:
+    class_path: lightning.pytorch.callbacks.ModelCheckpoint
+    init_args:
+      dirpath: ${logging.checkpoint_dir}
+      filename: 'best_copula_{epoch}_{val_copula_loss:.4f}'
+      monitor: val_copula_loss
+      mode: min
+      save_top_k: 3
+      save_last: false
+      verbose: true
+  lr_monitor:
+    class_path: lightning.pytorch.callbacks.LearningRateMonitor
+    init_args:
+      logging_interval: step
+      log_momentum: false
+  dead_neuron_monitor:
+    enabled: false
+  marginal_health_monitor:
+    enabled: false                    # No-op in Stage 2; disabled to keep config clean
+
+trainer:
+  val_check_interval: 1.0
+  accelerator: gpu
+  devices: auto
+  num_nodes: 1
+  strategy: ddp
+  max_epochs: 30                      # Phase 2: 30 epochs of pure copula training (no Stage 1)
+  limit_train_batches: 5000
+  log_every_n_steps: 100

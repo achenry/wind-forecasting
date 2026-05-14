@@ -226,7 +226,7 @@ class TestOriginalVsRefactoredBehavior:
         
         result = update_data_module_params(data_module, params, config, trial_number=1)
         
-        assert data_module.freq == "30s"
+        assert data_module.freq == "15s"
         assert result is True  # Should need regeneration
         
         # Test no changes

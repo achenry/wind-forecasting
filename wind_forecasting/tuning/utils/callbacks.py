@@ -20,29 +20,39 @@ class SafePruningCallback(pl.Callback):
     additional logging and error handling for trial pruning.
     """
     
-    def __init__(self, trial: "Trial", monitor: str):
+    def __init__(self, trial: "Trial", monitor: str, stage2_start_epoch: int = None):
         """
         Initialize the SafePruningCallback.
-        
+
         Args:
             trial: The Optuna trial object
             monitor: The metric to monitor for pruning decisions
+            stage2_start_epoch: If set, skip reporting to Optuna before this epoch.
+                Used in Phase 2 tuning to avoid reporting marginal-only metrics
+                before the copula is active.
         """
         super().__init__()
         # Avoid circular import by importing here
         from optuna_integration import PyTorchLightningPruningCallback
-        
+
         # Instantiate the actual Optuna callback internally
         self.optuna_pruning_callback = PyTorchLightningPruningCallback(trial, monitor)
         self.trial = trial
         self.monitor = monitor
+        self.stage2_start_epoch = stage2_start_epoch
 
     def on_validation_end(self, trainer: "pl.Trainer", pl_module: "pl.LightningModule") -> None:
         """
         Called at the end of validation.
-        
+
         Delegates to the wrapped Optuna callback and provides additional logging.
+        For Phase 2 tuning, skips reporting before the stage transition so the
+        pruner only evaluates copula quality.
         """
+        # Phase 2: skip reporting before copula is active
+        if self.stage2_start_epoch is not None and trainer.current_epoch < self.stage2_start_epoch:
+            return
+
         try:
             # Call the corresponding method on the wrapped Optuna callback
             self.optuna_pruning_callback.on_validation_end(trainer, pl_module)

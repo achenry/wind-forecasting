@@ -207,20 +207,27 @@ def calculate_dynamic_limit_train_batches(
 def create_trial_checkpoint_callback(
     trial_number: int,
     config: Dict[str, Any],
-    model_name: str
+    model_name: str,
+    tuning_phase: int = 0
 ) -> ModelCheckpoint:
     """
     Create a trial-specific ModelCheckpoint callback.
-    
+
     Args:
         trial_number: Trial number
         config: Configuration dictionary
         model_name: Model name
-        
+        tuning_phase: Tuning phase (0=legacy, 1=marginals, 2=copula)
+
     Returns:
         ModelCheckpoint instance
     """
-    monitor_metric = config.get("trainer", {}).get("monitor_metric", "val_loss")
+    # Phase 2: monitor copula-specific metric (only logged in Stage 2,
+    # so ModelCheckpoint won't save during Stage 1 warm-up)
+    if tuning_phase == 2:
+        monitor_metric = "val_copula_loss"
+    else:
+        monitor_metric = config.get("trainer", {}).get("monitor_metric", "val_loss")
     checkpoint_mode = "min" if config.get("optuna", {}).get("direction", "minimize") == "minimize" else "max"
     
     # Create a unique directory for this trial's checkpoints
@@ -255,29 +262,38 @@ def setup_trial_callbacks(
     config: Dict[str, Any],
     model_name: str,
     pruning_enabled: bool,
-    trial_checkpoint_callback: ModelCheckpoint
+    trial_checkpoint_callback: ModelCheckpoint,
+    tuning_phase: int = 0,
+    stage2_start_epoch: int = None
 ) -> List[pl.Callback]:
     """
     Setup all callbacks for a trial.
-    
+
     Args:
         trial: Optuna trial object
         config: Configuration dictionary
         model_name: Model name
         pruning_enabled: Whether pruning is enabled
         trial_checkpoint_callback: Trial-specific checkpoint callback
-        
+        tuning_phase: Tuning phase (0=legacy, 1=marginals, 2=copula)
+        stage2_start_epoch: For Phase 2, skip pruning before this epoch
+
     Returns:
         List of callback instances
     """
     current_callbacks = []
-    
+
     # Add pruning callback if enabled
     if pruning_enabled:
         pruning_monitor_metric = config.get("trainer", {}).get("monitor_metric", "val_loss")
-        pruning_callback = SafePruningCallback(trial, monitor=pruning_monitor_metric)
+        # Phase 2: skip reporting before copula is active
+        s2e = stage2_start_epoch if tuning_phase == 2 else None
+        pruning_callback = SafePruningCallback(trial, monitor=pruning_monitor_metric, stage2_start_epoch=s2e)
         current_callbacks.append(pruning_callback)
-        logging.info(f"Added pruning callback for trial {trial.number}, monitoring '{pruning_monitor_metric}'")
+        if s2e:
+            logging.info(f"Added pruning callback for trial {trial.number}, monitoring '{pruning_monitor_metric}' (Phase 2: skipping reports before epoch {s2e})")
+        else:
+            logging.info(f"Added pruning callback for trial {trial.number}, monitoring '{pruning_monitor_metric}'")
     
     # Add trial-specific ModelCheckpoint
     current_callbacks.append(trial_checkpoint_callback)
@@ -313,6 +329,10 @@ def setup_trial_callbacks(
             if cb_name == 'dead_neuron_monitor':
                 logging.debug(f"Trial {trial.number}: Skipping '{cb_name}' config here, will be handled separately.")
                 continue
+
+            if cb_name == 'marginal_health_monitor':
+                logging.debug(f"Trial {trial.number}: Skipping '{cb_name}' config here, will be handled separately (needs trial object).")
+                continue
             
             # Instantiate general callbacks
             if isinstance(cb_setting, dict) and 'class_path' in cb_setting:
@@ -347,7 +367,29 @@ def setup_trial_callbacks(
         dead_neuron_callback = DeadNeuronMonitor()
         current_callbacks.append(dead_neuron_callback)
         logging.info(f"Trial {trial.number}: Added DeadNeuronMonitor callback (enabled by boolean flag).")
-    
+
+    # Add MarginalHealthMonitor (TACTiS-2 only): Optuna-aware pruning of trials whose DSF
+    # `a` parameter still explodes despite regularization. See pytorch_transformer_ts/
+    # tactis_2/callbacks.py for the underlying logic.
+    marginal_health_setting = callback_configurations_dict.get('marginal_health_monitor', {})
+    if (
+        model_name == "tactis"
+        and isinstance(marginal_health_setting, dict)
+        and marginal_health_setting.get('enabled', False)
+    ):
+        try:
+            from pytorch_transformer_ts.tactis_2.callbacks import MarginalHealthMonitor
+            mhm_init_args = marginal_health_setting.get('init_args', {}).copy()
+            mhm_init_args['optuna_trial'] = trial  # Inject trial for pruning logic
+            marginal_health_callback = MarginalHealthMonitor(**mhm_init_args)
+            current_callbacks.append(marginal_health_callback)
+            logging.info(
+                f"Trial {trial.number}: Added MarginalHealthMonitor callback "
+                f"(explode_threshold={mhm_init_args.get('explode_threshold', 50.0)})"
+            )
+        except Exception as e:
+            logging.error(f"Trial {trial.number}: Error instantiating MarginalHealthMonitor: {e}", exc_info=True)
+
     return general_instantiated_callbacks + current_callbacks
 
 

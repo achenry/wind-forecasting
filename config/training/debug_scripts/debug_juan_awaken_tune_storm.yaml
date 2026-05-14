@@ -115,7 +115,7 @@ dataset:
     overfit: false
     test_split: 0.20
     val_split: 0.10
-    resample_freq: 30s
+    resample_freq: 15s
     n_splits: 1 # how many divisions of each continuity group to make which is further subdivided into training test and validation data
     per_turbine_target: true
     # continuity_groups: [0]

@@ -1,19 +1,15 @@
 #!/bin/bash 
-#SBATCH --account=ssc
+#SBATCH --account=awaken
 #SBATCH --output=%j-%x.out
-#SBATCH --partition=debug
-#SBATCH --time=01:00:00
+##SBATCH --partition=debug
 #SBATCH --nodes=1 # this needs to match Trainer(num_nodes...)
-#SBATCH --gres=gpu:2
-#SBATCH --ntasks-per-node=2 # this needs to match Trainer(devices=...)
-#SBATCH --mem-per-cpu=40G
-##SBATCH --nodes=1 # this needs to match Trainer(num_nodes...)
-##SBATCH --time=96:00:00
-##SBATCH --gres=gpu:4
-##SBATCH --ntasks-per-node=4 # this needs to match Trainer(devices=...)
-##SBATCH --mem-per-cpu=85G
+#SBATCH --gres=gpu:4
+#SBATCH --ntasks-per-node=4 # this needs to match Trainer(devices=...)
+#SBATCH --mem-per-cpu=85G
+#SBATCH --time=96:00:00
+##SBATCH --time=01:00:00
 
-# salloc --account=ssc --time=01:00:00 --gpus=2 --ntasks-per-node=2 --partition=debug
+# salloc --account=awaken --time=01:00:00 --gpus=2 --ntasks-per-node=2 --partition=debug
 
 # --- Command Line Args ---
 export MODEL_NAME=$1
@@ -34,14 +30,14 @@ export NUMEXPR_MAX_THREADS=128
 # --- Create Logging Directories ---
 # Create the job-specific directory for worker logs and final main logs
 mkdir -p ${LOG_DIR}/slurm_logs/${SLURM_JOB_ID}
-mkdir -p ${LOG_DIR}/checkpoints # TODO this isn't used
+mkdir -p ${LOG_DIR}/checkpoints # TODO this issn't used
 
 # --- Change to Working Directory ---
 # cd ${WORK_DIR} || exit 1 # Exit if cd fails
 
 # --- Set Shared Environment Variables ---
 export PYTHONPATH=${WORK_DIR}:${PYTHONPATH}
-export WANDB_DIR=${LOG_DIR} # WandB will create a 'wandb' subdirectory here automatically
+# export WANDB_DIR=${LOG_DIR} # WandB will create a 'wandb' subdirectory here automatically
 
 # --- Print Job Info ---
 echo "--- SLURM JOB INFO ---"
@@ -108,6 +104,9 @@ declare -a WORKER_PIDS=()
 
 echo "Launching ${NUM_GPUS} tuning workers..."
 
+ulimit -n 1024
+echo "Open file limit is now: $(ulimit -n)"
+
 # Launch multiple workers per GPU
 for i in $(seq 0 $((${NUM_GPUS}-1))); do
       # Create a unique seed for this worker
@@ -138,10 +137,13 @@ for i in $(seq 0 $((${NUM_GPUS}-1))); do
       conda activate wind_forecasting_env
       echo \"Worker ${i}: Conda environment 'wind_forecasting_env' activated.\"
     
-      # Note: PYTHONPATH and WANDB_DIR are inherited via export from parent script
+      # Note: PYTHONPATH is inherited via export from parent script
 
       echo \"Worker ${i}: Running python script with WORKER_RANK=${WORKER_RANK}...\"
-      
+
+      ulimit -n 1024
+      echo \"Worker ${i} open file limit is now: \$(ulimit -n)\"
+
       # --- Run the tuning script ---
       # Workers connect to the already initialized study using the PG URL
       # Pass --restart_tuning flag from the main script environment

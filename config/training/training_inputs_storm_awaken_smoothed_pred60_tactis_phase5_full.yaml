@@ -1,0 +1,201 @@
+## ============================================================================
+## TACTiS-2 PHASE 5 — FULL RETRAIN FROM SCRATCH with Trial #65 hparams
+## ============================================================================
+## Replaces the broken epoch=122 checkpoint. Sequential Stage 1 (regularized) +
+## Stage 2 (copula on top of frozen marginal) training. Same architectural
+## pattern as the broken model's original training, but with the regularizer
+## that prevents the flow collapse.
+##
+## Why "from scratch" instead of resuming Phase 2 from Trial #65 checkpoint:
+##   The Phase 2-from-checkpoint experiment (job 16650708) revealed a
+##   bootstrap problem — random copula init paired with a *fully-trained*
+##   confident marginal produces val_copula_loss=inf. Sequential training
+##   sidesteps this: the copula starts on top of an only-moderately-trained
+##   marginal at the stage2_start_epoch transition, the standard pattern the
+##   codebase was tuned for.
+##
+## Lineage:
+##   Pilot study: tuning_tactis_tune_awaken_smoothed_pred60_tactis_reg_pilot_v1_phase1
+##   Best trial:  #65, val_loss=-765.37, F^-1(U) std=2.14 (HEALTHY CDF)
+##                vs broken epoch=122: F^-1(U) std=0.0005 (collapse)
+##                → 4,280× more spread at inference time
+##
+## Pass criteria (after training):
+##   1. max_a < 30 throughout Stage 1 (regularizer holding)
+##   2. Stage 2 transition: val_copula_loss starts decreasing from finite value
+##   3. F^-1(U) probe on best_copula ckpt: std > 0.5
+##   4. Aoife's inference verification: sample-axis std > 0.05, samples not
+##      collapsed onto loc
+## ============================================================================
+
+experiment:
+  username: jmb0507
+  project_name: train_awaken_storm_smoothed_pred60_tactis_phase5_full
+  run_name: train_phase5_full_tactis_smoothed_pred60_trial65_reg_v1
+  project_root: /user/taed7566/Forecasting/wind-forecasting
+  log_dir: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/
+  notes: "PHASE 5 FULL RETRAIN — Trial #65 winning hparams, regularized Stage 1 + carry-forward Stage 2"
+  extra_tags: ["tactis2", "phase5_full", "smoothed", "pred60", "ctx80", "trial65", "reg_v1"]
+
+logging:
+  entity: jmb0507-cu-boulder
+  wandb_mode: online
+  save_code: false
+  wandb_dir: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs
+  optuna_dir: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/optuna
+  checkpoint_dir: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/checkpoints
+  chkp_dir_suffix: "_smoothed_60_phase5_full_trial65_v1"
+  slurm_output_dir: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/logs/slurm_logs
+
+# Stub optuna section — required by run_model.py:313 even in --mode train.
+optuna:
+  visualization:
+    enabled: false
+
+dataset:
+  sampler: "random"
+  data_path: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/DATA/preprocessed_awaken_data/awaken_processed_smoothed_normalized.parquet
+  normalization_consts_path: /dss/work/taed7566/Forecasting_Outputs/wind-forecasting/DATA/preprocessed_awaken_data/awaken_processed_smoothed_normalization_consts.csv
+  context_length: 1200      # 80 steps × 15s — matches existing ctx80_pred4_denormalize cache
+  prediction_length: 60     # 4 steps × 15s
+  target_turbine_ids:
+  normalize: false          # TACTiS-2 internal scaling
+  batch_size: 64            # ← Trial #65
+  base_batch_size: 128
+  workers: 4
+  overfit: false
+  test_split: 0.10
+  val_split: 0.10
+  resample_freq: 15s
+  n_splits: 1
+  per_turbine_target: true
+  use_pytorch_dataloader: true
+
+model:
+  distr_output:
+    class: LowRankMultivariateNormalOutput
+    kwargs:
+      rank: 8
+
+  ## TACTiS-2 — full architecture, Trial #65 winning hparams ##
+  tactis:
+    # Train from scratch — Stage 1 then Stage 2 transition
+    initial_stage: 1
+    stage2_start_epoch: 30          # Sequential pattern: Stage 1 epochs 0-30, Stage 2 epochs 30-100
+    input_encoding_normalization: true
+    scaling: "std"
+    loss_normalization: "none"      # ← Trial #65
+    encoder_type: "standard"        # ← Trial #65
+    num_parallel_samples: 200
+    bagging_size: null              # ← Trial #65
+
+    # Marginal CDF Encoder — Trial #65 winning architecture
+    marginal_embedding_dim_per_head: 32
+    marginal_num_heads: 4
+    marginal_num_layers: 3
+    flow_input_encoder_layers: 5
+    flow_series_embedding_dim: 16
+
+    # Copula Encoder — carry-forward from prior storm pred60 YAML defaults
+    copula_embedding_dim_per_head: 8
+    copula_num_heads: 5
+    copula_num_layers: 2
+    copula_input_encoder_layers: 1
+    copula_series_embedding_dim: 48
+    ac_mlp_num_layers: 2
+    ac_mlp_dim: 128
+
+    # Decoder — Trial #65 winning architecture
+    decoder_dsf_num_layers: 3
+    decoder_dsf_hidden_dim: 64
+    decoder_mlp_num_layers: 2
+    decoder_mlp_hidden_dim: 8
+    decoder_transformer_num_layers: 4
+    decoder_transformer_embedding_dim_per_head: 64
+    decoder_transformer_num_heads: 5
+    decoder_num_bins: 100
+
+    # Stage 1 optimizer — Trial #65 winning values (the regularization lives here)
+    stage1_activation_function: "relu"
+    lr_stage1: 9.881673103861262e-06
+    weight_decay_stage1: 0.0
+    gradient_clip_val_stage1: 5.0
+    eta_min_fraction_s1: 0.0010773892179890717
+    warmup_steps_s1: 0.10
+    steps_to_decay_s1: 0.90
+
+    # Stage 2 optimizer — carry-forward from prior storm pred60 YAML defaults
+    stage2_activation_function: "relu"
+    lr_stage2: 2.0e-6
+    weight_decay_stage2: 1.0e-5
+    gradient_clip_val_stage2: 1.0
+    eta_min_fraction_s2: 0.01
+    warmup_steps_s2: 0.10
+    steps_to_decay_s2: 0.90
+
+    dropout_rate: 0.005             # ← Trial #65
+
+    # NEW: DSF flow-collapse regularization — Trial #65's winning value
+    # Active during Stage 1 only (apply_reg gated on stage==1 in training_step).
+    # During Stage 2 the marginal is frozen, so the regularizer is auto-disabled.
+    lambda_a_reg: 0.45969083674293004
+    a_reg_threshold: 3.0
+
+    # No Phase 1 checkpoint — full retrain from scratch
+    # phase1_checkpoint_path: null
+
+callbacks:
+  progress_bar:
+    class_path: lightning.pytorch.callbacks.TQDMProgressBar
+    init_args:
+      refresh_rate: 100
+      leave: true
+  model_checkpoint:
+    class_path: lightning.pytorch.callbacks.ModelCheckpoint
+    init_args:
+      dirpath: ${logging.checkpoint_dir}
+      filename: '{epoch}-{step}-{val_loss:.2f}'
+      monitor: 'val_loss'
+      mode: 'min'
+      save_top_k: 1
+      save_last: true
+      verbose: true
+  model_checkpoint_periodic:
+    class_path: lightning.pytorch.callbacks.ModelCheckpoint
+    init_args:
+      dirpath: ${logging.checkpoint_dir}
+      filename: 'periodic-{epoch}-{step}'
+      every_n_epochs: 5
+      save_top_k: -1
+      save_last: false
+      monitor: null
+      verbose: true
+  model_checkpoint_stage2:
+    class_path: lightning.pytorch.callbacks.ModelCheckpoint
+    init_args:
+      dirpath: ${logging.checkpoint_dir}
+      filename: 'best_copula_{epoch}_{val_copula_loss:.4f}'
+      monitor: val_copula_loss
+      mode: min
+      save_top_k: 3
+      save_last: false
+      verbose: true
+  lr_monitor:
+    class_path: lightning.pytorch.callbacks.LearningRateMonitor
+    init_args:
+      logging_interval: step
+      log_momentum: false
+  dead_neuron_monitor:
+    enabled: false
+  marginal_health_monitor:
+    enabled: false                  # No-op in --mode train (no Optuna trial). a_reg/max_a still logs to WandB.
+
+trainer:
+  val_check_interval: 1.0
+  accelerator: gpu
+  devices: auto
+  num_nodes: 1
+  strategy: ddp
+  max_epochs: 100                   # Stage 1 epochs 0-30 + Stage 2 epochs 30-100 (matches broken-model 122-epoch budget)
+  limit_train_batches: 5000
+  log_every_n_steps: 100

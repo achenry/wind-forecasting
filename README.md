@@ -1,5 +1,14 @@
 # 🌪️ Wind Forecasting Framework
 
+Prepare data splits:
+`cd wind-forecasting/wind_forecasting/preprocessing/scripts/; sbatch load_data.sh`
+`cd wind-forecasting/wind_forecasting/preprocessing/scripts/; sbatch preprocess_data_kestrel.sh`
+`cd wind-forecasting/wind_forecasting/preprocessing/scripts/; ./split_datasets.sh`
+
+Tune/Train SVRs:
+`cd wind-hybrid-open-controller/whoc/wind_forecast/run_scripts; ./run_all_tuning_kestrel.sh`
+`cd wind-hybrid-open-controller/whoc/wind_forecast/run_scripts; ./run_all_training_kestrel.sh`
+
 <div align="center">
 
 ![Project Status](https://img.shields.io/badge/status-active%20development-green)
@@ -172,31 +181,33 @@ The typical workflow involves these stages:
 1. Write a preprocessing configuration file similar to `wind-forecasting/examples/inputs/preprocessing_inputs_flasc.yaml`
 2. Run preprocessing on a local machine with `python preprocessing_main.py --config /Users/ahenry/Documents/toolboxes/wind-forecasting/examples/inputs/preprocessing_inputs_flasc.yaml --reload_data --preprocess_data --regenerate_filters --multiprocessor cf --verbose` or on a HPC by running `wind-forecasting/wind_forecasting/preprocessing/load_data.sh`, followed by `wind-forecasting/wind_forecasting/preprocessing/preprocess_data.sh`.
 3. Write a training configuration file similar to `wind-forecasting/examples/inputs/training_inputs_kestrel_flasc.yaml`.
-4. Run `python wind-forecasting/wind_forecasting/run_scripts/load_data.py --config wind-forecasting/examples/inputs/training_inputs_aoifemac_flasc.yaml --reload`, or on a HPC by running `wind-forecasting/wind_forecasting/run_scripts/load_data_kestrel.sh`, to resample the data as needed, caterogize the variables, and generate train/test/val splits.
+4. Run `python wind-forecasting/wind_forecasting/preprocessing/load_data.py --config wind-forecasting/examples/inputs/training_inputs_aoifemac_flasc.yaml --reload --multiprocessor cf`, or on a HPC by running `wind-forecasting/wind_forecasting/preprocessing/scripts/load_data.sh`, to select features and resample, sort, forward fill the data.
+5. Filter, smooth, normalize the data by running 
 
 ### 2. Hyperparameter Tuning (ML Models)
 
 The framework includes a comprehensive hyperparameter tuning system using Optuna for distributed optimization. The tuning functionality is organized in the `wind_forecasting/tuning/` subpackage for maintainability and modularity.
 
-+ Tune a ML model on a local machine with `python wind-forecasting/wind_forecasting/run_scripts/run_model.py --config wind-forecasting/examples/inputs/training_inputs_aoifemac_flasc.yaml --mode tune --model informer`, or on a HPC by running `wind-forecasting/wind_forecasting/run_scripts/tune_model.sh`. 
+### 2.1 Tuning the Prediction Length
++ Find the optimal prediction horizon for a set of test data by navigating to wind-hybrid-open-controller/whoc/case_studies ([wind-hybrid-open-controller/whoc/case_studies](https://github.com/achenry/wind-hybrid-open-controller/tree/feature/wind_preview)) and running `run_case_studies.py 22 --multiprocessor mpi -rs -rrs --ram_limit 65 --wf_source scada -st auto -ns 30 -sd /projects/ssc/ahenry/whoc/floris_case_studies/ -wcnf $HOME/toolboxes/wind_forecasting_env/wind-hybrid-open-controller/examples/hercules_input_001.yaml -dcnf $HOME/toolboxes/wind_forecasting_env/wind-forecasting/config/preprocessing/preprocessing_inputs_kestrel_awaken_new.yaml -mcnf $HOME/toolboxes/wind_forecasting_env/wind-forecasting/config/training/training_inputs_kestrel_awaken_predGreedy.yaml`, or on a HPC by running `wind-hybrid-open-controller/whoc/case_studies/bash_script_kestrel_cpu.sh` with the python call containing the case index `22` uncommented. You can also use this script to tune various configuration parameters e.g. see cases `baseline_controllers_svr_forecaster_test_awaken`, `baseline_controllers_baseline_perfect0_forecasters_awaken`, and `baseline_controllers_informer_forecaster_test_awaken` in `wind-hybrid-open-controller/whoc/case_studies/initialize_case_studies.py` and use corresponding case indices (index of that keyword in the `case_families` list defined at the end of the file, passsed as the first argument to the call to `python run_case_studies.py [case index]`).
 
-### 2.2 Tuning a Statistical Model
-+ Tune a statistical model on a local machine with `python wind-hybrid-open-controller/whoc/wind_forecast/tuning.py --model_config wind_forecasting/examples/inputs/training_inputs_aoifemac_flasc.yaml --data_config wind_forecasting/examples/inputs/preprocessing_inputs_flasc.yaml --model svr --study_name svr_tuning --restart_tuning`, or on a HPC by running `wind-hybrid-open-controller/whoc/wind_forecast/run_tuning.sh [model] [number of models to tune]`.
+### 2.2 Tuning a ML Model
++ Update the YAML files in `wind-forecasting/config/training/` with the prediction lengths found in 2.1. Tune a ML model on a local machine with `python wind-forecasting/wind_forecasting/run_scripts/run_model.py --config wind-forecasting/examples/inputs/training_inputs_aoifemac_flasc.yaml --mode tune --model informer`, or on a HPC by running `wind-forecasting/wind_forecasting/run_scripts/tune_scripts/tune_all_kestrel.sh`, making suire that the correct YAML files are used in the argument passed to `--config`.
+
+### 2.3 Tuning a Statistical Model
++ Tune a statistical model on a local machine with `python wind-hybrid-open-controller/whoc/wind_forecast/tuning.py --model_config wind_forecasting/examples/inputs/training_inputs_aoifemac_flasc.yaml --data_config wind_forecasting/examples/inputs/preprocessing_inputs_flasc.yaml --model svr --study_name svr_tuning --restart_tuning`, or on a HPC by running `wind-hybrid-open-controller/whoc/wind_forecast/run_scripts/run_all_tuning_kestrel.sh`, making suire that the correct YAML files are used in the argument passed to `--model_config`.
 
 ### 3. Training a ML Model
 + Train a ML model on a local machine with `python wind-forecasting/wind_forecasting/run_scripts/run_model.py --config wind-forecasting/examples/inputs/training_inputs_aoifemac_flasc.yaml --mode train --model informer --use_tuned_parameters`, or on a HPC by running `wind-forecasting/wind_forecasting/run_scripts/train_model_kestrel.sh`.  
 
-### 4. Testing a ML Model
-+ Test a ML model on a local machine with `python wind-forecasting/wind_forecasting/run_scripts/run_model.py --config wind-forecasting/examples/inputs/training_inputs_aoifemac_flasc.yaml --mode test --model informer --checkpoint latest`, or on a HPC by running `wind-forecasting/wind_forecasting/run_scripts/test_model.sh`. 
+<!-- ### 4. Testing a ML Model
++ Test a ML model on a local machine with `python wind-forecasting/wind_forecasting/run_scripts/run_model.py --config wind-forecasting/examples/inputs/training_inputs_aoifemac_flasc.yaml --mode test --model informer --checkpoint latest`, or on a HPC by running `wind-forecasting/wind_forecasting/run_scripts/test_model.sh`.  -->
 
-### 5. Testing a WindForecaster class on Wind Farm Data
-+ Make predictions at a given controller sampling time intervals, for a given SCADA dataset, and a given prediction time interval, compute the accuracy score and plot the results with `python wind-hybrid-open-controller/whoc/wind_forecast/WindForecast.py --model_config wind_forecasting/examples/inputs/training_inputs_aoifemac_flasc.yaml --data_config wind_forecasting/examples/inputs/preprocessing_inputs_flasc.yaml --model informer`.
+### 4. Testing a WindForecaster class on Wind Farm Data
++ First, prepare the simulation datasets by running `cd wind-forecasting/wind_forecasting/preprocessing/scripts; sbatch generate_test_datasets.sh`. Add ML and SVR model checkpoints to directory experiment/log_dir in model_config file. Then, make predictions at a given controller sampling time intervals, for a given SCADA dataset, and a given prediction time interval, compute the accuracy score and plot the results with `python wind-hybrid-open-controller/whoc/wind_forecast/run_forecaster_validation.py --model_config wind_forecasting/examples/inputs/training_inputs_aoifemac_flasc.yaml --data_config wind_forecasting/examples/inputs/preprocessing_inputs_flasc.yaml --model informer`, or on a HPC by running `cd wind-hybrid-open-controller/whoc/wind_forecast/run_scripts; sbatch run_wind_forecasting_cpu.sh` on `kestrel` for Persistence, Spatial Filtering, SVR, Kalman Filtering models and `cd wind-hybrid-open-controller/whoc/wind_forecast/run_scripts; ./run_all_wind_forecasting_gpu.sh` on `kestrel-gpu` for Transformer models. Pull the results from the `validation_results` folder in the directory passed to the `--save_dir`/`-sd` argument in the line `python ../run_forecaster_validation.py ...` called by `run_wind_forecasting_cpu.sh` or by `run_wind_forecasting_gpu.sh` in `run_all_wind_forecasting_gpu.sh`.
 
-### 6. Combining a Statistical or ML Model with a Wind Farm Controller
-+ Write a WHOC configuration file similar to `wind-hybrid-open-controller/examples/hercules_input_001.yaml`. Run a case study of a yaw controller with a trained model with `python wind-hybrid-open-controller/whoc/case_studies/run_case_studies.py 15 -rs -rrs --verbose -ps -rps -ras -st auto -ns 3 -m cf -sd wind-hybrid-open-controller/examples/floris_case_studies -mcnf wind_forecasting/examples/inputs/training_inputs_aoifemac_flasc.yaml -dcnf wind_forecasting/examples/inputs/preprocessing_inputs_flasc.yaml -wcnf wind-hybrid-open-controller/examples/hercules_input_001.yaml -wf scada`, where you can fine tune parameters for a suite of cases by editing the dictionary `case_studies["baseline_controllers_preview_flasc"]` in `wind-hybrid-open-controller/whoc/case_studies/initialize_case_studies.py` and you can edit the common default parameters in the WHOC configuration file.
-
-### 7. HPC
-+ TODO add HPC version
+### 5. Combining a Statistical or ML Model with a Wind Farm Controller
++ Write a WHOC configuration file similar to `wind-hybrid-open-controller/examples/hercules_input_001.yaml`. Run a case study of a yaw controller with a trained model with `cd wind-hybrid-open-controller/whoc/case_studies; sbatch bash_script_kestrel_cpu.sh` on `kestrel` for Persistence, Spatial Filtering, SVR, Kalman Filtering models and `cd wind-hybrid-open-controller/whoc/case_studies; ./run_all_gpu.sh` on `kestrel-gpu` for Transformer models. You can fine tune parameters for a suite of cases by editing the dictionary `case_studies["baseline_controllers_preview_flasc"]` in `wind-hybrid-open-controller/whoc/case_studies/initialize_case_studies.py` and you can edit the common default parameters in the WHOC configuration file. Pull the results from the directory passed to the `--save_dir`/`-sd` argument in the line `srun python run_case_studies.py ...` in `bash_script_kestrel_cpu.sh` or `bash_script_kestrel_gpu.sh` called by `run_all_gpu.sh`. Generate plos and results with `cd wind-hybrid-open-controller/whoc/case_studies; python run_case_studies.py 15 16 17 18 19 20 22 -ps -rps -st auto -ns 30 -sd /Users/ahenry/Documents/toolboxes/wind-hybrid-open-controller/examples/floris_case_studies -mcnf /Users/ahenry/Documents/toolboxes/wind_forecasting/config/training/training_inputs_aoifemac_awaken_predLUT.yaml -dcnf /Users/ahenry/Documents/toolboxes/wind_forecasting/config/preprocessing/preprocessing_inputs_aoifemac_awaken_new.yaml -wcnf /Users/ahenry/Documents/toolboxes/wind-hybrid-open-controller/examples/hercules_input_001.yaml -wf scada -m cf`.
 
 ## 🔧 Configuration
 
@@ -243,12 +254,12 @@ python preprocessing_main.py --config examples/inputs/preprocessing_inputs_flasc
 3. **Data Loading:** After preprocessing, load and prepare the data for model training:
 
 ```bash
-python wind_forecasting/run_scripts/load_data.py --config examples/inputs/training_inputs_flasc.yaml --reload
+python wind_forecasting/preprocessing/load_data.py --config ../../config/preprocessing/preprocessing_inputs_kestrel_awaken_new.yaml --reload_data --multiprocessor cf
 ```
 
 **HPC System:**
 ```bash
-./wind_forecasting/run_scripts/load_data_kestrel.sh
+./wind_forecasting/preprocessing/scripts/load_data.sh
 ```
 
 ### Tuning (HPC)

@@ -186,14 +186,31 @@ def prepare_model_init_args(
            for k in module_params if k not in ['model_config']}
     }
     
+    # Special handling for num_batches_per_epoch - if it's None in checkpoint,
+    # try to get it from trainer config limit_train_batches
+    if 'num_batches_per_epoch' in init_args and init_args['num_batches_per_epoch'] is None:
+        limit_train_batches = config.get("trainer", {}).get("limit_train_batches", None)
+        if limit_train_batches is not None:
+            try:
+                init_args['num_batches_per_epoch'] = int(limit_train_batches)
+                logging.info(f"Trial {trial_number} - Using limit_train_batches for num_batches_per_epoch: {limit_train_batches}")
+            except (ValueError, TypeError):
+                init_args['num_batches_per_epoch'] = 50  # Final fallback
+                logging.warning(f"Trial {trial_number} - Could not parse limit_train_batches, using fallback: 50")
+        else:
+            init_args['num_batches_per_epoch'] = 50  # Final fallback
+            logging.warning(f"Trial {trial_number} - num_batches_per_epoch was None, using fallback: 50")
+            
     # Log warnings for missing parameters
     for key, val in init_args.items():
         if (key not in ['model_config', 'initial_stage']) and (key not in hparams) and (key in module_params):
             logging.warning(f"Hyperparameter '{key}' not found in checkpoint, using default value from config: {val}")
 
     # Check for missing required arguments
+    # phase1_checkpoint_path is None when re-instantiating Phase 2 from checkpoint
+    # (marginals are already in the checkpoint being loaded, no need to reload)
     missing_args = [k for k, v in init_args.items()
-                   if v is None and k not in ['model_config', 'initial_stage']]
+                   if v is None and k not in ['model_config', 'initial_stage', 'phase1_checkpoint_path']]
 
     if missing_args:
         error_msg = f"Missing required hyperparameters in checkpoint even after checking defaults: {missing_args}"

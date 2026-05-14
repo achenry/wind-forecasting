@@ -128,7 +128,7 @@ class OptunaSamplerPrunerPersistence:
             logging.warning(f"Failed to load sampler/pruner: {e}")
             return None
 
-    def get_sampler_pruner_objects(self, worker_id, pruner, restart_tuning, final_study_name, optuna_storage, pickle_dir):
+    def get_sampler_pruner_objects(self, worker_id, pruner, restart_tuning, final_study_name, pickle_dir):
         """
         Get sampler and pruner objects, either from pickle files or create new ones.
         

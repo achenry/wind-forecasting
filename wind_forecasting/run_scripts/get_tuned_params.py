@@ -7,9 +7,10 @@ from lightning.pytorch import Trainer
 import yaml
 
 # Internal imports
-from wind_forecasting.utils.optuna_db_utils import setup_optuna_storage
+from wind_forecasting.utils.optuna_storage import setup_optuna_storage
+from wind_forecasting.tuning import get_tuned_params
 from wind_forecasting.run_scripts.testing import get_checkpoint, load_estimator_from_checkpoint
-from wind_forecasting.run_scripts.tuning import get_tuned_params, generate_df_setup_params
+from wind_forecasting.utils.optuna_config_utils import generate_db_setup_params
 
 from pytorch_transformer_ts.informer.lightning_module import InformerLightningModule
 from pytorch_transformer_ts.informer.estimator import InformerEstimator
@@ -56,7 +57,7 @@ def main():
 
     # Generate DB setup parameters regardless of mode (needed for study name)
     logging.info("Generating Optuna DB setup parameters...")
-    db_setup_params = generate_df_setup_params(args.model, config)
+    db_setup_params = generate_db_setup_params(args.model, config)
 
     # Determine if restart_tuning should be overridden
     # We never want to restart/delete the study when just loading parameters
@@ -87,7 +88,8 @@ def main():
     try:
         logging.info(f"Getting tuned parameters.")
         
-        tuned_params = get_tuned_params(optuna_storage, db_setup_params["study_name"])
+        # tuned_params = get_tuned_params(optuna_storage, db_setup_params["study_name"])
+        tuned_params = get_tuned_params(optuna_storage, db_setup_params["base_study_prefix"])
         
         config["model"]["distr_output"]["kwargs"].update({k: v for k, v in tuned_params.items() if k in config["model"]["distr_output"]["kwargs"]})
         config["dataset"].update({k: v for k, v in tuned_params.items() if k in config["dataset"]})

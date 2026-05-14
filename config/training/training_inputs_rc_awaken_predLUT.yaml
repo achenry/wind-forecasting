@@ -1,11 +1,11 @@
 experiment:
   username: aoife-henry
-  project_name: wind_forecasting_awaken_pred510
-  run_name: rc_awaken_pred510
+  project_name: wind_forecasting_awaken_pred60
+  run_name: rc_awaken_pred60
   log_dir: /pl/active/paolab/wind_forecasting/logging/
   project_root: /pl/active/paolab/wind_forecasting/
   notes: "Tuning AWAKEN with Informer+"
-  extra_tags: ["awaken", "pred510"] # By default already has GPU id, model and mode.
+  extra_tags: ["awaken", "pred60"] # By default already has GPU id, model and mode.
 
 logging:
   entity: jmb0507-cu-boulder # Wandb entity (group name)
@@ -65,7 +65,7 @@ optuna:
   storage:
     backend: "mysql"  # Options: "postgresql", "sqlite", "mysql", "journal"
     # --- SQLite Specific Settings (not used if backend is postgresql) ---
-    # storage_dir: /projects/ssc/ahenry/wind_forecasting/optuna
+    # storage_dir: /projects/awaken/ahenry/wind_forecasting/optuna
     sqlite_wal: true  # Enable WAL mode for SQLite
     sqlite_timeout: 600 # Timeout in seconds for SQLite locks
 
@@ -92,8 +92,8 @@ optuna:
 dataset: 
     data_path: /pl/active/paolab/wind_forecasting/awaken_data/awaken_processed_normalized.parquet
     normalization_consts_path: /pl/active/paolab/wind_forecasting/awaken_data/awaken_processed_normalization_consts.csv
-    context_length: 1020 # in seconds
-    prediction_length: 510 # in seconds
+    context_length: 600 # in seconds
+    prediction_length: 60 # in seconds
     target_turbine_ids: # or leave blank to capture all
     normalize: True 
     batch_size: 128
@@ -101,7 +101,7 @@ dataset:
     overfit: False
     test_split: 0.20
     val_split: 0.1
-    resample_freq: 30s
+    resample_freq: 15s
     n_splits: 1 # how many divisions of each continuity group to make which is further subdivided into training test and validation data
     per_turbine_target: True
     # context_length_factor: 2

@@ -2,7 +2,7 @@
 
 ## Modify walltime and account at minimum
 #SBATCH --time=00:01:00         # Change to time required
-#SBATCH --account=ssc  # Change to allocation handle
+#SBATCH --account=awaken  # Change to allocation handle
 
 #SBATCH --nodes=1
 #SBATCH --tasks-per-node=1

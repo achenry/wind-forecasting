@@ -1,17 +1,17 @@
 #!/bin/bash 
-#SBATCH --account=ssc
+#SBATCH --account=awaken
 #SBATCH --time=01:00:00
 #SBATCH --output=%j-%x.out
 #SBATCH --nodes=1 # this needs to match Trainer(num_nodes...)
 #SBATCH --ntasks-per-node=1 # this needs to match Trainer(devices=...)
 
-# salloc --account=ssc --time=01:00:00 --ntasks-per-node=1 --partition=debug
+# salloc --account=awaken --time=01:00:00 --ntasks-per-node=1 --partition=debug
 
 # --- Command Line Args ---
 export MODEL_NAME=$1
 export CONFIG_FILE=$2
 
-#export CONFIG_FILE=$HOME/toolboxes/wind_forecasting_env/wind-forecasting/config/training/training_inputs_kestrel_awaken_pred60.yaml
+#export CONFIG_FILE=$HOME/toolboxes/wind_forecasting_env/wind-forecasting/config/training/training_inputs_aoifemac_awaken_predLUT.yaml
 #export MODEL_NAME=informer
 
 # --- Base Directories ---

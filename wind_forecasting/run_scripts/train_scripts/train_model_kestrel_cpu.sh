@@ -1,12 +1,13 @@
 #!/bin/bash 
-#SBATCH --account=ssc
-#SBATCH --time=04:00:00
+#SBATCH --account=awaken
+#SBATCH --time=02:00:00
 #SBATCH --output=%j-%x.out
 #SBATCH --nodes=1 # this needs to match Trainer(num_nodes...)
 #SBATCH --ntasks-per-node=104 # this needs to match Trainer(devices=...), and number of GPUs
-#SBATCH --mem=0 # refers to CPU (not GPU) memory, automatically given all GPU memory in a SLURM job, 85G
+##SBATCH --mem=0 # refers to CPU (not GPU) memory, automatically given all GPU memory in a SLURM job, 85G
+#SBATCH --partition=bigmem
 
-# salloc --account=ssc --time=01:00:00 --gpus=2 --ntasks-per-node=2 --partition=debug
+# salloc --account=awaken --time=01:00:00 --gpus=2 --ntasks-per-node=2 --partition=debug
 
 module purge
 #module load PrgEnv-intel
@@ -32,4 +33,10 @@ echo "SLURM_GPUS_ON_NODE=${SLURM_GPUS_ON_NODE}"
 echo "SLURM_JOB_GPUS=${SLURM_JOB_GPUS}"
 echo "SLURM_JOB_GRES=${SLURM_JOB_GRES}"
 
-python ../run_model.py --config $MODEL_CONFIG_FILE --mode train --model $MODEL --checkpoint best --override model.x.lr=1.0e-4 model.x.weight_decay=1.0e-8 #--use_tuned_parameters
+python ../run_model.py --config $MODEL_CONFIG_FILE --mode train --model $MODEL --reload_data --use_tuned_parameters \
+                            --override dataset.context_length_factor=10 \
+                                       dataset.sampler=sequential \
+                                       trainer.max_epochs=40 \
+                                       trainer.limit_train_batches=null \
+                                       trainer.val_check_interval=1.0 \
+                                       dataset.batch_size=1024

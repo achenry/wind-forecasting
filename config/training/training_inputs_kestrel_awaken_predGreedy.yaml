@@ -4,8 +4,8 @@ experiment:
   username: aoife-henry
   project_name: wind_forecasting_awaken_pred210
   run_name: kestrel_awaken_pred210
-  log_dir: /projects/ssc/ahenry/wind_forecasting/logging/
-  project_root: /projects/ssc/ahenry/wind_forecasting/
+  log_dir: /projects/awaken/ahenry/wind_forecasting/logging/
+  project_root: /projects/awaken/ahenry/wind_forecasting/
   notes: "Tuning AWAKEN with Informer+"
   extra_tags: ["awaken", "pred210"] # By default already has GPU id, model and mode.
 
@@ -13,10 +13,10 @@ logging:
   entity: jmb0507-cu-boulder # Wandb entity (group name)
   wandb_mode: online
   save_code: false # Save code to wandb
-  wandb_dir: /projects/ssc/ahenry/wind_forecasting/logging/ # WandB will create a 'wandb' subdirectory here automatically
-  optuna_dir: /projects/ssc/ahenry/wind_forecasting/logging/optuna/
-  checkpoint_dir: /projects/ssc/ahenry/wind_forecasting/logging/checkpoints/
-  slurm_output_dir: /projects/ssc/ahenry/wind_forecasting/logging/slurm_logs/
+  wandb_dir: /projects/awaken/ahenry/wind_forecasting/logging/ # WandB will create a 'wandb' subdirectory here automatically
+  optuna_dir: /projects/awaken/ahenry/wind_forecasting/logging/optuna/
+  checkpoint_dir: /projects/awaken/ahenry/wind_forecasting/logging/checkpoints/
+  slurm_output_dir: /projects/awaken/ahenry/wind_forecasting/logging/slurm_logs/
 
 optuna:
   save_trial_code: false      # Default false
@@ -72,7 +72,7 @@ optuna:
   storage:
     backend: "mysql"  # Options: "postgresql", "sqlite", "mysql", "journal"
     # --- SQLite Specific Settings (not used if backend is postgresql) ---
-    # storage_dir: /projects/ssc/ahenry/wind_forecasting/optuna
+    # storage_dir: /projects/awaken/ahenry/wind_forecasting/optuna
     sqlite_wal: true  # Enable WAL mode for SQLite
     sqlite_timeout: 600 # Timeout in seconds for SQLite locks
 
@@ -98,8 +98,8 @@ optuna:
 
 
 dataset: 
-    data_path: /projects/ssc/ahenry/wind_forecasting/awaken_data/awaken_processed_normalized.parquet
-    normalization_consts_path: /projects/ssc/ahenry/wind_forecasting/awaken_data/awaken_processed_normalization_consts.csv
+    data_path: /projects/awaken/ahenry/wind_forecasting/awaken_data/awaken_processed_normalized.parquet
+    normalization_consts_path: /projects/awaken/ahenry/wind_forecasting/awaken_data/awaken_processed_normalization_consts.csv
     context_length: 420 # in seconds
     prediction_length: 210 # in seconds
     target_turbine_ids: # or leave blank to capture all
@@ -111,7 +111,7 @@ dataset:
     overfit: False
     test_split: 0.1
     val_split: 0.1
-    resample_freq: 30s
+    resample_freq: 15s
     n_splits: 1 # how many divisions of each continuity group to make which is further subdivided into training test and validation data
     per_turbine_target: True
     use_pytorch_dataloader: true
@@ -171,12 +171,12 @@ model:
     gradient_clip_val_stage2: 1000.0
     ### VALUES FOR per_turbine_target = true ###
     # Learning Rate Scheduler for Stage 1
-    warmup_steps_s1: 50000 # Warmup steps for Stage 1
-    steps_to_decay_s1: 50000 # T_max = (steps_per_epoch [282] * epochs_in_stage [30]) - warmup_steps
+    warmup_steps_s1: 0.1 # Warmup steps for Stage 1
+    steps_to_decay_s1: 0.9 # T_max = (steps_per_epoch [282] * epochs_in_stage [30]) - warmup_steps
     eta_min_fraction_s1: 0.01  # Fraction of initial LR for eta_min in Stage 1 cosine decay
     # Learning Rate Scheduler for Stage 2
-    warmup_steps_s2: 50000 # Warmup steps for Stage 2
-    steps_to_decay_s2: 50000 # T_max = (steps_per_epoch [282] * epochs_in_stage [100-30]) - warmup_steps ~ 47940 - warmup_steps    
+    warmup_steps_s2: 0.1 # Warmup steps for Stage 2
+    steps_to_decay_s2: 0.9 # T_max = (steps_per_epoch [282] * epochs_in_stage [100-30]) - warmup_steps ~ 47940 - warmup_steps    
     eta_min_fraction_s2: 0.01  # Fraction of initial LR for eta_min in Stage 2 cosine decay    
 
   informer:
@@ -196,8 +196,8 @@ model:
     lr: 7.415335679794799e-05
     weight_decay: 1e-06
     dropout: 0.18730411313466236
-    warmup_steps: 50000 # Warmup steps
-    steps_to_decay: 50000 # T_max = (steps_per_epoch [282] * epochs_in_stage [30]) - warmup_steps
+    warmup_steps: 0.1 # Warmup steps
+    steps_to_decay: 0.9 # T_max = (steps_per_epoch [282] * epochs_in_stage [30]) - warmup_steps
     eta_min_fraction: 0.01  # Fraction of initial LR for eta_min cosine decay
   autoformer:
     # embedding_dimension: [32] # Determines dimension of the embedding space
@@ -206,8 +206,8 @@ model:
     n_heads: 8 # Number of heads for spatio-temporal attention
     dim_feedforward: 2048
     activation: gelu
-    warmup_steps: 50000 # Warmup steps
-    steps_to_decay: 50000 # T_max = (steps_per_epoch [282] * epochs_in_stage [30]) - warmup_steps
+    warmup_steps: 0.1 # Warmup steps
+    steps_to_decay: 0.9 # T_max = (steps_per_epoch [282] * epochs_in_stage [30]) - warmup_steps
     eta_min_fraction: 0.01  # Fraction of initial LR for eta_min cosine decay
   spacetimeformer:
     # embedding_dimension: 32 # Determines dimension of the embedding space
@@ -233,8 +233,8 @@ model:
     embed_method: spatio-temporal
     activation: gelu
     use_given: False
-    warmup_steps: 50000 # Warmup steps
-    steps_to_decay: 50000 # T_max = (steps_per_epoch [282] * epochs_in_stage [30]) - warmup_steps
+    warmup_steps: 0.1 # Warmup steps
+    steps_to_decay: 0.9 # T_max = (steps_per_epoch [282] * epochs_in_stage [30]) - warmup_steps
     eta_min_fraction: 0.01  # Fraction of initial LR for eta_min cosine decay
   svr:
     kernel: rbf
@@ -242,8 +242,10 @@ model:
     degree: 3
     gamma: auto
     epsilon: 0.1
-    cache_size: 200
+    cache_size: 7000
     n_neighboring_turbines: 5
+  sf:
+    n_neighboring_turbines: 6
 
 callbacks:
     progress_bar:

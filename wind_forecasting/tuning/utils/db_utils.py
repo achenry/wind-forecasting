@@ -412,9 +412,21 @@ def _generate_pg_config(*,
 
     # --- PostgreSQL Binaries ---
     pg_bin_dir = os.environ.get("POSTGRES_BIN_DIR")
-    if not pg_bin_dir or not os.path.isdir(pg_bin_dir):
-        logging.error(f"POSTGRES_BIN_DIR environment variable not set or invalid: '{pg_bin_dir}'. Cannot find PostgreSQL executables.")
-        raise ValueError("POSTGRES_BIN_DIR environment variable not set or invalid.")
+    
+    # Only require local binaries if we are NOT using an external TCP connection
+    if not use_tcp:
+        if not pg_bin_dir or not os.path.isdir(pg_bin_dir):
+            logging.error(f"POSTGRES_BIN_DIR environment variable not set or invalid: '{pg_bin_dir}'. Cannot find PostgreSQL executables.")
+            raise ValueError("POSTGRES_BIN_DIR environment variable not set or invalid.")
+        
+        initdb_path = os.path.join(pg_bin_dir, "initdb")
+        pg_ctl_path = os.path.join(pg_bin_dir, "pg_ctl")
+        psql_path = os.path.join(pg_bin_dir, "psql")
+    else:
+        # For external connections, we don't need local binaries to manage the server
+        initdb_path = None
+        pg_ctl_path = None
+        psql_path = None
 
     pg_config = {
         "pgdata": str(pgdata_path_abs), # Use the resolved absolute path
@@ -426,9 +438,9 @@ def _generate_pg_config(*,
         "db_host": db_host, # Will be None if use_socket is True (usually)
         "db_port": db_port, # Will be None if use_socket is True (usually)
         "job_owner": getpass.getuser(),
-        "initdb_path": os.path.join(pg_bin_dir, "initdb"),
-        "pg_ctl_path": os.path.join(pg_bin_dir, "pg_ctl"),
-        "psql_path": os.path.join(pg_bin_dir, "psql"),
+        "initdb_path": initdb_path,
+        "pg_ctl_path": pg_ctl_path,
+        "psql_path": psql_path,
         "run_cmd_shell": run_cmd_shell,
         "sync_file": sync_file,
     }
@@ -443,7 +455,7 @@ def _generate_pg_config(*,
     if db_password_env_var:
         pg_config["db_password_env_var"] = db_password_env_var
 
-    # Verify executables exist
+    # Verify executables exist (only if we expect them)
     for key, path in pg_config.items():
         if key.endswith("_path") and path and not os.path.exists(path):
              logging.error(f"PostgreSQL executable not found at expected path: {path} (derived from POSTGRES_BIN_DIR={pg_bin_dir})")

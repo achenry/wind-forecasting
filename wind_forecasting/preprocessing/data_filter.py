@@ -6,29 +6,31 @@ Returns:
 
 import logging
 from datetime import timedelta
+from concurrent.futures import ProcessPoolExecutor
+import multiprocessing as mp
 import os
+from itertools import pairwise
 
 import numpy as np
 import polars as pl
 import polars.selectors as cs
+
+from scipy.optimize import minimize
+import matplotlib.pyplot as plt
+
 # from scipy.stats import entropy
 # from scipy.spatial.distance import jensenshannon
 # from scipy.special import kl_div
 from openoa.utils import imputing, filters
-mpi_exists = False
-try:
-    from mpi4py import MPI
-    from mpi4py.futures import MPICommExecutor
-    mpi_exists = True
-except:
-    print("No MPI available on system.")
+
+# mpi_exists = False
+# try:
+#     from mpi4py import MPI
+#     from mpi4py.futures import MPICommExecutor
+#     mpi_exists = True
+# except:
+#     logging.info("No MPI available on system.")
     
-from concurrent.futures import ProcessPoolExecutor
-import multiprocessing
-from scipy.optimize import minimize
-
-import matplotlib.pyplot as plt
-
 factor = 1.5
 # factor = 3.0 # single column
 plt.rc('font', size=12*factor)          # controls default text sizes
@@ -38,8 +40,6 @@ plt.rc('xtick', labelsize=12*factor)    # fontsize of the xtick labels
 plt.rc('ytick', labelsize=12*factor)    # fontsize of the ytick labels
 plt.rc('legend', fontsize=12*factor)    # legend fontsize
 plt.rc('legend', title_fontsize=14*factor)  # legend title fontsize
-
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 class DataFilter:
     """_summary_
@@ -163,39 +163,102 @@ class DataFilter:
         logging.info(f"Finished generating std out of range filter for {df_query.collect_schema().names()}")
         return mask 
     
+    def smooth(self, df_query, feature_types, dtype, smoothing_function="butterworth", smoothing_params=None, plot=False):
+        
+        sub_df = df_query.select([cs.starts_with(feat_type) for feat_type in feature_types])
+        features = sub_df.collect_schema().names()
+        
+        if smoothing_function == "moving_average":
+            df_query_filt = df_query.with_columns([cs.starts_with(feat_type).rolling_mean_by("time", window_size=f"{smoothing_params['window_size']}s") for feat_type in feature_types])
+
+        elif smoothing_function == "butterworth":
+            # smoothed = filters.butterworth_filter(data=df_query.select([pl.col(f"{feat_type}_{tid}") for feat_type in feature_types]).collect().to_pandas(),
+            #                                       **kwargs)
+            # sub_df = df_query.select([cs.starts_with(feat_type) for feat_type in feature_types])
+            # features = sub_df.collect_schema().names()
+            dft = np.fft.fft(sub_df.collect().to_numpy(), axis=0)
+            ts_len = sub_df.select(pl.len()).collect().item()
+            half_len = int(ts_len / 2)
+            
+            fs_1 = (1 / (ts_len * smoothing_params["dt"])) * np.arange(1, half_len)
+            fs_2 = 0.5 / smoothing_params["dt"]
+            
+            filter_coeffs_1 = 1 / np.sqrt(1 + (fs_1 / smoothing_params["freq_cutoff"])**(2 * smoothing_params["order"]))
+            filter_coeffs_2 = 1 / np.sqrt(1 + (fs_2 / smoothing_params["freq_cutoff"])**(2 * smoothing_params["order"]))
+            filter_coeffs_1 = filter_coeffs_1[:, np.newaxis]
+            
+            dft[1:half_len, :] *= filter_coeffs_1
+            
+            if ts_len % 2 == 0:
+                dft[half_len, :] = np.sqrt(np.max([filter_coeffs_2, 0]))
+                dft[half_len + 1:, :] *= np.flip(filter_coeffs_1, axis=0)
+            else:
+                dft[half_len:half_len+2, :] = np.sqrt(np.max([filter_coeffs_2, 0]))
+                dft[half_len + 2:, :] *= np.flip(filter_coeffs_1, axis=0)
+            
+            ts = np.real(np.fft.ifft(dft, axis=0))
+            df_query_filt = df_query.with_columns([pl.Series(name=feat, values=ts[:, i]).cast(dtype) for i, feat in enumerate(features)])
+            
+            # from scipy.signal import butter, sosfilt
+            
+            # sos = butter(N=smoothing_params["order"], Wn=smoothing_params["freq_cutoff"], btype='low', fs=1/smoothing_params["dt"], output='sos')
+            # df_query_filt = sosfilt(sos, sub_df.collect().to_numpy(), axis=0)
+            # df_query_filt = df_query.with_columns([pl.Series(name=feat, 
+            #                                                  values=df_query_filt[:, i]) for i, feat in enumerate(features)])
+            df_query_filt = df_query_filt.select(pl.all().slice(400, pl.len() - 800)) # remove transient at beginning, TODO figure out how much to remove based on dt and freq_cutoff and order
+            
+        elif smoothing_function == "savitzky_golay":
+            from scipy.signal import savgol_filter
+            
+            df_query_filt = df_query.with_columns([pl.Series(name=feat, 
+                                                             values=savgol_filter(sub_df.collect().to_numpy(), window_length=smoothing_params["window_size"], polyorder=smoothing_params["order"], axis=0)[:, i]).cast(dtype) for i, feat in enumerate(features)])
+            df_query_filt = df_query_filt.select(pl.all().slice(400, pl.len() - 800)) # remove transient at beginning, TODO figure out how much to remove based on dt and freq_cutoff and order
+            
+        else:
+            raise ValueError(f"Unknown smoothing function {smoothing_function}")
+        
+        if plot:
+            fig, ax = plt.subplots(len(feature_types), 1, sharex=True)
+            suffixes = ["_wt005", "_wt074", "_wt075"]
+            for ax_idx, feat_type in enumerate(feature_types):
+                ax[ax_idx].plot(df_query.select("time").collect().to_numpy(), 
+                                df_query.select([f"{feat_type}{sfx}" for sfx in suffixes]).collect().to_numpy(), 
+                                linestyle="-", label="original")
+                time_sig = df_query_filt.select("time").collect().to_numpy()
+                filt_sig = df_query_filt.select([f"{feat_type}{sfx}" for sfx in suffixes]).collect().to_numpy()
+                for l, ln in enumerate(ax[ax_idx].get_lines()):
+                    ax[ax_idx].plot(time_sig,
+                                    filt_sig[:, l], 
+                                    linestyle=":", color=ln.get_color(), label="smoothed")
+                ax[ax_idx].set(title=feat_type)#, xlim=(1.295*1e7,1.345*1e7))
+                # filt_ts[:, [i for i in range(len(features)) if feat_type in features[i]]]
+            fig.suptitle(f"{' '.join([w.capitalize() for w in smoothing_function.split("_")])}")
+            fig.show()
+        
+        return df_query_filt
+        
+    
     def multi_generate_filter(self, df_query, filter_func, feature_types, turbine_ids, **kwargs):
         if self.multiprocessor:
-            if self.multiprocessor == "mpi" and mpi_exists:
-                executor = MPICommExecutor(MPI.COMM_WORLD, root=0)
-                logging.info(f"🚀 Using MPI executor with {MPI.COMM_WORLD.Get_size()} processes")
-            else:  # "cf" case
-                max_workers = multiprocessing.cpu_count()
-                executor = ProcessPoolExecutor(max_workers=max_workers,
-                                               mp_context=multiprocessing.get_context("spawn"))
-                logging.info(f"🖥️  Using ProcessPoolExecutor with {max_workers} workers")
+            max_workers = int(os.environ.get("MAX_WORKERS", mp.cpu_count()))
+            executor = ProcessPoolExecutor(max_workers=max_workers,
+                                            mp_context=mp.get_context("spawn"))
+            logging.info(f"🖥️  Using ProcessPoolExecutor with {max_workers} workers")
             with executor as ex:
-                futures = [ex.submit(filter_func, 
-                                    df_query=df_query.select([pl.col(f"{feat_type}_{tid}") for feat_type in feature_types]), 
-                                    tid=tid, **kwargs) for tid in turbine_ids]
-                results = [fut.result() for fut in futures]
-                # if isinstance(results[0], tuple):
-                #     return np.stack([res[0] for res in results], axis=1), [res[1:] for res in results]
-                # else:
-            return np.stack(results, axis=1)
+                if ex is not None:
+                    futures = [ex.submit(filter_func, 
+                                        df_query=df_query.select([pl.col(f"{feat_type}_{tid}") for feat_type in feature_types]), 
+                                        tid=tid, **kwargs) for tid in turbine_ids]
+                masks = [fut.result() for fut in futures]
         else:
             logging.info("🔧 Using single process executor")
             masks = []
-            # other_outputs = []
             for tid in turbine_ids:
                 res = filter_func(
                     df_query=df_query.select([pl.col(f"{feat_type}_{tid}") for feat_type in feature_types]), tid=tid, **kwargs)
-                # if isinstance(res, tuple):
-                #     masks.append(res[0])
-                #     other_outputs.append(res[1])
-                # else:
                 masks.append(res)
                     
-            return np.stack(masks, axis=1) #, other_outputs or None
+        return np.stack(masks, axis=1) #, other_outputs or None
 
     def _single_compute_bias(self, df_query, tid):
         bias = df_query\
@@ -217,14 +280,14 @@ class DataFilter:
     
     def multi_compute_bias(self, df_query, turbine_ids):
         if self.multiprocessor:
-            if self.multiprocessor == "mpi" and mpi_exists:
-                executor = MPICommExecutor(MPI.COMM_WORLD, root=0)
-                logging.info(f"🚀 Using MPI executor with {MPI.COMM_WORLD.Get_size()} processes")
-            else:  # "cf" case
-                max_workers = multiprocessing.cpu_count()
-                executor = ProcessPoolExecutor(max_workers=max_workers,
-                                               mp_context=multiprocessing.get_context("spawn"))
-                logging.info(f"🖥️  Using ProcessPoolExecutor with {max_workers} workers")
+            # if self.multiprocessor == "mpi" and mpi_exists:
+            #     executor = MPICommExecutor(MPI.COMM_WORLD, root=0)
+            #     logging.info(f"🚀 Using MPI executor with {MPI.COMM_WORLD.Get_size()} processes")
+            # else:  # "cf" case
+            max_workers = int(os.environ.get("MAX_WORKERS", mp.cpu_count()))
+            executor = ProcessPoolExecutor(max_workers=max_workers,
+                                            mp_context=mp.get_context("spawn"))
+            logging.info(f"🖥️  Using ProcessPoolExecutor with {max_workers} workers")
             
             with executor as ex:
                 futures = [ex.submit(self._single_compute_bias, 
@@ -248,38 +311,45 @@ class DataFilter:
     
     def fill_multi_missing_datasets(self, dfs, impute_missing_features, interpolate_missing_features, r2_threshold):
         if self.multiprocessor:
-            if self.multiprocessor == "mpi" and mpi_exists:
-                executor = MPICommExecutor(MPI.COMM_WORLD, root=0)
-                logging.info(f"🚀 Using MPI executor with {MPI.COMM_WORLD.Get_size()} processes")
-            else:  # "cf" case
-                max_workers = multiprocessing.cpu_count()
-                executor = ProcessPoolExecutor(max_workers=max_workers,
-                                               mp_context=multiprocessing.get_context("spawn"))
-                logging.info(f"🖥️  Using ProcessPoolExecutor with {max_workers} workers")
+            # if self.multiprocessor == "mpi" and mpi_exists:
+            #     executor = MPICommExecutor(MPI.COMM_WORLD, root=0)
+            #     logging.info(f"🚀 Using MPI executor with {MPI.COMM_WORLD.Get_size()} processes")
+            # else:  # "cf" case
+            max_workers = int(os.environ.get("MAX_WORKERS", mp.cpu_count()))
+            executor = ProcessPoolExecutor(max_workers=max_workers,
+                                            mp_context=mp.get_context("spawn"))
+            logging.info(f"🖥️  Using ProcessPoolExecutor with {max_workers} workers")
             
             with executor as ex:
                 futures = [ex.submit(self._fill_single_missing_dataset, df_idx=df_idx, df=df, 
                 impute_missing_features=impute_missing_features, interpolate_missing_features=interpolate_missing_features,
                 parallel="turbine_id", r2_threshold=r2_threshold) 
                 for df_idx, df in enumerate(dfs)]
-                return [fut.result() for fut in futures if fut.result() is not None]
+                results = []
+                for fut in futures:
+                    res = fut.result()
+                    if res is not None:
+                        results.append(res)
+
+                return results
         else:
             logging.info("🔧 Using single process executor")
-            return [self._fill_single_missing_dataset(df_idx=df_idx, df=df, impute_missing_features=impute_missing_features, 
+            return [self._fill_single_missing_dataset(df_idx=df_idx, df=df, 
+                                                      impute_missing_features=impute_missing_features, 
             interpolate_missing_features=interpolate_missing_features, parallel="turbine_id", r2_threshold=r2_threshold) 
             for df_idx, df in enumerate(dfs)]
     
     def _impute_single_missing_dataset(self, df_idx, df, save_path, impute_missing_features, r2_threshold, parallel=False):
 
         if parallel == "feature":
-            if self.multiprocessor == "mpi" and mpi_exists:
-                executor = MPICommExecutor(MPI.COMM_WORLD, root=0)
-                logging.info(f"🚀 Using MPI executor with {MPI.COMM_WORLD.Get_size()} processes")
-            else:  # "cf" case
-                max_workers = multiprocessing.cpu_count()
-                executor = ProcessPoolExecutor(max_workers=max_workers,
-                                               mp_context=multiprocessing.get_context("spawn"))
-                logging.info(f"🖥️  Using ProcessPoolExecutor with {max_workers} workers")
+            # if self.multiprocessor == "mpi" and mpi_exists:
+            #     executor = MPICommExecutor(MPI.COMM_WORLD, root=0)
+            #     logging.info(f"🚀 Using MPI executor with {MPI.COMM_WORLD.Get_size()} processes")
+            # else:  # "cf" case
+            max_workers = int(os.environ.get("MAX_WORKERS", mp.cpu_count()))
+            executor = ProcessPoolExecutor(max_workers=max_workers,
+                                            mp_context=mp.get_context("spawn"))
+            logging.info(f"🖥️  Using ProcessPoolExecutor with {max_workers} workers")
             
             with executor as ex:
                 futures = {feature: ex.submit(imputing.impute_all_assets_by_correlation,
@@ -309,7 +379,7 @@ class DataFilter:
                                                             r2_threshold=r2_threshold,
                                                             save_path=save_path)
                 if imputed_vals is not None:
-                    df.update(imputed_vals, on="time").collect().write_parquet(save_path, statistics=False)
+                    df.update(imputed_vals, on="time").collect().write_parquet(save_path)
                     df = pl.scan_parquet(save_path)
                 # df_cols.append(imputed_vals.select(cs.starts_with(f"{feat_type}_")))
                 logging.info(f"Imputed feature {feat_type} in DataFrame {df_idx}.")
@@ -325,8 +395,10 @@ class DataFilter:
                                                             r2_threshold=r2_threshold,
                                                             save_path=save_path)
                 if imputed_vals is not None:
-                    df.update(imputed_vals, on="time").collect().write_parquet(save_path, statistics=False)
+                    assert imputed_vals.select("time").collect().to_series().is_sorted()
+                    df.update(imputed_vals, on="time").collect().write_parquet(save_path)
                     df = pl.scan_parquet(save_path)
+                    assert df.select("time").collect().to_series().is_sorted()
                 # df_cols.append(imputed_vals.select(cs.starts_with(f"{feat_type}_")))
                 logging.info(f"Imputed feature {feat_type} in DataFrame {df_idx}.")
         return df
@@ -334,8 +406,7 @@ class DataFilter:
         #                  + df_cols, how="horizontal")
 
     def _fill_single_missing_dataset(self, df_idx, df, save_path, impute_missing_features, interpolate_missing_features, r2_threshold, parallel=None):
-        
-        df = self._impute_single_missing_dataset(df_idx, df, save_path=save_path, impute_missing_features=impute_missing_features, 
+        df = self._impute_single_missing_dataset(df_idx, df, save_path=save_path, impute_missing_features=impute_missing_features,
                                                  r2_threshold=r2_threshold, parallel=parallel)
 
         # if any column is all nulls ... can't be imputed
@@ -409,43 +480,69 @@ class DataFilter:
         
         return __class__._js_divergence(p, q)
 
-    def conditional_filter(self, df, threshold, mask, mask_input_features, output_features, filter_type, check_js=True):
+    def conditional_filter(self, df, threshold, mask, file_set_indices, mask_input_features, output_features, filter_type, check_js=True):
         """
         only applies mask to features if the Jensen-Shannon metric between filtered and unfiltered 
         data exceeds a threshold
         """
         if self.data_format == 'wide':
-            return self._conditional_filter_wide(df, threshold, mask, mask_input_features, output_features, filter_type, check_js)
+            return self._conditional_filter_wide(df, threshold, mask, file_set_indices, mask_input_features, output_features, filter_type, check_js)
         else:
-            return self._conditional_filter_long(df, threshold, mask, mask_input_features, output_features, filter_type, check_js)
+            return self._conditional_filter_long(df, threshold, mask, file_set_indices, mask_input_features, output_features, filter_type, check_js)
 
-    def _conditional_filter_wide(self, df, threshold, mask, mask_input_features, output_features, filter_type, check_js):
+    def _conditional_filter_wide(self, df, threshold, mask, file_set_indices, mask_input_features, output_features, filter_type, check_js):
         if check_js:
-            js_scores = []
-            for inp_feat, opt_feat in zip(mask_input_features, output_features):
-                filt_expr = mask(inp_feat)
-                js_score = self._compute_js_divergence(
-                    train_sample=df.filter(filt_expr).select(opt_feat).drop_nulls().collect().to_numpy().flatten(),
-                    test_sample=df.select(opt_feat).drop_nulls().collect().to_numpy().flatten()
-                )
-                logging.info(f"JS Score for feature {opt_feat} = {js_score} with filter {filter_type}")
-                js_scores.append(js_score)
-                
-                if js_score > threshold:
-                    # new_data = 
-                    # df = df.with_columns(**{feat: 
-                    #     ma.filled(ma.array(df.select(pl.col(feat)).collect().to_numpy().flatten(), mask=mask(tid), fill_value=np.nan))
-                    #                         }).with_columns(pl.col(feat).fill_nan(None).alias(feat))
-                    df = df.with_columns(pl.when(pl.Series(filt_expr)).then(None).otherwise(pl.col(opt_feat)).alias(opt_feat))
-                    logging.info(f"Applied filter {filter_type} to feature {opt_feat}.")
-                
-                # if js_score > threshold:
-                    # df = df.with_columns(pl.when(mask(tid)).then(pl.col(feat)).otherwise(None).alias(feat))
+            
+            if file_set_indices is None:
+                # mask is for all data
+                js_scores = []
+                for inp_feat, opt_feat in zip(mask_input_features, output_features):
+                    js_score = self._compute_js_divergence(
+                        train_sample=df.filter(mask(inp_feat)).select(opt_feat).drop_nulls().collect().to_numpy().flatten(),
+                        test_sample=df.select(opt_feat).drop_nulls().collect().to_numpy().flatten()
+                    )
+                    logging.info(f"JS Score for feature {opt_feat} = {js_score} with filter {filter_type}")
+                    js_scores.append(js_score)
+                    
+                    if js_score > threshold:
+                        df = df.with_columns(pl.when(mask(inp_feat)).then(None).otherwise(pl.col(opt_feat)).alias(opt_feat))
+                            
+                        logging.info(f"Applied filter {filter_type} to feature {opt_feat}.")
+            else:
+                # js_scores = {}
+                for file_set_idx in file_set_indices:
+                    # js_scores[file_set_idx] = []
+                    for inp_feat, opt_feat in zip(mask_input_features, output_features):
+                        js_score = self._compute_js_divergence(
+                            train_sample=df.filter((pl.col("file_set_idx") == file_set_idx)).filter(mask(file_set_idx, inp_feat)).select(opt_feat).drop_nulls().collect().to_numpy().flatten(),
+                            test_sample=df.select(opt_feat).drop_nulls().collect().to_numpy().flatten()
+                        )
+                        logging.info(f"JS Score for feature {opt_feat} = {js_score} with filter {filter_type}")
+                        # js_scores[file_set_idx].append(js_score)
+                        
+                        if js_score > threshold:
+                            # new_data = 
+                            # df = df.with_columns(**{feat: 
+                            #     ma.filled(ma.array(df.select(pl.col(feat)).collect().to_numpy().flatten(), mask=mask(tid), fill_value=np.nan))
+                            #                         }).with_columns(pl.col(feat).fill_nan(None).alias(feat))
+                            
+                            df = pl.concat([df.filter(pl.col("file_set_idx") == file_set_idx).with_columns(pl.when(mask(file_set_idx, inp_feat)).then(None).otherwise(pl.col(opt_feat)).alias(opt_feat)) for file_set_idx in file_set_indices], how="vertical").sort("time")
+                                
+                            logging.info(f"Applied filter {filter_type} to feature {opt_feat} for file set {file_set_idx}.")
+                    
+                    # if js_score > threshold:
+                        # df = df.with_columns(pl.when(mask(tid)).then(pl.col(feat)).otherwise(None).alias(feat))
             # df = df.with_columns({feat: pl.when(mask(feat.split("_")[-1]) & js_score > threshold).then(pl.col(feat)).otherwise(None) for js_score, feat in zip(js_scores, features)})
                     
         else:
             # df = df.with_columns({feat: pl.when(mask(feat.split("_")[-1])).then(pl.col(feat)).otherwise(None) for feat in features})
-            df = df.with_columns(**{opt_feat: pl.when(pl.Series(mask(inp_feat))).then(None).otherwise(pl.col(opt_feat)) for inp_feat, opt_feat in zip(mask_input_features, output_features)})
+            if file_set_indices is None:
+                # mask is for all data
+                df = df.with_columns(**{opt_feat: pl.when(mask(inp_feat)).then(None).otherwise(pl.col(opt_feat)) for inp_feat, opt_feat in zip(mask_input_features, output_features)}) 
+            else:
+                df = pl.concat([df.filter(pl.col("file_set_idx") == file_set_idx).with_columns(**{opt_feat: pl.when(mask(file_set_idx, inp_feat)).then(None).otherwise(pl.col(opt_feat)) for inp_feat, opt_feat in zip(mask_input_features, output_features)}) 
+                                for file_set_idx in file_set_indices], how="vertical").sort("time")
+            
             # for inp_feat, opt_feat in zip(mask_input_features, output_features):
             #     filt_expr = mask(inp_feat)
             #     # new_data = ma.filled(ma.array(df.select(pl.col(feat)).collect().to_numpy().flatten(), mask=mask(tid), fill_value=np.nan))
@@ -458,25 +555,49 @@ class DataFilter:
         
         return df
 
-    def _conditional_filter_long(self, df, threshold, mask, mask_input_features, output_features, filter_type, check_js):
+    def _conditional_filter_long(self, df, threshold, mask, file_set_indices, mask_input_features, output_features, filter_type, check_js):
         # TODO test this
         if check_js:
-            js_scores = []
-            for inp_feat, opt_feat in zip(mask_input_features, output_features):
-                filt_expr = mask(inp_feat).collect().to_numpy().flatten()
-                js_score = self._compute_js_divergence(
-                    train_sample=df.filter(pl.Series(filt_expr)).select(opt_feat).drop_nulls().collect().to_numpy().flatten(),
-                    test_sample=df.select(opt_feat).drop_nulls().collect().to_numpy().flatten()
-                )
-                logging.info(f"JS Score for feature {opt_feat} = {js_score} with filter {filter_type}")
-                js_scores.append(js_score)
-                # if js_score > threshold:
-                #     df = df.with_columns(pl.when(mask).then(pl.col(feat)).otherwise(None).alias(feat))
-                #     
+            
+            if file_set_indices is None:
+                # mask is for all data
+                js_scores = []
+                for inp_feat, opt_feat in zip(mask_input_features, output_features):
+                    js_score = self._compute_js_divergence(
+                        train_sample=df.filter(mask(inp_feat)).select(opt_feat).drop_nulls().collect().to_numpy().flatten(),
+                        test_sample=df.select(opt_feat).drop_nulls().collect().to_numpy().flatten()
+                    )
+                    logging.info(f"JS Score for feature {opt_feat} = {js_score} with filter {filter_type}")
+                    js_scores.append(js_score)
+                    
+                df = df.with_columns(**{opt_feat: pl.when(mask(inp_feat) & (js_score > threshold)).then(None).otherwise(pl.col(opt_feat)) for js_score, inp_feat, opt_feat in zip(js_scores, mask_input_features, output_features)})
+                    
+            else:
+                js_scores = {}
+                for file_set_idx in file_set_indices:
+                    js_scores[file_set_idx] = []
+                    for inp_feat, opt_feat in zip(mask_input_features, output_features):
+                        js_score = self._compute_js_divergence(
+                            train_sample=df.filter(pl.col("file_set_idx") == file_set_idx).filter(mask(inp_feat)).select(opt_feat).drop_nulls().collect().to_numpy().flatten(),
+                            test_sample=df.select(opt_feat).drop_nulls().collect().to_numpy().flatten()
+                        )
+                        logging.info(f"JS Score for feature {opt_feat} = {js_score} with filter {filter_type}")
+                        js_scores[file_set_idx].append(js_score)
+                        # if js_score > threshold:
+                        #     df = df.with_columns(pl.when(mask).then(pl.col(feat)).otherwise(None).alias(feat))
+                        #     
                 
-            df = df.with_columns(**{opt_feat: pl.when(mask(inp_feat) & js_score > threshold).then(None).otherwise(pl.col(opt_feat)) for js_score, inp_feat, opt_feat in zip(js_scores, mask_input_features, output_features)})
+                df = pl.concat([
+                    df.filter(pl.col("file_set_idx") == file_set_idx).with_columns(**{opt_feat: pl.when(mask(file_set_idx, inp_feat) & (js_score > threshold)).then(None).otherwise(pl.col(opt_feat)) for js_score, inp_feat, opt_feat in zip(js_scores[file_set_idx], mask_input_features, output_features)})
+                            for file_set_idx in file_set_indices], how="vertical").sort("time")
+            
         else:
-            df = df.with_columns(**{opt_feat: pl.when(mask(inp_feat)).then(None).otherwise(pl.col(opt_feat)).alias(opt_feat) for inp_feat, opt_feat in zip(mask_input_features, output_features)})
+            if file_set_indices is None:
+                # mask is for all data
+                df = df.with_columns(**{opt_feat: pl.when(mask(inp_feat)).then(None).otherwise(pl.col(opt_feat)).alias(opt_feat) for inp_feat, opt_feat in zip(mask_input_features, output_features)})
+            else:
+                df = pl.concat([df.filter(pl.col("file_set_idx") == file_set_idx).with_columns(**{opt_feat: pl.when(mask(file_set_idx, inp_feat)).then(None).otherwise(pl.col(opt_feat)).alias(opt_feat) for file_set_idx in file_set_indices for inp_feat, opt_feat in zip(mask_input_features, output_features)})
+                                for file_set_idx in file_set_indices], how="vertical").sort("time")
             
         return df
     
@@ -516,6 +637,12 @@ class DataFilter:
     
 def add_df_continuity_columns(df, mask, dt):
     # change first value of continuous_shifted to false such that add_df_agg_continuity_columns catches it as a start time for a period
+    # 1) apply mask for number of missing columns from each time step
+    # 2) set dt to the time diff between adjacent rows
+    # 3) for first row, set dt to the correct value, since the computed dt = null
+    # 4) select columns needed to find whether rows are continueous or not
+    # 5) set continuous col to when the diff between this row and the previous == dt
+    # 6) set continuous shifted col to the value before
     return df\
             .filter(mask)\
             .with_columns(dt=pl.col("time").diff())\
@@ -536,23 +663,23 @@ def add_df_agg_continuity_columns(df):
                 .sort("start_time")\
             .drop_nulls()
 
-def get_continuity_group_index(continuity_groups_df, time_series_df, chunk_size=32):
+def get_continuity_group_index(continuity_groups_df, time_series_df, cg_init_idx=0, chunk_size=32):
     # Create the condition for the group
     group_number = None
 
     # Create conditions to assign group numbers based on time ranges
-    total_rows = continuity_groups_df.select(pl.len()).collect().item()
+    total_rows = continuity_groups_df.select(pl.len()).item()
     time_series_df = time_series_df.with_columns(continuity_group=pl.when(True).then(pl.lit(-1)))
-    for i, (start, end) in enumerate(continuity_groups_df.collect().select("start_time", "end_time").iter_rows()):
+    for i, (start, end) in enumerate(continuity_groups_df.select("start_time", "end_time").iter_rows()):
         # print(i, start, end, duration)
-        logging.info(f"Getting continuity group index {i} of {total_rows} for start time {start}, end time {end}")
+        logging.info(f"Getting continuity group index {cg_init_idx+i} of {cg_init_idx+total_rows} for start time {start}, end time {end}, duration {end - start}")
         
         time_cond = pl.col("time").is_between(start, end)
         
         if group_number is None:
-            group_number = pl.when(time_cond).then(pl.lit(i))
+            group_number = pl.when(time_cond).then(pl.lit(cg_init_idx+i))
         else:
-            group_number = group_number.when(time_cond).then(pl.lit(i))
+            group_number = group_number.when(time_cond).then(pl.lit(cg_init_idx+i))
             
         if (i % chunk_size == 0) or (i == total_rows - 1):
             time_series_df = time_series_df.with_columns(continuity_group=group_number.otherwise(pl.col("continuity_group")))
@@ -578,17 +705,18 @@ def group_df_by_continuity(df, agg_df, missing_data_cols):
             .group_by("continuity_group")\
             .agg(cs.starts_with("is_missing").sum())\
             .with_columns([pl.sum_horizontal(cs.contains(col) & cs.starts_with("is_missing")).alias(f"is_missing_{col}") for col in missing_data_cols])\
-            .sort("continuity_group")], how="horizontal")
+            .sort("continuity_group").collect()], how="horizontal")
 
 def merge_adjacent_periods(agg_df, dt):
     # merge rows with end times corresponding to start times of the next row into the next row, until no more rows need to be merged
     # loop through and merge as long as the shifted -1 end time + dt == the start time
-    all_times = agg_df.select(pl.col("start_time"), pl.col("end_time")).collect()
+    all_times = agg_df.select(pl.col("start_time"), pl.col("end_time"))
     data = {"start_time":[], "end_time": []}
     start_time_idx = 0
-    for end_time_idx in range(all_times.select(pl.len()).item()):
-        end_time = all_times.item(end_time_idx, "end_time") 
-        if not (end_time_idx + 1 == all_times.select(pl.len()).item()) and (end_time + timedelta(seconds=dt)  == all_times.item(end_time_idx + 1, "start_time")):
+    num_periods = all_times.select(pl.len()).item()
+    for end_time_idx in range(num_periods):
+        end_time = all_times.item(end_time_idx, "end_time")
+        if not (end_time_idx + 1 == num_periods) and (end_time + timedelta(seconds=dt) == all_times.item(end_time_idx + 1, "start_time")):
             continue
         
         data["start_time"].append(all_times.item(start_time_idx, "start_time"))
@@ -596,7 +724,7 @@ def merge_adjacent_periods(agg_df, dt):
 
         start_time_idx = end_time_idx + 1
 
-    return pl.LazyFrame(data, schema={
+    return pl.DataFrame(data, schema={
         "start_time": pl.Datetime(time_unit=agg_df.collect_schema()["start_time"].time_unit), 
         "end_time": pl.Datetime(time_unit=agg_df.collect_schema()["end_time"].time_unit)})\
              .with_columns((pl.col("end_time") - pl.col("start_time")).alias("duration"))
@@ -615,15 +743,27 @@ def compute_offsets(df, fi, turbine_ids, turbine_pairs:list[tuple[int, int]]=Non
     # zero indexed
     prat_turbine_pairs = turbine_pairs 
 
-    dir_offsets = []
+    # distances = []
+    # for pair in pairwise(turbine_ids):
+    #     i_up = turbine_ids.index(pair[0])
+    #     i_down = turbine_ids.index(pair[1])
+    #     distances.append((i_up, i_down, np.sqrt((fi.layout_x[i_up] - fi.layout_x[i_down])**2 + (fi.layout_y[i_up] - fi.layout_y[i_down])**2)))
 
-    for i in range(len(prat_turbine_pairs)):
-        i_up = prat_turbine_pairs[i][0]
-        i_down = prat_turbine_pairs[i][1]
+    # distances = sorted(distances, key=lambda tup: tup[2], reverse=False)
+    # distances = distances[:20]
+    # prat_turbine_pairs = [tup[:2] for tup in distances]
+    # prat_turbine_pairs += [tuple(reversed(pair)) for pair in prat_turbine_pairs]
+    
+    dir_offsets = []
+    
+    # for pair in prat_turbine_pairs:
+    for pair in prat_turbine_pairs:
+        i_up = pair[0]
+        i_down = pair[1]
 
         # compute the angle of the vector pointing from the downstream turbine to the upstream turbine (CW from north)
         dir_align = np.degrees(np.arctan2(fi.layout_x[i_up] - fi.layout_x[i_down], fi.layout_y[i_up] - fi.layout_y[i_down])) % 360
-
+       
         tid_up = turbine_ids[i_up]
         tid_down = turbine_ids[i_down]
 
@@ -632,6 +772,7 @@ def compute_offsets(df, fi, turbine_ids, turbine_pairs:list[tuple[int, int]]=Non
                                 & (pl.col(f"power_output_{tid_up}") <= p_max) 
                                 & (pl.col(f"power_output_{tid_down}") >= 0))\
                                 .select(f"power_output_{tid_up}", f"power_output_{tid_down}", f"wind_direction_{tid_up}", f"wind_direction_{tid_down}")
+        # df_sub = df.select(f"power_output_{tid_up}", f"power_output_{tid_down}", f"wind_direction_{tid_up}", f"wind_direction_{tid_down}")
                                 
         # average the turbine powers by the upstream wind direction nearest integer
         df_sub = df_sub.with_columns(pl.when((pl.col(f"wind_direction_{tid_up}") >= 359.5))\
@@ -643,7 +784,7 @@ def compute_offsets(df, fi, turbine_ids, turbine_pairs:list[tuple[int, int]]=Non
         # compute the power ratio downstream power to upstream power for each integer wind direction
         df_sub = df_sub.select(pl.col(f"wd_round"), (pl.col(f"power_output_{tid_down}") / pl.col(f"power_output_{tid_up}")).alias("p_ratio")).collect()
 
-        if plot or True:
+        if (type(plot) is bool and plot) or (type(plot) is list and tuple(pair) in plot):
             fig, ax = plt.subplots(1,1, figsize=(10, 6))
             ax.plot(df_sub.select("wd_round").to_numpy().flatten(), df_sub.select("p_ratio").to_numpy().flatten(), label="_nolegend_")
             ax.plot(dir_align * np.ones(2),[0, 1.25], 'k--', label="Direction of Alignment")
@@ -654,9 +795,6 @@ def compute_offsets(df, fi, turbine_ids, turbine_pairs:list[tuple[int, int]]=Non
 
         # get the range of wind directions around that of alignment (according to turbine layout), when the nadir should occur
         wd_range = np.arange(int(np.round(dir_align)) - prat_hfwdth,int(np.round(dir_align)) + prat_hfwdth + 1) % 360
-        if len(set(wd_range) & set(df_sub.select(f"wd_round").to_numpy().flatten())) != len(wd_range):
-            logging.info(f"Cannot compute nadir for turbine pair {turbine_ids[i_up]}, {turbine_ids[i_down]}")
-            continue
         
         # get the power ratios that occur in the range around the aligned wind direction, 
         # get the rounded wind direction corresponding to the power nadir, then add the direction of alignment and subtract the prat halfwidth
@@ -665,20 +803,22 @@ def compute_offsets(df, fi, turbine_ids, turbine_pairs:list[tuple[int, int]]=Non
                         .select(pl.col("wd_round")).item()
         
         wd_range = np.arange(nadir - prat_hfwdth, nadir + prat_hfwdth + 1) % 360
-        if len(set(wd_range) & set(df_sub.select(f"wd_round").to_numpy().flatten())) != len(wd_range):
+        
+        if len(set(wd_range) - set(df_sub.select(f"wd_round").to_numpy().flatten())): # > int(prat_hfwdth / 10):
             logging.info(f"Cannot compute nadir for turbine pair {turbine_ids[i_up]}, {turbine_ids[i_down]}")
             continue
         
+        # df_sub = pl.Series(name="wd_round", values=wd_range).to_frame().join(df_sub, on="wd_round", how="left").with_columns(p_ratio=pl.col("p_ratio").interpolate_by("wd_round"))
+        
         # get parameters of gaussian trough that fits power ratio for wind direction approx perpendicular to dir_align TODO?
         opt_gauss_params = minimize(gauss_corr, [0, 5.0, 1.0], 
-                                    args=(df_sub.filter(pl.col("wd_round").is_in(wd_range))\
-                                               .select("p_ratio").to_numpy().flatten()), method='SLSQP')
+                                    args=(df_sub.filter(pl.col("wd_round").is_in(wd_range)).select("p_ratio").to_numpy().flatten()), method='SLSQP')
 
         # range around -/+ 30 degrees
-        xs = np.arange(-int((2*prat_hfwdth - 1) / 2),int((2*prat_hfwdth + 1) / 2),1)
+        xs = np.arange(-int((2 * prat_hfwdth - 1) / 2),int((2 * prat_hfwdth + 1) / 2),1)
         gauss = -1 * opt_gauss_params.x[2] * np.exp(-0.5 * ((xs - opt_gauss_params.x[0]) / opt_gauss_params.x[1])**2) + 1.
 
-        if plot or True:
+        if (type(plot) is bool and plot) or (type(plot) is list and tuple(pair) in plot):
             ax.plot(xs + nadir, gauss,'k',label="_nolegend_")
             ax.plot(2 * [nadir + opt_gauss_params.x[0]], [0, 1.25], 'r--',label="Direction of Measured Power Nadir")
             ax.legend()
