@@ -205,26 +205,27 @@ class DataFilter:
             # df_query_filt = sosfilt(sos, sub_df.collect().to_numpy(), axis=0)
             # df_query_filt = df_query.with_columns([pl.Series(name=feat, 
             #                                                  values=df_query_filt[:, i]) for i, feat in enumerate(features)])
-            df_query_filt = df_query_filt.slice(400, None) # remove transient at beginning, TODO figure out how much to remove based on dt and freq_cutoff and order
+            df_query_filt = df_query_filt.select(pl.all().slice(400, pl.len() - 800)) # remove transient at beginning, TODO figure out how much to remove based on dt and freq_cutoff and order
             
         elif smoothing_function == "savitzky_golay":
             from scipy.signal import savgol_filter
             
             df_query_filt = df_query.with_columns([pl.Series(name=feat, 
                                                              values=savgol_filter(sub_df.collect().to_numpy(), window_length=smoothing_params["window_size"], polyorder=smoothing_params["order"], axis=0)[:, i]).cast(dtype) for i, feat in enumerate(features)])
-            df_query_filt = df_query_filt.slice(400, None) # remove transient at beginning, TODO figure out how much to remove based on dt and freq_cutoff and order
+            df_query_filt = df_query_filt.select(pl.all().slice(400, pl.len() - 800)) # remove transient at beginning, TODO figure out how much to remove based on dt and freq_cutoff and order
             
         else:
             raise ValueError(f"Unknown smoothing function {smoothing_function}")
         
         if plot:
             fig, ax = plt.subplots(len(feature_types), 1, sharex=True)
+            suffixes = ["_wt005", "_wt074", "_wt075"]
             for ax_idx, feat_type in enumerate(feature_types):
                 ax[ax_idx].plot(df_query.select("time").collect().to_numpy(), 
-                                df_query.select(cs.starts_with(feat_type)).collect().to_numpy(), 
+                                df_query.select([f"{feat_type}{sfx}" for sfx in suffixes]).collect().to_numpy(), 
                                 linestyle="-", label="original")
                 time_sig = df_query_filt.select("time").collect().to_numpy()
-                filt_sig = df_query_filt.select(cs.starts_with(feat_type)).collect().to_numpy()
+                filt_sig = df_query_filt.select([f"{feat_type}{sfx}" for sfx in suffixes]).collect().to_numpy()
                 for l, ln in enumerate(ax[ax_idx].get_lines()):
                     ax[ax_idx].plot(time_sig,
                                     filt_sig[:, l], 

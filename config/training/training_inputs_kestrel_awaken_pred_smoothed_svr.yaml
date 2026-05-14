@@ -1,7 +1,7 @@
 experiment:
   username: aoife-henry
   project_name: wind_forecasting_awaken_pred60
-  run_name: kestrel_awaken_pred60
+  run_name: kestrel_awaken_pred60 #_13344857 # kestrel_awaken_pred60 tuning_svr_kestrel_awaken_pred60_12474380
   log_dir: /projects/awaken/ahenry/wind_forecasting/logging/
   project_root: /projects/awaken/ahenry/wind_forecasting/
   notes: "Tuning AWAKEN with SVR"
@@ -99,7 +99,7 @@ dataset:
     # normalization_consts_path: /projects/awaken/ahenry/wind_forecasting/awaken_data/awaken_processed_smoothed_normalization_consts.csv
     data_path: /scratch/ahenry/kfs3-flash/awaken_processed_smoothed_normalized.parquet
     normalization_consts_path: /scratch/ahenry/kfs3-flash/awaken_processed_smoothed_normalization_consts.csv
-    context_length: 1200 # in seconds
+    context_length: 600 # in seconds
     prediction_length: 60 # in seconds
     target_turbine_ids: # or leave blank to capture all
     normalize: True 
@@ -207,7 +207,7 @@ model:
     degree: 3
     gamma: auto
     epsilon: 0.1
-    cache_size: 200
+    cache_size: 7000
     n_neighboring_turbines: 5
   sf:
     n_neighboring_turbines: 5

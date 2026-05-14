@@ -36,7 +36,7 @@ class DataModule():
     # DataModule should use a polars LazyFrame and sink it into a parquet,
     # and store the indices in the full dataset to use for each cg, split_idx, and training/test/validation split
     """
-    data_path: str
+    normalized_data_path: str
     n_splits: int
     continuity_groups: List[int] | None
     train_split: float
@@ -60,7 +60,8 @@ class DataModule():
     persistent_workers: bool = True
     
     def __post_init__(self):
-            
+        
+        assert "normalized" in self.normalized_data_path, "normalized_data_path must point to a file with normalized data"
         # convert context and prediction length from seconds to time stesp based on freq
         self.context_length = int(pd.Timedelta(self.context_length, unit="s") / pd.Timedelta(self.freq))
         self.prediction_length = int(pd.Timedelta(self.prediction_length, unit="s") / pd.Timedelta(self.freq))
@@ -105,10 +106,10 @@ class DataModule():
     def set_train_ready_path(self):
         sfx = f"ctx{self.context_length}_pred{self.prediction_length}"
         if self.use_normalization:
-            self.train_ready_data_path = self.data_path.replace(
+            self.train_ready_data_path = self.normalized_data_path.replace(
                 ".parquet", f"_train_ready_{self.freq}_{'per_turbine' if self.per_turbine_target else 'all_turbine'}_{sfx}.parquet")
         else:
-            self.train_ready_data_path = self.data_path.replace(
+            self.train_ready_data_path = self.normalized_data_path.replace(
                 ".parquet", f"_train_ready_{self.freq}_{'per_turbine' if self.per_turbine_target else 'all_turbine'}_{sfx}_denormalize.parquet")
      
     def get_split_file_path(self, split):
@@ -206,19 +207,37 @@ class DataModule():
      
     def generate_datasets(self):
         
-        dataset = IterableLazyFrame(data_path=self.data_path, dtype=self.dtype)
-        # dataset = dataset.head(100000)
+        dataset = IterableLazyFrame(data_path=self.normalized_data_path, dtype=self.dtype)
+        # dataset = dataset.filter(pl.col("continuity_group").is_in([507, 1249,  388,  400,  791]))
+        # dataset = dataset.head(1000000)
         
         # add warning if upsampling
         dataset_dt = dataset.select(pl.col("time").diff()).slice(1, 1).collect().item()
+        
         if dataset_dt.total_seconds() > int(re.search("\\d+", self.freq).group()):
             logging.warning(f"Downsampling dataset with frequency of {dataset_dt} seconds to {self.freq}.")
+        
         dataset = dataset.with_columns(time=pl.col("time").dt.round(self.freq))\
                     .group_by("time").agg(cs.numeric().mean())\
                     .sort(["continuity_group", "time"])
                     
+        
+        if False:
+            suffixes = ["_wt005", "_wt074", "_wt075"]
+            for cg in dataset.select(pl.col("continuity_group").unique()).collect().to_numpy().flatten():
+                fig, ax = plt.subplots(len(self.target_prefixes), 1, sharex=True)
+                ds = dataset.filter(pl.col("continuity_group") == cg)
+                time = ds.select("time").collect().to_numpy()
+                for ax_idx, feat_type in enumerate(self.target_prefixes):
+                    ax[ax_idx].plot(time, 
+                                    ds.select([f"{feat_type}{sfx}" for sfx in suffixes]).collect().to_numpy(), 
+                                    linestyle="-", label="original")
+                    ax[ax_idx].set(title=feat_type)#, xlim=(1.295*1e7,1.345*1e7))
+            fig.show()
+                    
         if not self.use_normalization:
             # if we don't want the normalized data generated in preprocessing_main, we need to denormalize/inverse transform it here
+            
             scaler_params = self.compute_scaler_params()
             # feat_types = list(scaler_params["min_"])
             # dataset = dataset.with_columns([(cs.starts_with(feat_type) - scaler_params["min_"][feat_type]) 
@@ -262,7 +281,7 @@ class DataModule():
         # TODO HIGH there may be a racing condition here if multiple workers are writing to the same file e.g. for tuning
         # confirm that this only occurs on rank 0
         
-        dataset.sink_parquet(temp_fp, maintain_order=True)
+        dataset.collect().write_parquet(temp_fp)
         
         # if os.path.exists(self.train_ready_data_path):
         #     os.remove(self.train_ready_data_path)
@@ -388,7 +407,20 @@ class DataModule():
             logging.info(f"Rank {rank}: Scanning dataset {self.train_ready_data_path}.")
             dataset = IterableLazyFrame(data_path=self.train_ready_data_path, dtype=self.dtype)
             logging.info(f"Rank {rank}: Finished scanning dataset {self.train_ready_data_path}.")
-
+            
+            # ds = dataset._df.collect().partition_by("continuity_group")
+            # sub_ds = ds[9]
+            # fig, axs = plt.subplots(4, 1, figsize=(10, 8))
+            # axs[0].plot(sub_ds.select(pl.col("time")).to_numpy().flatten(),
+            #             sub_ds.select(cs.starts_with("ws_horz")).to_numpy())
+            # axs[1].plot(sub_ds.select(pl.col("time")).to_numpy().flatten(),
+            #             sub_ds.select(cs.starts_with("ws_vert")).to_numpy())
+            # axs[2].plot(sub_ds.select(pl.col("time")).to_numpy().flatten(),
+            #             sub_ds.select(cs.starts_with("nd_cos")).to_numpy())
+            # axs[3].plot(sub_ds.select(pl.col("time")).to_numpy().flatten(),
+            #             sub_ds.select(cs.starts_with("nd_sin")).to_numpy())
+            # for sub_ds in ds:
+                
             # sets self.continuity_groups, self.target_cols, self.target_suffixes, self.feat_dynamic_real_cols, self.num_target_vars, 
             #       self.num_feat_dynamic_real, self.num_feat_static_cat, self.num_feat_static_real, self.static_features, self.cardinality
             self.get_dataset_info(dataset)
@@ -423,7 +455,7 @@ class DataModule():
                                 item_id = f"TURBINE{turbine_id}_SPLIT{d}"
                                 temp_path = os.path.join(
                                     temp_dir,
-                                    os.path.basename(self.data_path).replace(".parquet", f"_{split}_{item_id}.parquet")
+                                    os.path.basename(self.normalized_data_path).replace(".parquet", f"_{split}_{item_id}.parquet")
                                 )
                                 
                                 if reload or not os.path.exists(temp_path):
@@ -458,7 +490,7 @@ class DataModule():
                         
                         datasets[split] = pl.scan_parquet(os.path.join(
                                     temp_dir,
-                                    os.path.basename(self.data_path).replace(".parquet", f"_{split}_TURBINE*_SPLIT*.parquet")
+                                    os.path.basename(self.normalized_data_path).replace(".parquet", f"_{split}_TURBINE*_SPLIT*.parquet")
                                 ), glob=True)\
                                     .sort("item_id", maintain_order=True)
                         
@@ -514,15 +546,29 @@ class DataModule():
                 for split in splits:
                     self.datasets[split] = datasets[split]
 
+                
+                if False:
+                    split = "test"
+                    suffixes = ["wt005", "wt074", "wt075"]
+                    for cg, ds in enumerate(datasets[split]):
+                        fig, ax = plt.subplots(len(self.target_prefixes), 1, sharex=True)
+                        time = ds.select("time").collect().to_numpy()
+                        for ax_idx, feat_type in enumerate(self.target_prefixes):
+                            ax[ax_idx].plot(time[:-400, :], 
+                                            ds.select([f"{feat_type}_{sfx}" for sfx in suffixes]).collect().to_numpy()[:-400, :], 
+                                            linestyle="-", label="original")
+                            ax[ax_idx].set(title=feat_type)#, xlim=(1.295*1e7,1.345*1e7))
+                    fig.show()    
+                
                 if self.as_lazyframe:
                     for split in splits:
-                        split_ds = getattr(self, f"{split}_dataset")
+                        split_ds = datasets[split]
                         for d, ds in enumerate(split_ds):
                             item_id = f"SPLIT{d}"
 
                             temp_path = os.path.join(
                                 temp_dir,
-                                os.path.basename(self.data_path).replace(".parquet", f"_{split}_{item_id}.parquet")
+                                os.path.basename(self.normalized_data_path).replace(".parquet", f"_{split}_{item_id}.parquet")
                             )
                             
                             if reload or not os.path.exists(temp_path):
@@ -553,6 +599,7 @@ class DataModule():
                                             *[pl.col(col).alias(f"target_{i}") for i, col in enumerate(self.target_cols)],
                                             *[pl.col(col).alias(f"feat_dynamic_real_{i}") for i, col in enumerate(self.feat_dynamic_real_cols)])\
                                     .sink_parquet(temp_path, maintain_order=True)
+                                    
                             elif verbose:
                                     logging.info(f"Loading existing cached file for {split} dataset {item_id}.")
                         
@@ -564,9 +611,20 @@ class DataModule():
                         #     how="vertical")
                         datasets[split] = pl.scan_parquet(
                             os.path.join(temp_dir, 
-                                         os.path.basename(self.data_path).replace(".parquet", f"_{split}_SPLIT*.parquet")), 
+                                         os.path.basename(self.normalized_data_path).replace(".parquet", f"_{split}_SPLIT*.parquet")), 
                             glob=True)\
                                 .sort("item_id", maintain_order=True)
+                        
+                        if False:  
+                            for cg, ds in enumerate([datasets[split].filter(pl.col("item_id") == item_id) for item_id in datasets[split].select(pl.col("item_id").unique()).collect().to_numpy().flatten()]):
+                                fig, ax = plt.subplots(2, 1, sharex=True)
+                                for ax_idx, pfx in enumerate(self.target_prefixes):
+                                    target_cols = [f"{pfx}_{sfx}" for sfx in ["wt005", "wt074", "wt075"]]
+                                    target_cols = [f"target_{self.target_cols.index(sfx)}" for sfx in target_cols]
+                                    ax[ax_idx].plot(ds.select("time").collect().to_numpy()[:-400, :], 
+                                            ds.select(target_cols).collect().to_numpy()[:-400, :], 
+                                            linestyle="-")
+                            fig.show()
                         # datasets[split] = pl.concat(transformed_datasets, how="vertical")
                          
                 else:
@@ -622,6 +680,8 @@ class DataModule():
                         # Atomic rename - if file exists, this will overwrite it atomically
                         logging.info(f"Rank 0: Atomically moving {temp_path} to {final_path}")
                         os.replace(temp_path, final_path)  # os.replace is atomic on POSIX
+                        if self.as_lazyframe:
+                            datasets[split] = pl.scan_parquet(final_path)  # reload as lazyframe
                         logging.info(f"Rank 0: Successfully saved {split} data to {final_path}")
                     except Exception as e:
                         logging.error(f"Rank 0: Error saving {split} data: {e}")

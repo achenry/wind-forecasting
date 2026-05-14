@@ -3,7 +3,7 @@ ssh ahenry@kestrel-gpu.hpc.nrel.gov
 # https://docs.github.com/en/authentication/connecting-to-github-with-ssh/generating-a-new-ssh-key-and-adding-it-to-the-ssh-agent?platform=linux
 
 ml mamba
-mamba create --prefix=/projects/ssc/ahenry/conda/envs/wind_forecasting_env python==3.12.9
+mamba create --prefix=/projects/awaken/ahenry/conda/envs/wind_forecasting_env python==3.12.9
 mamba activate wind_forecasting_env
 
 ## FOR PREPROCESSING ONLY

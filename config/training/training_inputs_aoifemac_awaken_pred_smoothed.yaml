@@ -3,7 +3,7 @@
 experiment:
   username: aoife-henry
   project_name: wind_forecasting_awaken_pred60
-  run_name: kestrel_awaken_pred60_12122365
+  run_name: kestrel_awaken_pred60 #kestrel_awaken_pred60_20260205101102
   log_dir: /Users/ahenry/Documents/toolboxes/wind-forecasting/logging/
   project_root: /Users/ahenry/Documents/toolboxes/wind-forecasting
   notes: "Tuning AWAKEN with Informer+"
@@ -20,8 +20,8 @@ logging:
 
 optuna:
   save_trial_code: false      # Default false
-  n_trials_per_worker: 100     # Test a total of 4*12=48 trials
-  total_study_trials:
+  n_trials_per_worker: 2     # Test a total of 4*12=48 trials
+  total_study_trials: 12
   max_epochs: 20              # epochs per trial
   sampler: "random"           # Options: "random" (ExpectedNumInstanceSampler), "sequential" (SequentialSampler)
   sampler_params:
@@ -96,7 +96,7 @@ dataset:
     # normalization_consts_path: /Users/ahenry/Documents/toolboxes/wind-forecasting/examples/data/preprocessed_awaken_data/short_loaded_data_normalization_consts.csv
     data_path: /Users/ahenry/Documents/toolboxes/wind-forecasting/examples/data/awaken_data/awaken_processed_smoothed_normalized.parquet
     normalization_consts_path: /Users/ahenry/Documents/toolboxes/wind-forecasting/examples/data/awaken_data/awaken_processed_smoothed_normalization_consts.csv
-    context_length: 1200 # in seconds
+    context_length: 600 # in seconds
     prediction_length: 60 # in seconds
     target_turbine_ids:  # or leave blank to capture all
     normalize: True 
@@ -227,7 +227,7 @@ model:
     degree: 3
     gamma: auto
     epsilon: 0.1
-    cache_size: 200
+    cache_size: 7000
     n_neighboring_turbines: 5
   sf:
     n_neighboring_turbines: 6
