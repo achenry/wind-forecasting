@@ -12,7 +12,8 @@ import torch
 import gc
 import inspect
 import numpy as np
-import pandas as pd
+import polars as pl
+
 import wandb
 from lightning.pytorch.loggers import WandbLogger
 import optuna
@@ -148,9 +149,7 @@ class MLTuningObjective:
             scaling_factor = self.base_batch_size / current_batch_size
             # BUGFIX Preserve float type for epoch validation
             if isinstance(base_val_check_interval, float) and base_val_check_interval <= 1.0:
-                # # TODO why can't we round this too? 
                 dynamic_val_check_interval = base_val_check_interval
-                # dynamic_val_check_interval = base_val_check_interval * scaling_factor
             else:
                 dynamic_val_check_interval = max(1.0, round(base_val_check_interval * scaling_factor))
             
@@ -262,6 +261,10 @@ class MLTuningObjective:
             run_name = f"{self.config['experiment']['run_name']}_rank_{os.environ.get('WORKER_RANK', '0')}_trial_{trial.number}"
             
             # Initialize a new W&B run for this specific trial
+            logging.info(f"WANDB_DIR == {os.environ["WANDB_DIR"]}")
+            logging.info(f"self.config['logging']['wandb_dir'] == {self.config['logging']['wandb_dir']}")
+            assert os.path.exists(self.config['logging']['wandb_dir'])
+            # if False:
             wandb.init(
                 # Core identification
                 project=project_name,
@@ -283,7 +286,8 @@ class MLTuningObjective:
 
             # Create a WandbLogger using the current W&B run
             # log_model=False as we only want metrics for this trial logger
-            wandb_logger_trial = WandbLogger(log_model=False, experiment=wandb.run, save_dir=self.config['logging']['wandb_dir'])
+            # TODO offline temporarily
+            wandb_logger_trial = WandbLogger(log_model=False, experiment=wandb.run, save_dir=self.config['logging']['wandb_dir'])#, offline=True)
             logging.info(f"Rank {os.environ.get('WORKER_RANK', '0')}: Created WandbLogger for trial {trial.number}")
 
             # Add the trial-specific logger to the trainer kwargs for this worker
@@ -358,15 +362,17 @@ class MLTuningObjective:
         logging.info(f"  - trainer limit_train_batches: {trial_trainer_kwargs.get('limit_train_batches', 'NOT SET')}")
         logging.info(f"  - Expected total batches: {trial_trainer_kwargs.get('max_epochs', 0) * estimator_kwargs['num_batches_per_epoch']}")
         
-        # Calculate actual number of training samples TODO this will not work with expectednumsampler...
-        n_training_samples = 0
-        for ds in self.data_module.train_dataset:
-            a, b = estimator_kwargs["train_sampler"]._get_bounds(ds["target"])
-            n_training_samples += (b - a + 1)
-        actual_batches = np.ceil(n_training_samples / estimator_kwargs['batch_size']).astype(int)
-        logging.info(f"  - Total training samples: {n_training_samples}")
-        logging.info(f"  - Actual batches from data: {actual_batches}")
-        logging.info(f"  - DataLoader will provide: min({actual_batches}, {estimator_kwargs['num_batches_per_epoch']}) = {min(actual_batches, estimator_kwargs['num_batches_per_epoch'])} batches/epoch")
+        # Calculate actual number of training samples TODO this only works with SequentialSampler
+        # n_training_samples = 0
+        # # for ds in self.data_module.train_dataset:
+        # for target_len in self.data_module.train_dataset.group_by("item_id").agg(pl.len())["len"]:
+        #     # a, b = estimator_kwargs["train_sampler"]._get_bounds(ds["target"])
+        #     a, b = estimator_kwargs["train_sampler"]._get_bounds(np.zeros((1, target_len)))
+        #     n_training_samples += (b - a + 1)
+        # actual_batches = np.ceil(n_training_samples / estimator_kwargs['batch_size']).astype(int)
+        # logging.info(f"  - Total training samples: {n_training_samples}")
+        # logging.info(f"  - Actual batches from data: {actual_batches}")
+        # logging.info(f"  - DataLoader will provide: min({actual_batches}, {estimator_kwargs['num_batches_per_epoch']}) = {min(actual_batches, estimator_kwargs['num_batches_per_epoch'])} batches/epoch")
         
         # CRITICAL: Check if we're using ExpectedNumInstanceSampler with Cyclic wrapper
         if isinstance(estimator_kwargs["train_sampler"], ExpectedNumInstanceSampler):
@@ -469,16 +475,16 @@ class MLTuningObjective:
                     logging.info(f"Trial {trial.number}: Using PyTorch DataLoader with file paths:")
                     logging.info(f"  Training data: {train_data_path}")
                     logging.info(f"  Validation data: {val_data_path}")
-                    
+                    num_workers = 0 # TODO is this causing too many files issue?, this should be configurable how many indices in sequential sampler to skip for validation
                     estimator.train(
                         training_data=train_data_path,
                         validation_data=val_data_path,
                         forecast_generator=forecast_generator,
                         # Pass additional kwargs that might be needed for PyTorch dataloaders
-                        num_workers=4,
+                        num_workers=num_workers,
                         pin_memory=True,
-                        persistent_workers=True,
-                        skip_indices=self.data_module.prediction_length # TODO this should be configurable how many indices in sequential sampler to skip for validation
+                        persistent_workers=(num_workers > 0),
+                        skip_indices=self.data_module.prediction_length 
                     )
                 else:
                     # Original GluonTS data loading

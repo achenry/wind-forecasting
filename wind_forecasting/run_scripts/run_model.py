@@ -1,13 +1,14 @@
 import argparse
 # from calendar import c
 import logging
-from memory_profiler import profile
+# from memory_profiler import profile
 import os
 import re
 import torch
+# import torch.multiprocessing
+import multiprocessing as mp
 import gc
 import random
-import json
 import numpy as np
 from datetime import datetime
 import platform
@@ -15,24 +16,21 @@ import subprocess
 import inspect
 
 import polars as pl
-from lightning.pytorch import Trainer
-from lightning.pytorch.loggers import WandbLogger
-from lightning.pytorch.utilities import rank_zero_only
+import polars.selectors as cs
 import yaml
-from lightning.pytorch.strategies import DDPStrategy # Ensure import
 
 # Internal imports
 from wind_forecasting.tuning.utils.trial_utils import handle_trial_with_oom_protection
 from wind_forecasting.utils.optuna_storage import setup_optuna_storage
 
+from lightning.pytorch import Trainer
+from lightning.pytorch.loggers import WandbLogger
+from lightning.pytorch.utilities import rank_zero_only
+from lightning.pytorch.strategies import DDPStrategy # Ensure import
 from gluonts.torch.distributions import LowRankMultivariateNormalOutput
 from gluonts.model.forecast_generator import DistributionForecastGenerator, SampleForecastGenerator
 from gluonts.time_feature._base import second_of_minute, minute_of_hour, hour_of_day, day_of_year
 from gluonts.transform import ExpectedNumInstanceSampler, ValidationSplitSampler, SequentialSampler
-
-torch.set_float32_matmul_precision('medium') # or high to trade off performance for precision
-
-from wind_forecasting.utils.callbacks import DeadNeuronMonitor
 from pytorch_transformer_ts.informer.lightning_module import InformerLightningModule
 from pytorch_transformer_ts.informer.estimator import InformerEstimator
 from pytorch_transformer_ts.autoformer.estimator import AutoformerEstimator
@@ -41,12 +39,28 @@ from pytorch_transformer_ts.spacetimeformer.estimator import SpacetimeformerEsti
 from pytorch_transformer_ts.spacetimeformer.lightning_module import SpacetimeformerLightningModule
 from pytorch_transformer_ts.tactis_2.estimator import TACTiS2Estimator as TactisEstimator
 from pytorch_transformer_ts.tactis_2.lightning_module import TACTiS2LightningModule as TactisLightningModule
+
+torch.set_float32_matmul_precision('medium') # or high to trade off performance for precision
+
+from wind_forecasting.utils.callbacks import DeadNeuronMonitor
 from wind_forecasting.preprocessing.data_module import DataModule
 from wind_forecasting.run_scripts.testing import test_model, get_checkpoint, load_estimator_from_checkpoint
 from wind_forecasting.tuning import get_tuned_params
 from wind_forecasting.utils.optuna_config_utils import generate_db_setup_params
 
+# import torch.multiprocessing as tmp
+# tmp.set_start_method('spawn', force=True)
+
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+# Change the sharing strategy to avoid "Too many open files" errors
+# This should be one of the first things your script does.
+# try:
+#     torch.multiprocessing.set_sharing_strategy('file_system')
+#     logging.info("Set multiprocessing sharing strategy to 'file_system'.")
+# except RuntimeError:
+#     # In case it's already set or not supported on the system
+#     logging.warning("Could not set multiprocessing sharing strategy to 'file_system', or it could already be set. ")
 
 def main():
 
@@ -183,16 +197,19 @@ def main():
 
             # Clear GPU memory before starting
             torch.cuda.empty_cache()
+            
+            # Final check to ensure configuration is valid for available GPUs
+            if isinstance(config["trainer"]["devices"], int) and config["trainer"]["devices"] > num_gpus:
+                logging.warning(f"Requested {config['trainer']['devices']} GPUs but only {num_gpus} are available. Adjusting trainer.devices.")
+                config["trainer"]["devices"] = num_gpus
 
-        # Final check to ensure configuration is valid for available GPUs
-        if isinstance(config["trainer"]["devices"], int) and config["trainer"]["devices"] > num_gpus:
-            logging.warning(f"Requested {config['trainer']['devices']} GPUs but only {num_gpus} are available. Adjusting trainer.devices.")
-            config["trainer"]["devices"] = num_gpus
-
-        if num_gpus == 1 and config["trainer"]["strategy"] != "auto":
-            logging.warning(f"Adjusting trainer.strategy from {config['trainer']['strategy']} to 'auto' for single machine GPU.")
-            config["trainer"]["strategy"] = "auto"
-
+            if num_gpus == 1 and config["trainer"]["strategy"] != "auto":
+                logging.warning(f"Adjusting trainer.strategy from {config['trainer']['strategy']} to 'auto' for single machine GPU.")
+                config["trainer"]["strategy"] = "auto"
+        
+        else:
+            config["trainer"]["devices"] = 1
+            
         logging.info(f"Trainer config: devices={config['trainer']['devices']}, strategy={config['trainer'].get('strategy', 'auto')}")
 
         gc.collect()
@@ -218,7 +235,7 @@ def main():
         
     
     # Dynamically set DataLoader workers based on SLURM_CPUS_PER_TASK
-    cpus_per_task_str = os.environ.get('SLURM_CPUS_PER_TASK', '1') # Default to 1 CPU if var not set
+    cpus_per_task_str = os.environ.get('SLURM_CPUS_PER_TASK', mp.cpu_count()) # Default to 1 CPU if var not set
     try:
         cpus_per_task = int(cpus_per_task_str)
         if cpus_per_task <= 0:
@@ -228,16 +245,19 @@ def main():
         logging.warning(f"Could not parse SLURM_CPUS_PER_TASK ('{cpus_per_task_str}'), defaulting cpus_per_task to 1.")
         cpus_per_task = 1
 
-    num_workers = max(0, cpus_per_task - 1)
+    num_workers = max(0, cpus_per_task - 1) # subtract one for the main process, (possibly another one for system overhead), and let rest be workers
 
-    # Set DataLoader parameters within the trainer config TODO JUAN why is num_workers=1
+    # Set DataLoader parameters within the trainer config
     logging.info(f"Determined SLURM_CPUS_PER_TASK={cpus_per_task}. Setting num_workers = {num_workers}.")
     
     if args.mode != "dataset":
         # %% CREATE DATASET
         logging.info("Creating datasets")
         use_normalization = False if args.model == "tactis" else config["dataset"].get("normalize", True)
-        logging.info(f"Instantiating DataModule with normalized={use_normalization} (Forced False for TACTiS-2 which requires denormalized input)")
+        logging.info(f"Instantiating DataModule with use_normalization={use_normalization} (Forced False for TACTiS-2 which requires denormalized input)")
+        
+        persistent_workers = num_workers > 0
+        
         data_module = DataModule(
             data_path=config["dataset"]["data_path"],
             n_splits=config["dataset"]["n_splits"],
@@ -252,14 +272,14 @@ def main():
             freq=config["dataset"]["resample_freq"],
             target_suffixes=config["dataset"]["target_turbine_ids"],
             per_turbine_target=config["dataset"]["per_turbine_target"],
-            as_lazyframe=False,
+            as_lazyframe=True,
             dtype=pl.Float32,
-            normalized=use_normalization,  # TACTiS-2 requires denormalized input for internal scaling
+            use_normalization=use_normalization,  # TACTiS-2 requires denormalized input for internal scaling
             normalization_consts_path=config["dataset"]["normalization_consts_path"], # Needed for denormalization
             batch_size=config["dataset"].get("batch_size", 128),
             workers=num_workers,
             pin_memory=True,
-            persistent_workers=True,
+            persistent_workers=persistent_workers,
             verbose=True
         )
     
@@ -301,7 +321,8 @@ def main():
 
         # Get worker info from environment variables
         worker_id = os.environ.get('SLURM_PROCID', '0')
-        gpu_id = os.environ.get('CUDA_VISIBLE_DEVICES', '0')
+        gpu_id = os.environ.get('CUDA_VISIBLE_DEVICES', '0') # TODO GPU_ID is a list here...
+        gpu_id = '0'
 
         # Create a unique run name for each worker
         project_name = f"{config['experiment'].get('project_name', 'wind_forecasting')}_{args.model}"
@@ -314,8 +335,10 @@ def main():
         # Configure WandB to use the correct checkpoint location
         # This ensures artifacts are saved in the correct checkpoint directory
         os.environ["WANDB_RUN_DIR"] = run_dir
-        # os.environ["WANDB_ARTIFACT_DIR"] = os.environ["WANDB_CHECKPOINT_PATH"] = checkpoint_dir
+        os.environ["WANDB_ARTIFACT_DIR"] = os.environ["WANDB_CHECKPOINT_PATH"] = config["logging"].get("checkpoint_dir", os.path.join(log_dir, "checkpoints"))
         os.environ["WANDB_DIR"] = wandb_dir
+        os.environ["WANDB_CACHE_DIR"] = os.path.join(wandb_dir, "cache")
+        os.environ["WANDB_SOCKET_PATH"] = os.path.join(wandb_dir, f"socket.{unique_id}")
 
         # Fetch GitHub repo URL and current commit and set WandB environment variables
         project_root = config['experiment'].get('project_root', os.getcwd())
@@ -364,6 +387,7 @@ def main():
         checkpoint_dir = os.path.join(log_dir, project_name, unique_id)
         # Create WandB logger only for train/test modes
         if args.mode in ["train", "test"]:
+            # TODO offline temporarily
             wandb_logger = WandbLogger(
                 project=f"train_{project_name}", # Project name in WandB, set in config
                 entity=config['logging'].get('entity'),
@@ -371,6 +395,7 @@ def main():
                 name=run_name, # Unique name for the run, can also take config for hyperparameters. Keep brief
                 save_dir=wandb_dir, # Directory for saving logs and metadata
                 log_model=False,
+                # offline=True,
                 job_type=args.mode,
                 mode=config['logging'].get('wandb_mode', 'online'), # Configurable wandb mode
                 id=unique_id,
@@ -423,7 +448,7 @@ def main():
         db_connection_info = None # Will hold pg_config if PostgreSQL is used
         db_setup_params = None # Initialize
         
-            # Use globals() to fetch the module and estimator classes dynamically
+        # Use globals() to fetch the module and estimator classes dynamically
         LightningModuleClass = globals()[f"{args.model.capitalize()}LightningModule"]
         EstimatorClass = globals()[f"{args.model.capitalize()}Estimator"]
         DistrOutputClass = globals()[config["model"]["distr_output"]["class"]]
@@ -753,12 +778,12 @@ def main():
         # Prepare all arguments in a dictionary for the Estimator
     
     if args.mode == "dataset":
-        # TODO this won't consider varying context length factors or resample frequencies
+        # NOTE must generate mutlitple model_config yamls for different values of context length and/or resample frequencies
         dm_params = []
         for cnf_path, mdl in zip(args.config, args.model):
             with open(cnf_path, "r") as file:
                 cnf = yaml.safe_load(file)
-            dm_normalized = False if mdl == "tactis" else cnf["dataset"].get("normalize", True)
+            dm_use_normalization = False if mdl == "tactis" else cnf["dataset"].get("normalize", True)
             dm_param_set = (cnf["dataset"]["data_path"], 
                             cnf["dataset"]["n_splits"], 
                               cnf["dataset"]["val_split"],
@@ -768,7 +793,7 @@ def main():
                               cnf["dataset"]["resample_freq"], 
                               cnf["dataset"]["target_turbine_ids"],
                               cnf["dataset"]["per_turbine_target"], 
-                              dm_normalized,
+                              dm_use_normalization,
                               cnf["dataset"]["normalization_consts_path"])
             
             if dm_param_set in dm_params:
@@ -776,6 +801,7 @@ def main():
             
             dm_params.append(dm_param_set)
             
+            persistent_workers = num_workers > 0
             dm = DataModule(
                 data_path=cnf["dataset"]["data_path"],
                 n_splits=cnf["dataset"]["n_splits"],
@@ -790,14 +816,14 @@ def main():
                 freq=cnf["dataset"]["resample_freq"],
                 target_suffixes=cnf["dataset"]["target_turbine_ids"],
                 per_turbine_target=cnf["dataset"]["per_turbine_target"],
-                as_lazyframe=False,
+                as_lazyframe=True,
                 dtype=pl.Float32,
-                normalized=dm_normalized,  # TACTiS-2 requires denormalized input for internal scaling
+                use_normalization=dm_use_normalization,  # TACTiS-2 requires denormalized input for internal scaling
                 normalization_consts_path=cnf["dataset"]["normalization_consts_path"], # Needed for denormalization
                 batch_size=cnf["dataset"].get("batch_size", 128),
                 workers=num_workers,
                 pin_memory=True,
-                persistent_workers=True,
+                persistent_workers=persistent_workers,
                 verbose=True
             )
             
@@ -821,7 +847,7 @@ def main():
         # wait until data_module attributes have been updated to generate splits
         data_module.set_train_ready_path()
         if rank_zero_only.rank == 0:
-            logging.info("Preparing data for tuning")
+            logging.info("Preparing data for tuning on rank 0")
             if args.reload_data or not os.path.exists(data_module.train_ready_data_path):
                 data_module.generate_datasets()
                 reload = True
@@ -849,7 +875,7 @@ def main():
             "cardinality": data_module.cardinality,
             "num_feat_static_real": data_module.num_feat_static_real,
             "input_size": data_module.num_target_vars,
-            "scaling": config["model"][args.model].get("scaling", "False"), #if model_hparams.get("scaling", "True") == "True" else False, # TODO back to std, ALLOW US TO SPECIFY SCALING, ALSO WHY STRING NOT B00L Scaling handled externally or internally by TACTiS
+            "scaling": config["model"][args.model].get("scaling", "False"), #if model_hparams.get("scaling", "True") == "True" else False,
             "lags_seq": config["model"][args.model].get("lags_seq", [0]), 
             "time_features": [second_of_minute, minute_of_hour, hour_of_day, day_of_year],
             "batch_size": data_module.batch_size,
@@ -863,23 +889,30 @@ def main():
         }
         
         n_training_samples = 0
-        for ds in data_module.train_dataset:
-            a, b = estimator_kwargs["train_sampler"]._get_bounds(ds["target"])
-            n_training_samples += (b - a + 1)
+        if data_module.as_lazyframe:
+            for ds in data_module.train_dataset.partition_by("item_id"):
+                a, b = estimator_kwargs["train_sampler"]._get_bounds(ds.select(cs.starts_with("target_0")))
+                n_training_samples += (b - a + 1)
+        else:
+            for ds in data_module.train_dataset:
+                a, b = estimator_kwargs["train_sampler"]._get_bounds(ds["target"])
+                n_training_samples += (b - a + 1)
         
         n_training_steps = np.ceil(n_training_samples / data_module.batch_size).astype(int)
         assert estimator_kwargs["num_batches_per_epoch"] is None or isinstance(estimator_kwargs["num_batches_per_epoch"], int)
-        if estimator_kwargs["num_batches_per_epoch"] is not None:
-            n_training_steps = min(n_training_steps, estimator_kwargs["num_batches_per_epoch"])
         
-        # TODO JUAN PATCH
-        estimator_kwargs["num_batches_per_epoch"] = n_training_steps
-            
         # Log warning if using random sampler with null limit_train_batches
-        if (config["dataset"].get("sampler", "sequential") == "random" and
-            estimator_kwargs["num_batches_per_epoch"] is None):
-            logging.warning("Using random sampler (ExpectedNumInstanceSampler) with limit_train_batches=null. "
-                          "Consider setting an explicit integer value for limit_train_batches to avoid potential issues.")
+        if estimator_kwargs["num_batches_per_epoch"] is None:
+            sampler_type = config["dataset"].get("sampler", "sequential")
+            if sampler_type == "random":
+                logging.warning("Using random sampler (ExpectedNumInstanceSampler) with limit_train_batches=null. "
+                            "Consider setting an explicit integer value for limit_train_batches to avoid potential issues.")
+            elif sampler_type == "sequential":
+                estimator_kwargs["true_num_batches_per_epoch"] = n_training_steps
+        else:
+            logging.warning(f"true_num_batches_per_epoch is set to {estimator_kwargs['num_batches_per_epoch']}")
+            n_training_steps = min(n_training_steps, estimator_kwargs["num_batches_per_epoch"])
+            estimator_kwargs["true_num_batches_per_epoch"] = n_training_steps #estimator_kwargs["num_batches_per_epoch"]
         
         if  "d_model" in model_hparams: # and "dim_feedforward" not in model_hparams
             # set dim_feedforward to 4x the d_model found in this trial
@@ -978,12 +1011,6 @@ def main():
                    estimator_class=EstimatorClass,
                    distr_output_class=DistrOutputClass,
                    data_module=data_module,
-                   max_epochs=config["optuna"]["max_epochs"],
-                   # Use base_limit_train_batches if available, otherwise fallback to limit_train_batches (or None)
-                   limit_train_batches=config["optuna"].get("base_limit_train_batches", config["optuna"].get("limit_train_batches", None)),
-                   metric=config["optuna"]["metric"],
-                   direction=config["optuna"]["direction"],
-                   n_trials_per_worker=config["optuna"]["n_trials_per_worker"],
                    trial_protection_callback=handle_trial_with_oom_protection,
                    seed=args.seed, tuning_phase=args.tuning_phase,
                    restart_tuning=args.restart_tuning) # Add restart_tuning parameter
@@ -1010,7 +1037,7 @@ def main():
             logging.info(f"Using PyTorch DataLoader with file paths:")
             logging.info(f"  Training data: {train_data_path}")
             logging.info(f"  Validation data: {val_data_path}")
-            
+            persistent_workers = num_workers > 0
             estimator.train(
                 training_data=train_data_path,
                 validation_data=val_data_path,
@@ -1019,7 +1046,7 @@ def main():
                 # Pass additional kwargs that might be needed for PyTorch dataloaders
                 num_workers=num_workers,
                 pin_memory=True,
-                persistent_workers=True
+                persistent_workers=persistent_workers
             )
         else:
             # Original GluonTS data loading

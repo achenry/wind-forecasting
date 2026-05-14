@@ -8,32 +8,22 @@ the entire hyperparameter optimization process using Optuna.
 import os
 import logging
 import time
-import re
 import subprocess
 from datetime import datetime
 import pandas as pd
 
-import optuna
 from optuna import create_study, load_study
 from optuna.study import MaxTrialsCallback
-from optuna.samplers import TPESampler
 from optuna.pruners import HyperbandPruner, PercentilePruner, PatientPruner, SuccessiveHalvingPruner, NopPruner
 from optuna.trial import TrialState
-import wandb
 
 from wind_forecasting.tuning.objective import MLTuningObjective
-from wind_forecasting.tuning.utils.optuna_utils import (
-    OptunaSamplerPrunerPersistence, 
-    log_optuna_visualizations_to_wandb,
-    log_detailed_trials_table_to_wandb
-)
+from wind_forecasting.tuning.utils.optuna_utils import OptunaSamplerPrunerPersistence
 from wind_forecasting.utils.optuna_config_utils import generate_db_setup_params, generate_optuna_dashboard_command
 
 
 def tune_model(model, config, study_name, optuna_storage, lightning_module_class, estimator_class,
-               max_epochs, limit_train_batches,
                distr_output_class, data_module,
-               metric="val_loss", direction="minimize", n_trials_per_worker=10, total_study_trials=100,
                trial_protection_callback=None, seed=42, tuning_phase=0, restart_tuning=False, optimize_callbacks=None,):
 
     # Log safely without credentials if they were included (they aren't for socket trust)
@@ -113,7 +103,7 @@ def tune_model(model, config, study_name, optuna_storage, lightning_module_class
 
         elif pruning_type == "hyperband":
             min_resource = config["optuna"]["pruning"].get("min_resource", 2)
-            max_resource = config["optuna"]["pruning"].get("max_resource", max_epochs)
+            max_resource = config["optuna"]["pruning"].get("max_resource", 10)
             reduction_factor = config["optuna"]["pruning"].get("reduction_factor", 2)
             bootstrap_count = config["optuna"]["pruning"].get("bootstrap_count", 0)
             
@@ -167,7 +157,6 @@ def tune_model(model, config, study_name, optuna_storage, lightning_module_class
     worker_id = os.environ.get('WORKER_RANK', '0')
 
     # Generate unique study name based on restart_tuning flag
-
     base_study_prefix = study_name
     if restart_tuning:
         job_id = os.environ.get('SLURM_JOB_ID')
@@ -207,7 +196,7 @@ def tune_model(model, config, study_name, optuna_storage, lightning_module_class
             study = create_study(
                 study_name=final_study_name,
                 storage=optuna_storage,
-                direction=direction,
+                direction=config["optuna"].get("direction", "minimize"),
                 load_if_exists=not restart_tuning, # Only load if not restarting
                 sampler=sampler,
                 pruner=pruner_for_study
@@ -263,117 +252,25 @@ def tune_model(model, config, study_name, optuna_storage, lightning_module_class
         raise
 
     # Define study_config_params for all workers
+    max_epochs = config["optuna"].get("max_epochs")
+    metric = config["optuna"].get("metric", "val_loss")
     study_config_params = {
         "dataset_per_turbine_target": config["dataset"].get("per_turbine_target"),
         "optuna_sampler": config["optuna"].get("sampler"),
         "optuna_pruner_type": config["optuna"]["pruning"].get("type") if "pruning" in config["optuna"] else None,
-        "optuna_max_epochs": config["optuna"].get("max_epochs"),
+        "optuna_max_epochs": max_epochs,
         "optuna_base_limit_train_batches": config["optuna"].get("base_limit_train_batches"),
         "optuna_limit_train_batches": config["optuna"].get("limit_train_batches"),  # Legacy fallback
         "dataset_base_batch_size": config["dataset"].get("base_batch_size"),
-        "optuna_metric": config["optuna"].get("metric"),
+        "optuna_metric": metric,
         "dataset_data_path": config["dataset"].get("data_path"),
         "dataset_resample_freq": config["dataset"].get("resample_freq"),
         "dataset_test_split": config["dataset"].get("test_split"),
         "dataset_val_split": config["dataset"].get("val_split")
     }
     
-    # Adjust scheduler parameters based on dataset and training settings
-    per_turbine_target = config["dataset"].get("per_turbine_target", False)
     # Use base_limit_train_batches if available, otherwise fallback to limit_train_batches
     limit_train_batches = config["optuna"].get("base_limit_train_batches") or config["optuna"].get("limit_train_batches")
-    num_turbines = 1 # Default to 1 in case target_suffixes is not available or per_turbine_target is True
-    if not data_module.per_turbine_target and data_module.target_suffixes is not None:
-        try:
-            num_turbines = len(data_module.target_suffixes)
-            if num_turbines == 0:
-                    logging.warning("data_module.target_suffixes is empty, defaulting num_turbines to 1 for adjustment.")
-                    num_turbines = 1
-        except TypeError:
-                logging.warning("data_module.target_suffixes is not a sequence, defaulting num_turbines to 1 for adjustment.")
-                num_turbines = 1
-    elif data_module.per_turbine_target:
-            num_turbines = 1
-    else:
-            logging.warning("data_module.target_suffixes is None, defaulting num_turbines to 1 for adjustment.")
-            num_turbines = 1
-
-    if num_turbines <= 0:
-            logging.error(f"Calculated num_turbines is invalid ({num_turbines}). Defaulting to 1 for adjustment.")
-            num_turbines = 1
-
-    # Add TACTiS-specific parameters if model is TACTiS
-    if model == 'tactis':
-
-        base_warmup_s1 = config["model"][model].get("warmup_steps_s1")
-        base_decay_s1 = config["model"][model].get("steps_to_decay_s1")
-        base_warmup_s2 = config["model"][model].get("warmup_steps_s2")
-        base_decay_s2 = config["model"][model].get("steps_to_decay_s2")
-
-        adj_warmup_s1 = base_warmup_s1
-        adj_decay_s1 = base_decay_s1
-        adj_warmup_s2 = base_warmup_s2
-        adj_decay_s2 = base_decay_s2
-
-        if not per_turbine_target and limit_train_batches is None:
-            logging.info(f"Adjusting {model} scheduler params: per_turbine_target={per_turbine_target}, limit_train_batches={limit_train_batches}. Dividing by num_turbines={num_turbines}.")
-            if base_warmup_s1 is not None:
-                adj_warmup_s1 = round(base_warmup_s1 / num_turbines)
-            if base_decay_s1 is not None:
-                adj_decay_s1 = round(base_decay_s1 / num_turbines)
-            if base_warmup_s2 is not None:
-                adj_warmup_s2 = round(base_warmup_s2 / num_turbines)
-            if base_decay_s2 is not None:
-                adj_decay_s2 = round(base_decay_s2 / num_turbines)
-            
-            # Update the config itself so MLTuningObjective uses these adjusted values
-            config["model"][model]["warmup_steps_s1"] = adj_warmup_s1
-            config["model"][model]["steps_to_decay_s1"] = adj_decay_s1
-            config["model"][model]["warmup_steps_s2"] = adj_warmup_s2
-            config["model"][model]["steps_to_decay_s2"] = adj_decay_s2
-            logging.info(f"Adjusted {model} scheduler params: warmup_s1={adj_warmup_s1}, decay_s1={adj_decay_s1}, warmup_s2={adj_warmup_s2}, decay_s2={adj_decay_s2}")
-        else:
-            logging.info(f"Using base {model} scheduler params: per_turbine_target={per_turbine_target}, limit_train_batches={limit_train_batches}.")
-
-        # These will now pick up the potentially adjusted values from the config
-        tactis_params_for_logging = {
-            f"model_{model}_stage2_start_epoch": config["model"][model].get("stage2_start_epoch"), # Unchanged by this logic
-            f"model_{model}_warmup_steps_s1": config["model"][model].get("warmup_steps_s1"),
-            f"model_{model}_warmup_steps_s2": config["model"][model].get("warmup_steps_s2"),
-            f"model_{model}_steps_to_decay_s1": config["model"][model].get("steps_to_decay_s1"),
-            f"model_{model}_steps_to_decay_s2": config["model"][model].get("steps_to_decay_s2"),
-            f"model_{model}_eta_min_fraction_s1": config["model"][model].get("eta_min_fraction_s1"),
-            f"model_{model}_eta_min_fraction_s2": config["model"][model].get("eta_min_fraction_s2")
-        }
-        study_config_params.update(tactis_params_for_logging)
-    else:
-        base_warmup = config["model"][model].get("warmup_steps")
-        base_decay = config["model"][model].get("steps_to_decay")
-
-        adj_warmup = base_warmup
-        adj_decay = base_decay
-
-        if not per_turbine_target and limit_train_batches is None:
-            logging.info(f"Adjusting {model} scheduler params: per_turbine_target={per_turbine_target}, limit_train_batches={limit_train_batches}. Dividing by num_turbines={num_turbines}.")
-            if base_warmup is not None:
-                adj_warmup = round(base_warmup / num_turbines)
-            if base_decay is not None:
-                adj_decay = round(base_decay / num_turbines)
-            
-            # Update the config itself so MLTuningObjective uses these adjusted values
-            config["model"][model]["warmup_steps"] = adj_warmup
-            config["model"][model]["steps_to_decay"] = adj_decay
-            logging.info(f"Adjusted {model} scheduler params: warmup={adj_warmup}, decay={adj_decay}")
-        else:
-            logging.info(f"Using base {model} scheduler params: per_turbine_target={per_turbine_target}, limit_train_batches={limit_train_batches}.")
-
-        # These will now pick up the potentially adjusted values from the config
-        params_for_logging = {
-            f"model_{model}_warmup_steps": config["model"][model].get("warmup_steps"),
-            f"model_{model}_steps_to_decay": config["model"][model].get("steps_to_decay"),
-            f"model_{model}_eta_min_fraction": config["model"][model].get("eta_min_fraction"),
-        }
-        study_config_params.update(params_for_logging)   
         
     # Set study user attributes from config (only on rank 0)
     if worker_id == '0':
@@ -470,7 +367,7 @@ def tune_model(model, config, study_name, optuna_storage, lightning_module_class
 
     try:
         n_trials_per_worker = config["optuna"].get("n_trials_per_worker", 10)
-        total_study_trials_config = config["optuna"].get("total_study_trials")
+        total_study_trials_config = config["optuna"].get("total_study_trials", 100)
         
         n_trials_setting_for_optimize = None
         
@@ -541,104 +438,41 @@ def tune_model(model, config, study_name, optuna_storage, lightning_module_class
             logging.info(f"Rank 0: Still waiting for trials to finish ({num_finished}/{expected_total_trials}). Sleeping for {wait_interval_seconds} seconds...")
             time.sleep(wait_interval_seconds)
 
+        # Fetch best trial *before* initializing summary run
+        best_trial = None
         try:
-            # Fetch best trial *before* initializing summary run
-            best_trial = None
-            try:
-                best_trial = study.best_trial
-                logging.info(f"Rank 0: Fetched best trial: Number={best_trial.number}, Value={best_trial.value}")
-            except ValueError:
-                logging.warning("Rank 0: Could not retrieve best trial (likely no trials completed successfully).")
-            except Exception as e_best_trial:
-                logging.error(f"Rank 0: Error fetching best trial: {e_best_trial}", exc_info=True)
+            best_trial = study.best_trial
+            logging.info(f"Rank 0: Fetched best trial: Number={best_trial.number}, Value={best_trial.value}")
+        except ValueError:
+            logging.warning("Rank 0: Could not retrieve best trial (likely no trials completed successfully).")
+        except Exception as e_best_trial:
+            logging.error(f"Rank 0: Error fetching best trial: {e_best_trial}", exc_info=True)
 
-            # Fetch Git info directly using subprocess
-            remote_url = None
-            commit_hash = None
-            try:
-                # Get remote URL
-                remote_url_bytes = subprocess.check_output(['git', 'config', '--get', 'remote.origin.url'], stderr=subprocess.STDOUT).strip()
-                remote_url = remote_url_bytes.decode('utf-8')
-                # Convert SSH URL to HTTPS URL if necessary
-                if remote_url.startswith("git@"):
-                    remote_url = remote_url.replace(":", "/").replace("git@", "https://")
-                # Remove .git suffix AFTER potential conversion
-                if remote_url.endswith(".git"):
-                    remote_url = remote_url[:-4]
+        # Fetch Git info directly using subprocess
+        remote_url = None
+        commit_hash = None
+        try:
+            # Get remote URL
+            remote_url_bytes = subprocess.check_output(['git', 'config', '--get', 'remote.origin.url'], stderr=subprocess.STDOUT).strip()
+            remote_url = remote_url_bytes.decode('utf-8')
+            # Convert SSH URL to HTTPS URL if necessary
+            if remote_url.startswith("git@"):
+                remote_url = remote_url.replace(":", "/").replace("git@", "https://")
+            # Remove .git suffix AFTER potential conversion
+            if remote_url.endswith(".git"):
+                remote_url = remote_url[:-4]
 
-                # Get commit hash
-                commit_hash_bytes = subprocess.check_output(['git', 'rev-parse', 'HEAD'], stderr=subprocess.STDOUT).strip()
-                commit_hash = commit_hash_bytes.decode('utf-8')
-                logging.info(f"Rank 0: Fetched Git Info - URL: {remote_url}, Commit: {commit_hash}")
-            except subprocess.CalledProcessError as e:
-                logging.warning(f"Rank 0: Could not get Git info: {e.output.decode('utf-8').strip()}")
-            except FileNotFoundError:
-                logging.warning("Rank 0: 'git' command not found. Cannot log Git info.")
-            except Exception as e_git:
-                 logging.error(f"Rank 0: An unexpected error occurred while fetching Git info: {e_git}", exc_info=True)
-
-            git_info_config = {}
-            if remote_url and commit_hash:
-                 git_info_config = {"git_info": {"url": remote_url, "commit": commit_hash}}
-            else:
-                 logging.warning("Rank 0: Git info could not be fully determined. Logging summary run without it.")
-
-
-            # Determine summary run name
-            base_run_name = config['experiment']['run_name']
-            if best_trial:
-                run_name = f"RESULTS_{base_run_name}_tuning_phase{tuning_phase}_best_trial_{best_trial.number}_{final_study_name}"
-            else:
-                run_name = f"RESULTS_{base_run_name}_tuning_phase{tuning_phase}_optuna_summary_{final_study_name}"
-
-            project_name = f"{config['experiment'].get('project_name', 'wind_forecasting')}_{model}_tuning_phase{tuning_phase}"
-            group_name = config['experiment']['run_name']
-            wandb_dir = config['logging'].get('wandb_dir', './logging/wandb')
-            tags = [model, "optuna_summary"] + config['experiment'].get('extra_tags', [])
-
-            # Ensure wandb is not already initialized in a weird state (shouldn't be, but safety check)
-            if wandb.run is not None:
-                logging.warning(f"Rank 0: Found an existing W&B run ({wandb.run.id}) before starting summary run. Finishing it.")
-                wandb.finish()
-            # INFO: This wandb.init is to initialize W&B summary run at the end
-
-            wandb.init(
-                name=run_name,
-                project=project_name,
-                group=group_name,
-                job_type="optuna_summary",
-                dir=wandb_dir,
-                tags=tags,
-                config=git_info_config,
-                reinit="create_new" # Let explicit wandb.finish() calls handle run separation
-            )
-            logging.info(f"Rank 0: Initialized W&B summary run: {wandb.run.name} (ID: {wandb.run.id}) with Git info: {git_info_config}")
-
-            try:
-                # Log Optuna visualizations using the helper function
-                logging.info("Rank 0: Logging Optuna visualizations to W&B summary run...")
-                log_optuna_visualizations_to_wandb(study, wandb.run)
-                logging.info("Rank 0: Finished logging Optuna visualizations to W&B.")
-
-                # Log Detailed Trials Table using the helper function
-                log_detailed_trials_table_to_wandb(study, wandb.run)
-
-            except Exception as e_log:
-                 logging.error(f"Rank 0: Error during logging visualizations or trial table to W&B summary run: {e_log}", exc_info=True)
-            finally:
-                # Ensure W&B run is finished even if logging fails
-                if wandb.run is not None:
-                    logging.info(f"Rank 0: Finishing W&B summary run: {wandb.run.name}")
-                    wandb.finish()
-                else:
-                    logging.warning("Rank 0: No active W&B run found to finish in the finally block.")
-
-        except Exception as e_init:
-            logging.error(f"Rank 0: Failed to initialize W&B summary run: {e_init}", exc_info=True)
-            # Ensure wandb is cleaned up if initialization failed partially
-            if wandb.run is not None:
-                wandb.finish()
-
+            # Get commit hash
+            commit_hash_bytes = subprocess.check_output(['git', 'rev-parse', 'HEAD'], stderr=subprocess.STDOUT).strip()
+            commit_hash = commit_hash_bytes.decode('utf-8')
+            logging.info(f"Rank 0: Fetched Git Info - URL: {remote_url}, Commit: {commit_hash}")
+        except subprocess.CalledProcessError as e:
+            logging.warning(f"Rank 0: Could not get Git info: {e.output.decode('utf-8').strip()}")
+        except FileNotFoundError:
+            logging.warning("Rank 0: 'git' command not found. Cannot log Git info.")
+        except Exception as e_git:
+                logging.error(f"Rank 0: An unexpected error occurred while fetching Git info: {e_git}", exc_info=True)
+                
     # All workers log their contribution
     logging.info(f"Worker {worker_id} completed optimization")
 

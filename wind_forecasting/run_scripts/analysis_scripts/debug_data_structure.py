@@ -90,7 +90,7 @@ class DataDebugger:
             target_suffixes=dataset_config["target_turbine_ids"],
             per_turbine_target=dataset_config["per_turbine_target"],
             as_lazyframe=False,
-            normalized=use_normalization,
+            use_normalization=use_normalization,
             normalization_consts_path=dataset_config["normalization_consts_path"],
             batch_size=dataset_config["batch_size"],
             workers=4,

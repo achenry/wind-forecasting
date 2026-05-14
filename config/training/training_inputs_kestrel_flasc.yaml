@@ -4,17 +4,17 @@ experiment:
   #run_name: kestrel_flasc
   #run_name: kestrel_flasc
   run_name: kestrel_flasc_all_turbine
-  log_dir: /projects/ssc/ahenry/wind_forecasting/logging/
-  project_root: /projects/ssc/ahenry/wind_forecasting/
+  log_dir: /projects/awaken/ahenry/wind_forecasting/logging/
+  project_root: /projects/awaken/ahenry/wind_forecasting/
 
 # logging:
-#   wandb_dir: /projects/ssc/ahenry/wind_forecasting/logging/ # WandB will create a 'wandb' subdirectory here automatically
-#   optuna_dir: /projects/ssc/ahenry/wind_forecasting/logging/optuna/
-#   checkpoint_dir: /projects/ssc/ahenry/wind_forecasting/logging/checkpoints/
-#   slurm_output_dir: /projects/ssc/ahenry/wind_forecasting/logging/slurm_logs/
+#   wandb_dir: /projects/awaken/ahenry/wind_forecasting/logging/ # WandB will create a 'wandb' subdirectory here automatically
+#   optuna_dir: /projects/awaken/ahenry/wind_forecasting/logging/optuna/
+#   checkpoint_dir: /projects/awaken/ahenry/wind_forecasting/logging/checkpoints/
+#   slurm_output_dir: /projects/awaken/ahenry/wind_forecasting/logging/slurm_logs/
 
 optuna:
-  # storage_dir: /projects/ssc/ahenry/wind_forecasting/optuna
+  # storage_dir: /projects/awaken/ahenry/wind_forecasting/optuna
   backend: mysql # sqlite, mysql, or journal
   n_trials: 100
   metric: val_loss
@@ -65,8 +65,8 @@ optuna:
 
 
 dataset: 
-    data_path: /projects/ssc/ahenry/wind_forecasting/flasc_data/SMARTEOLE_WakeSteering_SCADA_1minData_normalized.parquet
-    normalization_consts_path: /projects/ssc/ahenry/wind_forecasting/flasc_data/SMARTEOLE_WakeSteering_SCADA_1minData_normalization_consts.csv 
+    data_path: /projects/awaken/ahenry/wind_forecasting/flasc_data/SMARTEOLE_WakeSteering_SCADA_1minData_normalized.parquet
+    normalization_consts_path: /projects/awaken/ahenry/wind_forecasting/flasc_data/SMARTEOLE_WakeSteering_SCADA_1minData_normalization_consts.csv 
     context_length: 600 # in seconds
     prediction_length: 300 # in seconds
     target_turbine_ids: # or leave blank to capture all
@@ -212,7 +212,7 @@ trainer:
     # accumulate: 1.0
     max_epochs: 100 # Maximum number of epochs to train 100
     limit_train_batches: 1000
-    default_root_dir: /projects/ssc/ahenry/wind_forecasting/checkpoints
+    default_root_dir: /projects/awaken/ahenry/wind_forecasting/checkpoints
     # precision: 32-true # 16-mixed enables mixed precision training 32-true is full precision
     # batch_size: 32 # larger = more stable gradients
     # lr: 0.0001 # Step size

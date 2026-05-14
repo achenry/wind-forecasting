@@ -43,7 +43,7 @@ def main():
 
     # %% CREATE DATASET
     logging.info("Creating datasets")
-    data_module = DataModule(data_path=config["dataset"]["data_path"], 
+    data_module = DataModule(normalized_data_path=config["dataset"]["data_path"], 
                              n_splits=config["dataset"]["n_splits"],
                             continuity_groups=None, train_split=(1.0 - config["dataset"]["val_split"] - config["dataset"]["test_split"]),
                                 val_split=config["dataset"]["val_split"], test_split=config["dataset"]["test_split"], 
@@ -59,7 +59,7 @@ def main():
     # logging.info("Finished plotting train/val/test datasets.")
 
 if __name__ == "__main__":
-    # scp -v aohe7145@login.rc.colorado.edu:/pl/active/paolab/wind_forecasting/awaken_data/\*.parquet ahenry@kestrel.hpc.nrel.gov:/projects/ssc/ahenry/wind_forecasting/awaken_data/
-    # scp -v aohe7145@login.rc.colorado.edu:/pl/active/paolab/wind_forecasting/awaken_data/\*.csv ahenry@kestrel.hpc.nrel.gov:/projects/ssc/ahenry/wind_forecasting/awaken_data/
-    # scp -v aohe7145@login.rc.colorado.edu:/pl/active/paolab/wind_forecasting/awaken_data/\*.npy ahenry@kestrel.hpc.nrel.gov:/projects/ssc/ahenry/wind_forecasting/awaken_data/
+    # scp -v aohe7145@login.rc.colorado.edu:/pl/active/paolab/wind_forecasting/awaken_data/\*.parquet ahenry@kestrel.hpc.nrel.gov:/projects/awaken/ahenry/wind_forecasting/awaken_data/
+    # scp -v aohe7145@login.rc.colorado.edu:/pl/active/paolab/wind_forecasting/awaken_data/\*.csv ahenry@kestrel.hpc.nrel.gov:/projects/awaken/ahenry/wind_forecasting/awaken_data/
+    # scp -v aohe7145@login.rc.colorado.edu:/pl/active/paolab/wind_forecasting/awaken_data/\*.npy ahenry@kestrel.hpc.nrel.gov:/projects/awaken/ahenry/wind_forecasting/awaken_data/
     main()

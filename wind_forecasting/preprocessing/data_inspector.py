@@ -19,6 +19,7 @@ import numpy as np
 from floris import FlorisModel
 from floris.flow_visualization import visualize_cut_plane
 import floris.layout_visualization as layoutviz
+from floris.utilities import rotate_coordinates_rel_west
 import scipy.stats as stats
 import polars as pl
 import polars.selectors as cs
@@ -309,10 +310,12 @@ class DataInspector:
                 ax = WindroseAxes(fig, rect)
                 fig.add_axes(ax)
                 
-                ax.bar(direc, wind_spd, normed=True, opening=0.8, edgecolor='white')
+                ax.bar(direc, wind_spd, normed=True, opening=0.8, edgecolor='white', bins=[0, 6, 9, 12, 15, 18])
+                # h, l = ax.get_legend_handles_labels()
                 ax.legend(bbox_to_anchor=(1.05, 0.5), loc="center left")
                 # ax.set_xlim((0, 6))
-                ax.set_ylim((0, 25))
+                ax.set_ylim((0, 16))
+                ax.yaxis.majorTicks[0].set_visible(False)
                 ax.set_title("")
                 # ax.set_title(f"{' '.join(feature_type.split('_')).capitalize()} Rose all Turbines")
                 plt.show()
@@ -510,7 +513,7 @@ class DataInspector:
         if turbine_ids == "all":
             # Extract wind speed data
             wind_speeds = df.select(cs.starts_with("wind_speed")).collect().to_numpy().flatten()
-            # wind_speeds = wind_speeds[(wind_speeds > 0) & (np.isfinite(wind_speeds))]
+            wind_speeds = wind_speeds[(wind_speeds > 0) & (np.isfinite(wind_speeds))]
             # wind_speeds = np.concatenate([wind_speeds[0:1], wind_speeds[1:][np.diff(wind_speeds) != 0]])
             if len(wind_speeds) == 0:
                 print("No valid wind speed data found after filtering")
@@ -525,7 +528,7 @@ class DataInspector:
 
             # Plot
             fig, ax = plt.subplots(1, 1, figsize=(10, 6))
-            sns.histplot(wind_speeds, stat='density', kde=False, color='skyblue', label='Observed', ax=ax)
+            sns.histplot(np.unique(wind_speeds), stat='density', kde=False, color='skyblue', label='Observed', ax=ax)
             ax.plot(x, y, 'r-', lw=2, label=f'Weibull (k={shape:.2f}, λ={scale:.2f})')
             
             # ax.set_title('Wind Speed Distribution with Fitted Weibull', fontsize=16)
@@ -619,7 +622,7 @@ class DataInspector:
                    wind_directions=wind_directions, wind_speeds=wind_speeds, turbulence_intensities=turbulence_intensities)
         
         # Create the plot
-        fig, ax = plt.subplots(figsize=(10, 5.2))
+        fig, ax = plt.subplots(figsize=(15.12,  8.58))
         
         # Plot the turbine layout
         layoutviz.plot_turbine_points(
@@ -627,12 +630,33 @@ class DataInspector:
             highlight_turbine_groups=turbine_groups,
             highlight_colors=turbine_group_colors)
         
+        x, y, _, _, _ = rotate_coordinates_rel_west(
+            self.fmodel.core.grid.wind_directions,
+            self.fmodel.core.grid.turbine_coordinates
+        )
+        max_diameter = np.max(self.fmodel.core.grid.turbine_diameters)
+
+        x1_bounds = (np.min(x) - 20 * max_diameter, np.max(x) + 20 * max_diameter)
+        x2_bounds = (np.min(y) - 20 * max_diameter, np.max(y) + 20 * max_diameter)
+        
+        # x_rng = self.fmodel.layout_x.max() - self.fmodel.layout_x.min()
+        # y_rng = self.fmodel.layout_y.max() - self.fmodel.layout_y.min()
         # Calculate and visualize the flow field
-        horizontal_plane = self.fmodel.calculate_horizontal_plane(height=self.fmodel.core.farm.hub_heights[0])
-        ax.set_xlim((horizontal_plane.df.x1.min(), horizontal_plane.df.x1.max()))
-        ax.set_ylim((horizontal_plane.df.x2.min(), horizontal_plane.df.x2.max()))
-        ax.set_ylim((-200, 10000))
+        horizontal_plane = self.fmodel.calculate_horizontal_plane(
+            height=self.fmodel.core.farm.hub_heights[0],
+            x_bounds=x1_bounds,
+            y_bounds=x2_bounds,
+            )
+        # ax.set_xlim((horizontal_plane.df.x1.min(), horizontal_plane.df.x1.max()))
+        # ax.set_ylim((horizontal_plane.df.x2.min(), horizontal_plane.df.x2.max()))
+        # ax.set_ylim((-200, 10000))
         visualize_cut_plane(horizontal_plane, ax=ax, min_speed=1, max_speed=10, color_bar=True)
+        
+        x1_bounds = (np.min(x) - 20 * max_diameter, np.max(x) + 20 * max_diameter)
+        x2_bounds = (np.min(y) - 2 * max_diameter, np.max(y) + 2 * max_diameter)
+        ax.set_xlim(x1_bounds)
+        ax.set_ylim(x2_bounds)
+        ax.set_aspect("equal")
         
         if turbine_labels:
             # turbine_labels = list(turbine_labels)
@@ -692,7 +716,7 @@ class DataInspector:
         # return self.fmodel
 
     # @staticmethod
-    def plot_nulled_vs_remaining(self, df, mask_func, mask_input_features, output_features, feature_types, feature_labels):
+    def plot_nulled_vs_remaining(self, df, mask_func, file_set_indices, mask_input_features, output_features, feature_types, feature_labels):
         
         sns.set(style="whitegrid")
 
@@ -700,24 +724,25 @@ class DataInspector:
         if not isinstance(ax, np.ndarray):
             ax = [ax]
 
-        for inp_feat, opt_feat in zip(mask_input_features, output_features):
-            mask_array = mask_func(inp_feat)
-            if mask_array is None:
-                continue
+        for file_set_idx in file_set_indices:
+            for inp_feat, opt_feat in zip(mask_input_features, output_features):
+                mask_array = mask_func(file_set_idx, inp_feat).collect(streaming=True).to_series()
+                if mask_array is None:
+                    continue
 
-            for ft, feature_type in enumerate(feature_types):
-                if feature_type in opt_feat:
-                    ax_idx = ft
-                    ax[ax_idx].set_title(feature_labels[ft])
-                    break
+                for ft, feature_type in enumerate(feature_types):
+                    if feature_type in opt_feat:
+                        ax_idx = ft
+                        ax[ax_idx].set_title(feature_labels[ft])
+                        break
 
-            # Plot all measurements
-            y_all = df.select(opt_feat).collect().to_numpy().flatten()
-            ax[ax_idx].scatter(x=[inp_feat] * len(y_all), y=y_all, color="blue", label="All Measurements")
+                # Plot all measurements
+                y_all = df.filter(pl.col("file_set_idx") == file_set_idx).select(opt_feat).collect().to_numpy().flatten()
+                ax[ax_idx].scatter(x=[inp_feat] * len(y_all), y=y_all, color="blue", label="All Measurements")
 
-            # Plot nulled measurements
-            y_nulled = df.filter(mask_array).select(opt_feat).collect().to_numpy().flatten()
-            ax[ax_idx].scatter(x=[inp_feat] * len(y_nulled), y=y_nulled, color="red", label="Nulled Measurements")
+                # Plot nulled measurements
+                y_nulled = df.filter((pl.col("file_set_idx") == file_set_idx)).filter(mask_array).select(opt_feat).collect().to_numpy().flatten()
+                ax[ax_idx].scatter(x=[inp_feat] * len(y_nulled), y=y_nulled, color="red", label="Nulled Measurements")
 
         ax[-1].set_xlabel("Turbine ID")
         # Avoid duplicate labels
@@ -729,26 +754,51 @@ class DataInspector:
         # plt.close()
 
     @staticmethod
-    def print_pc_remaining_vals(df, mask_func, mask_input_features, output_features, filter_type):
-        out = []
-        for inp_feat, opt_feat in zip(mask_input_features, output_features):
-            # tid = feature.split("_")[-1]
-            mask_array = mask_func(inp_feat)
-            if mask_array is None:
-                logging.info(f"Mask error for feature {inp_feat}: mask is None")
-                continue
-            try:
-                pc_remaining_vals = 100 * (
-                    df.filter(~mask_array)
-                    .select(pl.len())
-                    .collect()
-                    .item()
-                    / df.select(pl.len()).collect().item()
-                )
-                print(f"Feature {opt_feat} has {pc_remaining_vals:.2f}% remaining values after filter {filter_type}.")
-                out.append((opt_feat, pc_remaining_vals))
-            except Exception as e:
-                logging.error(f"Error processing feature {opt_feat}: {str(e)}")
+    def print_pc_remaining_vals(df, mask_func, file_set_indices, mask_input_features, output_features, filter_type):
+        
+        if file_set_indices is not None:
+            out = []
+            for file_set_idx in file_set_indices:
+                out.append([])
+                for inp_feat, opt_feat in zip(mask_input_features, output_features):
+                    # tid = feature.split("_")[-1]
+                    mask_array = (mask_func(file_set_idx, inp_feat))
+                    if mask_array is None:
+                        logging.info(f"Mask error for feature {inp_feat}: mask is None")
+                        continue
+                    try:
+                        df_fsi = df.filter(pl.col("file_set_idx") == file_set_idx)
+                        pc_remaining_vals = 100 * (
+                            df_fsi.filter(~mask_array)
+                            .select(pl.len())
+                            .collect()
+                            .item()
+                            / df_fsi.select(pl.len()).collect().item()
+                        )
+                        print(f"File set {file_set_idx}, feature {opt_feat} has {pc_remaining_vals:.2f}% remaining values after filter {filter_type}.")
+                        out[-1].append((opt_feat, pc_remaining_vals))
+                    except Exception as e:
+                        logging.error(f"Error processing feature {opt_feat} of file set {file_set_idx}: {str(e)}")
+        else:
+            out = []
+            for inp_feat, opt_feat in zip(mask_input_features, output_features):
+                # tid = feature.split("_")[-1]
+                mask_array = mask_func(inp_feat)
+                if mask_array is None:
+                    logging.info(f"Mask error for feature {inp_feat}: mask is None")
+                    continue
+                try:
+                    pc_remaining_vals = 100 * (
+                        df.filter(~mask_array)
+                        .select(pl.len())
+                        .collect()
+                        .item()
+                        / df.select(pl.len()).collect().item()
+                    )
+                    print(f"Feature {opt_feat} has {pc_remaining_vals:.2f}% remaining values after filter {filter_type}.")
+                    out.append((opt_feat, pc_remaining_vals))
+                except Exception as e:
+                    logging.error(f"Error processing feature {opt_feat}: {str(e)}")
         return out
 
     def get_features(self, df, feature_types, turbine_ids="all"):

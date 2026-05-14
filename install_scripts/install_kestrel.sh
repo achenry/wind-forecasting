@@ -3,7 +3,7 @@ ssh ahenry@kestrel-gpu.hpc.nrel.gov
 # https://docs.github.com/en/authentication/connecting-to-github-with-ssh/generating-a-new-ssh-key-and-adding-it-to-the-ssh-agent?platform=linux
 
 ml mamba
-mamba create --prefix=/projects/ssc/ahenry/conda/envs/wind_forecasting_env python==3.12.9
+mamba create --prefix=/projects/awaken/ahenry/conda/envs/wind_forecasting_env python==3.12.9
 mamba activate wind_forecasting_env
 
 ## FOR PREPROCESSING ONLY
@@ -20,7 +20,7 @@ mamba activate wind_forecasting_env
 
 git clone https://github.com/achenry/OpenOA
 cd OpenOA
-pip install --target $LARGE_STORAGE/ahenry/wind_forecasting_env/bin .
+pip install -e --target $LARGE_STORAGE/ahenry/wind_forecasting_env/bin .
 cd ..
 
 git clone https://github.com/achenry/wind-forecasting.git
@@ -29,8 +29,15 @@ git checkout feature/spacetimeformer
 python setup.py develop --prefix=$LARGE_STORAGE/ahenry/wind_forecasting_env/bin
 cd ..
 
-conda install statsmodels pyyaml matplotlib numpy seaborn netcdf4 --y 
-pip install --target $LARGE_STORAGE/ahenry/wind_forecasting_env/bin floris polars windrose psutil
+
+git clone https://github.com/achenry/floris.git
+cd floris
+git checkout feature/mpc
+pip install -e .
+cd ..
+
+conda install statsmodels pyyaml matplotlib numpy seaborn netcdf4 pyarrow --y 
+pip install --target $LARGE_STORAGE/ahenry/wind_forecasting_env/bin polars windrose psutil
 
 ## END FOR PREPROCESSING ONLY
 
@@ -96,7 +103,7 @@ pip install -e .
 cd ..
 
 
-# salloc --account=ssc --time=01:00:00 --mem-per-cpu=64G --gpus=2 --ntasks-per-node=2 --partition=debug
+# salloc --account=awaken --time=01:00:00 --mem-per-cpu=64G --gpus=2 --ntasks-per-node=2 --partition=debug
 
 # vim /projects/ssc/ahenry/conda/envs/wind_forecasting/conda-meta/pinned
 # performer-pytorch==1.1.4=pyhd8ed1ab_0  # conda-forge

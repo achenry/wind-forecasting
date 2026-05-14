@@ -1,13 +1,11 @@
-
-
 experiment:
   username: aoife-henry
-  project_name: wind_forecasting_awaken_pred210
-  run_name: kestrel_awaken_pred210
+  project_name: wind_forecasting_awaken_pred60
+  run_name: kestrel_awaken_pred60
   log_dir: /projects/awaken/ahenry/wind_forecasting/logging/
-  project_root: /projects/awaken/ahenry/wind_forecasting/
+  project_root: c
   notes: "Tuning AWAKEN with Informer+"
-  extra_tags: ["awaken", "pred210"] # By default already has GPU id, model and mode.
+  extra_tags: ["awaken", "pred60"] # By default already has GPU id, model and mode.
 
 logging:
   entity: jmb0507-cu-boulder # Wandb entity (group name)
@@ -16,13 +14,14 @@ logging:
   wandb_dir: /projects/awaken/ahenry/wind_forecasting/logging/ # WandB will create a 'wandb' subdirectory here automatically
   optuna_dir: /projects/awaken/ahenry/wind_forecasting/logging/optuna/
   checkpoint_dir: /projects/awaken/ahenry/wind_forecasting/logging/checkpoints/
+  chkp_dir_suffix: "_60"
   slurm_output_dir: /projects/awaken/ahenry/wind_forecasting/logging/slurm_logs/
 
 optuna:
   save_trial_code: false      # Default false
-  n_trials_per_worker: 50   # Replaced by total_study_trials for global trial limit
+  n_trials_per_worker: 100   # Replaced by total_study_trials for global trial limit
   total_study_trials: 200     # Global maximum number of trials across all workers, takes precedence over n_trials_per_worker
-  max_epochs: 40              # epochs per trial
+  max_epochs: 25              # epochs per trial
   sampler: "random"           # Options: "random" (ExpectedNumInstanceSampler), "sequential" (SequentialSampler)
   sampler_params:
     tpe:
@@ -40,10 +39,11 @@ optuna:
   pruning:
     enabled: true
     type: "successivehalving"
-    min_resource: 12 # Applies to SuccessiveHalving and Hyperband
+    min_resource: 5
     reduction_factor: 2
-    min_early_stopping_rate: 0 # Applies to SuccessiveHalving and Hyperband
-    bootstrap_count: 8 # Number of trials to complete before pruning
+    min_early_stopping_rate: 0
+    bootstrap_count: 5
+    # enabled: true
     # type: "patient"
     # patience: 2               # Configure PatientPruner: number of steps to wait (epochs) before pruning
     # min_delta: 0.0            # Configure PatientPruner: tolerance for improvement (default 0.0)
@@ -80,7 +80,6 @@ optuna:
     db_host: tlv51ahenry01.nrel.gov # 10.121.2.72
     db_port: 3306
     db_user: optuna_user
-    # db_name: wind_forecasting
 
     # --- Optional TCP/IP Settings (if use_socket is false) ---
     # use_tcp: false
@@ -98,23 +97,24 @@ optuna:
 
 
 dataset: 
-    data_path: /projects/awaken/ahenry/wind_forecasting/awaken_data/awaken_processed_normalized.parquet
-    normalization_consts_path: /projects/awaken/ahenry/wind_forecasting/awaken_data/awaken_processed_normalization_consts.csv
-    context_length: 420 # in seconds
-    prediction_length: 210 # in seconds
+    # data_path: /projects/awaken/ahenry/wind_forecasting/awaken_data/awaken_processed_smoothed_normalized.parquet
+    # normalization_consts_path: /projects/awaken/ahenry/wind_forecasting/awaken_data/awaken_processed_smoothed_normalization_consts.csv
+    data_path: /scratch/ahenry/kfs3-flash/awaken_processed_smoothed_normalized.parquet
+    normalization_consts_path: /scratch/ahenry/kfs3-flash/awaken_processed_smoothed_normalization_consts.csv
+    context_length: 600 # in seconds
+    prediction_length: 60 # in seconds
     target_turbine_ids: # or leave blank to capture all
     normalize: True 
-    # batch_size: 64
     batch_size: 128
     base_batch_size: 128  # Base batch size for scaling calculations
-    workers: 12
-    overfit: False
+    workers: 4
+    overfit: false
     test_split: 0.1
     val_split: 0.1
     resample_freq: 15s
     n_splits: 1 # how many divisions of each continuity group to make which is further subdivided into training test and validation data
     per_turbine_target: True
-    use_pytorch_dataloader: true
+    use_pytorch_dataloader: True
     # context_length_factor: 2
 
 model:
@@ -165,7 +165,7 @@ model:
     lr_stage2: 2e-6
     weight_decay_stage1: 1e-5
     weight_decay_stage2: 1e-5
-    # Dropout & Clipping
+    # Dropout & Clippingf
     dropout_rate: 0.1
     gradient_clip_val_stage1: 1000.0
     gradient_clip_val_stage2: 1000.0
@@ -179,6 +179,7 @@ model:
     steps_to_decay_s2: 0.9 # T_max = (steps_per_epoch [282] * epochs_in_stage [100-30]) - warmup_steps ~ 47940 - warmup_steps    
     eta_min_fraction_s2: 0.01  # Fraction of initial LR for eta_min in Stage 2 cosine decay    
 
+
   informer:
     # embedding_dimension: [32] # Determines dimension of the embedding space
     # num_encoder_layers: 2 # Number of transformer blocks stacked
@@ -187,18 +188,17 @@ model:
     # d_model: 512
     # dim_feedforward: 2048
     # activation: relu
-    context_length_factor: 4
+    context_length_factor: 2
     num_encoder_layers: 2
-    num_decoder_layers: 1
+    num_decoder_layers: 2
     d_model: 128
-    n_heads: 4
-    factor: 3
-    lr: 7.415335679794799e-05
-    weight_decay: 1e-06
-    dropout: 0.18730411313466236
+    n_heads: 8
+    factor: 5
+    lr: 6.398379938945388e-05
+    weight_decay: 1e-08
+    dropout: 0.15697382123348755
     warmup_steps: 0.1 # Warmup steps
     steps_to_decay: 0.9 # T_max = (steps_per_epoch [282] * epochs_in_stage [30]) - warmup_steps
-    eta_min_fraction: 0.01  # Fraction of initial LR for eta_min cosine decay
   autoformer:
     # embedding_dimension: [32] # Determines dimension of the embedding space
     num_encoder_layers: 2 # Number of transformer blocks stacked
@@ -208,7 +208,6 @@ model:
     activation: gelu
     warmup_steps: 0.1 # Warmup steps
     steps_to_decay: 0.9 # T_max = (steps_per_epoch [282] * epochs_in_stage [30]) - warmup_steps
-    eta_min_fraction: 0.01  # Fraction of initial LR for eta_min cosine decay
   spacetimeformer:
     # embedding_dimension: 32 # Determines dimension of the embedding space
     num_encoder_layers: 3 # Number of transformer blocks stacked
@@ -235,7 +234,6 @@ model:
     use_given: False
     warmup_steps: 0.1 # Warmup steps
     steps_to_decay: 0.9 # T_max = (steps_per_epoch [282] * epochs_in_stage [30]) - warmup_steps
-    eta_min_fraction: 0.01  # Fraction of initial LR for eta_min cosine decay
   svr:
     kernel: rbf
     C: 1.0
@@ -287,5 +285,5 @@ trainer:
     num_nodes: 1
     strategy: ddp
     max_epochs: 100 # Maximum number of epochs to train 100
-    limit_train_batches:  # 5000, set to null for training, 5000 for tuning
+    limit_train_batches: # 5000, set to null for training, 5000 for tuning
     log_every_n_steps: 100

@@ -58,9 +58,9 @@ if __name__ == "__main__":
     
     # NOTE the dataset parts of the configs should be the same, other than context and prediction length
     base_model_config = model_configs[np.argsort([ctd + ptd for ctd, ptd in zip(context_timedelta, prediction_timedelta)])[-1]]
-    data_module = DataModule(data_path=base_model_config["dataset"]["data_path"], 
+    data_module = DataModule(normalized_data_path=base_model_config["dataset"]["data_path"], 
                              normalization_consts_path=base_model_config["dataset"]["normalization_consts_path"],
-                             normalized=False, 
+                             use_normalization=False, 
                              n_splits=1, #model_config["dataset"]["n_splits"],
                              continuity_groups=None, train_split=(1.0 - base_model_config["dataset"]["val_split"] - base_model_config["dataset"]["test_split"]),
                              val_split=base_model_config["dataset"]["val_split"], test_split=base_model_config["dataset"]["test_split"],
