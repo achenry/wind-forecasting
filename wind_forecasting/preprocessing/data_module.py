@@ -898,7 +898,7 @@ class DataModule:
                                             self.feat_dynamic_real_cols
                                         )
                                     ],
-                                ).sink_parquet(temp_path, maintain_order=True)
+                                ).collect().write_parquet(temp_path)
                                 logging.info(
                                     f"Saved split {split} dataset {item_id} to {temp_path}"
                                 )
