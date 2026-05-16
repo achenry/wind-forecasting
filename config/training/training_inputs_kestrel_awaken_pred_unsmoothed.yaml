@@ -4,8 +4,8 @@ experiment:
   run_name: kestrel_awaken_pred60
   log_dir: /projects/awaken/ahenry/wind_forecasting/logging/
   project_root: c
-  notes: "Tuning AWAKEN with Informer+"
-  extra_tags: ["awaken", "pred60"] # By default already has GPU id, model and mode.
+  notes: "Quantile head + pinball + ES"
+  extra_tags: ["awaken", "pred60", "tactis2", "quantile", "pinball+ES", "K11", "monotonic_delta", "unsmoothed"] # By default already has GPU id, model and mode.
 
 logging:
   entity: jmb0507-cu-boulder # Wandb entity (group name)
@@ -101,21 +101,20 @@ dataset:
     # normalization_consts_path: /projects/awaken/ahenry/wind_forecasting/awaken_data/awaken_processed_unsmoothed_normalization_consts.csv
     data_path: /scratch/ahenry/kfs3-flash/awaken_processed_unsmoothed_normalized.parquet
     normalization_consts_path: /scratch/ahenry/kfs3-flash/awaken_processed_unsmoothed_normalization_consts.csv
-    context_length: 600 # in seconds
+    context_length: 1200 # in seconds
     prediction_length: 60 # in seconds
     target_turbine_ids: # or leave blank to capture all
-    normalize: True 
-    batch_size: 128
-    base_batch_size: 128  # Base batch size for scaling calculations
+    normalize: false 
+    batch_size: 64
+    base_batch_size: 128
     workers: 4
     overfit: false
-    test_split: 0.1
-    val_split: 0.1
+    test_split: 0.10
+    val_split: 0.10
     resample_freq: 15s
-    n_splits: 1 # how many divisions of each continuity group to make which is further subdivided into training test and validation data
-    per_turbine_target: True
-    use_pytorch_dataloader: True
-    # context_length_factor: 2
+    n_splits: 1
+    per_turbine_target: true
+    use_pytorch_dataloader: true
 
 model:
   distr_output: 
@@ -128,57 +127,78 @@ model:
   tactis:
     # General TACTiS settings
     initial_stage: 1
-    stage2_start_epoch: 20 # Epoch to start stage 2 (copula training)
-    ac_mlp_num_layers: 2 # MLP layers for attention copula
-    ac_mlp_dim: 128      # Dimension of AC's internal MLP layers
-    stage1_activation_function: "relu" # Activation for Stage 1 encoders (e.g., "relu", "gelu", "leaky_relu")
-    stage2_activation_function: "relu" # Activation for Stage 2 encoders (e.g., "relu", "gelu", "leaky_relu")
+    stage2_start_epoch: 30
     input_encoding_normalization: true
-    scaling: "std" # Options: "mean", "std", null
-    loss_normalization: "both" # Options: "series", "timesteps", "both", "none"
-    encoder_type: "standard" # Options: "standard", "temporal"
+    scaling: "std"
+    loss_normalization: "none"
+    encoder_type: "standard"
+    num_parallel_samples: 200
     bagging_size: null
-    num_parallel_samples: 200 # Inference only setting
-    # Marginal CDF Encoder
-    marginal_embedding_dim_per_head: 8
-    marginal_num_heads: 5
-    marginal_num_layers: 4
-    flow_input_encoder_layers: 6
-    flow_series_embedding_dim: 5
-    # Attentional Copula Encoder
+
+    marginal_embedding_dim_per_head: 32
+    marginal_num_heads: 4
+    marginal_num_layers: 3
+    flow_input_encoder_layers: 5
+    flow_series_embedding_dim: 16
+
     copula_embedding_dim_per_head: 8
     copula_num_heads: 5
     copula_num_layers: 2
     copula_input_encoder_layers: 1
     copula_series_embedding_dim: 48
-    # Decoder
-    decoder_dsf_num_layers: 2
-    decoder_dsf_hidden_dim: 256
-    decoder_mlp_num_layers: 3
-    decoder_mlp_hidden_dim: 16
-    decoder_transformer_num_layers: 3
-    decoder_transformer_embedding_dim_per_head: 16
-    decoder_transformer_num_heads: 6
-    decoder_num_bins: 50
-    # Optimizer Params
-    lr_stage1: 5e-6
-    lr_stage2: 2e-6
-    weight_decay_stage1: 1e-5
-    weight_decay_stage2: 1e-5
-    # Dropout & Clipping
-    dropout_rate: 0.1
-    gradient_clip_val_stage1: 1000.0
-    gradient_clip_val_stage2: 1000.0
-    ### VALUES FOR per_turbine_target = true ###
-    # Learning Rate Scheduler for Stage 1
-    warmup_steps_s1: 0.1 # Warmup steps for Stage 1
-    steps_to_decay_s1: 0.9 # T_max = (steps_per_epoch [282] * epochs_in_stage [30]) - warmup_steps
-    eta_min_fraction_s1: 0.01  # Fraction of initial LR for eta_min in Stage 1 cosine decay
-    # Learning Rate Scheduler for Stage 2
-    warmup_steps_s2: 0.1 # Warmup steps for Stage 2
-    steps_to_decay_s2: 0.9 # T_max = (steps_per_epoch [282] * epochs_in_stage [100-30]) - warmup_steps ~ 47940 - warmup_steps    
-    eta_min_fraction_s2: 0.01  # Fraction of initial LR for eta_min in Stage 2 cosine decay    
+    ac_mlp_num_layers: 2
+    ac_mlp_dim: 128
 
+    decoder_dsf_num_layers: 3
+    decoder_dsf_hidden_dim: 64
+    decoder_mlp_num_layers: 2
+    decoder_mlp_hidden_dim: 8
+    decoder_transformer_num_layers: 4
+    decoder_transformer_embedding_dim_per_head: 64
+    decoder_transformer_num_heads: 5
+    decoder_num_bins: 100
+
+    stage1_activation_function: "relu"
+    lr_stage1: 9.881673103861262e-06
+    weight_decay_stage1: 0.0
+    gradient_clip_val_stage1: 5.0
+    eta_min_fraction_s1: 0.0010773892179890717
+    warmup_steps_s1: 0.10
+    steps_to_decay_s1: 0.90
+
+    stage2_activation_function: "relu"
+    lr_stage2: 2.0e-6
+    weight_decay_stage2: 1.0e-5
+    gradient_clip_val_stage2: 1.0
+    eta_min_fraction_s2: 0.01
+    warmup_steps_s2: 0.10
+    steps_to_decay_s2: 0.90
+
+    dropout_rate: 0.005
+
+    # DSF regularizers all disabled (quantile head bypasses DSF)
+    lambda_a_reg: 0.0
+    a_reg_threshold: 3.0
+    lambda_log_density: 0.0
+    log_density_max: 0.0
+    a_max: 0.0
+    lambda_a_floor: 0.0
+    a_floor_threshold: 0.5
+    lambda_w_entropy: 0.0
+    w_entropy_min: 2.0
+
+    marginal_flow_type: quantile
+    decoder_quantile_levels: [0.01, 0.05, 0.1, 0.25, 0.4, 0.5, 0.6, 0.75, 0.9, 0.95, 0.99]
+    decoder_quantile_mlp_layers: 2
+    decoder_quantile_mlp_dim: 64
+    decoder_quantile_crossing_fix: monotonic_delta
+
+    # Sd Energy Score regularizer
+    lambda_energy_score: 0.5   # G4 winning value
+    energy_score_num_samples: 8
+    lambda_variogram: 0.0
+    variogram_p: 0.5
+    trajectory_noise_std: 0.0
 
   informer:
     # embedding_dimension: [32] # Determines dimension of the embedding space
@@ -246,44 +266,47 @@ model:
     n_neighboring_turbines: 6
 
 callbacks:
-    progress_bar:
-      class_path: lightning.pytorch.callbacks.TQDMProgressBar
-      init_args:
-        refresh_rate: 1  # every n steps
-        leave: true
-    # early_stopping:
-    #   class_path: lightning.pytorch.callbacks.EarlyStopping
-    #   init_args:
-    #     monitor: 'val_loss'
-    #     patience: 100 # Number of epochs to wait before stopping (val>epochs to disable)
-    #     min_delta: 0.01 # Minimum change to be considered an improvement
-    #     mode: 'min'
-    #     check_finite: true
-    model_checkpoint:
-      class_path: lightning.pytorch.callbacks.ModelCheckpoint
-      init_args:
-        dirpath: ${logging.checkpoint_dir}
-        filename: '{epoch}-{step}-{val_loss:.2f}'
-        monitor: 'val_loss'
-        mode: 'min'
-        save_top_k: 1
-        save_last: true
-        every_n_train_steps: 5000
-        verbose: true
-    lr_monitor: # Log learning rate
-      class_path: lightning.pytorch.callbacks.LearningRateMonitor
-      init_args:
-        logging_interval: step # Log every step/epoch
-        log_momentum: false
-    dead_neuron_monitor:
-      enabled: false
+  progress_bar:
+    class_path: lightning.pytorch.callbacks.TQDMProgressBar
+    init_args:
+      refresh_rate: 100
+      leave: true
+  model_checkpoint:
+    class_path: lightning.pytorch.callbacks.ModelCheckpoint
+    init_args:
+      dirpath: ${logging.checkpoint_dir}
+      filename: '{epoch}-{step}-{val_loss:.2f}'
+      monitor: 'val_loss'
+      mode: 'min'
+      save_top_k: 1
+      save_last: true
+      verbose: true
+  model_checkpoint_periodic:
+    class_path: lightning.pytorch.callbacks.ModelCheckpoint
+    init_args:
+      dirpath: ${logging.checkpoint_dir}
+      filename: 'periodic-{epoch}-{step}'
+      every_n_epochs: 5
+      save_top_k: -1
+      save_last: false
+      monitor: null
+      verbose: true
+  lr_monitor:
+    class_path: lightning.pytorch.callbacks.LearningRateMonitor
+    init_args:
+      logging_interval: step
+      log_momentum: false
+  dead_neuron_monitor:
+    enabled: false
+  marginal_health_monitor:
+    enabled: false
 
-trainer: 
-    val_check_interval: 1.0
-    accelerator: gpu
-    devices: auto
-    num_nodes: 1
-    strategy: ddp
-    max_epochs: 100 # Maximum number of epochs to train 100
-    limit_train_batches: # 5000, set to null for training, 5000 for tuning
-    log_every_n_steps: 100
+trainer:
+  val_check_interval: 1.0
+  accelerator: gpu
+  devices: auto
+  num_nodes: 1
+  strategy: ddp
+  max_epochs: 100
+  limit_train_batches: 5000
+  log_every_n_steps: 100
