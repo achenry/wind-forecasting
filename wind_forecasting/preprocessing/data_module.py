@@ -417,12 +417,14 @@ class DataModule:
     def get_dataset_info(self, dataset=None):
         # print(f"Number of nan/null vars = {dataset.select(pl.sum_horizontal((cs.numeric().is_null() | cs.numeric().is_nan()).sum())).collect().item()}")
         if dataset is None:
-            assert os.path.exists(self.train_ready_data_path), (
-                f"train_ready_data_path, {self.train_ready_data_path}, doesn't exist! Should be generated for training."
-            )
-            dataset = IterableLazyFrame(
-                data_path=self.train_ready_data_path, dtype=self.dtype
-            )
+            if os.path.exists(self.train_ready_data_path):
+                dataset = IterableLazyFrame(
+                    data_path=self.train_ready_data_path, dtype=self.dtype
+                )
+            else:
+                logging.warning(
+                    f"train_ready_data_path, {self.train_ready_data_path}, doesn't exist! Should be generated for training."
+                )
 
         if self.verbose:
             logging.info("Getting continuity groups.")
@@ -502,9 +504,10 @@ class DataModule:
         if splits is None:
             splits = ["train", "val", "test"]
         assert all(split in ["train", "val", "test"] for split in splits)
-        assert os.path.exists(self.train_ready_data_path), (
-            f"Must run generate_datasets before generate_splits to produce {self.train_ready_data_path}."
-        )
+        if not os.path.exists(self.train_ready_data_path):
+            logging.warning(
+                f"Must run generate_datasets before generate_splits to produce {self.train_ready_data_path}."
+            )
 
         # If rank is explicitly provided (e.g., from WORKER_RANK in tuning mode), use it
         # Otherwise, check if PyTorch distributed is initialized (e.g., during DDP training)
