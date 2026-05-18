@@ -417,15 +417,14 @@ class DataModule:
     def get_dataset_info(self, dataset=None):
         # print(f"Number of nan/null vars = {dataset.select(pl.sum_horizontal((cs.numeric().is_null() | cs.numeric().is_nan()).sum())).collect().item()}")
         if dataset is None:
-            if os.path.exists(self.train_ready_data_path):
-                dataset = IterableLazyFrame(
-                    data_path=self.train_ready_data_path, dtype=self.dtype
-                )
-            else:
-                logging.warning(
-                    f"train_ready_data_path, {self.train_ready_data_path}, doesn't exist! Should be generated for training."
-                )
+            assert os.path.exists(self.train_ready_data_path), (
+                f"train_ready_data_path, {self.train_ready_data_path}, doesn't exist! Should be generated for training."
+            )
+            dataset = IterableLazyFrame(
+                data_path=self.train_ready_data_path, dtype=self.dtype
+            )
 
+        # if dataset is not None:
         if self.verbose:
             logging.info("Getting continuity groups.")
 
