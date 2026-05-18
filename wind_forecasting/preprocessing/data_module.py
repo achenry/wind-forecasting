@@ -6,6 +6,7 @@ import re
 import logging
 import time
 import torch.distributed as dist
+from pathlib import Path
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
@@ -417,12 +418,24 @@ class DataModule:
     def get_dataset_info(self, dataset=None):
         # print(f"Number of nan/null vars = {dataset.select(pl.sum_horizontal((cs.numeric().is_null() | cs.numeric().is_nan()).sum())).collect().item()}")
         if dataset is None:
-            assert os.path.exists(self.train_ready_data_path), (
+            dataset_path = list(
+                Path(self.train_ready_data_path).parent.glob(
+                    f"*train_ready*{self.freq}*{'per_turbine' if self.per_turbine_target else 'all_turbine'}*.parquet"
+                )
+            )
+            assert (
+                os.path.exists(self.train_ready_data_path) or len(dataset_path) > 0
+            ), (
                 f"train_ready_data_path, {self.train_ready_data_path}, doesn't exist! Should be generated for training."
             )
-            dataset = IterableLazyFrame(
-                data_path=self.train_ready_data_path, dtype=self.dtype
-            )
+            if not os.path.exists(self.train_ready_data_path):
+                logging.warning(
+                    f"train_ready_data_path, {self.train_ready_data_path}, doesn't exist! Should be generated for training. Using {dataset_path[0]} instead if it exists."
+                )
+                dataset_path = dataset_path[0]
+            else:
+                dataset_path = self.train_ready_data_path
+            dataset = IterableLazyFrame(data_path=dataset_path, dtype=self.dtype)
 
         # if dataset is not None:
         if self.verbose:
