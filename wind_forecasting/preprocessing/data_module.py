@@ -7,6 +7,7 @@ import logging
 import time
 import torch.distributed as dist
 from pathlib import Path
+from itertools import chain
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
@@ -413,11 +414,19 @@ class DataModule:
         # print(f"Number of nan/null vars = {dataset.select(pl.sum_horizontal((cs.numeric().is_null() | cs.numeric().is_nan()).sum())).collect().item()}")
         if dataset is None:
             sfx = f"ctx*_pred*.parquet"
-            dataset_path = list(
-                Path(self.train_ready_data_path).parent.glob(
-                    f"*_train_ready_{self.freq}_{'per_turbine' if self.per_turbine_target else 'all_turbine'}_{sfx}"
+            dataset_path = [
+                fp
+                for fp in list(
+                    Path(self.train_ready_data_path).parent.glob(
+                        f"*_train_ready_*_{'per_turbine' if self.per_turbine_target else 'all_turbine'}_{sfx}"
+                    )
                 )
-            )
+                if len(re.findall("ctx[0-9]+_pred[0-9]+_(.*)", fp.stem))
+                and all(
+                    x not in re.findall("ctx[0-9]+_pred[0-9]+_(.*)", fp.stem)[0]
+                    for x in ["train", "val", "test"]
+                )
+            ]
             assert (
                 os.path.exists(self.train_ready_data_path) or len(dataset_path) > 0
             ), (
