@@ -463,6 +463,7 @@ class DataModule:
                 .collect_schema()
                 .names()
             )
+            logging.info("SETTING TARGET SUFFIXES")
             self.target_suffixes = sorted(
                 list(set(col.split("_")[-1] for col in self.target_cols)),
                 key=lambda col: int(re.search("\\d+", col).group()),
