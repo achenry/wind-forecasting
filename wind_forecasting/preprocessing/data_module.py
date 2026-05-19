@@ -458,12 +458,17 @@ class DataModule:
 
             logging.info(f"Getting column names.")
         if self.target_suffixes is None:
+            logging.info(
+                f"SETTING TARGET COLS from target_prefixes: {self.target_prefixes}"
+            )
             self.target_cols = (
                 dataset.select(*[cs.starts_with(pfx) for pfx in self.target_prefixes])
                 .collect_schema()
                 .names()
             )
-            logging.info("SETTING TARGET SUFFIXES")
+            logging.info(
+                f"SETTING TARGET SUFFIXES from target_cols: {self.target_cols}"
+            )
             self.target_suffixes = sorted(
                 list(set(col.split("_")[-1] for col in self.target_cols)),
                 key=lambda col: int(re.search("\\d+", col).group()),
