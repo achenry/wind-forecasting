@@ -124,17 +124,11 @@ class DataModule:
         return self.datasets.get("test")
 
     def set_train_ready_path(self):
-        sfx = f"ctx{self.context_length}_pred{self.prediction_length}"
-        if self.use_normalization:
-            self.train_ready_data_path = self.normalized_data_path.replace(
-                ".parquet",
-                f"_train_ready_{self.freq}_{'per_turbine' if self.per_turbine_target else 'all_turbine'}_{sfx}.parquet",
-            )
-        else:
-            self.train_ready_data_path = self.normalized_data_path.replace(
-                ".parquet",
-                f"_train_ready_{self.freq}_{'per_turbine' if self.per_turbine_target else 'all_turbine'}_{sfx}_denormalize.parquet",
-            )
+        sfx = f"ctx{self.context_length}_pred{self.prediction_length}{'_denormalize' if not self.use_normalization else ''}.parquet"
+        self.train_ready_data_path = self.normalized_data_path.replace(
+            ".parquet",
+            f"_train_ready_{self.freq}_{'per_turbine' if self.per_turbine_target else 'all_turbine'}_{sfx}",
+        )
 
     def get_split_file_path(self, split):
         """Generate split file path that includes context_length and prediction_length to ensure cache uniqueness."""
@@ -418,9 +412,10 @@ class DataModule:
     def get_dataset_info(self, dataset=None):
         # print(f"Number of nan/null vars = {dataset.select(pl.sum_horizontal((cs.numeric().is_null() | cs.numeric().is_nan()).sum())).collect().item()}")
         if dataset is None:
+            sfx = f"ctx{self.context_length}_pred{self.prediction_length}{'_denormalize' if not self.use_normalization else ''}.parquet"
             dataset_path = list(
                 Path(self.train_ready_data_path).parent.glob(
-                    f"*train_ready*{self.freq}*{'per_turbine' if self.per_turbine_target else 'all_turbine'}*.parquet"
+                    f"*_train_ready_{self.freq}_{'per_turbine' if self.per_turbine_target else 'all_turbine'}_{sfx}"
                 )
             )
             assert (
