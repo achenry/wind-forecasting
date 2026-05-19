@@ -412,7 +412,7 @@ class DataModule:
     def get_dataset_info(self, dataset=None):
         # print(f"Number of nan/null vars = {dataset.select(pl.sum_horizontal((cs.numeric().is_null() | cs.numeric().is_nan()).sum())).collect().item()}")
         if dataset is None:
-            sfx = f"ctx{self.context_length}_pred{self.prediction_length}{'_denormalize' if not self.use_normalization else ''}.parquet"
+            sfx = f"ctx*_pred*{'_denormalize' if not self.use_normalization else ''}.parquet"
             dataset_path = list(
                 Path(self.train_ready_data_path).parent.glob(
                     f"*_train_ready_{self.freq}_{'per_turbine' if self.per_turbine_target else 'all_turbine'}_{sfx}"
@@ -431,7 +431,9 @@ class DataModule:
             else:
                 dataset_path = self.train_ready_data_path
             dataset = IterableLazyFrame(data_path=dataset_path, dtype=self.dtype)
-
+            logging.info(
+                f"Dataset contains columns: {dataset.collect_schema().names()}"
+            )
         # if dataset is not None:
         if self.verbose:
             logging.info("Getting continuity groups.")
