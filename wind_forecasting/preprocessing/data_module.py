@@ -277,7 +277,7 @@ class DataModule:
         dataset = IterableLazyFrame(
             data_path=self.normalized_data_path, dtype=self.dtype
         )
-        dataset = dataset.filter(pl.col("continuity_group").is_in([0, 1, 2, 3, 4]))
+        # dataset = dataset.filter(pl.col("continuity_group").is_in([0, 1, 2, 3, 4]))
         # dataset = dataset.group_by("continuity_group").agg(pl.all().tail(-1000))
 
         # add warning if upsampling
