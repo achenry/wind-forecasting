@@ -277,8 +277,8 @@ class DataModule:
         dataset = IterableLazyFrame(
             data_path=self.normalized_data_path, dtype=self.dtype
         )
-        # dataset = dataset.filter(pl.col("continuity_group").is_in([507, 1249,  388,  400,  791]))
-        # dataset = dataset.head(1000000)
+        dataset = dataset.filter(pl.col("continuity_group").is_in([0, 1, 2, 3, 4]))
+        # dataset = dataset.group_by("continuity_group").agg(pl.all().tail(-1000))
 
         # add warning if upsampling
         dataset_dt = dataset.select(pl.col("time").diff()).slice(1, 1).collect().item()
@@ -597,6 +597,10 @@ class DataModule:
             dataset = IterableLazyFrame(
                 data_path=self.train_ready_data_path, dtype=self.dtype
             )
+            # dataset_smoothed = IterableLazyFrame(
+            #     data_path=self.train_ready_data_path.replace("unsmoothed", "smoothed"),
+            #     dtype=self.dtype,
+            # )
             logging.info(
                 f"Rank {rank}: Finished scanning dataset {self.train_ready_data_path}."
             )
@@ -1133,6 +1137,10 @@ class DataModule:
             dataset = IterableLazyFrame(
                 data_path=self.train_ready_data_path, dtype=self.dtype
             )
+            # dataset_smoothed = IterableLazyFrame(
+            #     data_path=self.train_ready_data_path.replace("unsmoothed", "smoothed"),
+            #     dtype=self.dtype,
+            # )
             logging.info(
                 f"Rank {rank}: Finished scanning dataset {self.train_ready_data_path}."
             )
@@ -1142,6 +1150,7 @@ class DataModule:
             self.get_dataset_info(dataset)
             logging.info(f"Rank {rank}: Loading saved split datasets.")
             datasets = {}
+            # datasets_smoothed = {}
             for split in splits:
                 split_path = self.get_split_file_path(split)
                 if not os.path.exists(split_path):
@@ -1155,6 +1164,9 @@ class DataModule:
                 try:
                     if self.as_lazyframe:
                         datasets[split] = pl.scan_parquet(split_path)
+                        # datasets_smoothed[split] = pl.scan_parquet(
+                        #     split_path.replace("unsmoothed", "smoothed")
+                        # )
                     else:
                         with open(split_path, "rb") as fp:
                             datasets[split] = pickle.load(fp)
