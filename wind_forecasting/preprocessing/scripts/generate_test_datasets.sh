@@ -48,4 +48,3 @@ export PYFILE_PATH="$HOME/toolboxes/wind_forecasting_env/wind-hybrid-open-contro
 python $PYFILE_PATH --reload_data --resplit_data --ram_limit 65 --model_config ${MODEL_CONFIG_PATHS} --data_config ${DATA_CONFIG_PATH} --simulation_timestep 1 \
 						--save_dir /projects/awaken/ahenry/wind_forecasting/logging --multiprocessor cf --prediction_type distribution \
 					        --use_trained_models --max_splits 30
-
