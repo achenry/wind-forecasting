@@ -2925,9 +2925,9 @@ def main():
                 .to_series()
                 .to_numpy()
             )
-            # continuity_groups = [0, 10, 20]
+            # continuity_groups = [0, 100]
             df_query = [
-                df_query.filter(pl.col("continuity_group") == cg)  # .head(1000)
+                df_query.filter(pl.col("continuity_group") == cg)  # .head(3000)
                 for cg in continuity_groups
             ]
 
@@ -2985,17 +2985,18 @@ def main():
 
         # truncate unsmoothed to match smoothed
         unsm_fp = config["processed_data_path"].replace(".parquet", f"_imputed.parquet")
-        unsm_dfq = (
-            pl.scan_parquet(unsm_fp)
-            # .filter(pl.col("continuity_group").is_in(continuity_groups))
-            # .group_by("continuity_group")
-            # .agg(pl.all().head(1000))
-            # .collect()
-        )
+        unsm_dfq = pl.scan_parquet(unsm_fp)
+        # (
+        # .filter(pl.col("continuity_group").is_in(continuity_groups))
+        # .group_by("continuity_group")
+        # .agg(pl.all().head(1000))
+        # .collect()
+        # )
 
         unsm_dfq = (
-            unsm_dfq.group_by("continuity_group", maintain_order=True)
-            .agg(pl.all().slice(400, pl.len() - 400))
+            unsm_dfq.filter(pl.col("continuity_group") != 258)
+            .group_by("continuity_group", maintain_order=True)
+            .agg(pl.all().slice(400, pl.len() - 800))
             .explode(pl.all().exclude("continuity_group"))
             .collect()
         )
@@ -3073,7 +3074,7 @@ def main():
         ):
             # Normalization & Feature Selection
             logging.info("Normalizing features.")
-            # smoothing_func = "butterworth"
+            smoothing_func = "butterworth"
             dataset_labels = ["imputed", f"smoothed_{smoothing_func}"]
 
             for l, ll in zip(dataset_labels, ["unsmoothed", "smoothed"]):
