@@ -3034,8 +3034,57 @@ def main():
         ):
             # Normalization & Feature Selection
             logging.info("Normalizing features.")
-
+            # smoothing_func = "butterworth"
             dataset_labels = ["imputed", f"smoothed_{smoothing_func}"]
+
+            # truncate unsmoothed to match smoothed
+            unsm_dfq = (
+                pl.scan_parquet(
+                    config["processed_data_path"].replace(
+                        ".parquet", f"_{dataset_labels[0]}.parquet"
+                    )
+                )
+                # .filter(pl.col("continuity_group").is_in([0, 10, 20]))
+                # .collect()
+            )
+            sm_dfq = (
+                pl.scan_parquet(
+                    config["processed_data_path"].replace(
+                        ".parquet", f"_{dataset_labels[1]}.parquet"
+                    )
+                )
+                # .filter(pl.col("continuity_group").is_in([0, 10, 20]))
+                # .collect()
+            )
+
+            unsm_dfq = (
+                unsm_dfq.group_by("continuity_group", maintain_order=True)
+                .agg(pl.all().slice(400, pl.len() - 400))
+                .explode(pl.all().exclude("continuity_group"))
+                .collect()
+            )
+
+            unsm_time_bounds = unsm_dfq.group_by("continuity_group").agg(
+                pl.col("time").first().alias("first"),
+                pl.col("time").last().alias("last"),
+            )
+            sm_time_bounds = sm_dfq.group_by("continuity_group").agg(
+                pl.col("time").first().alias("first"),
+                pl.col("time").last().alias("last"),
+            )
+
+            assert unsm_time_bounds.sort("continuity_group").equals(
+                sm_time_bounds.sort("continuity_group")
+            ), (
+                "Smoothed and unsmoothed data have different continuity groups after truncation, check the time bounds of each continuity group for both datasets to debug."
+            )
+
+            unsm_dfq.write_parquet(
+                config["processed_data_path"].replace(
+                    ".parquet", f"_{dataset_labels[0]}.parquet"
+                )
+            )
+
             for l, ll in zip(dataset_labels, ["unsmoothed", "smoothed"]):
                 fp = config["processed_data_path"].replace(".parquet", f"_{l}.parquet")
                 if not os.path.exists(fp):

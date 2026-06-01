@@ -604,19 +604,75 @@ class DataModule:
             logging.info(
                 f"Rank {rank}: Finished scanning dataset {self.train_ready_data_path}."
             )
+            if False:
+                uns_ts = (
+                    dataset._df.filter(pl.col("continuity_group").is_in([0, 10, 20]))
+                    .select(
+                        "time",
+                        "continuity_group",
+                        "ws_horz_wt005",
+                        # "ws_horz_wt074",
+                        # "ws_horz_wt075",
+                        "ws_vert_wt005",
+                        # "ws_vert_wt074",
+                        # "ws_vert_wt075",
+                    )
+                    .collect()
+                )
+                s_ts = (
+                    dataset_smoothed._df.filter(
+                        pl.col("continuity_group").is_in([0, 10, 20])
+                    )
+                    .select(
+                        "time",
+                        "continuity_group",
+                        "ws_horz_wt005",
+                        # "ws_horz_wt074",
+                        # "ws_horz_wt075",
+                        "ws_vert_wt005",
+                        # "ws_vert_wt074",
+                        # "ws_vert_wt075",
+                    )
+                    .collect()
+                )
+                fig, ax = plt.subplots(2, 3)
+                for ax_idx, feat_type in enumerate(["ws_horz", "ws_vert"]):
+                    for col_idx, cg in enumerate([0, 10, 20]):
+                        ax[ax_idx, col_idx].plot(
+                            uns_ts.filter(pl.col("continuity_group") == cg).select(
+                                "time"
+                            ),
+                            uns_ts.filter(pl.col("continuity_group") == cg).select(
+                                cs.starts_with(feat_type)
+                            ),
+                            linestyle="-",
+                            label=cg,
+                        )
+                    ax[ax_idx, col_idx].plot(
+                        s_ts.filter(pl.col("continuity_group") == cg).select("time"),
+                        s_ts.filter(pl.col("continuity_group") == cg).select(
+                            cs.starts_with(feat_type)
+                        ),
+                        linestyle=":",
+                        label=cg,
+                    )
+                    # ax[ax_idx, col_idx].legend()
+                    ax[ax_idx, col_idx].set(
+                        title=feat_type
+                    )  # , xlim=(1.295*1e7,1.345*1e7))
 
-            # ds = dataset._df.collect().partition_by("continuity_group")
-            # sub_ds = ds[9]
-            # fig, axs = plt.subplots(4, 1, figsize=(10, 8))
-            # axs[0].plot(sub_ds.select(pl.col("time")).to_numpy().flatten(),
-            #             sub_ds.select(cs.starts_with("ws_horz")).to_numpy())
-            # axs[1].plot(sub_ds.select(pl.col("time")).to_numpy().flatten(),
-            #             sub_ds.select(cs.starts_with("ws_vert")).to_numpy())
-            # axs[2].plot(sub_ds.select(pl.col("time")).to_numpy().flatten(),
-            #             sub_ds.select(cs.starts_with("nd_cos")).to_numpy())
-            # axs[3].plot(sub_ds.select(pl.col("time")).to_numpy().flatten(),
-            #             sub_ds.select(cs.starts_with("nd_sin")).to_numpy())
-            # for sub_ds in ds:
+                # ds = dataset._df.collect().partition_by("continuity_group")
+                # sub_ds = ds[9]
+                # fig, axs = plt.subplots(4, 1, figsize=(10, 8))
+                # axs[0].plot(sub_ds.select(pl.col("time")).to_numpy().flatten(),
+                #             sub_ds.select(cs.starts_with("ws_horz")).to_numpy())
+                # axs[1].plot(sub_ds.select(pl.col("time")).to_numpy().flatten(),
+                #             sub_ds.select(cs.starts_with("ws_vert")).to_numpy())
+                # axs[2].plot(sub_ds.select(pl.col("time")).to_numpy().flatten(),
+                #             sub_ds.select(cs.starts_with("nd_cos")).to_numpy())
+                # axs[3].plot(sub_ds.select(pl.col("time")).to_numpy().flatten(),
+                #             sub_ds.select(cs.starts_with("nd_sin")).to_numpy())
+                # for sub_ds in ds:
 
             # sets self.continuity_groups, self.target_cols, self.target_suffixes, self.feat_dynamic_real_cols, self.num_target_vars,
             #       self.num_feat_dynamic_real, self.num_feat_static_cat, self.num_feat_static_real, self.static_features, self.cardinality
@@ -818,6 +874,16 @@ class DataModule:
                     .to_numpy()
                     .flatten()
                 )
+                # cg_counts_smoothed = (
+                #     dataset_smoothed.select("continuity_group")
+                #     .collect()
+                #     .to_series()
+                #     .value_counts()
+                #     .sort("continuity_group")
+                #     .select("count")
+                #     .to_numpy()
+                #     .flatten()
+                # )
                 self.rows_per_split = [
                     int(n_rows / self.n_splits) for n_rows in cg_counts
                 ]  # each element corresponds to each continuity group
@@ -829,6 +895,27 @@ class DataModule:
                     .to_numpy()
                     .flatten()
                 )
+                # cg_smoothed = (
+                #     dataset_smoothed.select(pl.col("continuity_group").unique())
+                #     .collect()
+                #     .to_numpy()
+                #     .flatten()
+                # )
+
+                # test_datasets = self.split_dataset(
+                #     [
+                #         dataset.filter(pl.col("continuity_group") == cg)
+                #         for cg in [0, 10, 20]
+                #     ],
+                #     splits,
+                # )
+                # test_datasets_smoothed = self.split_dataset(
+                #     [
+                #         dataset_smoothed.filter(pl.col("continuity_group") == cg)
+                #         for cg in [0, 10, 20]
+                #     ],
+                #     splits,
+                # )
 
                 # generate an iterablelazy frame for each continuity group and split within it
                 datasets = self.split_dataset(
@@ -1231,6 +1318,61 @@ class DataModule:
                             )
 
         self.datasets = datasets
+
+        if False:
+            unsmooth_cgs = (
+                datasets["test"]
+                .with_columns(pl.len().over("item_id").alias("cg_size"))
+                .sort("cg_size", descending=True)
+                .select("item_id", "cg_size")
+                .unique(maintain_order=True)
+                .head(30)
+                .collect()
+            )
+
+            smooth_cgs = (
+                datasets_smoothed["test"]
+                .with_columns(pl.len().over("item_id").alias("cg_size"))
+                .sort("cg_size", descending=True)
+                .select("item_id", "cg_size")
+                .unique(maintain_order=True)
+                .head(30)
+                .collect()
+            )
+
+            unsm_ts = (
+                datasets["test"]
+                .filter(pl.col("item_id") == "SPLIT759")
+                .select("time", "target_0", "target_10", "target_20")
+                .collect()
+            )
+            sm_ts = (
+                datasets_smoothed["test"]
+                .filter(pl.col("item_id") == "SPLIT752")
+                .select("time", "target_0", "target_10", "target_20")
+                .collect()
+            )
+            fig, ax = plt.subplots(3, 1)
+            ax[0].plot(
+                unsm_ts.select("time"), unsm_ts.select("target_0"), label="unsmoothed"
+            )
+            ax[0].plot(sm_ts.select("time"), sm_ts.select("target_0"), label="smoothed")
+            ax[0].legend()
+            ax[1].plot(
+                unsm_ts.select("time"), unsm_ts.select("target_10"), label="unsmoothed"
+            )
+            ax[1].plot(
+                sm_ts.select("time"), sm_ts.select("target_10"), label="smoothed"
+            )
+            ax[1].legend()
+            ax[2].plot(
+                unsm_ts.select("time"), unsm_ts.select("target_20"), label="unsmoothed"
+            )
+            ax[2].plot(
+                sm_ts.select("time"), sm_ts.select("target_20"), label="smoothed"
+            )
+            ax[2].legend()
+            fig.show()
 
         if rank != 0 or (not reload and split_files_exist):
             self._validate_loaded_splits(splits, rank)
