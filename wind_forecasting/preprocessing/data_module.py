@@ -1320,6 +1320,39 @@ class DataModule:
         self.datasets = datasets
 
         if False:
+            uns = pl.scan_parquet(
+                "awaken_processed_unsmoothed_normalized_train_ready_1s_all_turbine_ctx600_pred60_test_denormalize.parquet"
+            )
+            s = pl.scan_parquet(
+                "awaken_processed_smoothed_normalized_train_ready_1s_all_turbine_ctx600_pred60_test_denormalize.parquet"
+            )
+            # unsmooth_splits = uns.with_columns(pl.len().over("item_id").alias("cg_size")).sort("cg_size", descending=True).select("item_id", "cg_size").unique(maintain_order=True).collect()
+            # smooth_splits = s.with_columns(pl.len().over("item_id").alias("cg_size")).sort("cg_size", descending=True).select("item_id", "cg_size").unique(maintain_order=True).collect()
+            unsmooth_splits = (
+                uns.group_by("item_id")
+                .agg(pl.len().alias("cg_size"), pl.col("time").first())
+                .sort("cg_size", descending=True)
+                .collect()
+            )
+            smooth_splits = (
+                s.group_by("item_id")
+                .agg(pl.len().alias("cg_size"), pl.col("time").first())
+                .sort("cg_size", descending=True)
+                .collect()
+            )
+            unsmooth_splits.join(smooth_splits, on=["item_id", "cg_size", "time"]).head(
+                30
+            )
+            cgs = [
+                int(re.search("(?<=SPLIT)(\\d+)", id).group())
+                for id in list(
+                    unsmooth_splits.join(
+                        smooth_splits, on=["item_id", "cg_size", "time"]
+                    ).head(30)["item_id"]
+                )
+            ]
+            cg_arg = ",".join([str(i) for i in cgs])
+
             unsmooth_cgs = (
                 datasets["test"]
                 .with_columns(pl.len().over("item_id").alias("cg_size"))
