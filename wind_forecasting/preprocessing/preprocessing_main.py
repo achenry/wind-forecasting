@@ -462,7 +462,7 @@ def main():
         logging.info("🔄 Generating plots.")
         # x = pl.concat([df.slice(0, ROW_LIMIT) for df in df_query.collect().partition_by("file_set_idx")], how="vertical").lazy()
         # NOTE: GENERATE FIG 3 IN PAPER HERE
-        if False:
+        if True:
             data_inspector.plot_wind_farm(
                 wind_directions=[140],
                 turbine_groups=[

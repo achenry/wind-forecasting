@@ -4,8 +4,10 @@ import numpy as np
 from scipy.stats import norm  # For more accurate ppf
 from scipy import special
 
+
 def nll(predicted_mean, true_values, predicted_std):
     nll = -distribution.log_prob(target)
+
 
 def brier_score(obs, fx, fx_prob):
     """Brier Score (BS).
@@ -323,7 +325,7 @@ def brier_decomposition(obs, fx, fx_prob):
     rel, res = 0.0, 0.0
     o_avg = np.mean(o)
     for f_i, N_i in np.nditer(np.unique(f, return_counts=True)):
-        o_i = np.mean(o[f == f_i])      # mean event value per set
+        o_i = np.mean(o[f == f_i])  # mean event value per set
         rel += N_i * (f_i - o_i) ** 2
         res += N_i * (o_i - o_avg) ** 2
     rel /= len(f)
@@ -468,7 +470,10 @@ def sharpness(fx_lower, fx_upper):
     sh = np.mean(fx_upper - fx_lower)
     return sh
 
-def continuous_ranked_probability_score_gaussian(predicted_mean, true_values, predicted_std):
+
+def continuous_ranked_probability_score_gaussian(
+    predicted_mean, true_values, predicted_std
+):
     """
     Compute the continuous ranked probability score (CRPS) assuming a Gaussian
     distribution.
@@ -494,17 +499,25 @@ def continuous_ranked_probability_score_gaussian(predicted_mean, true_values, pr
     Returns:
         float: CRPS value.
     """
+
     # Define the CRPS for a Gaussian distribution
     def crps_gaussian(y, mu, sigma):
         z = (y - mu) / sigma
         cdf_z = norm.cdf(z)
         pdf_z = norm.pdf(z)
         return sigma * (z * (2 * cdf_z - 1) + 2 * pdf_z - 1 / np.sqrt(np.pi))
-    
+
     # Compute the CRPS for each sample and take the mean
-    crps = np.nanmean([crps_gaussian(t, m, s) for t, m, s in zip(true_values, predicted_mean, predicted_std)], axis=0)
+    crps = np.nanmean(
+        [
+            crps_gaussian(t, m, s)
+            for t, m, s in zip(true_values, predicted_mean, predicted_std)
+        ],
+        axis=0,
+    )
 
     return crps
+
 
 def continuous_ranked_probability_score(obs, fx, fx_prob):
     """Continuous Ranked Probability Score (CRPS).
@@ -574,11 +587,14 @@ def continuous_ranked_probability_score(obs, fx, fx_prob):
 
     # match observations to fx shape: (n,) => (n, d)
     if np.ndim(fx) < 2:
-        raise ValueError("forecasts must be 2D arrays (expected (n,d), got"
-                         f"{np.shape(fx)})")
+        raise ValueError(
+            f"forecasts must be 2D arrays (expected (n,d), got{np.shape(fx)})"
+        )
     elif np.shape(fx)[1] < 2:
-        raise ValueError("forecasts must have d >= 2 CDF intervals "
-                         f"(expected >= 2, got {np.shape(fx)[1]})")
+        raise ValueError(
+            "forecasts must have d >= 2 CDF intervals "
+            f"(expected >= 2, got {np.shape(fx)[1]})"
+        )
 
     n = len(fx)
 
@@ -590,7 +606,7 @@ def continuous_ranked_probability_score(obs, fx, fx_prob):
 
     # extend CDF max to ensure obs within forecast support
     # fx.shape = (n, d + 1) ==> (n, d + 2)
-    idx = (fx[:, -1] < obs)
+    idx = fx[:, -1] < obs
     fx_max = np.maximum(obs, fx[:, -1])
     fx = np.hstack([fx, fx_max[:, np.newaxis]])
     fx_prob = np.hstack([fx_prob, np.full([n, 1], 100)])
@@ -663,8 +679,10 @@ def crps_skill_score(obs, fx, fx_prob, ref, ref_prob):
         else:
             return 1 - crps_fx / crps_ref
 
-def coverage_width_criterion(predicted_mean, true_values, predicted_std, confidence_level=0.95):
-    
+
+def coverage_width_criterion(
+    predicted_mean, true_values, predicted_std, confidence_level=0.95
+):
     """
     Computes the Coverage Width Criterion (CWC) for a time series.
 
@@ -672,13 +690,13 @@ def coverage_width_criterion(predicted_mean, true_values, predicted_std, confide
         true_values: Array of true values.
         predicted_mean: Array of predicted mean values.
         predicted_std: Array of predicted standard deviations.
-        confidence_level: Confidence level for the prediction intervals. 
+        confidence_level: Confidence level for the prediction intervals.
 
     Returns:
         A tuple containing:
             - cwc: The Coverage Width Criterion.
             - coverage: The coverage percentage.
-        
+
     Raises:
         ValueError: If the input arrays don't have the same length or confidence level is invalid.
     """
@@ -690,24 +708,31 @@ def coverage_width_criterion(predicted_mean, true_values, predicted_std, confide
         raise ValueError("Confidence level must be between 0 and 1 (exclusive).")
 
     # computing PICP
-    picp = pi_coverage_probability(predicted_mean, true_values, predicted_std, confidence_level)
-    
+    picp = pi_coverage_probability(
+        predicted_mean, true_values, predicted_std, confidence_level
+    )
+
     # computing pinaw
-    pinaw = pi_normalized_average_width(predicted_mean, true_values, predicted_std, confidence_level)
+    pinaw = pi_normalized_average_width(
+        predicted_mean, true_values, predicted_std, confidence_level
+    )
 
     # PI normal confidence
     # mu = 1 - confidence_level
-    
+
     # penalty factor
     eta = 0.25
-    
-    cwc = pinaw * (1 + (picp < confidence_level) * np.exp(-eta*(picp - confidence_level)))
+
+    cwc = pinaw * (
+        1 + (picp < confidence_level) * np.exp(-eta * (picp - confidence_level))
+    )
 
     return cwc
 
 
-def pi_coverage_probability(predicted_mean, true_values, predicted_std, confidence_level=0.95):
-    
+def pi_coverage_probability(
+    predicted_mean, true_values, predicted_std, confidence_level=0.95
+):
     """
     Computes the Prediction Interval Coverage Probability (PICP) for a time series.
 
@@ -715,7 +740,7 @@ def pi_coverage_probability(predicted_mean, true_values, predicted_std, confiden
         true_values: Array of true values.
         predicted_mean: Array of predicted mean values.
         predicted_std: Array of predicted standard deviations.
-        confidence_level: Confidence level for the prediction intervals. 
+        confidence_level: Confidence level for the prediction intervals.
 
     Returns:
         The PICP (a float between 0 and 1).
@@ -723,7 +748,6 @@ def pi_coverage_probability(predicted_mean, true_values, predicted_std, confiden
     Raises:
         ValueError: If the input arrays don't have the same length or confidence level is invalid.
     """
-
 
     if not (len(true_values) == len(predicted_mean) == len(predicted_std)):
         raise ValueError("Input arrays must have the same length.")
@@ -735,13 +759,17 @@ def pi_coverage_probability(predicted_mean, true_values, predicted_std, confiden
     upper_bound = predicted_mean + z_score * predicted_std
     lower_bound = predicted_mean - z_score * predicted_std
 
-    covered = np.sum((true_values >= lower_bound) & (true_values <= upper_bound), axis=0)
+    covered = np.sum(
+        (true_values >= lower_bound) & (true_values <= upper_bound), axis=0
+    )
     picp = covered / len(true_values)
 
     return picp
 
-def pi_normalized_average_width(predicted_mean, true_values, predicted_std, confidence_level=0.95):
-    
+
+def pi_normalized_average_width(
+    predicted_mean, true_values, predicted_std, confidence_level=0.95
+):
     """
     Computes the Prediction Interval Normalized Average Width (PINAW) for a time series.
 
@@ -763,12 +791,12 @@ def pi_normalized_average_width(predicted_mean, true_values, predicted_std, conf
 
     if not (0 < confidence_level < 1):
         raise ValueError("Confidence level must be between 0 and 1 (exclusive).")
-    
+
     true_range = np.max(true_values, axis=0) - np.min(true_values, axis=0)
-    
+
     true_range[true_range == 0] = np.nan
     # if np.any(true_range == 0):
-        # raise ValueError("The range of true values cannot be zero. Cannot normalize.")
+    # raise ValueError("The range of true values cannot be zero. Cannot normalize.")
 
     z_score = np.abs(norm.ppf((1 - confidence_level) / 2))  # Two-tailed Z-score
     upper_bound = predicted_mean + z_score * predicted_std
@@ -778,6 +806,7 @@ def pi_normalized_average_width(predicted_mean, true_values, predicted_std, conf
     pinaw = np.nanmean(interval_width, axis=0) / true_range
 
     return pinaw
+
 
 def continuous_ranked_probability_score_samples(true_values, forecast_samples):
     """
@@ -807,6 +836,7 @@ def continuous_ranked_probability_score_samples(true_values, forecast_samples):
 
     return np.mean(crps_values)
 
+
 def prediction_interval_from_samples(forecast_samples, confidence_level=0.95):
     """
     Compute prediction intervals from forecast samples.
@@ -829,7 +859,10 @@ def prediction_interval_from_samples(forecast_samples, confidence_level=0.95):
 
     return lower_bounds, upper_bounds
 
-def pi_coverage_probability_samples(true_values, forecast_samples, confidence_level=0.95):
+
+def pi_coverage_probability_samples(
+    true_values, forecast_samples, confidence_level=0.95
+):
     """
     Compute Prediction Interval Coverage Probability from samples.
 
@@ -843,14 +876,17 @@ def pi_coverage_probability_samples(true_values, forecast_samples, confidence_le
     """
     true_values = np.asarray(true_values)
     lower_bounds, upper_bounds = prediction_interval_from_samples(
-        forecast_samples, confidence_level)
+        forecast_samples, confidence_level
+    )
 
-    within_interval = ((true_values >= lower_bounds) &
-                      (true_values <= upper_bounds))
+    within_interval = (true_values >= lower_bounds) & (true_values <= upper_bounds)
 
     return np.mean(within_interval)
 
-def pi_normalized_average_width_samples(true_values, forecast_samples, confidence_level=0.95):
+
+def pi_normalized_average_width_samples(
+    true_values, forecast_samples, confidence_level=0.95
+):
     """
     Compute Prediction Interval Normalized Average Width from samples.
 
@@ -864,21 +900,27 @@ def pi_normalized_average_width_samples(true_values, forecast_samples, confidenc
     """
     true_values = np.asarray(true_values)
     lower_bounds, upper_bounds = prediction_interval_from_samples(
-        forecast_samples, confidence_level)
+        forecast_samples, confidence_level
+    )
 
     interval_widths = upper_bounds - lower_bounds
     true_range = np.max(true_values) - np.min(true_values)
 
     if true_range == 0:
         if np.mean(interval_widths) > 1e-9:
-            logging.warning("True values are constant, returning average interval width directly for PINAW.")
+            logging.warning(
+                "True values are constant, returning average interval width directly for PINAW."
+            )
             return np.mean(interval_widths)
         else:
             return 0.0
 
     return np.mean(interval_widths) / true_range
 
-def coverage_width_criterion_samples(true_values, forecast_samples, confidence_level=0.95):
+
+def coverage_width_criterion_samples(
+    true_values, forecast_samples, confidence_level=0.95
+):
     """
     Compute Coverage Width Criterion from samples.
 
@@ -890,8 +932,12 @@ def coverage_width_criterion_samples(true_values, forecast_samples, confidence_l
     Returns:
         float: CWC value
     """
-    picp = pi_coverage_probability_samples(true_values, forecast_samples, confidence_level)
-    pinaw = pi_normalized_average_width_samples(true_values, forecast_samples, confidence_level)
+    picp = pi_coverage_probability_samples(
+        true_values, forecast_samples, confidence_level
+    )
+    pinaw = pi_normalized_average_width_samples(
+        true_values, forecast_samples, confidence_level
+    )
 
     eta = 0.25  # Penalty factor
 
@@ -903,42 +949,43 @@ def coverage_width_criterion_samples(true_values, forecast_samples, confidence_l
     # Standard CWC = PINAW + penalty for undercoverage
     return pinaw + penalty_value
 
+
 # Add new metrics to this map to map shorthand to function
 _MAP = {
-    'bs': (brier_score, 'BS'),
-    'bss': (brier_skill_score, 'BSS'),
-    'rel': (reliability, 'REL'),
-    'res': (resolution, 'RES'),
-    'unc': (uncertainty, 'UNC'),
-    'qs': (quantile_score, 'QS'),
-    'qss': (quantile_skill_score, 'QSS'),
+    "bs": (brier_score, "BS"),
+    "bss": (brier_skill_score, "BSS"),
+    "rel": (reliability, "REL"),
+    "res": (resolution, "RES"),
+    "unc": (uncertainty, "UNC"),
+    "qs": (quantile_score, "QS"),
+    "qss": (quantile_skill_score, "QSS"),
     # 'sh': (sharpness, 'SH'),  # TODO
-    'crps_gaussian': (continuous_ranked_probability_score_gaussian, 'CRPS_gaussian'),
-    'crps': (continuous_ranked_probability_score, 'CRPS'),
-    'crpss': (crps_skill_score, 'CRPSS'),
-    'picp': (pi_coverage_probability, 'PICP'),
-    'pinaw': (pi_normalized_average_width, 'PINAW'),
-    'cwc': (coverage_width_criterion, 'CWC'),
+    "crps_gaussian": (continuous_ranked_probability_score_gaussian, "CRPS_gaussian"),
+    "crps": (continuous_ranked_probability_score, "CRPS"),
+    "crpss": (crps_skill_score, "CRPSS"),
+    "picp": (pi_coverage_probability, "PICP"),
+    "pinaw": (pi_normalized_average_width, "PINAW"),
+    "cwc": (coverage_width_criterion, "CWC"),
     # Add new sample-based metrics
-    'crps_samples': (continuous_ranked_probability_score_samples, 'CRPS_samples'),
-    'picp_samples': (pi_coverage_probability_samples, 'PICP_samples'),
-    'pinaw_samples': (pi_normalized_average_width_samples, 'PINAW_samples'),
-    'cwc_samples': (coverage_width_criterion_samples, 'CWC_samples')
+    "crps_samples": (continuous_ranked_probability_score_samples, "CRPS_samples"),
+    "picp_samples": (pi_coverage_probability_samples, "PICP_samples"),
+    "pinaw_samples": (pi_normalized_average_width_samples, "PINAW_samples"),
+    "cwc_samples": (coverage_width_criterion_samples, "CWC_samples"),
 }
 
 __all__ = [m[0].__name__ for m in _MAP.values()]
 
 # Functions that require a reference forecast
-_REQ_REF_FX = ['bss', 'qss', 'crpss']
+_REQ_REF_FX = ["bss", "qss", "crpss"]
 
 # Functions that require normalized factor
 _REQ_NORM = []
 
 # Functions that require full distribution forecasts (as 2dim)
-_REQ_DIST = ['crps', 'crpss']
+_REQ_DIST = ["crps", "crpss"]
 
 # Functions that require samples
-_REQ_SAMPLES = ['crps_samples', 'picp_samples', 'pinaw_samples', 'cwc_samples']
+_REQ_SAMPLES = ["crps_samples", "picp_samples", "pinaw_samples", "cwc_samples"]
 
 # TODO: Functions that require two forecasts (e.g., sharpness)
 # _REQ_FX_FX = ['sh']

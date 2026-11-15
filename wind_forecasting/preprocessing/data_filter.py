@@ -1299,7 +1299,8 @@ def merge_adjacent_periods(agg_df, dt):
 
 # Optimization function for finding waked direction
 def gauss_corr(gauss_params, power_ratio):
-    xs = np.arange(-int((len(power_ratio) - 1) / 2), int((len(power_ratio) + 1) / 2), 1)
+    n_samples = len(power_ratio)
+    xs = np.arange(-int((n_samples - 1) / 2), int((n_samples + 1) / 2), 1)
     gauss = (
         -1
         * gauss_params[2]
