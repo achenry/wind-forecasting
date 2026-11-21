@@ -23,12 +23,50 @@ from itertools import pairwise
 
 logger = logging.getLogger(__name__)
 
+def _persist_future_feat_dynamic_real(past_time_feat, future_time_feat, n_time_features):
+    """Replace the future values of the dynamic real features (e.g. nacelle direction
+    nd_cos/nd_sin) with their last observed value.
+
+    The `time` tensor is [calendar time features | feat_dynamic_real]. Calendar features
+    are known in advance, but the true future nacelle direction is not: the turbine's yaw
+    controller tracks the future wind, so feeding the realised future yaw leaks the target.
+    At inference time (whoc MLForecast._generate_test_data) the last value is persisted, so
+    training/validation must do the same.
+    """
+    if future_time_feat.shape[1] <= n_time_features or past_time_feat.shape[0] == 0:
+        return future_time_feat
+    future_time_feat = future_time_feat.clone()
+    future_time_feat[:, n_time_features:] = past_time_feat[-1:, n_time_features:]
+    return future_time_feat
+
+
+class _EpochAwareDataLoader(DataLoader):
+    """DataLoader that advances the dataset's epoch counter each time a new epoch iterator is
+    created, so a shuffled IterableDataset gets a new permutation every epoch even when the
+    worker processes are not persistent (Lightning only calls set_epoch on samplers, which
+    IterableDatasets do not have)."""
+    _epoch = 0
+
+    def __iter__(self):
+        if hasattr(self.dataset, "set_epoch"):
+            self.dataset.set_epoch(self._epoch)
+        self._epoch += 1
+        return super().__iter__()
+
+
 class WindForecastingDatamodule(L.LightningDataModule):
-    def __init__(self, train_data_path, val_data_path, train_sampler, 
-                 context_length, prediction_length, time_features, val_sampler=None, 
+    def __init__(self, train_data_path, val_data_path, train_sampler,
+                 context_length, prediction_length, time_features, val_sampler=None,
                  train_repeat=False, val_repeat=False,
-                 batch_size=32, num_workers=4, pin_memory=True):
+                 batch_size=32, num_workers=4, pin_memory=True,
+                 shuffle_train=True, shuffle_buffer_length=10_000, shuffle_seed=0,
+                 persist_future_feat_dynamic_real=True):
         super().__init__()
+        self.shuffle_train = shuffle_train
+        self.shuffle_buffer_length = shuffle_buffer_length
+        self.shuffle_seed = shuffle_seed
+        self.persist_future_feat_dynamic_real = persist_future_feat_dynamic_real
+        self.n_time_features = len(time_features) if time_features else 0
         # self.train_data_path = train_data_path
         # self.val_data_path = val_data_path
         self.train_sampler = train_sampler
@@ -176,11 +214,16 @@ class WindForecastingDatamodule(L.LightningDataModule):
                 repeat=self.train_repeat,
                 skip_indices=1,
                 world_size=self.world_size,
-                rank=self.rank)
+                rank=self.rank,
+                shuffle=self.shuffle_train,
+                shuffle_buffer_length=self.shuffle_buffer_length,
+                shuffle_seed=self.shuffle_seed,
+                n_time_features=self.n_time_features,
+                persist_future_feat_dynamic_real=self.persist_future_feat_dynamic_real)
         
         logging.info(f"Returning DataLoader in WindForecastingDatamodule.train_dataloader() on rank {self.rank} for world_size {self.world_size}")
         
-        return DataLoader(
+        return _EpochAwareDataLoader(
             train_dataset,
             batch_size=self.batch_size,
             shuffle=False,  # Will be overridden by DistributedSampler in DDP
@@ -205,7 +248,9 @@ class WindForecastingDatamodule(L.LightningDataModule):
                 repeat=self.val_repeat,
                 skip_indices=self.prediction_length,
                 world_size=self.world_size,
-                rank=self.rank)
+                rank=self.rank,
+                n_time_features=self.n_time_features,
+                persist_future_feat_dynamic_real=self.persist_future_feat_dynamic_real)
         
         if val_dataset is None:
             return None
@@ -285,13 +330,25 @@ class WindForecastingDataset(IterableDataset):
         repeat: bool = False,
         skip_indices: int = 1,
         rank: int = 0,
-        world_size: int = 1
+        world_size: int = 1,
+        shuffle: bool = False,
+        shuffle_buffer_length: int = 10_000,
+        shuffle_seed: int = 0,
+        n_time_features: int = 0,
+        persist_future_feat_dynamic_real: bool = True,
     ):
         super().__init__()
         self.context_length = context_length
         self.prediction_length = prediction_length
         self.sampler = sampler
         self.repeat = repeat
+        self.shuffle = shuffle
+        self.shuffle_buffer_length = shuffle_buffer_length
+        self.shuffle_seed = shuffle_seed
+        self.n_time_features = n_time_features
+        self.persist_future_feat_dynamic_real = persist_future_feat_dynamic_real
+        # incremented on every __iter__ call so each epoch gets a new permutation
+        self._n_iters = 0
         
         self.skip_indices = skip_indices
         
@@ -320,29 +377,102 @@ class WindForecastingDataset(IterableDataset):
         #     logger.info(f"Using single-rank training with rank={self.rank}, world_size={self.world_size}")
                 
         worker_info = torch.utils.data.get_worker_info()
-        
+
+        # Every worker (and every DDP rank) must generate the SAME shuffled stream, because
+        # each one keeps every n-th sample of it via islice. The RNG therefore depends only on
+        # (shuffle_seed, epoch counter): the counter advances once per __iter__ call (i.e. per
+        # epoch) in the main process and, with persistent workers, in each worker in lockstep.
+        # Without persistent workers, the dataset is re-pickled into the workers each epoch
+        # from the main-process copy, whose counter is advanced by set_epoch() below.
+        self._n_iters += 1
+        rng = np.random.default_rng([self.shuffle_seed, self._n_iters]) if self.shuffle else None
+
         if worker_info is None: # Main process, num_workers=0 case
             # logger.info(f"training worker_info is None, on main process fetching islice {self.rank}:None:{self.world_size}")
-            yield from islice(self._base_iter(), self.rank, None, self.world_size)
+            yield from islice(self._base_iter(rng), self.rank, None, self.world_size)
         else: # In a worker process
             num_workers = worker_info.num_workers
             worker_id = worker_info.id
-            
+
             global_num_workers = num_workers * self.world_size
             global_worker_id = self.rank * num_workers + worker_id
             # logger.info(f"training worker {worker_info.id} of {num_workers}, fetching islice {global_worker_id}:None:{global_num_workers}")
 
-            yield from islice(self._base_iter(), global_worker_id, None, global_num_workers)
+            yield from islice(self._base_iter(rng), global_worker_id, None, global_num_workers)
+
+    def set_epoch(self, epoch: int):
+        """Set the epoch counter explicitly (used by the datamodule so non-persistent workers
+        also get a fresh permutation each epoch)."""
+        self._n_iters = epoch
+
+    def _shuffled(self, it, rng):
+        """Approximate global shuffle with a fixed-size shuffle buffer."""
+        buffer = []
+        for item in it:
+            if len(buffer) < self.shuffle_buffer_length:
+                buffer.append(item)
+                continue
+            j = rng.integers(len(buffer))
+            yield buffer[j]
+            buffer[j] = item
+        rng.shuffle(buffer)
+        yield from buffer
+
+    def _make_sample(self, idx, target, time, observed, feat_static_cat):
+        context_slice, pred_slice = slice(idx - self.context_length, idx), slice(idx, idx + self.prediction_length)
+        past_time_feat, future_time_feat = time[context_slice, :], time[pred_slice, :]
+        if self.persist_future_feat_dynamic_real:
+            future_time_feat = _persist_future_feat_dynamic_real(
+                past_time_feat, future_time_feat, self.n_time_features)
+        return (
+            target[context_slice, :],
+            target[pred_slice, :],
+            past_time_feat,
+            future_time_feat,
+            observed[context_slice, :],
+            observed[pred_slice, :],
+            feat_static_cat,
+            self.data_feat_static_real,
+        )
     
+    def _iter_pass(self, rng=None):
+        """One pass over all continuity groups (items). With an rng, both the group order and
+        the window order within each group are permuted."""
+        n_groups = len(self.time_addr) - 1
+        group_order = rng.permutation(n_groups) if rng is not None else np.arange(n_groups)
+        for ds_idx in group_order:
+            start_addr, end_addr = self.time_addr[ds_idx], self.time_addr[ds_idx + 1]
+            time = self.data_time[start_addr:end_addr, :]
+            target = self.data_target[start_addr:end_addr, :]
+            feat_static_cat = self.data_fsc[ds_idx, :]
+            observed = self.data_observed[start_addr:end_addr, :]
+
+            if target.shape[0] - self.prediction_length < self.context_length:
+                continue
+
+            # Get sampled indices from the sampler
+            if self.sampler is not None:
+                sampled_indices = self.sampler(target.T)
+                if self.skip_indices > 1:
+                    sampled_indices = sampled_indices[::self.skip_indices]
+            else:
+                # Default to all valid indices
+                sampled_indices = np.arange(self.context_length, target.shape[0] - self.prediction_length + 1, self.skip_indices)
+
+            if rng is not None:
+                sampled_indices = rng.permutation(sampled_indices)
+
+            for idx in sampled_indices:
+                yield self._make_sample(int(idx), target, time, observed, feat_static_cat)
+
     # @profile
-    def _base_iter(self):
-    
+    def _base_iter(self, rng=None):
         """
         Get an iterable of samples with transformations applied.
         
         Returns
         -------
-        Dictionary containing:
+        Tuple of:
             - past_target: (context_length, num_series)
             - future_target: (prediction_length, num_series)
             - past_time_feat: (context_length, num_time_features)
@@ -351,65 +481,23 @@ class WindForecastingDataset(IterableDataset):
             - future_observed_values: (prediction_length, num_series)
             - feat_static_cat: (num_static_cat,)
             - feat_static_real: (num_static_real,)
+
+        NOTE: previously, repeat=True used zip(cycle(ds_addr), pairwise(cycle(time_addr))),
+        which has N+1 address pairs per cycle vs N item ids, so feat_static_cat drifted out of
+        alignment with the series after the first pass. Passes are now explicit.
         """
-        # logging.info(f"Running WindForecastingDataset._base_iter() on rank {self.rank} with world_size {self.world_size}")
-        
-        # Apply cycle() here if needed, on the new iterator.
-        time_addr = cycle(self.time_addr) if self.repeat else self.time_addr
-        ds_addr = cycle(self.ds_addr) if self.repeat else self.ds_addr
-        
-        for ds_idx, (start_addr, end_addr) in zip(ds_addr, pairwise(time_addr)):
-            
-            time = self.data_time[start_addr:end_addr, :]
-            # time = np.hstack([self.data_time[start_addr:end_addr, :], self.data_fdr[start_addr:end_addr, :]])
-            target = self.data_target[start_addr:end_addr, :]
-            # feat_dynamic_real = self.data_fdr[start_addr:end_addr, :]
-            feat_static_cat = self.data_fsc[ds_idx, :]
-            observed = self.data_observed[start_addr:end_addr, :]
-            
-            # Get sampled indices from the sampler
-            if self.sampler is not None:
-                sampled_indices = self.sampler(target.T)
-                if self.skip_indices > 1:
-                    sampled_indices = sampled_indices[::self.skip_indices]
-            else:
-                
-                # Default to all valid indices
-                sampled_indices = np.arange(self.context_length, target.shape[0] - self.prediction_length + 1, self.skip_indices)
-                
-            if target.shape[0] - self.prediction_length < self.context_length:
-                continue
-            
-            for idx in sampled_indices:
-                # Extract data
-                # ts_length = target.shape[1]
-                
-                # Find all valid time points
-                # min_time = self.context_length
-                # max_time = ts_length - self.prediction_length
-                
-                # Split into past and future windows
-                context_slice, pred_slice = slice(idx - self.context_length, idx), slice(idx, idx + self.prediction_length)
-                
-                # past_target, future_target = target[context_slice, :], target[pred_slice, :]
-                
-                # past_time_feat, future_time_feat = time[context_slice, :], time[pred_slice, :]
-                
-                # past_observed, future_observed = observed[context_slice, :], observed[pred_slice, :]
-                
-                yield (
-                    target[context_slice, :],
-                    target[pred_slice, :],
-                    time[context_slice, :],
-                    time[pred_slice, :],
-                    observed[context_slice, :],
-                    observed[pred_slice, :],
-                    feat_static_cat,
-                    self.data_feat_static_real,
-                )
-                # np.array(['past_target', 'future_target', 'past_time_feat', 
-                #              'future_time_feat', 'past_observed_values', 'future_observed_values',
-                #              'feat_static_cat', 'feat_static_real']).astype(np.string_)
+        def passes():
+            n_pass = 0
+            while True:
+                yield from self._iter_pass(rng)
+                n_pass += 1
+                if not self.repeat:
+                    return
+
+        it = passes()
+        if rng is not None and self.shuffle_buffer_length and self.shuffle_buffer_length > 1:
+            it = self._shuffled(it, rng)
+        yield from it
 
 
 class WindForecastingInferenceDataset(WindForecastingDataset):
@@ -424,53 +512,15 @@ class WindForecastingInferenceDataset(WindForecastingDataset):
         super().__init__(*args, **kwargs)
     
     # @profile
-    def _base_iter(self):
-        """Get a specific window for inference."""
-        
-        # logging.info(f"Running WindForecastingInferenceDataset._base_iter() on rank {self.rank} with world_size {self.world_size}")
-        # n_samples = 0
-        for ds_idx, (start_addr, end_addr) in zip(self.ds_addr, pairwise(self.time_addr)):
+    def _base_iter(self, rng=None):
+        """Get every window (stride skip_indices) for inference/validation, in order."""
+        for ds_idx in range(len(self.time_addr) - 1):
+            start_addr, end_addr = self.time_addr[ds_idx], self.time_addr[ds_idx + 1]
             time = self.data_time[start_addr:end_addr, :]
-            # time = np.hstack([self.data_time[start_addr:end_addr, :], self.data_fdr[start_addr:end_addr, :]])
             target = self.data_target[start_addr:end_addr, :]
             observed = self.data_observed[start_addr:end_addr, :]
             feat_static_cat = self.data_fsc[ds_idx, :]
-            
-            # start_addr = end_addr
-            
-            # Same processing as parent class but with fixed time point
-            # ts_length = target.shape[1]
-        
-            # Find all valid time points
-            # min_time = self.context_length
-            # max_time = ts_length - self.prediction_length
-            
-            # Fill time indices
+
             sample_indices = np.arange(self.context_length, target.shape[0] - self.prediction_length + 1, self.skip_indices)
-            # n_samples += len(sample_indices)
-            # print(f"n_val_samples = {n_samples}", end="\r")
             for idx in sample_indices:
-                # Split into past and future windows at fixed time point t
-                context_slice = slice(idx - self.context_length, idx)
-                pred_slice = slice(idx, idx + self.prediction_length)
-                
-                # past_target, future_target = target[context_slice, :], target[pred_slice, :]
-                
-                # past_time_feat, future_time_feat = time[context_slice, :], time[pred_slice, :]
-                
-                # past_observed, future_observed = observed[context_slice, :], observed[pred_slice, :]
-                
-                # Convert to tensors
-                yield (
-                    target[context_slice, :],
-                    target[pred_slice, :],
-                    time[context_slice, :],
-                    time[pred_slice, :],
-                    observed[context_slice, :],
-                    observed[pred_slice, :],
-                    feat_static_cat,
-                    self.data_feat_static_real
-                )
-                # np.array(["past_target", "future_target", "past_time_feat", 
-                #              "future_time_feat", "past_observed_values", "future_observed_values",
-                #              "feat_static_cat", "feat_static_real"]).astype(np.string_)
+                yield self._make_sample(int(idx), target, time, observed, feat_static_cat)

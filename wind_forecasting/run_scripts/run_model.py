@@ -46,6 +46,7 @@ from wind_forecasting.utils.callbacks import DeadNeuronMonitor
 from wind_forecasting.preprocessing.data_module import DataModule
 from wind_forecasting.run_scripts.testing import test_model, get_checkpoint, load_estimator_from_checkpoint
 from wind_forecasting.tuning import get_tuned_params
+from wind_forecasting.tuning.utils.helpers import get_train_sampler_type
 from wind_forecasting.utils.optuna_config_utils import generate_db_setup_params
 
 # import torch.multiprocessing as tmp
@@ -917,7 +918,7 @@ def main():
             "num_batches_per_epoch": config["trainer"].get("limit_train_batches", 1000),
             "context_length": data_module.context_length,
             "train_sampler": SequentialSampler(min_past=data_module.context_length, min_future=data_module.prediction_length)
-                if config["dataset"].get("sampler", "sequential") == "sequential"
+                if get_train_sampler_type(config) == "sequential"
                 else ExpectedNumInstanceSampler(num_instances=1.0, min_past=data_module.context_length, min_future=data_module.prediction_length),
             "validation_sampler": ValidationSplitSampler(min_past=data_module.context_length, min_future=data_module.prediction_length),
             "trainer_kwargs": config["trainer"],
@@ -940,7 +941,7 @@ def main():
         # Log warning if using random sampler with null limit_train_batches
         # ALWAYS set true_num_batches_per_epoch so the estimator can calculate scheduler steps
         if estimator_kwargs["num_batches_per_epoch"] is None:
-            sampler_type = config["dataset"].get("sampler", "sequential")
+            sampler_type = get_train_sampler_type(config)
             if sampler_type == "random":
                 logging.warning("Using random sampler (ExpectedNumInstanceSampler) with limit_train_batches=null. "
                             "Consider setting an explicit integer value for limit_train_batches to avoid potential issues.")

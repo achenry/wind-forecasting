@@ -16,6 +16,21 @@ from wind_forecasting.utils.callbacks import DeadNeuronMonitor
 from wind_forecasting.tuning.utils.callbacks import SafePruningCallback
 
 
+def get_train_sampler_type(config: Dict[str, Any]) -> str:
+    """Single source of truth for the GluonTS training instance sampler used by BOTH tuning
+    (MLTuningObjective) and training (run_model.py).
+
+    Previously tuning read config["optuna"]["sampler"] (default "random") while training read
+    config["dataset"]["sampler"] (default "sequential"), so tuned hyperparameters were selected
+    under a different sampling regime than the final model was trained with.
+    Precedence: dataset.sampler > optuna.sampler > "random".
+    """
+    sampler = config.get("dataset", {}).get("sampler") or config.get("optuna", {}).get("sampler") or "random"
+    if sampler not in ("random", "sequential"):
+        raise ValueError(f"Unknown training sampler '{sampler}'; expected 'random' or 'sequential'.")
+    return sampler
+
+
 def set_trial_seeds(trial_number: int, base_seed: int) -> int:
     """
     Set random seeds for reproducibility within each trial.

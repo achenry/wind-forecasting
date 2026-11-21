@@ -25,7 +25,7 @@ from gluonts.transform import ExpectedNumInstanceSampler, SequentialSampler, Val
 
 from wind_forecasting.tuning.utils.helpers import (
     set_trial_seeds, update_data_module_params, regenerate_data_splits,
-    prepare_feedforward_params, calculate_dynamic_limit_train_batches,
+    prepare_feedforward_params, calculate_dynamic_limit_train_batches, get_train_sampler_type,
     create_trial_checkpoint_callback, setup_trial_callbacks
 )
 from wind_forecasting.tuning.utils.checkpoint_utils import (
@@ -348,7 +348,7 @@ class MLTuningObjective:
             "base_batch_size_for_scheduler_steps": self.config["dataset"].get("base_batch_size", 512), # Use base_batch_size from config
             "base_limit_train_batches": self.base_limit_train_batches, # Pass base_limit_train_batches for conditional scaling
             "train_sampler": SequentialSampler(min_past=context_length, min_future=self.data_module.prediction_length)
-                if self.config["optuna"].get("sampler", "random") == "sequential"
+                if get_train_sampler_type(self.config) == "sequential"
                 else ExpectedNumInstanceSampler(num_instances=1.0, min_past=context_length, min_future=self.data_module.prediction_length),
             "validation_sampler": ValidationSplitSampler(min_past=context_length, min_future=self.data_module.prediction_length),
             "time_features": [second_of_minute, minute_of_hour, hour_of_day, day_of_year],
