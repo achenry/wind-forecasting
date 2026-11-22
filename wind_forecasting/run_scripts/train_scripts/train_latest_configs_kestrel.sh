@@ -106,10 +106,10 @@ GPUS[tactis]=1;          CPUS[tactis]=16
 COMMON_TRAINER="trainer.limit_train_batches=null trainer.val_check_interval=1.0"
 # same arguments as each model's most recent run, minus --checkpoint (never resume old weights)
 # and --use_tuned_parameters (hyperparameters come from the reference checkpoints, step 3)
-ARGS[informer]="--seed 42 --override trainer.max_epochs=100 ${COMMON_TRAINER}"
+ARGS[informer]="--seed 42 --override trainer.max_epochs=200 ${COMMON_TRAINER}"
 ARGS[autoformer]="--seed 42 --override trainer.max_epochs=200 ${COMMON_TRAINER} trainer.strategy=auto trainer.devices=1"
-ARGS[spacetimeformer]="--seed 42 --override trainer.max_epochs=100 ${COMMON_TRAINER}"
-ARGS[tactis]="--seed 42 --single_gpu --override"
+ARGS[spacetimeformer]="--seed 42 --override trainer.max_epochs=200 ${COMMON_TRAINER}"
+ARGS[tactis]="--seed 42 --single_gpu --override trainer.max_epochs=200"
 
 # 2) generate Kestrel copies of the configs
 set +u; activate_env; set -u
